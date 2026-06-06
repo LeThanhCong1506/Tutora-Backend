@@ -1,0 +1,202 @@
+name: CI / CD
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      # Chỉ trigger khi code thay đổi, bỏ qua docs/config không ảnh hưởng build
+      - '**/*.cs'
+      - '**/*.csproj'
+      - '**/appsettings*.json'
+      - 'Dockerfile'
+      - 'docker-compose.yml'
+      - '.github/workflows/deploy.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - '**/*.cs'
+      - '**/*.csproj'
+      - 'Dockerfile'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deployment environment'
+        required: false
+        type: choice
+        options:
+          - production
+          - staging
+        default: 'production'
+
+env:
+  IMAGE_NAME: hoangnv1005/tutora-k12
+
+jobs:
+  # ============================================================
+  # JOB 1: Build & Test
+  # ============================================================
+  build-test:
+    name: Build & Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj') }}
+          restore-keys: nuget-${{ runner.os }}-
+
+      - run: dotnet restore
+      - run: dotnet build --configuration Release --no-restore
+      - run: dotnet test --no-build --verbosity normal
+
+  # ============================================================
+  # JOB 2: Docker build & push
+  # ============================================================
+  docker-push:
+    name: Docker Build & Push
+    runs-on: ubuntu-latest
+    needs: build-test
+    if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+    outputs:
+      image-tag: ${{ steps.meta.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Extract image tags
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha,prefix=,format=short
+            type=raw,value=latest
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ============================================================
+  # JOB 3: Deploy lên VPS
+  # ============================================================
+  deploy:
+    name: Deploy to ${{ github.event.inputs.environment || 'production' }}
+    runs-on: ubuntu-latest
+    needs: docker-push
+    if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+    environment: ${{ github.event.inputs.environment || 'production' }}
+    env:
+      SSH_HOST: ${{ secrets.SERVER_HOST }}
+      SSH_USER: ${{ secrets.SERVER_USER }}
+      # Fix bug: dùng || thay vì :- để handle cả empty string
+      SSH_PORT: ${{ secrets.SSH_PORT || '22' }}
+      DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+      IMAGE_TAG: ${{ needs.docker-push.outputs.image-tag }}
+      # Truyền docker creds xuống VPS qua env (không hardcode)
+      DOCKER_USER: ${{ secrets.DOCKER_USERNAME }}
+      DOCKER_PASS: ${{ secrets.DOCKER_PASSWORD }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Add VPS to known hosts
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -p ${{ env.SSH_PORT }} -H ${{ env.SSH_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Sync docker-compose.yml lên VPS
+        run: |
+          rsync -avz -e "ssh -p ${{ env.SSH_PORT }}" \
+            docker-compose.yml \
+            ${{ env.SSH_USER }}@${{ env.SSH_HOST }}:${{ env.DEPLOY_PATH }}/
+
+      - name: Deploy trên VPS
+        env:
+          # Truyền tường minh vào SSH session
+          _DOCKER_USER: ${{ env.DOCKER_USER }}
+          _DOCKER_PASS: ${{ env.DOCKER_PASS }}
+          _IMAGE_NAME: ${{ env.IMAGE_NAME }}
+          _IMAGE_TAG: ${{ env.IMAGE_TAG }}
+          _DEPLOY_PATH: ${{ env.DEPLOY_PATH }}
+        run: |
+          ssh -p ${{ env.SSH_PORT }} \
+            ${{ env.SSH_USER }}@${{ env.SSH_HOST }} \
+            DOCKER_USER="$_DOCKER_USER" \
+            DOCKER_PASS="$_DOCKER_PASS" \
+            IMAGE_NAME="$_IMAGE_NAME" \
+            IMAGE_TAG="$_IMAGE_TAG" \
+            DEPLOY_PATH="$_DEPLOY_PATH" \
+            bash << 'ENDSSH'
+              set -euo pipefail
+              cd "$DEPLOY_PATH"
+
+              echo "▶ Deploying $IMAGE_NAME:$IMAGE_TAG"
+
+              # Fix bug: login Docker Hub với biến được truyền đúng
+              echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
+
+              # Update image tag trong .env
+              sed -i '/^APP_IMAGE=/d' .env
+              echo "APP_IMAGE=$IMAGE_NAME:$IMAGE_TAG" >> .env
+
+              docker compose pull app
+              docker compose up -d --no-deps --force-recreate app
+
+              sleep 15
+              docker compose ps app
+              docker compose logs --tail=50 app
+          ENDSSH
+
+      - name: Health check
+        run: |
+          ssh -p ${{ env.SSH_PORT }} \
+            ${{ env.SSH_USER }}@${{ env.SSH_HOST }} \
+            DEPLOY_PATH="${{ env.DEPLOY_PATH }}" \
+            bash << 'ENDSSH'
+              set -e
+              cd "$DEPLOY_PATH"
+              STATUS=$(docker compose ps app --format json \
+                | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('State','unknown'))" \
+                2>/dev/null || echo "unknown")
+              echo "Container state: $STATUS"
+              if [ "$STATUS" = "running" ]; then
+                echo "✅ Deploy thành công"
+              else
+                echo "❌ Container không running"
+                docker compose logs --tail=30 app
+                exit 1
+              fi
+          ENDSSH
+
+      - name: Deployment summary
+        if: always()
+        run: |
+          echo "### Deployment Summary 🚀" >> $GITHUB_STEP_SUMMARY
+          echo "- **Image**: ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Environment**: ${{ github.event.inputs.environment || 'production' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Branch**: ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit**: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Triggered by**: ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Status**: ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
