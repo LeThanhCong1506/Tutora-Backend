@@ -1,0 +1,72 @@
+services:
+  # postgres:
+  #   image: postgres:17-alpine
+  #   container_name: agora-postgres
+  #   restart: unless-stopped
+  #   environment:
+  #     POSTGRES_DB: AGORA-DB
+  #     POSTGRES_USER: postgres
+  #     POSTGRES_PASSWORD: "12345"
+  #     PGDATA: /var/lib/postgresql/data/pgdata
+  #   ports:
+  #     - "5432:5432"
+  #   volumes:
+  #     - pgdata:/var/lib/postgresql/data
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "pg_isready -U postgres"]
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 5
+  #   networks:
+  #     - agora-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: tutora-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - tutora-network
+
+  app:
+    # build:
+    #   context: .
+    #   dockerfile: Dockerfile
+    image: hoangnv1005/tutora-k12:latest
+    container_name: tutora-app
+    restart: unless-stopped
+    ports:
+      - "5000:8080"
+      - "5001:8081"
+    env_file:
+      - .env
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - ASPNETCORE_URLS=http://+:8080
+      - ConnectionStrings__RedisConnection=redis:6379
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - tutora-network
+
+volumes:
+  # pgdata:
+  #   driver: local
+  redisdata:
+    driver: local
+  # pgadmindata:
+  #   driver: local
+
+networks:
+  tutora-network:
+    driver: bridge

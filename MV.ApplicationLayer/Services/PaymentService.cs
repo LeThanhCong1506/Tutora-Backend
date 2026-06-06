@@ -1,0 +1,414 @@
+﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+using MV.ApplicationLayer.Helpers;
+using MV.ApplicationLayer.ServiceInterfaces;
+using MV.DomainLayer.Configuration;
+using MV.DomainLayer.Constants;
+using static MV.DomainLayer.Constants.PaymentStatus;
+using MV.DomainLayer.DTO.RequestModel;
+using MV.DomainLayer.DTO.ResponseModel;
+using MV.DomainLayer.Entities;
+using MV.DomainLayer.Exceptions;
+using MV.ApplicationLayer.Interfaces;
+using MV.ApplicationLayer.RepositoryInterfaces;
+using PayOS;
+
+namespace MV.ApplicationLayer.Services;
+
+public partial class PaymentService(
+    IAppDbContext context,
+    IBookingRepository bookingRepo,
+    IWalletRepository walletRepo,
+    IOptions<PaymentSettings> paymentSettings,
+    [FromKeyedServices(ServiceKeys.PayOS.Checkout)] PayOSClient payOS,
+    INotificationService notificationService,
+    ILessonService lessonService,
+    ILogger<PaymentService> logger) : IPaymentService
+{
+    //fix link
+    private readonly PayOSClient _payOS = payOS;
+    private readonly PayOSLinkFactory _linkFactory = new(
+        payOS,
+        paymentSettings.Value.ReturnUrl,
+        paymentSettings.Value.CancelUrl);
+
+    public async Task ProcessWebhookAsync(PaymentWebhookRequest request, CancellationToken ct = default)
+    {
+        if (request?.Data == null)
+            throw new BookingException(BookingErrorCodes.InvalidWebhookPayload, "Dữ liệu webhook không hợp lệ", 400);
+
+        if (request.Code != PayOSWebhookCode.SuccessCode || !request.Success)
+        {
+            logger.LogWarning("Non-success webhook: code={Code}", request.Code);
+            return;
+        }
+
+        var data = request.Data;
+        logger.LogInformation("Processing webhook orderCode: {OrderCode}, amount: {Amount}", data.OrderCode, data.Amount);
+        await ConfirmPaymentInternalAsync(data.OrderCode, data.Amount, data.Reference, ct);
+    }
+
+    public async Task<bool> VerifyWebhookSignatureAsync(string payload, string signature)
+    {
+        try
+        {
+            var webhook = System.Text.Json.JsonSerializer.Deserialize<PayOS.Models.Webhooks.Webhook>(payload);
+            if (webhook == null) return false;
+            return await _payOS.Webhooks.VerifyAsync(webhook) != null;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Webhook signature verification failed");
+            return false;
+        }
+    }
+
+    public async Task ConfirmPaymentByAdminAsync(int bookingId, AdminConfirmPaymentRequest request, CancellationToken ct = default)
+    {
+        if (request?.Amount <= 0)
+            throw new BookingException(BookingErrorCodes.InvalidInput, "Dữ liệu đầu vào không hợp lệ", 400);
+
+        var booking = await bookingRepo.FindTrackedAsync(bookingId, ct)
+            ?? throw new BookingException(BookingErrorCodes.BookingNotFound, ApiMessages.BookingNotFound, 404);
+
+        // Ensure deposit/remaining amounts are calculated for old bookings
+        EnsureDepositAmountsCalculated(booking);
+
+        var txId = string.IsNullOrWhiteSpace(request?.TransactionId)
+            ? $"admin-{bookingId}-{MV.DomainLayer.Helpers.VietnamTimeHelper.Now:yyyyMMddHHmmss}"
+            : request.TransactionId.Trim();
+
+        // Auto-detect phase: if deposit not paid yet, confirm deposit; otherwise confirm remaining
+        long orderCode;
+        if (booking.Depositpaidat == null)
+            orderCode = OrderCodeHelper.GenerateBookingOrderCode(bookingId);
+        else
+            orderCode = OrderCodeHelper.GenerateRemainingOrderCode(bookingId);
+
+        await ConfirmPaymentInternalAsync(orderCode, (int)request.Amount, txId, ct);
+    }
+
+    public async Task<PaymentStatusResponse> GetPaymentStatusAsync(int bookingId, string userId)
+    {
+        var booking = await bookingRepo.FindForPaymentByUserAsync(bookingId, userId)
+            ?? throw new BookingException(BookingErrorCodes.BookingNotFound, ApiMessages.BookingNotFound, 404);
+
+        var baseResponse = new PaymentStatusResponse
+        {
+            BookingId = bookingId,
+            Status = booking.Paymentstatus ?? ApiMessages.Unknown,
+            Amount = (int)(booking.Finalprice ?? 0),
+            IsPaid = booking.Status == BookingStatus.Paid,
+            DepositAmount = booking.Depositamount ?? 0,
+            RemainingAmount = booking.Remainingamount ?? 0,
+            IsDepositPaid = booking.Depositpaidat != null,
+            IsRemainingPaid = booking.Remainingpaidat != null
+        };
+
+        if (string.IsNullOrWhiteSpace(booking.Paymentcode))
+            return baseResponse;
+
+        try
+        {
+            var info = await _payOS.PaymentRequests.GetAsync(booking.Paymentcode);
+            var payosReportsPaid = info.Status.ToString().Equals(PayOSLinkStatus.Paid, StringComparison.OrdinalIgnoreCase);
+
+            bool isDepositLink = OrderCodeHelper.IsBookingOrderCode(info.OrderCode);
+            bool isRemainingLink = OrderCodeHelper.IsRemainingOrderCode(info.OrderCode);
+
+            bool isThisLinkPaidInDb = false;
+            if (isDepositLink)
+                isThisLinkPaidInDb = booking.Depositpaidat != null;
+            else if (isRemainingLink)
+                isThisLinkPaidInDb = booking.Remainingpaidat != null;
+
+            // If PayOS says PAID but webhook hasn't updated our DB yet, confirm payment now
+            if (payosReportsPaid && !isThisLinkPaidInDb)
+            {
+                if (isDepositLink)
+                {
+                    logger.LogInformation("PayOS reports PAID for booking {BookingId} deposit but DB not updated yet. Confirming.", bookingId);
+                    try
+                    {
+                        var orderCode = OrderCodeHelper.GenerateBookingOrderCode(bookingId);
+                    var txId = $"poll-{bookingId}-{PaymentPhase.DepositShort}-{MV.DomainLayer.Helpers.VietnamTimeHelper.Now:yyyyMMddHHmmss}";
+                        await ConfirmPaymentInternalAsync(orderCode, (int)info.Amount, txId, CancellationToken.None);
+                    }
+                    catch (Exception confirmEx)
+                    {
+                        logger.LogWarning(confirmEx, "Auto-confirm deposit from polling failed for booking {BookingId}", bookingId);
+                    }
+                }
+                else if (isRemainingLink)
+                {
+                    logger.LogInformation("PayOS reports PAID for booking {BookingId} remaining but DB not updated yet. Confirming.", bookingId);
+                    try
+                    {
+                        var orderCode = OrderCodeHelper.GenerateRemainingOrderCode(bookingId);
+                    var txId = $"poll-{bookingId}-{PaymentPhase.RemainingShort}-{MV.DomainLayer.Helpers.VietnamTimeHelper.Now:yyyyMMddHHmmss}";
+                        await ConfirmPaymentInternalAsync(orderCode, (int)info.Amount, txId, CancellationToken.None);
+                    }
+                    catch (Exception confirmEx)
+                    {
+                        logger.LogWarning(confirmEx, "Auto-confirm remaining from polling failed for booking {BookingId}", bookingId);
+                    }
+                }
+            }
+
+            return new PaymentStatusResponse
+            {
+                BookingId = bookingId,
+                Status = info.Status.ToString(),
+                Amount = (int)info.Amount,
+                AmountPaid = (int)info.AmountPaid,
+                AmountRemaining = (int)info.AmountRemaining,
+                IsPaid = booking.Status == BookingStatus.Paid || (booking.Depositpaidat != null && booking.Remainingpaidat != null),
+                DepositAmount = booking.Depositamount ?? 0,
+                RemainingAmount = booking.Remainingamount ?? 0,
+                IsDepositPaid = booking.Depositpaidat != null,
+                IsRemainingPaid = booking.Remainingpaidat != null
+            };
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Failed to get PayOS status for booking {BookingId}", bookingId);
+            return baseResponse;
+        }
+    }
+
+    private async Task ConfirmPaymentInternalAsync(long orderCode, int amount, string txId, CancellationToken ct)
+    {
+        bool isDeposit = OrderCodeHelper.IsBookingOrderCode(orderCode);
+        bool isRemaining = OrderCodeHelper.IsRemainingOrderCode(orderCode);
+
+        if (isDeposit)
+            await ConfirmDepositAsync(orderCode, amount, txId, ct);
+        else if (isRemaining)
+            await ConfirmRemainingAsync(orderCode, amount, txId, ct);
+        else
+            throw new BookingException(BookingErrorCodes.InvalidInput, "Kiểu mã đơn hàng không hợp lệ", 400);
+    }
+
+    private async Task ConfirmDepositAsync(long orderCode, int amount, string txId, CancellationToken ct)
+    {
+        await using var tx = await context.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, ct);
+        try
+        {
+            var bookingId = OrderCodeHelper.ExtractBookingId(orderCode);
+            var booking = await bookingRepo.FindTrackedAsync(bookingId, ct)
+                ?? throw new BookingException(BookingErrorCodes.BookingNotFound, ApiMessages.BookingNotFound, 404);
+
+            // Already deposit-paid or fully paid
+            if (booking.Depositpaidat != null || booking.Paymentstatus == Escrowed || booking.Status == BookingStatus.Paid)
+            {
+                logger.LogWarning("Booking {Id} deposit already paid", bookingId);
+                return;
+            }
+
+            if (booking.Paymentdueat.HasValue && booking.Paymentdueat.Value <= MV.DomainLayer.Helpers.VietnamTimeHelper.Now)
+                throw new BookingException(BookingErrorCodes.BookingExpired, "Booking payment expired", 409);
+
+            // Ensure deposit amounts calculated
+            EnsureDepositAmountsCalculated(booking);
+
+            if (amount != (int)(booking.Depositamount ?? 0))
+                throw new BookingException(BookingErrorCodes.AmountMismatch, "Số tiền không khớp", 409);
+
+            if (await walletRepo.HasTransactionByDescriptionAsync(txId, ReferenceTable.Payment, ct))
+            {
+                logger.LogWarning("Duplicate tx {TxId} for booking {Id}", txId, bookingId);
+                throw new BookingException(BookingErrorCodes.DuplicateTransaction, $"Transaction '{txId}' đã được xử lý trước đó", 409);
+            }
+
+            if (booking.Status != BookingStatus.Accepted && booking.Status != BookingStatus.PendingPayment)
+                throw new BookingException(BookingErrorCodes.InvalidBookingStatus, "Booking không đũ điều kiện nhận tiền cọc", 409);
+
+            // Update booking for deposit paid
+            booking.Status = BookingStatus.DepositPaid;
+            booking.Paymentstatus = DepositEscrowed;
+            booking.Paymentdueat = null; // Clear deposit deadline
+            booking.Depositpaidat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+            booking.Escrowstatus = Holding;
+            booking.Updatedat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+
+            // Escrow 50% of tutor receivable to frozen balance
+            if (!string.IsNullOrWhiteSpace(booking.Tutorid))
+            {
+                var wallet = await walletRepo.GetOrCreateForUpdateAsync(booking.Tutorid, ct);
+
+                var totalEscrow = booking.Tutorfee ?? 0;
+                var depositEscrow = Math.Round(totalEscrow * 0.5m, 2);
+                wallet.Frozenbalance = (wallet.Frozenbalance ?? 0) + depositEscrow;
+                wallet.Lastupdated = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+
+                walletRepo.AddTransaction(new Wallettransaction
+                {
+                    Wallet = wallet,
+                    Amount = depositEscrow,
+                    Transactiontype = TransactionType.EscrowCredit,
+                    Referencetable = ReferenceTable.Payment,
+                    Referenceid = booking.Bookingid,
+                    Description = txId,
+                    Createdat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now
+                });
+            }
+
+            context.Notifications.Add(NotificationHelper.CreatePaymentNotification(
+                booking.Parentid!,
+                "Cọc thành công",
+                $"Đã thanh toán cọc 50% ({booking.Depositamount:N0}đ) cho booking #{booking.Bookingid}. Gia sư sẽ bắt đầu dạy buổi đầu tiên.",
+                booking.Bookingid));
+
+            if (!string.IsNullOrWhiteSpace(booking.Tutorid))
+                context.Notifications.Add(NotificationHelper.CreatePaymentNotification(
+                    booking.Tutorid,
+                    "Booking đã được cọc",
+                    $"Phụ huynh đã cọc 50% cho booking #{booking.Bookingid}. Bạn có thể bắt đầu dạy.",
+                    booking.Bookingid));
+
+            await context.SaveChangesAsync(ct);
+            await tx.CommitAsync(ct);
+
+            logger.LogInformation("Deposit confirmed for booking {Id}, amount {Amount}", bookingId, amount);
+
+            // Auto-create lessons after deposit (so tutor can teach first lesson)
+            try
+            {
+                await lessonService.AutoCreateLessonsAsync(bookingId, ct);
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Failed to auto-create lessons for booking {BookingId}, retrying...", bookingId);
+                try
+                {
+                    await Task.Delay(1000, ct);
+                    await lessonService.AutoCreateLessonsAsync(bookingId, ct);
+                }
+                catch (Exception retryEx)
+                {
+                    logger.LogError(retryEx, "Retry failed for auto-create lessons booking {BookingId}", bookingId);
+                }
+            }
+        }
+        catch
+        {
+            await tx.RollbackAsync(ct);
+            throw;
+        }
+    }
+
+    private async Task ConfirmRemainingAsync(long orderCode, int amount, string txId, CancellationToken ct)
+    {
+        await using var tx = await context.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, ct);
+        try
+        {
+            var bookingId = OrderCodeHelper.ExtractBookingId(orderCode);
+            var booking = await bookingRepo.FindTrackedAsync(bookingId, ct)
+                ?? throw new BookingException(BookingErrorCodes.BookingNotFound, ApiMessages.BookingNotFound, 404);
+
+            // Already fully paid
+            if (booking.Remainingpaidat != null || booking.Paymentstatus == Escrowed || booking.Status == BookingStatus.Paid)
+            {
+                logger.LogWarning("Booking {Id} remaining already paid", bookingId);
+                return;
+            }
+
+            // Deposit must be paid first
+            if (booking.Depositpaidat == null)
+                throw new BookingException(BookingErrorCodes.InvalidBookingStatus, "Chưa thanh toán cọc", 409);
+
+            if (amount != (int)(booking.Remainingamount ?? 0))
+                throw new BookingException(BookingErrorCodes.AmountMismatch, "Số tiền không khớp", 409);
+
+            if (await walletRepo.HasTransactionByDescriptionAsync(txId, ReferenceTable.Payment, ct))
+            {
+                logger.LogWarning("Duplicate tx {TxId} for booking {Id}", txId, bookingId);
+                throw new BookingException(BookingErrorCodes.DuplicateTransaction, $"Transaction '{txId}' đã được xử lý trước đó", 409);
+            }
+
+            if (booking.Status != BookingStatus.DepositPaid && booking.Status != BookingStatus.PendingRemainingPayment
+                && booking.Status != BookingStatus.Ongoing)
+                throw new BookingException(BookingErrorCodes.InvalidBookingStatus, "Booking không đũ điều kiện nhận thanh toán phần còn lại", 409);
+
+            // Update booking for fully paid
+            booking.Status = BookingStatus.Paid;
+            booking.Paymentstatus = Escrowed;
+            booking.Remainingpaidat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+            booking.Paymentdueat = null; // Clear remaining deadline
+            booking.Updatedat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+
+            // Escrow remaining 50% of tutor receivable to frozen balance
+            if (!string.IsNullOrWhiteSpace(booking.Tutorid))
+            {
+                var wallet = await walletRepo.GetOrCreateForUpdateAsync(booking.Tutorid, ct);
+
+                var totalEscrow = booking.Tutorfee ?? 0;
+                var depositEscrow = Math.Round(totalEscrow * 0.5m, 2);
+                var remainingEscrow = totalEscrow - depositEscrow;
+                wallet.Frozenbalance = (wallet.Frozenbalance ?? 0) + remainingEscrow;
+                wallet.Lastupdated = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+
+                walletRepo.AddTransaction(new Wallettransaction
+                {
+                    Wallet = wallet,
+                    Amount = remainingEscrow,
+                    Transactiontype = TransactionType.EscrowCredit,
+                    Referencetable = ReferenceTable.Payment,
+                    Referenceid = booking.Bookingid,
+                    Description = txId,
+                    Createdat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now
+                });
+            }
+
+            context.Notifications.Add(NotificationHelper.CreatePaymentNotification(
+                booking.Parentid!,
+                "Thanh toán hoàn tất",
+                $"Đã thanh toán 50% còn lại ({booking.Remainingamount:N0}đ) cho booking #{booking.Bookingid}. Booking đã được thanh toán đầy đủ.",
+                booking.Bookingid));
+
+            if (!string.IsNullOrWhiteSpace(booking.Tutorid))
+                context.Notifications.Add(NotificationHelper.CreatePaymentNotification(
+                    booking.Tutorid,
+                    "Booking đã thanh toán đầy đủ",
+                    $"Booking #{booking.Bookingid} đã được thanh toán đầy đủ.",
+                    booking.Bookingid));
+
+            await context.SaveChangesAsync(ct);
+            await tx.CommitAsync(ct);
+
+            logger.LogInformation("Remaining payment confirmed for booking {Id}, amount {Amount}", bookingId, amount);
+        }
+        catch
+        {
+            await tx.RollbackAsync(ct);
+            throw;
+        }
+    }
+
+    private static void EnsureDepositAmountsCalculated(Booking booking)
+    {
+        if (booking.Depositamount == null || booking.Depositamount == 0)
+        {
+            booking.Depositamount = Math.Ceiling((booking.Finalprice ?? 0) * 0.5m);
+            booking.Remainingamount = (booking.Finalprice ?? 0) - booking.Depositamount.Value;
+        }
+    }
+
+    public async Task<ZaloPayBookingInfoResponse?> GetBookingForZaloPayAsync(int bookingId, string userId)
+    {
+        var booking = await bookingRepo.FindWithSubjectAsync(bookingId);
+        if (booking == null) return null;
+        if (booking.Parentid != userId && booking.Studentid != userId) return null;
+
+        return new ZaloPayBookingInfoResponse
+        {
+            BookingId = booking.Bookingid,
+            Amount = booking.Finalprice ?? booking.Totalamount ?? 0,
+            SubjectName = booking.Tutorsubjectgradeprice?.Subject?.Subjectname,
+            ParentId = booking.Parentid,
+            StudentId = booking.Studentid
+        };
+    }
+}

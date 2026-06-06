@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>SignalR Test</title>
+</head>
+<body>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/8.0.0/signalr.min.js"></script>
+    <script>
+        // TODO: Paste a valid JWT issued by your API (must contain NameId or sub)
+        const jwtToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJuYW1laWQiOiI3ODMyYjgzOS00M2E3LTQzNDQtOWVmMi1iZGIwNTVmOTUyNDEiLCJzdWIiOiJiYW8xYWE1NTExYyIsImVtYWlsIjoidGhhbmhjb25nbGU2NjZAZ21haWwuY29tIiwiaHR0cDovL3NjaGVtYXMueG1sc29hcC5vcmcvd3MvMjAwNS8wNS9pZGVudGl0eS9jbGFpbXMvbmFtZSI6IkdpYWJhbyIsImh0dHA6Ly9zY2hlbWFzLnhtbHNvYXAub3JnL3dzLzIwMDUvMDUvaWRlbnRpdHkvY2xhaW1zL21vYmlsZXBob25lIjoiMDk4MTE4MzE4MyIsImh0dHA6Ly9zY2hlbWFzLm1pY3Jvc29mdC5jb20vd3MvMjAwOC8wNi9pZGVudGl0eS9jbGFpbXMvcm9sZSI6IkFkbWluIiwidXNlcklkIjoiNzgzMmI4MzktNDNhNy00MzQ0LTllZjItYmRiMDU1Zjk1MjQxIiwiZXhwIjoxNzYyOTMwNTc4LCJpc3MiOiJodHRwczovL2xvY2FsaG9zdDo3MjAzIn0.JsGchTARgYx7ztGnFoqWvTvfGXz85ucO5ecpEJ62zB4";
+
+        const connection = new signalR.HubConnectionBuilder()
+            .withUrl("http://localhost:5166/notificationHub", {
+                accessTokenFactory: () => jwtToken
+            })
+            .withAutomaticReconnect()
+            .configureLogging(signalR.LogLevel.Information)
+            .build();
+
+        connection.on("ReceiveNotification", (payload) => {
+            console.log("✅ ReceiveUpdate received", payload);
+            const div = document.getElementById("log");
+            //div.innerHTML += "<div>ReceiveUpdate at " + new Date().toISOString() + "</div>";
+            div.innerHTML += "<div>ReceiveUpdate at " + payload.title + "</div>";
+        });
+
+        async function start() {
+            try {
+                await connection.start();
+                console.log("Connected. ConnectionId:", connection.connectionId);
+            } catch (err) {
+                console.error("Connect failed:", err);
+                setTimeout(start, 3000);
+            }
+        }
+        start();
+
+        // Helper: trigger notification via API (adjust URL/body as needed)
+        async function createNotification() {
+            const res = await fetch("http://localhost:5166/api/notifications", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "Authorization": "Bearer " + jwtToken
+                },
+                body: JSON.stringify({
+                    userid: "7832b839-43a7-4344-9ef2-bdb055f95241",
+                    title: "Test",
+                    message: "Hello from test page"
+                })
+            });
+            console.log("Create notification status:", res.status);
+        }
+    </script>
+    <button onclick="createNotification()">Create Notification</button>
+    <div id="log"></div>
+</body>
+</html>

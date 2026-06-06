@@ -1,0 +1,43 @@
+using System.ComponentModel.DataAnnotations;
+
+namespace MV.DomainLayer.DTO.RequestModel
+{
+    /// <summary>
+    /// Request model for updating tutor basic info (use JSON body).
+    /// Avatar should be uploaded separately via PUT /tutor-profile/avatar endpoint.
+    /// </summary>
+    public class UpdateTutorBasicInfoRequest
+    {
+        [Required(ErrorMessage = "Headline is required")]
+        [StringLength(200, MinimumLength = 10, ErrorMessage = "Headline must be 10-200 characters")]
+        public string Headline { get; set; } = string.Empty;
+
+        [Required(ErrorMessage = "City is required")]
+        public string TeachingAreaCity { get; set; } = string.Empty;
+
+        [Required(ErrorMessage = "District is required")]
+        public string TeachingAreaDistrict { get; set; } = string.Empty;
+
+        [Required(ErrorMessage = "Teaching mode is required")]
+        public string TeachingMode { get; set; } = string.Empty;
+
+        [Required(ErrorMessage = "At least 1 subject is required")]
+        [MaxLength(5, ErrorMessage = "Maximum 5 subjects allowed")]
+        public List<SubjectWithGradeLevelsRequest> Subjects { get; set; } = new();
+    }
+
+    public class SubjectWithGradeLevelsRequest
+    {
+        [Required]
+        public int SubjectId { get; set; }
+
+        [Required]
+        [MinLength(1, ErrorMessage = "At least 1 grade level is required")]
+        public List<string> GradeLevels { get; set; } = new();
+
+        [Required]
+        [MinLength(1, ErrorMessage = "At least 1 tag is required")]
+        [MaxLength(5, ErrorMessage = "Maximum 5 tags allowed")]
+        public List<string> Tags { get; set; } = new();
+    }
+}

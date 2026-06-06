@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<TargetFramework>net8.0</TargetFramework>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<Nullable>enable</Nullable>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<PackageReference Include="ClosedXML" Version="0.104.1" />
+		<PackageReference Include="Google.Cloud.AIPlatform.V1" Version="3.51.0" />
+		<PackageReference Include="Google_GenerativeAI" Version="3.3.0" />
+		<PackageReference Include="Hangfire.AspNetCore" Version="1.8.23" />
+		<PackageReference Include="Hangfire.Core" Version="1.8.23" />
+		<PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="9.0.7" />
+		<PackageReference Include="FirebaseAdmin" Version="2.4.0" />
+		<PackageReference Include="Google.Cloud.Storage.V1" Version="4.13.0" />
+		<PackageReference Include="Microsoft.AspNetCore.Http" Version="2.3.0" />
+		<PackageReference Include="Microsoft.EntityFrameworkCore" Version="9.0.3" />
+		<PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="9.0.3" />
+		<PackageReference Include="Microsoft.Extensions.Configuration" Version="9.0.5" />
+		<PackageReference Include="Microsoft.Extensions.Logging" Version="9.0.7" />
+		<PackageReference Include="PDFtoImage" Version="5.2.0" />
+		<PackageReference Include="QRCoder" Version="1.4.3" />
+		<PackageReference Include="Resend" Version="0.5.1" />
+		<PackageReference Include="SkiaSharp" Version="3.119.1" />
+		<PackageReference Include="payOS" Version="2.0.1" />
+		<PackageReference Include="StackExchange.Redis" Version="2.9.24" />
+		<PackageReference Include="Supabase" Version="1.1.1" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<ProjectReference Include="..\MV.DomainLayer\MV.DomainLayer.csproj" />
+	</ItemGroup>
+
+</Project>

@@ -1,0 +1,23 @@
+namespace MV.DomainLayer.Constants;
+
+/// <summary>
+/// Supabase storage bucket name constants.
+/// Values must match the exact bucket names configured in Supabase.
+/// </summary>
+public static class StorageBucket
+{
+    /// <summary>Bucket for student/parent avatars.</summary>
+    public const string Avatars            = "avatars";
+
+    /// <summary>Bucket for tutor avatars (separate from student/parent avatars).</summary>
+    public const string TutorAvatars       = "tutor-avatars";
+
+    /// <summary>Bucket for tutor certificate documents (jpg, jpeg, png, pdf).</summary>
+    public const string CertificateFiles   = "certificate-files";
+
+    /// <summary>Bucket for tutor introduction videos.</summary>
+    public const string VideoIntroduction  = "video-introduction";
+
+    /// <summary>Bucket for lesson attachment files.</summary>
+    public const string LessonAttachments  = "lesson-attachments";
+}
