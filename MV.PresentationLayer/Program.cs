@@ -180,6 +180,13 @@ builder.Services.AddDbContext<AgoraDbContext>(options =>
             );
 builder.Services.AddScoped<IAppDbContext>(sp => sp.GetRequiredService<AgoraDbContext>());
 
+// Fail fast if DefaultConnection is not configured (helps diagnose missing config/env)
+var defaultConnCheck = builder.Configuration.GetConnectionString(ConfigurationKeys.ConnectionStrings.DefaultConnection);
+if (string.IsNullOrEmpty(defaultConnCheck))
+{
+    throw new InvalidOperationException("Configuration value 'ConnectionStrings:DefaultConnection' is missing. Set it in appsettings.json/appsettings.Development.json or as environment variable 'ConnectionStrings__DefaultConnection'.");
+}
+
 builder.Services.Configure<ResendSettings>(builder.Configuration.GetSection(ResendSettings.SectionName));
 builder.Services.AddHttpClient<IResend, ResendClient>();
 builder.Services.Configure<ResendClientOptions>(o =>

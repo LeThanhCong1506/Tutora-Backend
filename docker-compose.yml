@@ -47,12 +47,14 @@ services:
     ports:
       - "5000:8080"
       - "5001:8081"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     env_file:
       - .env
     environment:
       - ASPNETCORE_ENVIRONMENT=Production
       - ASPNETCORE_URLS=http://+:8080
-      - ConnectionStrings__RedisConnection=redis:6379
+      - ConnectionStrings__RedisConnection=tutora-redis:6379
     depends_on:
       redis:
         condition: service_healthy
