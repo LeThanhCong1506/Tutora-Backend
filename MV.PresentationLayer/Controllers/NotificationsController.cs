@@ -272,32 +272,5 @@ namespace MV.PresentationLayer.Controllers
             var result = await _notificationService.DeleteOldNotificationsAsync(daysOld);
             return Ok(result);
         }
-
-        /// <summary>
-        /// Test endpoint: Gửi notification test đến user cụ thể
-        /// </summary>
-        [HttpPost("test/{userId}")]
-        [Authorize(Roles = UserRole.Admin)]
-        public async Task<IActionResult> SendTestNotification(string userId)
-        {
-            var request = new NotificationRequest
-            {
-                Userid = userId,
-                Title = "🔔 Test Push Notification",
-                Message = "This is a test notification from the .NET backend! If you receive this message, Firebase is up and running! 🎉"
-            };
-
-            var result = await _notificationService.CreateNotificationAsync(request);
-
-            if (result.Status == NotificationStatus.Failed)
-                return BadRequest(result);
-
-            return Ok(new
-            {
-                message = "Test notification sent successfully.",
-                userId = userId,
-                timestamp = MV.DomainLayer.Helpers.VietnamTimeHelper.Now
-            });
-        }
     }
 }
