@@ -396,7 +396,7 @@ public partial class BookingService(
             throw new BookingException(BookingErrorCodes.InvalidSchedule, "Không tìm thấy lịch học hợp lệ", 400);
 
         var tutorAvailabilities = await context.Tutoravailabilities
-            .Where(a => a.Tutorid == tutorId && a.Isactive)
+            .Where(a => a.Tutorid == tutorId)
             .ToListAsync();
 
         foreach (var slot in lessonSlots)

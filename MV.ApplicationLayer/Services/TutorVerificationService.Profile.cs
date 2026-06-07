@@ -151,10 +151,10 @@ namespace MV.ApplicationLayer.Services
                 .OrderByDescending(c => c.Createdat)
                 .ToListAsync();
 
-            // Get availabilities — all active slots (sorted by day and time)
+            // Get availabilities — all slots (sorted by day and time)
             var rawAvailabilities = await _dbContext.Tutoravailabilities
                 .AsNoTracking()
-                .Where(a => a.Tutorid == tutorId && a.Isactive)
+                .Where(a => a.Tutorid == tutorId)
                 .OrderBy(a => a.Dayofweek)
                 .ThenBy(a => a.Starttime)
                 .ToListAsync();

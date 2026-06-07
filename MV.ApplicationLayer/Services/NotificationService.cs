@@ -15,16 +15,35 @@ namespace MV.ApplicationLayer.Services
     {
         private readonly IUnitOfWork _unitOfWork;
         private readonly IHubContext<NotificationHub> _hubContext;
+        private readonly IFirebasePushNotificationService _firebasePushNotificationService;
         private readonly ILogger<NotificationService> _logger;
 
         public NotificationService(
             IUnitOfWork unitOfWork,
             IHubContext<NotificationHub> hubContext,
+            IFirebasePushNotificationService firebasePushNotificationService,
             ILogger<NotificationService> logger)
         {
             _unitOfWork = unitOfWork ?? throw new ArgumentNullException(nameof(unitOfWork));
             _hubContext = hubContext ?? throw new ArgumentNullException(nameof(hubContext));
+            _firebasePushNotificationService = firebasePushNotificationService ?? throw new ArgumentNullException(nameof(firebasePushNotificationService));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        }
+
+        private async Task SendPushAsync(User user, string title, string message, string? type, string? referenceId)
+        {
+            if (string.IsNullOrEmpty(user.Fcmtoken))
+                return;
+
+            await _firebasePushNotificationService.SendPushNotificationAsync(
+                user.Fcmtoken,
+                title,
+                message,
+                new Dictionary<string, string>
+                {
+                    { "type", type ?? "" },
+                    { "referenceId", referenceId ?? "" }
+                });
         }
 
         // CREATE
@@ -61,6 +80,9 @@ namespace MV.ApplicationLayer.Services
 
                 // Gửi realtime qua SignalR tới đúng user
                 await _hubContext.Clients.Group($"user:{request.Userid}").SendAsync("ReceiveNotification", notificationResponse);
+
+                // Gửi push notification qua FCM
+                await SendPushAsync(user, notification.Title ?? "", notification.Message ?? "", notification.Type, notification.Referenceid);
 
                 return new StatusResponse
                 {
@@ -131,6 +153,15 @@ namespace MV.ApplicationLayer.Services
                 {
                     var response = MapToResponse(notification);
                     await _hubContext.Clients.Group($"user:{notification.Userid}").SendAsync("ReceiveNotification", response);
+
+                    if (!string.IsNullOrEmpty(notification.Userid))
+                    {
+                        var recipient = await _unitOfWork.UserRepository.GetUserByIdAsync(notification.Userid);
+                        if (recipient != null)
+                        {
+                            await SendPushAsync(recipient, notification.Title ?? "", notification.Message ?? "", notification.Type, notification.Referenceid);
+                        }
+                    }
                 }
 
                 return new StatusResponse
