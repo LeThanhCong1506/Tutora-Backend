@@ -38,7 +38,7 @@ namespace MV.ApplicationLayer.Services
 
             // Check for overlapping slots on the same day
             var existingSlots = await _context.Tutoravailabilities
-                .Where(a => a.Tutorid == tutorId && a.Dayofweek == request.Dayofweek && a.Isactive)
+                .Where(a => a.Tutorid == tutorId && a.Dayofweek == request.Dayofweek)
                 .ToListAsync();
 
             foreach (var slot in existingSlots)
@@ -72,13 +72,13 @@ namespace MV.ApplicationLayer.Services
         }
 
         /// <summary>
-        /// Get all active availability slots for a tutor.
-        /// Returns all slots where Isactive = true, ordered by day and start time.
+        /// Get all availability slots for a tutor.
+        /// Returns all slots, ordered by day and start time.
         /// </summary>
         public async Task<List<TutorAvailabilityResponse>> GetAvailabilitiesAsync(string tutorId)
         {
             var allSlots = await _context.Tutoravailabilities
-                .Where(a => a.Tutorid == tutorId && a.Isactive)
+                .Where(a => a.Tutorid == tutorId)
                 .OrderBy(a => a.Dayofweek)
                 .ThenBy(a => a.Starttime)
                 .ToListAsync();
@@ -130,7 +130,7 @@ namespace MV.ApplicationLayer.Services
 
             // Check for overlapping slots on the same day (excluding the current one)
             var existingSlots = await _context.Tutoravailabilities
-                .Where(a => a.Tutorid == tutorId && a.Dayofweek == request.Dayofweek && a.Availabilityid != availabilityId && a.Isactive)
+                .Where(a => a.Tutorid == tutorId && a.Dayofweek == request.Dayofweek && a.Availabilityid != availabilityId)
                 .ToListAsync();
 
             foreach (var slot in existingSlots)
@@ -187,7 +187,7 @@ namespace MV.ApplicationLayer.Services
                 throw new InvalidOperationException(
                     "Không thể xóa khung giờ này vì đang có buổi học được đặt lịch. Vui lòng hủy booking trước khi xóa.");
 
-            availability.Isactive = false;
+            _context.Tutoravailabilities.Remove(availability);
             await _context.SaveChangesAsync();
 
             return true;
@@ -229,7 +229,6 @@ namespace MV.ApplicationLayer.Services
 
         /// <summary>
         /// Map entity to response DTO.
-        /// IsActive reflects the DB Isactive flag directly.
         /// </summary>
         private static TutorAvailabilityResponse MapToResponse(Tutoravailability entity)
         {
@@ -240,8 +239,7 @@ namespace MV.ApplicationLayer.Services
                 Dayofweek = entity.Dayofweek ?? 0,
                 Starttime = entity.Starttime?.ToString("HH:mm") ?? string.Empty,
                 Endtime = entity.Endtime?.ToString("HH:mm") ?? string.Empty,
-                Createdat = VietnamTimeHelper.ToVietnamTime(entity.Createdat ?? MV.DomainLayer.Helpers.VietnamTimeHelper.Now),
-                IsActive = entity.Isactive
+                Createdat = VietnamTimeHelper.ToVietnamTime(entity.Createdat ?? MV.DomainLayer.Helpers.VietnamTimeHelper.Now)
             };
         }
     }

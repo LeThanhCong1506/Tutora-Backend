@@ -17,7 +17,5 @@ public partial class Tutoravailability
 
     public DateTime? Createdat { get; set; }
 
-    public bool Isactive { get; set; } = true;
-
     public virtual Tutorprofile? Tutor { get; set; }
 }

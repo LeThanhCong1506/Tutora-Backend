@@ -151,10 +151,10 @@ namespace MV.ApplicationLayer.Services
                 .OrderByDescending(c => c.Createdat)
                 .ToListAsync();
 
-            // Get availabilities — all active slots (sorted by day and time)
+            // Get availabilities — all slots (sorted by day and time)
             var rawAvailabilities = await _dbContext.Tutoravailabilities
                 .AsNoTracking()
-                .Where(a => a.Tutorid == tutorId && a.Isactive)
+                .Where(a => a.Tutorid == tutorId)
                 .OrderBy(a => a.Dayofweek)
                 .ThenBy(a => a.Starttime)
                 .ToListAsync();
@@ -167,8 +167,7 @@ namespace MV.ApplicationLayer.Services
                     Dayofweek      = a.Dayofweek ?? 0,
                     Starttime      = a.Starttime?.ToString("HH:mm") ?? string.Empty,
                     Endtime        = a.Endtime?.ToString("HH:mm") ?? string.Empty,
-                    Createdat      = VietnamTimeHelper.ToVietnamTime(a.Createdat ?? MV.DomainLayer.Helpers.VietnamTimeHelper.Now),
-                    IsActive       = a.Isactive
+                    Createdat      = VietnamTimeHelper.ToVietnamTime(a.Createdat ?? MV.DomainLayer.Helpers.VietnamTimeHelper.Now)
                 })
                 .ToList();
 

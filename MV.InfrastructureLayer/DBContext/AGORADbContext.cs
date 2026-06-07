@@ -1237,9 +1237,6 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
                 .HasColumnName("createdat");
             entity.Property(e => e.Dayofweek).HasColumnName("dayofweek");
             entity.Property(e => e.Endtime).HasColumnName("endtime");
-            entity.Property(e => e.Isactive)
-                .HasDefaultValue(true)
-                .HasColumnName("isactive");
             entity.Property(e => e.Starttime).HasColumnName("starttime");
             entity.Property(e => e.Tutorid)
                 .HasMaxLength(50)

@@ -4,7 +4,6 @@ namespace MV.DomainLayer.DTO.ResponseModel
 {
     /// <summary>
     /// Response model for tutor availability slot.
-    /// IsActive reflects the DB Isactive flag directly.
     /// </summary>
     public class TutorAvailabilityResponse
     {
@@ -14,11 +13,6 @@ namespace MV.DomainLayer.DTO.ResponseModel
         public string Starttime { get; set; } = string.Empty;
         public string Endtime { get; set; } = string.Empty;
         public DateTime Createdat { get; set; }
-
-        /// <summary>
-        /// True when the slot is active (Isactive = true in DB).
-        /// </summary>
-        public bool IsActive { get; set; }
 
         /// <summary>
         /// Human-readable day name (e.g., "Monday", "Tuesday")
