@@ -151,37 +151,25 @@ namespace MV.ApplicationLayer.Services
                 .OrderByDescending(c => c.Createdat)
                 .ToListAsync();
 
-            // Get availabilities — only slots within 30-day validity window (sorted by day and time)
-            const int availabilityValidDays = 30;
-            var today = DateOnly.FromDateTime(VietnamTimeHelper.Now);
-
+            // Get availabilities — all active slots (sorted by day and time)
             var rawAvailabilities = await _dbContext.Tutoravailabilities
                 .AsNoTracking()
-                .Where(a => a.Tutorid == tutorId)
+                .Where(a => a.Tutorid == tutorId && a.Isactive)
                 .OrderBy(a => a.Dayofweek)
                 .ThenBy(a => a.Starttime)
                 .ToListAsync();
 
             var availabilities = rawAvailabilities
-                .Select(a =>
+                .Select(a => new TutorAvailabilityResponse
                 {
-                    var createdVn = VietnamTimeHelper.ToVietnamTime(a.Createdat ?? MV.DomainLayer.Helpers.VietnamTimeHelper.Now);
-                    var validFrom = DateOnly.FromDateTime(createdVn);
-                    var validTo   = validFrom.AddDays(availabilityValidDays);
-                    return new TutorAvailabilityResponse
-                    {
-                        Availabilityid = a.Availabilityid,
-                        Tutorid        = a.Tutorid ?? string.Empty,
-                        Dayofweek      = a.Dayofweek ?? 0,
-                        Starttime      = a.Starttime?.ToString("HH:mm") ?? string.Empty,
-                        Endtime        = a.Endtime?.ToString("HH:mm") ?? string.Empty,
-                        Createdat      = VietnamTimeHelper.ToVietnamTime(a.Createdat ?? MV.DomainLayer.Helpers.VietnamTimeHelper.Now),
-                        ValidFrom      = validFrom,
-                        ValidTo        = validTo,
-                        IsActive       = today >= validFrom && today <= validTo
-                    };
+                    Availabilityid = a.Availabilityid,
+                    Tutorid        = a.Tutorid ?? string.Empty,
+                    Dayofweek      = a.Dayofweek ?? 0,
+                    Starttime      = a.Starttime?.ToString("HH:mm") ?? string.Empty,
+                    Endtime        = a.Endtime?.ToString("HH:mm") ?? string.Empty,
+                    Createdat      = VietnamTimeHelper.ToVietnamTime(a.Createdat ?? MV.DomainLayer.Helpers.VietnamTimeHelper.Now),
+                    IsActive       = a.Isactive
                 })
-                .Where(r => r.IsActive)  // chỉ trả về slot còn trong cửa sổ hiệu lực trong vòng 30 ngày
                 .ToList();
 
             // Get feedbacks sent To this tutor (with reviewer info)

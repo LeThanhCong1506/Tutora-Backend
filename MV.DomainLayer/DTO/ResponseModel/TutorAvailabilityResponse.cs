@@ -4,8 +4,7 @@ namespace MV.DomainLayer.DTO.ResponseModel
 {
     /// <summary>
     /// Response model for tutor availability slot.
-    /// Validity window is derived from Createdat — no extra DB column required.
-    /// A slot is active from its creation date (Vietnam time) for 30 days.
+    /// IsActive reflects the DB Isactive flag directly.
     /// </summary>
     public class TutorAvailabilityResponse
     {
@@ -17,19 +16,7 @@ namespace MV.DomainLayer.DTO.ResponseModel
         public DateTime Createdat { get; set; }
 
         /// <summary>
-        /// First date this slot is valid (= DATE(Createdat) in Vietnam time).
-        /// </summary>
-        public DateOnly ValidFrom { get; set; }
-
-        /// <summary>
-        /// Last date this slot is valid (= ValidFrom + 30 days).
-        /// After this date the tutor must re-register the slot.
-        /// </summary>
-        public DateOnly ValidTo { get; set; }
-
-        /// <summary>
-        /// True when today (Vietnam time) is within [ValidFrom, ValidTo].
-        /// Expired or future-only slots return false.
+        /// True when the slot is active (Isactive = true in DB).
         /// </summary>
         public bool IsActive { get; set; }
 

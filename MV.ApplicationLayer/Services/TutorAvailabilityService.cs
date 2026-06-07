@@ -14,11 +14,7 @@ namespace MV.ApplicationLayer.Services
     {
         private readonly IAppDbContext _context;
 
-        /// <summary>
-        /// Number of days a slot remains valid after creation.
-        /// After expiry the tutor must re-register the slot.
-        /// </summary>
-        private const int AvailabilityValidDays = 30;
+
 
         public TutorAvailabilityService(IAppDbContext context)
         {
@@ -76,9 +72,8 @@ namespace MV.ApplicationLayer.Services
         }
 
         /// <summary>
-        /// Get availability slots for a tutor that are currently active (within 30-day validity window).
-        /// Slots created more than 30 days ago are excluded — tutor must re-register them.
-        /// Past slots (before creation date) are never shown.
+        /// Get all active availability slots for a tutor.
+        /// Returns all slots where Isactive = true, ordered by day and start time.
         /// </summary>
         public async Task<List<TutorAvailabilityResponse>> GetAvailabilitiesAsync(string tutorId)
         {
@@ -88,17 +83,7 @@ namespace MV.ApplicationLayer.Services
                 .ThenBy(a => a.Starttime)
                 .ToListAsync();
 
-            var today = DateOnly.FromDateTime(VietnamTimeHelper.Now);
-
-            // Chỉ trả về slot còn trong cửa sổ hiệu lực: [Createdat, Createdat + 30 ngày]
             return allSlots
-                .Where(a =>
-                {
-                    var validFrom = DateOnly.FromDateTime(
-                        VietnamTimeHelper.ToVietnamTime(a.Createdat ?? MV.DomainLayer.Helpers.VietnamTimeHelper.Now));
-                    var validTo = validFrom.AddDays(AvailabilityValidDays);
-                    return today >= validFrom && today <= validTo;
-                })
                 .Select(MapToResponse)
                 .ToList();
         }
@@ -244,16 +229,10 @@ namespace MV.ApplicationLayer.Services
 
         /// <summary>
         /// Map entity to response DTO.
-        /// Computes ValidFrom / ValidTo / IsActive from Createdat (converted to Vietnam time).
-        /// No extra DB columns needed.
+        /// IsActive reflects the DB Isactive flag directly.
         /// </summary>
         private static TutorAvailabilityResponse MapToResponse(Tutoravailability entity)
         {
-            var createdVn = VietnamTimeHelper.ToVietnamTime(entity.Createdat ?? MV.DomainLayer.Helpers.VietnamTimeHelper.Now);
-            var validFrom = DateOnly.FromDateTime(createdVn);
-            var validTo = validFrom.AddDays(AvailabilityValidDays);
-            var today = DateOnly.FromDateTime(VietnamTimeHelper.Now);
-
             return new TutorAvailabilityResponse
             {
                 Availabilityid = entity.Availabilityid,
@@ -262,9 +241,7 @@ namespace MV.ApplicationLayer.Services
                 Starttime = entity.Starttime?.ToString("HH:mm") ?? string.Empty,
                 Endtime = entity.Endtime?.ToString("HH:mm") ?? string.Empty,
                 Createdat = VietnamTimeHelper.ToVietnamTime(entity.Createdat ?? MV.DomainLayer.Helpers.VietnamTimeHelper.Now),
-                ValidFrom = validFrom,
-                ValidTo = validTo,
-                IsActive = today >= validFrom && today <= validTo
+                IsActive = entity.Isactive
             };
         }
     }
