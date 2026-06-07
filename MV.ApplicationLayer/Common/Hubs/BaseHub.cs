@@ -1,4 +1,4 @@
-using Microsoft.AspNetCore.SignalR;
+﻿using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using MV.ApplicationLayer.Interfaces;
@@ -51,7 +51,7 @@ namespace MV.ApplicationLayer.Common.Hubs
                 {
                     using var scope = _serviceProvider.CreateScope();
                     var unitOfWork = scope.ServiceProvider.GetRequiredService<IUnitOfWork>();
-                    await unitOfWork.UserRepository.UpdateLastLoginAtAsync(CurrentUserId, MV.DomainLayer.Helpers.VietnamTimeHelper.Now);
+                    await unitOfWork.UserRepository.UpdateLastLoginAtAsync(CurrentUserId, MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow);
                 }
                 catch (Exception ex)
                 {
