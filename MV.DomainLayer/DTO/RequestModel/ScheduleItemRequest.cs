@@ -4,7 +4,8 @@ namespace MV.DomainLayer.DTO.RequestModel;
 
 public class ScheduleItemRequest
 {
-    [Range(0, 6, ErrorMessage = "DayOfWeek must be 0 (Sunday) to 6")]
+    /// <summary>Day of week (1 = Monday, 2 = Tuesday, ..., 7 = Sunday)</summary>
+    [Range(1, 7, ErrorMessage = "Day of week must be between 1 (Monday) and 7 (Sunday)")]
     public int DayOfWeek { get; set; }
 
     [Required]

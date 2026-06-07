@@ -413,9 +413,9 @@ namespace MV.ApplicationLayer.Services
 
             foreach (var slot in request.FixedSlots)
             {
-                if (slot.DayOfWeek < 0 || slot.DayOfWeek > 6)
+                if (slot.DayOfWeek < 1 || slot.DayOfWeek > 7)
                 {
-                    throw new ArgumentException("DayOfWeek phải nằm trong khoảng 0-6");
+                    throw new ArgumentException("DayOfWeek phải nằm trong khoảng 1-7 (1=Monday, 7=Sunday)");
                 }
 
                 if (!TimeOnly.TryParse(slot.StartTime, out var start) || !TimeOnly.TryParse(slot.EndTime, out var end))
