@@ -254,6 +254,10 @@ builder.Services.AddScoped<ILessonService, LessonService>();
 builder.Services.AddScoped<ITencentRTCService, TencentRTCService>();
 builder.Services.AddScoped<ITutorFinanceService, TutorFinanceService>();
 
+// Timezone Accessor
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddScoped<MV.ApplicationLayer.Interfaces.ITimezoneAccessor, MV.PresentationLayer.Helpers.HttpTimezoneAccessor>();
+
 // M3: Lesson Management & Settlement
 builder.Services.AddScoped<ISettlementService, SettlementService>();
 builder.Services.AddScoped<IParentService, ParentService>();
@@ -435,6 +439,9 @@ app.UseRouting();
 
 // CORS phải đứng SAU UseRouting và TRƯỚC UseAuthentication/UseAuthorization
 app.UseCors("AllowReactApp");
+
+// Timezone Middleware (đặt sau CORS để có thể đọc được header)
+app.UseMiddleware<MV.PresentationLayer.Middlewares.TimezoneMiddleware>();
 
 // Middleware xử lý lỗi
 app.UseMiddleware<ExceptionHandlingMiddleware>();
