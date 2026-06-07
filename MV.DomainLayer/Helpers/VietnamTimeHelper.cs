@@ -4,6 +4,7 @@ namespace MV.DomainLayer.Helpers;
 /// Helper class for Vietnam timezone conversions (UTC+7 / ICT).
 /// Centralizes timezone logic to avoid duplication across services.
 /// </summary>
+[Obsolete("Sử dụng TimeZoneHelper với ITimezoneAccessor để hỗ trợ đa múi giờ thay vì hardcode UTC+7")]
 public static class VietnamTimeHelper
 {
     /// <summary>
