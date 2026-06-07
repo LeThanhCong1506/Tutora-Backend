@@ -32,8 +32,48 @@ namespace MV.PresentationLayer.Controllers
         }
 
         /// <summary>
-        /// Add a new availability slot
-        /// POST /api/tutor/availability
+        /// Add multiple availability slots at once
+        /// POST /api/tutor/availabilities/bulk
+        /// </summary>
+        [HttpPost("bulk")]
+        public async Task<IActionResult> BulkAddAvailabilities([FromBody] BulkCreateAvailabilityRequest request)
+        {
+            try
+            {
+                if (!ModelState.IsValid)
+                {
+                    return BadRequest(APIResponse<object>.Fail(ApiMessages.InvalidRequestData, 400, ModelState));
+                }
+
+                var tutorId = GetCurrentUserId();
+                var result = await _availabilityService.BulkAddAvailabilitiesAsync(tutorId, request);
+
+                return StatusCode(201, APIResponse<List<TutorAvailabilityResponse>>.Success(
+                    result, 
+                    $"Tạo thành công {result.Count} khung giờ dạy học.", 
+                    201));
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(APIResponse<object>.Fail(ex.Message, 400));
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(APIResponse<object>.Fail(ex.Message, 400));
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return Unauthorized(APIResponse<object>.Fail(ex.Message, 401));
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, APIResponse<object>.Fail(ApiMessages.GenericErrorPrefix + ex.Message, 500));
+            }
+        }
+
+        /// <summary>
+        /// Add a single availability slot
+        /// POST /api/tutor/availabilities
         /// </summary>
         [HttpPost]
         public async Task<IActionResult> AddAvailability([FromBody] CreateAvailabilityRequest request)
@@ -70,7 +110,7 @@ namespace MV.PresentationLayer.Controllers
 
         /// <summary>
         /// Get all availability slots for the current tutor
-        /// GET /api/tutor/availability
+        /// GET /api/tutor/availabilities
         /// </summary>
         [HttpGet]
         public async Task<IActionResult> GetAvailabilities()
@@ -94,7 +134,7 @@ namespace MV.PresentationLayer.Controllers
 
         /// <summary>
         /// Get availability slots for a specific tutor (public - for parents to view)
-        /// GET /api/tutor/availability/{tutorId}
+        /// GET /api/tutor/availabilities/{tutorId}
         /// </summary>
         [HttpGet("{id}")]
         [AllowAnonymous]
@@ -113,11 +153,11 @@ namespace MV.PresentationLayer.Controllers
         }
 
         /// <summary>
-        /// Update an existing availability slot
-        /// PUT /api/tutor/availability/{id}
+        /// Delete multiple availability slots at once
+        /// DELETE /api/tutor/availabilities/bulk
         /// </summary>
-        [HttpPut("{id:int}")]
-        public async Task<IActionResult> UpdateAvailability(int id, [FromBody] UpdateAvailabilityRequest request)
+        [HttpDelete("bulk")]
+        public async Task<IActionResult> BulkDeleteAvailabilities([FromBody] BulkDeleteAvailabilityRequest request)
         {
             try
             {
@@ -127,21 +167,20 @@ namespace MV.PresentationLayer.Controllers
                 }
 
                 var tutorId = GetCurrentUserId();
-                var result = await _availabilityService.UpdateAvailabilityAsync(tutorId, id, request);
+                var deletedCount = await _availabilityService.BulkDeleteAvailabilitiesAsync(tutorId, request);
 
-                return Ok(APIResponse<TutorAvailabilityResponse>.Success(result, "Cập nhật khung giờ thành công."));
-            }
-            catch (ArgumentException ex)
-            {
-                return BadRequest(APIResponse<object>.Fail(ex.Message, 400));
-            }
-            catch (KeyNotFoundException ex)
-            {
-                return NotFound(APIResponse<object>.Fail(ex.Message, 404));
+                if (deletedCount == 0)
+                {
+                    return NotFound(APIResponse<object>.Fail("Không tìm thấy khung giờ nào để xóa.", 404));
+                }
+
+                return Ok(APIResponse<object>.Success(
+                    new { deletedCount }, 
+                    $"Đã xóa thành công {deletedCount} khung giờ."));
             }
             catch (InvalidOperationException ex)
             {
-                return BadRequest(APIResponse<object>.Fail(ex.Message, 400));
+                return Conflict(APIResponse<object>.Fail(ex.Message, 409));
             }
             catch (UnauthorizedAccessException ex)
             {
@@ -154,8 +193,8 @@ namespace MV.PresentationLayer.Controllers
         }
 
         /// <summary>
-        /// Delete an availability slot
-        /// DELETE /api/tutor/availability/{id}
+        /// Delete a single availability slot
+        /// DELETE /api/tutor/availabilities/{id}
         /// </summary>
         [HttpDelete("{id:int}")]
         public async Task<IActionResult> DeleteAvailability(int id)
