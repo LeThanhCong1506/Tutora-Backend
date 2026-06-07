@@ -29,9 +29,7 @@ public partial class Tutorprofile
         set { }
     }
 
-    public decimal? Triallessonprice { get; set; }
 
-    public bool? Allowpricenegotiation { get; set; }
 
     public string? Teachingareacity { get; set; }
 

@@ -1346,12 +1346,7 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
             entity.Property(e => e.Headline)
                 .HasMaxLength(200)
                 .HasColumnName("headline");
-            entity.Property(e => e.Triallessonprice)
-                .HasPrecision(12, 2)
-                .HasColumnName("triallessonprice");
-            entity.Property(e => e.Allowpricenegotiation)
-                .HasDefaultValue(false)
-                .HasColumnName("allowpricenegotiation");
+
             entity.Property(e => e.Ispublic)
                 .HasDefaultValue(false)
                 .HasColumnName("ispublic");
