@@ -11,9 +11,6 @@ namespace MV.DomainLayer.DTO.ResponseModel
         /// <summary>1 = flexible, 2 = fixed.</summary>
         public int PackageType { get; set; }
 
-        public int DurationMinutesPerSession { get; set; }
-
-        public string? Description { get; set; }
 
         public bool IsActive { get; set; }
 

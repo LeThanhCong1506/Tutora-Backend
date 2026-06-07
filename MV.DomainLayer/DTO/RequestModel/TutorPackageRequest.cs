@@ -7,9 +7,6 @@ namespace MV.DomainLayer.DTO.RequestModel
         /// <summary>1 = flexible, 2 = fixed.</summary>
         public int PackageType { get; set; } = 1;
 
-        public int DurationMinutesPerSession { get; set; }
-
-        public string? Description { get; set; }
 
         public List<TutorPackageFixedSlotRequest> FixedSlots { get; set; } = new();
     }

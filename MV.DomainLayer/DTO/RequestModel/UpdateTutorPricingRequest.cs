@@ -19,6 +19,10 @@ namespace MV.DomainLayer.DTO.RequestModel
 
         public decimal PricePerHour { get; set; }
 
+        public int DurationMinutesPerSession { get; set; } = 60;
+
+        public int SessionsPerWeek { get; set; } = 1;
+
         public string? Currency { get; set; }
 
         public bool IsActive { get; set; } = true;

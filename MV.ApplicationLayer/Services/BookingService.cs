@@ -68,11 +68,11 @@ public partial class BookingService(
         var totalSessions = ResolveTotalSessions(dto, package);
         var lessonSlots = package.Packagetype == Tutorpackage.FixedPackageType
             ? GenerateFixedPackageSlots(package, dto.StartDate, totalSessions)
-            : GenerateFlexibleSlots(dto, package, totalSessions);
+            : GenerateFlexibleSlots(dto, price.Durationminutespersession, totalSessions);
 
         await ValidateSlotsAsync(dto.TutorId, lessonSlots);
 
-        var totalAmount = Math.Round(price.Priceperhour * package.Durationminutespersession / 60m * totalSessions, 2);
+        var totalAmount = Math.Round(price.Priceperhour * price.Durationminutespersession / 60m * totalSessions, 2);
         int? promotionId = null;
         var discountApplied = 0m;
         if (!string.IsNullOrWhiteSpace(dto.PromotionCode))
@@ -102,7 +102,7 @@ public partial class BookingService(
             Promotionid = promotionId,
             Totalsessions = totalSessions,
             Sessionsremaining = totalSessions,
-            Durationminutespersession = package.Durationminutespersession,
+            Durationminutespersession = price.Durationminutespersession,
             Priceperhour = price.Priceperhour,
             Totalamount = totalAmount,
             Currency = price.Currency,
@@ -494,14 +494,14 @@ public partial class BookingService(
         return result;
     }
 
-    private static List<LessonSlot> GenerateFlexibleSlots(CreateBookingRequest dto, Tutorpackage package, int totalSessions)
+    private static List<LessonSlot> GenerateFlexibleSlots(CreateBookingRequest dto, int durationMinutes, int totalSessions)
     {
         var slots = dto.FlexibleSlots ?? [];
         if (slots.Count != totalSessions)
             throw new BookingException(BookingErrorCodes.InvalidSchedule,
                 $"Package linh hoạt yêu cầu chọn đúng {totalSessions} buổi học", 400);
 
-        var duration = TimeSpan.FromMinutes(package.Durationminutespersession);
+        var duration = TimeSpan.FromMinutes(durationMinutes);
         return slots
             .Select(s =>
             {
@@ -509,7 +509,7 @@ public partial class BookingService(
                 var end = VietnamTimeHelper.ToUtc(s.ScheduledEnd);
                 if (end <= start || Math.Abs((end - start - duration).TotalMinutes) > 1)
                     throw new BookingException(BookingErrorCodes.InvalidSchedule,
-                        $"Mỗi buổi học phải kéo dài {package.Durationminutespersession} phút", 400);
+                        $"Mỗi buổi học phải kéo dài {durationMinutes} phút", 400);
                 return new LessonSlot(start, end);
             })
             .OrderBy(s => s.Start)

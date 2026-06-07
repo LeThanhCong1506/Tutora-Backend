@@ -16,10 +16,6 @@ public partial class Tutorpackage
 
     public int Packagetype { get; set; }
 
-    public int Durationminutespersession { get; set; }
-
-    public string? Description { get; set; }
-
     public bool Isactive { get; set; } = true;
 
     public DateTime? Createdat { get; set; }

@@ -1466,6 +1466,12 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnType("timestamp without time zone")
                 .HasColumnName("updatedat");
+            entity.Property(e => e.Durationminutespersession)
+                .HasDefaultValue(60)
+                .HasColumnName("durationminutespersession");
+            entity.Property(e => e.Sessionsperweek)
+                .HasDefaultValue(1)
+                .HasColumnName("sessionsperweek");
 
             entity.HasOne(d => d.Gradelevel).WithMany(p => p.Tutorsubjectgradeprices)
                 .HasForeignKey(d => d.Gradelevelid)
@@ -1494,8 +1500,6 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnType("timestamp without time zone")
                 .HasColumnName("createdat");
-            entity.Property(e => e.Description).HasColumnName("description");
-            entity.Property(e => e.Durationminutespersession).HasColumnName("durationminutespersession");
             entity.Property(e => e.Isactive)
                 .HasDefaultValue(true)
                 .HasColumnName("isactive");
