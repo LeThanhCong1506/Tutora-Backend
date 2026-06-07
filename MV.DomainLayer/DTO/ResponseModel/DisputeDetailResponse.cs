@@ -1,4 +1,4 @@
-namespace MV.DomainLayer.DTO.ResponseModel;
+﻿namespace MV.DomainLayer.DTO.ResponseModel;
 
 /// <summary>
 /// Dispute detail for admin view
@@ -38,7 +38,7 @@ public class DisputeDetailResponse
         get
         {
             if (!CreatedAt.HasValue) return null;
-            var elapsed = MV.DomainLayer.Helpers.VietnamTimeHelper.Now - CreatedAt.Value;
+            var elapsed = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow - CreatedAt.Value;
             if (elapsed.TotalDays >= 1)
                 return $"{(int)elapsed.TotalDays} ngày trước";
             if (elapsed.TotalHours >= 1)

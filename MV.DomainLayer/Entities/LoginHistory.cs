@@ -1,4 +1,4 @@
-using System.ComponentModel.DataAnnotations;
+﻿using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
 namespace MV.DomainLayer.Entities;
@@ -24,7 +24,7 @@ public class LoginHistory
     public string? Useragent { get; set; }
 
     [Column("loggedat")]
-    public DateTime Loggedat { get; set; } = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+    public DateTime Loggedat { get; set; } = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 
     public virtual User? User { get; set; }
 }
