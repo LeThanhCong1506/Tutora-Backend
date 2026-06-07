@@ -2,6 +2,8 @@ using MV.DomainLayer.Constants;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using MV.ApplicationLayer.ServiceInterfaces;
+using MV.ApplicationLayer.Services;
+using MV.ApplicationLayer.Interfaces;
 using MV.DomainLayer.DTO.RequestModel;
 using System.Security.Claims;
 
@@ -12,12 +14,55 @@ namespace MV.PresentationLayer.Controllers
     public class NotificationsController : ControllerBase
     {
         private readonly INotificationService _notificationService;
+        private readonly IFirebasePushNotificationService _firebasePushNotificationService;
+        private readonly IUnitOfWork _unitOfWork;
         private readonly ILogger<NotificationsController> _logger;
 
-        public NotificationsController(INotificationService notificationService, ILogger<NotificationsController> logger)
+        public NotificationsController(
+            INotificationService notificationService,
+            IFirebasePushNotificationService firebasePushNotificationService,
+            IUnitOfWork unitOfWork,
+            ILogger<NotificationsController> logger)
         {
             _notificationService = notificationService;
+            _firebasePushNotificationService = firebasePushNotificationService;
+            _unitOfWork = unitOfWork;
             _logger = logger;
+        }
+
+        /// <summary>
+        /// [TEST] Gửi thẳng một push notification qua FCM tới user hiện tại (đọc Fcmtoken từ DB),
+        /// không tạo bản ghi Notification — dùng để kiểm tra cấu hình Firebase + FCM token trên thiết bị.
+        /// </summary>
+        [HttpPost("test/fcm")]
+        [Authorize]
+        public async Task<IActionResult> TestSendFcmPush([FromBody] NotificationRequest request)
+        {
+            var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (string.IsNullOrEmpty(userId))
+                return Unauthorized();
+
+            var user = await _unitOfWork.UserRepository.GetUserByIdAsync(userId);
+            if (user == null)
+                return NotFound(new { message = "Không tìm thấy user." });
+
+            if (string.IsNullOrEmpty(user.Fcmtoken))
+                return BadRequest(new { message = "User chưa có Fcmtoken — hãy đăng nhập trên mobile để đăng ký token trước." });
+
+            var sent = await _firebasePushNotificationService.SendPushNotificationAsync(
+                user.Fcmtoken,
+                request.Title,
+                request.Message,
+                new Dictionary<string, string>
+                {
+                    { "type", request.Type ?? "" },
+                    { "referenceId", request.Referenceid ?? "" }
+                });
+
+            if (!sent)
+                return StatusCode(500, new { message = "Gửi push notification thất bại — kiểm tra log để biết chi tiết." });
+
+            return Ok(new { message = "Đã gửi push notification thành công." });
         }
 
         /// <summary>
