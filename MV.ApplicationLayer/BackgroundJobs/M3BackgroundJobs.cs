@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -159,7 +159,7 @@ public class LessonReminderJob : BackgroundService
         var notificationService = scope.ServiceProvider.GetRequiredService<INotificationService>();
         var zaloOAService = scope.ServiceProvider.GetRequiredService<IZaloOAService>();
 
-        var now = VietnamTimeHelper.UtcNow;
+        var now = TimeZoneHelper.UtcNow;
         var reminderWindow = now.AddMinutes(30);
 
         // Find lessons starting within 30 minutes that haven't been reminded
@@ -211,7 +211,7 @@ public class LessonReminderJob : BackgroundService
                     });
 
                     // Zalo ZNS reminder (only if user has Zalo linked + notifications enabled)
-                    var vnTime = VietnamTimeHelper.ToVietnamTime(lesson.Scheduledstart).ToString("HH:mm dd/MM");
+                    var vnTime = TimeZoneHelper.ToUserTime(lesson.Scheduledstart).ToString("HH:mm dd/MM");
                     await zaloOAService.SendNotificationAsync(
                         parentId,
                         NotificationType.LessonReminder,
@@ -285,7 +285,7 @@ public class RemainingPaymentTriggerJob : BackgroundService
         var context = scope.ServiceProvider.GetRequiredService<MV.ApplicationLayer.Interfaces.IAppDbContext>();
         var notificationService = scope.ServiceProvider.GetRequiredService<INotificationService>();
 
-        var now = VietnamTimeHelper.UtcNow;
+        var now = TimeZoneHelper.UtcNow;
 
         // Find bookings that are deposit_paid, remaining not yet paid,
         // and have at least one lesson whose confirm deadline has passed (24h after report)
