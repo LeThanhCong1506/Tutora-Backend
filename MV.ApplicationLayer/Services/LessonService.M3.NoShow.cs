@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO.RequestModel;
@@ -25,7 +25,7 @@ public partial class LessonService
             .FirstOrDefaultAsync(l => l.Lessonid == lessonId && studentIds.Contains(l.Studentid!))
             ?? throw new LessonException(LessonErrorCodes.LessonNotFound, "Không tìm thấy buổi học hoặc bạn không có quyền truy cập", 404);
 
-        var now = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+        var now = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
         if ((now - lesson.Scheduledstart).TotalMinutes < 15)
             throw new LessonException(LessonErrorCodes.TooEarlyToReportNoShow, "Chỉ có thể báo cáo vắng mặt sau 15 phút kể từ giờ bắt đầu", 400);
 
@@ -102,7 +102,7 @@ public partial class LessonService
                         if (tutorWalletFree != null)
                         {
                             tutorWalletFree.Frozenbalance = (tutorWalletFree.Frozenbalance ?? 0) - refundAmount;
-                            tutorWalletFree.Lastupdated = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+                            tutorWalletFree.Lastupdated = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
                         }
 
                         // Cộng tiền hoàn vào parent wallet
@@ -110,7 +110,7 @@ public partial class LessonService
                         if (parentWallet != null)
                         {
                             parentWallet.Balance += refundAmount;
-                            parentWallet.Lastupdated = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+                            parentWallet.Lastupdated = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 
                             _context.Wallettransactions.Add(new Wallettransaction
                             {
@@ -118,7 +118,7 @@ public partial class LessonService
                                 Amount = refundAmount,
                                 Transactiontype = TransactionType.Refund,
                                 Description = $"Hoàn tiền no-show lesson #{lessonId}",
-                                Createdat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now
+                                Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
                             });
                         }
                     }
@@ -150,7 +150,7 @@ public partial class LessonService
                             if (tutorWalletChange != null)
                             {
                                 tutorWalletChange.Frozenbalance = (tutorWalletChange.Frozenbalance ?? 0) - totalRefund;
-                                tutorWalletChange.Lastupdated = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+                                tutorWalletChange.Lastupdated = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
                             }
 
                             // Cộng tiền hoàn vào parent wallet
@@ -158,7 +158,7 @@ public partial class LessonService
                             if (parentWalletForChange != null)
                             {
                                 parentWalletForChange.Balance += totalRefund;
-                                parentWalletForChange.Lastupdated = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+                                parentWalletForChange.Lastupdated = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 
                                 _context.Wallettransactions.Add(new Wallettransaction
                                 {
@@ -166,7 +166,7 @@ public partial class LessonService
                                     Amount = totalRefund,
                                     Transactiontype = TransactionType.Refund,
                                     Description = $"Hoàn tiền change tutor - booking #{lesson.Bookingid} ({remaining} buổi còn lại)",
-                                    Createdat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now
+                                    Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
                                 });
                             }
                         }
@@ -184,7 +184,7 @@ public partial class LessonService
                 Warninglevel = 1,
                 Reason = "Tutor no-show for lesson",
                 Relatedbookingid = lesson.Bookingid,
-                Createdat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now
+                Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
             };
             _context.Userwarnings.Add(warning);
             result.WarningCreated = true;
@@ -220,7 +220,7 @@ public partial class LessonService
             Status = Scheduled,
             Ismakeup = true,
             Originalessonid = originalLessonId,
-            Createdat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now
+            Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
         };
 
         _context.Lessons.Add(makeupLesson);

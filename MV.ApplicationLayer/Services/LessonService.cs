@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using MV.ApplicationLayer.Helpers;
 using MV.ApplicationLayer.ServiceInterfaces;
@@ -10,7 +10,6 @@ using MV.DomainLayer.Exceptions;
 using MV.DomainLayer.Helpers;
 using MV.ApplicationLayer.Interfaces;
 using MV.ApplicationLayer.RepositoryInterfaces;
-using static MV.DomainLayer.Helpers.VietnamTimeHelper;
 using static MV.DomainLayer.Constants.LessonStatus;
 using static MV.DomainLayer.Constants.PaymentStatus;
 
@@ -104,8 +103,8 @@ public partial class LessonService : ILessonService
                 LessonId = l.Lessonid,
                 BookingId = bookingId,
                 SessionIndex = i + 1,
-                ScheduledStart = ToVietnamTime(l.Scheduledstart),
-                ScheduledEnd = ToVietnamTime(l.Scheduledend),
+                ScheduledStart = MV.DomainLayer.Helpers.TimeZoneHelper.ToUserTime(l.Scheduledstart),
+                ScheduledEnd = MV.DomainLayer.Helpers.TimeZoneHelper.ToUserTime(l.Scheduledend),
                 MeetingLink = l.Meetinglink ?? "",
                 Status = l.Status ?? Scheduled
             }).ToList());
@@ -164,8 +163,8 @@ public partial class LessonService : ILessonService
             : DateTime.SpecifyKind(desiredStartUtc, DateTimeKind.Utc);
 
         // Lấy ngày VN của ngày bắt đầu mong muốn và ngày VN hiện tại
-        var desiredDateVn = TimeZoneInfo.ConvertTimeFromUtc(desiredStartNorm, Tz).Date;
-        var todayVn = TimeZoneInfo.ConvertTimeFromUtc(VietnamTimeHelper.UtcNow, Tz).Date;
+        var desiredDateVn = TimeZoneInfo.ConvertTimeFromUtc(desiredStartNorm, MV.DomainLayer.Helpers.TimeZoneHelper.GetTimeZoneInfo("Asia/Ho_Chi_Minh")).Date;
+        var todayVn = TimeZoneInfo.ConvertTimeFromUtc(TimeZoneHelper.UtcNow, MV.DomainLayer.Helpers.TimeZoneHelper.GetTimeZoneInfo("Asia/Ho_Chi_Minh")).Date;
 
         // Dùng ngày muộn hơn — không tạo bài học trong quá khứ
         // Nếu parent đặt lịch hôm nay, tất cả slot trong ngày đều được tính (kể cả buổi sáng)
@@ -176,7 +175,7 @@ public partial class LessonService : ILessonService
         // effectiveStartUtc = 00:00 VN của ngày hiệu lực → UTC
         // Dùng midnight để slot sáng sớm nhất trong ngày không bị bỏ qua
         var effectiveStartUtc = TimeZoneInfo.ConvertTimeToUtc(
-            new DateTime(effectiveDateVn.Year, effectiveDateVn.Month, effectiveDateVn.Day, 0, 0, 0, DateTimeKind.Unspecified), Tz);
+            new DateTime(effectiveDateVn.Year, effectiveDateVn.Month, effectiveDateVn.Day, 0, 0, 0, DateTimeKind.Unspecified), MV.DomainLayer.Helpers.TimeZoneHelper.GetTimeZoneInfo("Asia/Ho_Chi_Minh"));
 
         // Chuyển sang giờ Việt Nam để duyệt đúng ngày (tránh lệch ngày khi UTC+7)
         var effectiveStartVn = new DateTime(effectiveDateVn.Year, effectiveDateVn.Month, effectiveDateVn.Day);
@@ -246,8 +245,8 @@ public partial class LessonService : ILessonService
             int.Parse(endParts[0]), int.Parse(endParts[1]), 0, DateTimeKind.Unspecified);
 
         // Convert sang UTC để lưu DB
-        var utcStart = TimeZoneInfo.ConvertTimeToUtc(vnStart, Tz);
-        var utcEnd = TimeZoneInfo.ConvertTimeToUtc(vnEnd, Tz);
+        var utcStart = TimeZoneInfo.ConvertTimeToUtc(vnStart, MV.DomainLayer.Helpers.TimeZoneHelper.GetTimeZoneInfo("Asia/Ho_Chi_Minh"));
+        var utcEnd = TimeZoneInfo.ConvertTimeToUtc(vnEnd, MV.DomainLayer.Helpers.TimeZoneHelper.GetTimeZoneInfo("Asia/Ho_Chi_Minh"));
 
         return (utcStart, utcEnd);
     }
@@ -264,16 +263,16 @@ public partial class LessonService : ILessonService
             TutorId = lesson.Tutorid,
             StudentId = lesson.Studentid,
             // Trả về giờ Việt Nam để frontend hiển thị đúng
-            ScheduledStart = ToVietnamTime(lesson.Scheduledstart),
-            ScheduledEnd = ToVietnamTime(lesson.Scheduledend),
+            ScheduledStart = MV.DomainLayer.Helpers.TimeZoneHelper.ToUserTime(lesson.Scheduledstart),
+            ScheduledEnd = MV.DomainLayer.Helpers.TimeZoneHelper.ToUserTime(lesson.Scheduledend),
             MeetingLink = lesson.Meetinglink,
             LessonPrice = lesson.Lessonprice,
             Status = lesson.Status ?? "",
-            CheckInTime = ToVietnamTime(lesson.Checkintime),
-            CheckOutTime = ToVietnamTime(lesson.Checkouttime),
+            CheckInTime = MV.DomainLayer.Helpers.TimeZoneHelper.ToUserTime(lesson.Checkintime),
+            CheckOutTime = MV.DomainLayer.Helpers.TimeZoneHelper.ToUserTime(lesson.Checkouttime),
             IsTutorPresent = lesson.Istutorpresent,
             IsStudentPresent = lesson.Isstudentpresent,
-            CreatedAt = lesson.Createdat.HasValue ? ToVietnamTime(lesson.Createdat.Value) : (DateTime?)null,
+            CreatedAt = lesson.Createdat.HasValue ? MV.DomainLayer.Helpers.TimeZoneHelper.ToUserTime(lesson.Createdat.Value) : (DateTime?)null,
             Student = student != null ? new StudentMiniResponse
             {
                 StudentId = student.Studentid,
@@ -299,7 +298,7 @@ public partial class LessonService : ILessonService
 
     /// <summary>
     /// Chuyển DateTime (UTC hoặc Unspecified-treated-as-UTC từ EF Core) sang giờ Việt Nam.
-    /// Now provided by VietnamTimeHelper via using static
+    /// MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow provided by VietnamTimeHelper via using static
     /// </summary>
 
     private record LessonDateSlot
@@ -317,7 +316,7 @@ public partial class LessonService : ILessonService
                 .Include(l => l.Booking)
                 .Where(l => l.Tutorid == tutorId
                     && (l.Meetinglink == null || l.Meetinglink == "")
-                    && l.Scheduledstart > VietnamTimeHelper.UtcNow
+                    && l.Scheduledstart > TimeZoneHelper.UtcNow
                     && l.Status != Cancelled
                     && l.Status != CancelledNoshow
                     && l.Status != Completed
@@ -352,8 +351,8 @@ public partial class LessonService : ILessonService
                         LessonId      = l.Lessonid,
                         BookingId     = group.Key,
                         SessionIndex  = i + 1,
-                        ScheduledStart = ToVietnamTime(l.Scheduledstart),
-                        ScheduledEnd   = ToVietnamTime(l.Scheduledend),
+                        ScheduledStart = MV.DomainLayer.Helpers.TimeZoneHelper.ToUserTime(l.Scheduledstart),
+                        ScheduledEnd   = MV.DomainLayer.Helpers.TimeZoneHelper.ToUserTime(l.Scheduledend),
                         MeetingLink   = l.Meetinglink!,
                         Status        = l.Status ?? ""
                     }).ToList());
@@ -404,7 +403,7 @@ public partial class LessonService : ILessonService
         await _lessonRepo.SaveChangesAsync();
 
         // Notify the other party
-        var lessonTimeVn = ToVietnamTime(lesson.Scheduledstart).ToString("dd/MM/yyyy HH:mm");
+        var lessonTimeVn = MV.DomainLayer.Helpers.TimeZoneHelper.ToUserTime(lesson.Scheduledstart).ToString("dd/MM/yyyy HH:mm");
         var reasonSuffix = string.IsNullOrWhiteSpace(reason) ? "" : $" Lý do: {reason}";
 
         if (userRole != UserRole.Tutor && lesson.Tutorid != null)

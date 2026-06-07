@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using MV.ApplicationLayer.Interfaces;
 using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.Constants;
@@ -192,9 +192,9 @@ public class AdminBookingService(IAppDbContext context) : IAdminBookingService
                 LessonsTotal     = lc?.Total    ?? 0,
                 LessonsCompleted = lc?.Completed ?? 0,
                 // Dates — tất cả convert sang VN time
-                StartDate        = x.Startdate.HasValue    ? VietnamTimeHelper.ToVietnamTime(x.Startdate.Value)    : (DateTime?)null,
-                CreatedAt        = x.Createdat.HasValue    ? VietnamTimeHelper.ToVietnamTime(x.Createdat.Value)    : (DateTime?)null,
-                CancelledAt      = x.Cancelledat.HasValue  ? VietnamTimeHelper.ToVietnamTime(x.Cancelledat.Value)  : (DateTime?)null,
+                StartDate        = x.Startdate.HasValue    ? TimeZoneHelper.ToUserTime(x.Startdate.Value)    : (DateTime?)null,
+                CreatedAt        = x.Createdat.HasValue    ? TimeZoneHelper.ToUserTime(x.Createdat.Value)    : (DateTime?)null,
+                CancelledAt      = x.Cancelledat.HasValue  ? TimeZoneHelper.ToUserTime(x.Cancelledat.Value)  : (DateTime?)null,
                 CancellationReason = x.Cancellationreason
             };
         }).ToList();
@@ -338,7 +338,7 @@ public class AdminBookingService(IAppDbContext context) : IAdminBookingService
             {
                 Label      = e.Label,
                 Status     = e.Status,
-                OccurredAt = VietnamTimeHelper.ToVietnamTime(e.At!.Value)
+                OccurredAt = TimeZoneHelper.ToUserTime(e.At!.Value)
             })
             .ToList();
 
@@ -349,10 +349,10 @@ public class AdminBookingService(IAppDbContext context) : IAdminBookingService
                 LessonId       = l.Lessonid,
                 LessonNumber   = idx + 1,
                 Status         = l.Status,
-                ScheduledStart = VietnamTimeHelper.ToVietnamTime(l.Scheduledstart),
-                ScheduledEnd   = VietnamTimeHelper.ToVietnamTime(l.Scheduledend),
-                RealStart      = l.Realstart.HasValue ? VietnamTimeHelper.ToVietnamTime(l.Realstart.Value) : null,
-                RealEnd        = l.Realend.HasValue   ? VietnamTimeHelper.ToVietnamTime(l.Realend.Value)   : null,
+                ScheduledStart = TimeZoneHelper.ToUserTime(l.Scheduledstart),
+                ScheduledEnd   = TimeZoneHelper.ToUserTime(l.Scheduledend),
+                RealStart      = l.Realstart.HasValue ? TimeZoneHelper.ToUserTime(l.Realstart.Value) : null,
+                RealEnd        = l.Realend.HasValue   ? TimeZoneHelper.ToUserTime(l.Realend.Value)   : null,
                 LessonPrice    = l.Lessonprice,
                 IsSettled      = l.Issettled,
                 IsMakeup       = l.Ismakeup,
@@ -406,20 +406,20 @@ public class AdminBookingService(IAppDbContext context) : IAdminBookingService
                 TotalSessions     = row.Sessioncount,
                 CompletedSessions = completedLessons,
                 StartDate         = row.Startdate.HasValue
-                    ? VietnamTimeHelper.ToVietnamTime(row.Startdate.Value)
+                    ? TimeZoneHelper.ToUserTime(row.Startdate.Value)
                     : null
             },
             Cancellation = new AdminBookingCancellation
             {
                 IsCancelled = row.Status is BookingStatus.Cancelled or BookingStatus.CancelledNoshow,
                 CancelledAt = row.Cancelledat.HasValue
-                    ? VietnamTimeHelper.ToVietnamTime(row.Cancelledat.Value)
+                    ? TimeZoneHelper.ToUserTime(row.Cancelledat.Value)
                     : null,
                 Reason      = row.Cancellationreason
             },
 
-            CreatedAt = row.Createdat.HasValue ? VietnamTimeHelper.ToVietnamTime(row.Createdat.Value) : null,
-            UpdatedAt = row.Updatedat.HasValue ? VietnamTimeHelper.ToVietnamTime(row.Updatedat.Value) : null,
+            CreatedAt = row.Createdat.HasValue ? TimeZoneHelper.ToUserTime(row.Createdat.Value) : null,
+            UpdatedAt = row.Updatedat.HasValue ? TimeZoneHelper.ToUserTime(row.Updatedat.Value) : null,
 
             Timeline = timeline,
             Lessons  = lessonItems,
@@ -429,9 +429,9 @@ public class AdminBookingService(IAppDbContext context) : IAdminBookingService
                 DiscountApplied  = row.Discountapplied,
                 FinalPrice       = row.Finalprice,
                 DepositAmount    = row.Depositamount,
-                DepositPaidAt    = row.Depositpaidat.HasValue   ? VietnamTimeHelper.ToVietnamTime(row.Depositpaidat.Value)   : null,
+                DepositPaidAt    = row.Depositpaidat.HasValue   ? TimeZoneHelper.ToUserTime(row.Depositpaidat.Value)   : null,
                 RemainingAmount  = row.Remainingamount,
-                RemainingPaidAt  = row.Remainingpaidat.HasValue ? VietnamTimeHelper.ToVietnamTime(row.Remainingpaidat.Value) : null,
+                RemainingPaidAt  = row.Remainingpaidat.HasValue ? TimeZoneHelper.ToUserTime(row.Remainingpaidat.Value) : null,
                 PlatformFee      = row.Platformfee,
                 TutorFee         = row.Tutorfee,
                 ParentFee        = row.Parentfee,
@@ -439,7 +439,7 @@ public class AdminBookingService(IAppDbContext context) : IAdminBookingService
                 RefundAmount     = row.Refundamount,
                 RefundStatus     = row.Refundstatus,
                 PaymentStatus    = row.Paymentstatus,
-                PaymentDueAt     = row.Paymentdueat.HasValue    ? VietnamTimeHelper.ToVietnamTime(row.Paymentdueat.Value)    : null
+                PaymentDueAt     = row.Paymentdueat.HasValue    ? TimeZoneHelper.ToUserTime(row.Paymentdueat.Value)    : null
             }
         };
     }

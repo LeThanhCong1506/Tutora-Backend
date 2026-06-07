@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using MV.ApplicationLayer.Helpers;
 using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO.RequestModel;
@@ -24,7 +24,7 @@ public partial class BookingService
         if (promo == null)
             return new PromotionValidateResponse { Valid = false, Message = "Mã khuyến mãi không hợp lệ hoặc đã hết hạn." };
 
-        var now = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+        var now = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
         if (promo.Startdate.HasValue && promo.Startdate.Value > now)
             return new PromotionValidateResponse { Valid = false, Message = "Mã khuyến mãi chưa đến thời gian áp dụng." };
         if (promo.Enddate.HasValue && promo.Enddate.Value < now)
@@ -78,7 +78,7 @@ public partial class BookingService
         booking.Platformfee = fees.PlatformFee;
         booking.Parentfee = fees.ParentFee;
         booking.Tutorfee = fees.TutorReceivable;
-        booking.Updatedat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+        booking.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 
         var promo = await context.Promotions.FirstAsync(p => p.Promotionid == promoResult.PromotionId);
         promo.Usagecount = (promo.Usagecount ?? 0) + 1;
@@ -106,7 +106,7 @@ public partial class BookingService
             Usagelimit = dto.UsageLimit,
             Usagecount = 0,
             Isactive = dto.IsActive,
-            Createdat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now
+            Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
         };
         context.Promotions.Add(promo);
         await context.SaveChangesAsync();
@@ -157,7 +157,7 @@ public partial class BookingService
             })
             .ToListAsync(ct);
 
-        var now = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+        var now = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 
         var items = raw.Select(p => new PromotionResponse
         {
@@ -168,12 +168,12 @@ public partial class BookingService
             DiscountValue     = p.Discountvalue,
             MaxDiscountAmount = p.Maxdiscountamount,
             MinOrderValue     = p.Minordervalue,
-            StartDate         = p.Startdate.HasValue  ? VietnamTimeHelper.ToVietnamTime(p.Startdate.Value)  : (DateTime?)null,
-            EndDate           = p.Enddate.HasValue    ? VietnamTimeHelper.ToVietnamTime(p.Enddate.Value)    : (DateTime?)null,
+            StartDate         = p.Startdate.HasValue  ? TimeZoneHelper.ToUserTime(p.Startdate.Value)  : (DateTime?)null,
+            EndDate           = p.Enddate.HasValue    ? TimeZoneHelper.ToUserTime(p.Enddate.Value)    : (DateTime?)null,
             UsageLimit        = p.Usagelimit,
             UsageCount        = p.Usagecount,
             IsActive          = p.Isactive,
-            CreatedAt         = p.Createdat.HasValue  ? VietnamTimeHelper.ToVietnamTime(p.Createdat.Value)  : (DateTime?)null,
+            CreatedAt         = p.Createdat.HasValue  ? TimeZoneHelper.ToUserTime(p.Createdat.Value)  : (DateTime?)null,
             RuntimeStatus     = ResolveRuntimeStatus(p.Isactive, p.Startdate, p.Enddate, p.Usagelimit, p.Usagecount, now)
         }).ToList();
 
@@ -218,7 +218,7 @@ public partial class BookingService
 
         await context.SaveChangesAsync(ct);
 
-        var now = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+        var now = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
         return new PromotionResponse
         {
             PromotionId       = promo.Promotionid,
@@ -228,12 +228,12 @@ public partial class BookingService
             DiscountValue     = promo.Discountvalue,
             MaxDiscountAmount = promo.Maxdiscountamount,
             MinOrderValue     = promo.Minordervalue,
-            StartDate         = promo.Startdate.HasValue ? VietnamTimeHelper.ToVietnamTime(promo.Startdate.Value) : (DateTime?)null,
-            EndDate           = promo.Enddate.HasValue   ? VietnamTimeHelper.ToVietnamTime(promo.Enddate.Value)   : (DateTime?)null,
+            StartDate         = promo.Startdate.HasValue ? TimeZoneHelper.ToUserTime(promo.Startdate.Value) : (DateTime?)null,
+            EndDate           = promo.Enddate.HasValue   ? TimeZoneHelper.ToUserTime(promo.Enddate.Value)   : (DateTime?)null,
             UsageLimit        = promo.Usagelimit,
             UsageCount        = promo.Usagecount,
             IsActive          = promo.Isactive,
-            CreatedAt         = promo.Createdat.HasValue ? VietnamTimeHelper.ToVietnamTime(promo.Createdat.Value) : (DateTime?)null,
+            CreatedAt         = promo.Createdat.HasValue ? TimeZoneHelper.ToUserTime(promo.Createdat.Value) : (DateTime?)null,
             RuntimeStatus     = ResolveRuntimeStatus(promo.Isactive, promo.Startdate, promo.Enddate, promo.Usagelimit, promo.Usagecount, now)
         };
     }

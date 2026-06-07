@@ -1,4 +1,4 @@
-using Microsoft.AspNetCore.Authorization;
+﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.Constants;
@@ -57,7 +57,7 @@ public class BookingController : ControllerBase
     [Authorize(Roles = UserRole.ParentOrStudent)]
     public async Task<IActionResult> GetTutorBookedSlots(string tutorId, [FromQuery] DateTime? startDate = null)
     {
-        var from  = startDate.HasValue ? startDate.Value : MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+        var from  = startDate.HasValue ? startDate.Value : MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
         var slots = await _bookingService.GetTutorBookedSlotsAsync(tutorId, from);
         return Ok(APIResponse<List<ScheduleItemResponse>>.Success(slots, "Lấy lịch đã đặt thành công."));
     }
