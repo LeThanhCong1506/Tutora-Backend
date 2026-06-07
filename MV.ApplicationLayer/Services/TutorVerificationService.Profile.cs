@@ -151,10 +151,7 @@ namespace MV.ApplicationLayer.Services
                 .OrderByDescending(c => c.Createdat)
                 .ToListAsync();
 
-            // Get availabilities — only slots within 30-day validity window (sorted by day and time)
-            const int availabilityValidDays = 30;
-            var today = DateOnly.FromDateTime(VietnamTimeHelper.Now);
-
+            // Get availabilities — all slots (sorted by day and time)
             var rawAvailabilities = await _dbContext.Tutoravailabilities
                 .AsNoTracking()
                 .Where(a => a.Tutorid == tutorId)
@@ -163,26 +160,40 @@ namespace MV.ApplicationLayer.Services
                 .ToListAsync();
 
             var availabilities = rawAvailabilities
-                .Select(a =>
+                .Select(a => new TutorAvailabilityResponse
                 {
-                    var createdVn = VietnamTimeHelper.ToVietnamTime(a.Createdat ?? MV.DomainLayer.Helpers.VietnamTimeHelper.Now);
-                    var validFrom = DateOnly.FromDateTime(createdVn);
-                    var validTo   = validFrom.AddDays(availabilityValidDays);
-                    return new TutorAvailabilityResponse
-                    {
-                        Availabilityid = a.Availabilityid,
-                        Tutorid        = a.Tutorid ?? string.Empty,
-                        Dayofweek      = a.Dayofweek ?? 0,
-                        Starttime      = a.Starttime?.ToString("HH:mm") ?? string.Empty,
-                        Endtime        = a.Endtime?.ToString("HH:mm") ?? string.Empty,
-                        Createdat      = VietnamTimeHelper.ToVietnamTime(a.Createdat ?? MV.DomainLayer.Helpers.VietnamTimeHelper.Now),
-                        ValidFrom      = validFrom,
-                        ValidTo        = validTo,
-                        IsActive       = today >= validFrom && today <= validTo
-                    };
+                    Availabilityid = a.Availabilityid,
+                    Tutorid        = a.Tutorid ?? string.Empty,
+                    Dayofweek      = a.Dayofweek ?? 1,  // Default to Monday (1) instead of Sunday (0)
+                    Starttime      = a.Starttime?.ToString("HH:mm") ?? string.Empty,
+                    Endtime        = a.Endtime?.ToString("HH:mm") ?? string.Empty,
+                    Createdat      = VietnamTimeHelper.ToVietnamTime(a.Createdat ?? MV.DomainLayer.Helpers.VietnamTimeHelper.Now)
                 })
-                .Where(r => r.IsActive)  // chỉ trả về slot còn trong cửa sổ hiệu lực trong vòng 30 ngày
                 .ToList();
+
+            // Get packages with fixed slots (only active packages)
+            var packages = await _dbContext.Tutorpackages
+                .AsNoTracking()
+                .Include(p => p.Tutorpackagefixedslots)
+                .Where(p => p.Tutorid == tutorId && p.Isactive)
+                .OrderBy(p => p.Createdat)
+                .ToListAsync();
+
+            var packageResponses = packages.Select(p => new TutorPackageResponse
+            {
+                PackageId = p.Packageid,
+                TutorId = p.Tutorid,
+                Name = p.Name,
+                PackageType = p.Packagetype,
+                IsActive = p.Isactive,
+                FixedSlots = p.Tutorpackagefixedslots.Select(fs => new TutorPackageFixedSlotResponse
+                {
+                    FixedSlotId = fs.Fixedslotid,
+                    DayOfWeek = fs.Dayofweek,
+                    StartTime = fs.Starttime.ToString("HH:mm"),
+                    EndTime = fs.Endtime.ToString("HH:mm")
+                }).ToList()
+            }).ToList();
 
             // Get feedbacks sent To this tutor (with reviewer info)
             var rawFeedbacksQuery = await _dbContext.Feedbacks
@@ -297,6 +308,9 @@ namespace MV.ApplicationLayer.Services
 
                 // Schedule
                 Availabilities = availabilities,
+
+                // Packages
+                Packages = packageResponses,
 
                 // Feedback Statistics
                 TotalFeedbacks = totalFeedbacks,

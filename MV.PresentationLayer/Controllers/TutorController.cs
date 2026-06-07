@@ -43,19 +43,6 @@ namespace MV.PresentationLayer.Controllers
             return Ok(APIResponse<TutorFullProfileResponse>.Success(result, "Lấy thông tin đầy đủ hồ sơ gia sư thành công."));
         }
 
-        [HttpGet("{id}")]
-        public async Task<IActionResult> GetTutorProfile(string id)
-        {
-            var result = await _tutorService.GetTutorProfileAsync(id);
-
-            if (result == null)
-            {
-                return NotFound(APIResponse<TutorProfileResponse>.Fail(ApiMessages.TutorProfileNotFound + ".", 404));
-            }
-
-            return Ok(APIResponse<TutorProfileResponse>.Success(result, "Lấy thông tin hồ sơ gia sư thành công."));
-        }
-
 
         [HttpGet("subjects/{id}")]
         public async Task<IActionResult> GetTutorsBySubject(int id, [FromQuery] UserParameters parameters)

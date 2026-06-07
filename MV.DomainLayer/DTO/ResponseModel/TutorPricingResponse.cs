@@ -22,6 +22,10 @@ namespace MV.DomainLayer.DTO.ResponseModel
 
         public decimal PricePerHour { get; set; }
 
+        public int DurationMinutesPerSession { get; set; }
+
+        public int SessionsPerWeek { get; set; }
+
         public string Currency { get; set; } = "VND";
 
         public bool IsActive { get; set; }

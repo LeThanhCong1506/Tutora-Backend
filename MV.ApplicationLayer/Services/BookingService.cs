@@ -68,11 +68,11 @@ public partial class BookingService(
         var totalSessions = ResolveTotalSessions(dto, package);
         var lessonSlots = package.Packagetype == Tutorpackage.FixedPackageType
             ? GenerateFixedPackageSlots(package, dto.StartDate, totalSessions)
-            : GenerateFlexibleSlots(dto, package, totalSessions);
+            : GenerateFlexibleSlots(dto, price.Durationminutespersession, totalSessions);
 
         await ValidateSlotsAsync(dto.TutorId, lessonSlots);
 
-        var totalAmount = Math.Round(price.Priceperhour * package.Durationminutespersession / 60m * totalSessions, 2);
+        var totalAmount = Math.Round(price.Priceperhour * price.Durationminutespersession / 60m * totalSessions, 2);
         int? promotionId = null;
         var discountApplied = 0m;
         if (!string.IsNullOrWhiteSpace(dto.PromotionCode))
@@ -102,7 +102,6 @@ public partial class BookingService(
             Promotionid = promotionId,
             Totalsessions = totalSessions,
             Sessionsremaining = totalSessions,
-            Durationminutespersession = package.Durationminutespersession,
             Priceperhour = price.Priceperhour,
             Totalamount = totalAmount,
             Currency = price.Currency,
@@ -368,9 +367,11 @@ public partial class BookingService(
             {
                 var startVn = VietnamTimeHelper.ToVietnamTime(l.Scheduledstart);
                 var endVn = VietnamTimeHelper.ToVietnamTime(l.Scheduledend);
+                // Convert C# DayOfWeek (0=Sunday, 1=Monday...) to ISO format (1=Monday, 7=Sunday)
+                var isoDayOfWeek = startVn.DayOfWeek == DayOfWeek.Sunday ? 7 : (int)startVn.DayOfWeek;
                 return new ScheduleItemResponse
                 {
-                    DayOfWeek = (int)startVn.DayOfWeek,
+                    DayOfWeek = isoDayOfWeek,
                     StartTime = startVn.ToString("HH:mm"),
                     EndTime = endVn.ToString("HH:mm")
                 };
@@ -379,17 +380,6 @@ public partial class BookingService(
             .ToList();
     }
 
-    private static string GetDayOfWeekVn(int dow) => dow switch
-    {
-        0 => "Chủ nhật",
-        1 => "Thứ Hai",
-        2 => "Thứ Ba",
-        3 => "Thứ Tư",
-        4 => "Thứ Năm",
-        5 => "Thứ Sáu",
-        6 => "Thứ Bảy",
-        _ => $"ngày {dow}"
-    };
 
     private async Task ValidateSlotsAsync(string tutorId, IReadOnlyList<LessonSlot> lessonSlots)
     {
@@ -397,7 +387,7 @@ public partial class BookingService(
             throw new BookingException(BookingErrorCodes.InvalidSchedule, "Không tìm thấy lịch học hợp lệ", 400);
 
         var tutorAvailabilities = await context.Tutoravailabilities
-            .Where(a => a.Tutorid == tutorId && a.Isactive)
+            .Where(a => a.Tutorid == tutorId)
             .ToListAsync();
 
         foreach (var slot in lessonSlots)
@@ -415,7 +405,10 @@ public partial class BookingService(
                 var validFrom = DateOnly.FromDateTime(VietnamTimeHelper.ToVietnamTime(a.Createdat ?? VietnamTimeHelper.Now));
                 var validTo = validFrom.AddDays(AvailabilityValidDays);
 
-                return a.Dayofweek.Value == (int)startVn.DayOfWeek
+                // Convert C# DayOfWeek (0=Sunday, 1=Monday...) to ISO format (1=Monday, 7=Sunday)
+                var isoDayOfWeek = startVn.DayOfWeek == DayOfWeek.Sunday ? 7 : (int)startVn.DayOfWeek;
+
+                return a.Dayofweek.Value == isoDayOfWeek
                     && a.Starttime.Value <= startTime
                     && a.Endtime.Value >= endTime
                     && bookingDate >= validFrom
@@ -475,7 +468,10 @@ public partial class BookingService(
 
         while (result.Count < totalSessions)
         {
-            foreach (var fixedSlot in fixedSlots.Where(s => s.Dayofweek == (int)currentDate.DayOfWeek))
+            // Convert C# DayOfWeek (0=Sunday, 1=Monday...) to ISO format (1=Monday, 7=Sunday)
+            var isoDayOfWeek = currentDate.DayOfWeek == DayOfWeek.Sunday ? 7 : (int)currentDate.DayOfWeek;
+
+            foreach (var fixedSlot in fixedSlots.Where(s => s.Dayofweek == isoDayOfWeek))
             {
                 if (result.Count >= totalSessions) break;
 
@@ -494,14 +490,14 @@ public partial class BookingService(
         return result;
     }
 
-    private static List<LessonSlot> GenerateFlexibleSlots(CreateBookingRequest dto, Tutorpackage package, int totalSessions)
+    private static List<LessonSlot> GenerateFlexibleSlots(CreateBookingRequest dto, int durationMinutes, int totalSessions)
     {
         var slots = dto.FlexibleSlots ?? [];
         if (slots.Count != totalSessions)
             throw new BookingException(BookingErrorCodes.InvalidSchedule,
                 $"Package linh hoạt yêu cầu chọn đúng {totalSessions} buổi học", 400);
 
-        var duration = TimeSpan.FromMinutes(package.Durationminutespersession);
+        var duration = TimeSpan.FromMinutes(durationMinutes);
         return slots
             .Select(s =>
             {
@@ -509,7 +505,7 @@ public partial class BookingService(
                 var end = VietnamTimeHelper.ToUtc(s.ScheduledEnd);
                 if (end <= start || Math.Abs((end - start - duration).TotalMinutes) > 1)
                     throw new BookingException(BookingErrorCodes.InvalidSchedule,
-                        $"Mỗi buổi học phải kéo dài {package.Durationminutespersession} phút", 400);
+                        $"Mỗi buổi học phải kéo dài {durationMinutes} phút", 400);
                 return new LessonSlot(start, end);
             })
             .OrderBy(s => s.Start)
@@ -574,7 +570,7 @@ public partial class BookingService(
             PackageType = b.Package?.Packagetype,
             SessionCount = b.Totalsessions ?? 0,
             TotalSessions = b.Totalsessions,
-            DurationMinutesPerSession = b.Durationminutespersession,
+            DurationMinutesPerSession = b.Tutorsubjectgradeprice?.Durationminutespersession ?? 60,
             Price = b.Totalamount,
             PricePerHour = b.Priceperhour,
             TotalAmount = b.Totalamount,
@@ -585,11 +581,16 @@ public partial class BookingService(
             Status = b.Status,
             PaymentStatus = b.Paymentstatus,
             PaymentCode = b.Paymentcode,
-            Schedule = lessons?.Select(l => new ScheduleItemResponse
+            Schedule = lessons?.Select(l => 
             {
-                DayOfWeek = (int)l.ScheduledStart.DayOfWeek,
-                StartTime = l.ScheduledStart.ToString("HH:mm"),
-                EndTime = l.ScheduledEnd.ToString("HH:mm")
+                // Convert C# DayOfWeek (0=Sunday, 1=Monday...) to ISO format (1=Monday, 7=Sunday)
+                var isoDayOfWeek = l.ScheduledStart.DayOfWeek == DayOfWeek.Sunday ? 7 : (int)l.ScheduledStart.DayOfWeek;
+                return new ScheduleItemResponse
+                {
+                    DayOfWeek = isoDayOfWeek,
+                    StartTime = l.ScheduledStart.ToString("HH:mm"),
+                    EndTime = l.ScheduledEnd.ToString("HH:mm")
+                };
             }).ToList(),
             Lessons = lessons,
             StartDate = b.Startdate,

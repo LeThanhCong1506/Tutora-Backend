@@ -279,11 +279,12 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
                 .HasColumnType("timestamp without time zone")
                 .HasColumnName("depositpaidat");
             entity.Property(e => e.Discountapplied)
-                .HasPrecision(12, 2)
-                .HasDefaultValueSql("0")
+                .HasPrecision(18, 2)
                 .HasColumnName("discountapplied");
+
             entity.Property(e => e.Escrowstatus)
-                .HasMaxLength(30)
+                .HasMaxLength(20)
+                .HasDefaultValueSql("'held'::character varying")
                 .HasColumnName("escrowstatus");
             entity.Property(e => e.Finalprice)
                 .HasPrecision(12, 2)
@@ -305,7 +306,7 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
                 .HasColumnName("locationward");
             entity.Property(e => e.Packageid).HasColumnName("packageid");
             entity.Property(e => e.Totalsessions).HasColumnName("totalsessions");
-            entity.Property(e => e.Durationminutespersession).HasColumnName("durationminutespersession");
+
             entity.Property(e => e.Priceperhour)
                 .HasPrecision(12, 2)
                 .HasColumnName("priceperhour");
@@ -1236,9 +1237,6 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
                 .HasColumnName("createdat");
             entity.Property(e => e.Dayofweek).HasColumnName("dayofweek");
             entity.Property(e => e.Endtime).HasColumnName("endtime");
-            entity.Property(e => e.Isactive)
-                .HasDefaultValue(true)
-                .HasColumnName("isactive");
             entity.Property(e => e.Starttime).HasColumnName("starttime");
             entity.Property(e => e.Tutorid)
                 .HasMaxLength(50)
@@ -1466,6 +1464,12 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnType("timestamp without time zone")
                 .HasColumnName("updatedat");
+            entity.Property(e => e.Durationminutespersession)
+                .HasDefaultValue(60)
+                .HasColumnName("durationminutespersession");
+            entity.Property(e => e.Sessionsperweek)
+                .HasDefaultValue(1)
+                .HasColumnName("sessionsperweek");
 
             entity.HasOne(d => d.Gradelevel).WithMany(p => p.Tutorsubjectgradeprices)
                 .HasForeignKey(d => d.Gradelevelid)
@@ -1494,8 +1498,6 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnType("timestamp without time zone")
                 .HasColumnName("createdat");
-            entity.Property(e => e.Description).HasColumnName("description");
-            entity.Property(e => e.Durationminutespersession).HasColumnName("durationminutespersession");
             entity.Property(e => e.Isactive)
                 .HasDefaultValue(true)
                 .HasColumnName("isactive");

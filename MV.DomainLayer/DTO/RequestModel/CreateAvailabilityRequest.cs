@@ -9,10 +9,10 @@ namespace MV.DomainLayer.DTO.RequestModel
     public class CreateAvailabilityRequest
     {
         /// <summary>
-        /// Day of week (0 = Sunday, 1 = Monday, ..., 6 = Saturday)
+        /// Day of week (1 = Monday, 2 = Tuesday, ..., 7 = Sunday)
         /// </summary>
         [Required(ErrorMessage = "Day of week is required")]
-        [Range(0, 6, ErrorMessage = "Day of week must be between 0 (Sunday) and 6 (Saturday)")]
+        [Range(1, 7, ErrorMessage = "Day of week must be between 1 (Monday) and 7 (Sunday)")]
         public int Dayofweek { get; set; }
 
         /// <summary>

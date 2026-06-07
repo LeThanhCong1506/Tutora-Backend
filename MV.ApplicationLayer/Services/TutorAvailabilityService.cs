@@ -14,11 +14,7 @@ namespace MV.ApplicationLayer.Services
     {
         private readonly IAppDbContext _context;
 
-        /// <summary>
-        /// Number of days a slot remains valid after creation.
-        /// After expiry the tutor must re-register the slot.
-        /// </summary>
-        private const int AvailabilityValidDays = 30;
+
 
         public TutorAvailabilityService(IAppDbContext context)
         {
@@ -42,7 +38,7 @@ namespace MV.ApplicationLayer.Services
 
             // Check for overlapping slots on the same day
             var existingSlots = await _context.Tutoravailabilities
-                .Where(a => a.Tutorid == tutorId && a.Dayofweek == request.Dayofweek && a.Isactive)
+                .Where(a => a.Tutorid == tutorId && a.Dayofweek == request.Dayofweek)
                 .ToListAsync();
 
             foreach (var slot in existingSlots)
@@ -76,101 +72,94 @@ namespace MV.ApplicationLayer.Services
         }
 
         /// <summary>
-        /// Get availability slots for a tutor that are currently active (within 30-day validity window).
-        /// Slots created more than 30 days ago are excluded — tutor must re-register them.
-        /// Past slots (before creation date) are never shown.
+        /// Add multiple availability slots at once with overlap validation
+        /// </summary>
+        public async Task<List<TutorAvailabilityResponse>> BulkAddAvailabilitiesAsync(string tutorId, BulkCreateAvailabilityRequest request)
+        {
+            var results = new List<TutorAvailabilityResponse>();
+            var newSlots = new List<Tutoravailability>();
+
+            // Get all existing slots for this tutor
+            var existingSlots = await _context.Tutoravailabilities
+                .Where(a => a.Tutorid == tutorId)
+                .ToListAsync();
+
+            // Parse and validate all new slots
+            foreach (var req in request.Availabilities)
+            {
+                var startTime = ParseTimeOnly(req.Starttime);
+                var endTime = ParseTimeOnly(req.Endtime);
+
+                // Business validation: starttime must be before endtime
+                if (startTime >= endTime)
+                {
+                    throw new ArgumentException($"Giờ bắt đầu phải trước giờ kết thúc (slot: {req.Starttime} - {req.Endtime}).");
+                }
+
+                // Check overlap with existing slots on the same day
+                var daySlots = existingSlots.Where(a => a.Dayofweek == req.Dayofweek).ToList();
+                foreach (var slot in daySlots)
+                {
+                    if (slot.Starttime.HasValue && slot.Endtime.HasValue)
+                    {
+                        if (startTime < slot.Endtime.Value && endTime > slot.Starttime.Value)
+                        {
+                            throw new InvalidOperationException(
+                                $"Time slot {req.Starttime}-{req.Endtime} overlaps with existing slot: {slot.Starttime.Value:HH:mm} - {slot.Endtime.Value:HH:mm}");
+                        }
+                    }
+                }
+
+                // Check overlap with other new slots in this batch
+                var conflictingNewSlot = newSlots.FirstOrDefault(ns =>
+                    ns.Dayofweek == req.Dayofweek &&
+                    ns.Starttime.HasValue && ns.Endtime.HasValue &&
+                    startTime < ns.Endtime.Value && endTime > ns.Starttime.Value);
+
+                if (conflictingNewSlot != null)
+                {
+                    throw new InvalidOperationException(
+                        $"Time slot {req.Starttime}-{req.Endtime} overlaps with another slot in the request: {conflictingNewSlot.Starttime.Value:HH:mm} - {conflictingNewSlot.Endtime.Value:HH:mm}");
+                }
+
+                // Create new availability entity
+                var availability = new Tutoravailability
+                {
+                    Tutorid = tutorId,
+                    Dayofweek = req.Dayofweek,
+                    Starttime = startTime,
+                    Endtime = endTime,
+                    Createdat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now
+                };
+
+                newSlots.Add(availability);
+            }
+
+            // All validations passed, add all slots to database
+            _context.Tutoravailabilities.AddRange(newSlots);
+            await _context.SaveChangesAsync();
+
+            // Map to response
+            results = newSlots.Select(MapToResponse).ToList();
+
+            return results;
+        }
+
+        /// <summary>
+        /// Get all availability slots for a tutor.
+        /// Returns all slots, ordered by day and start time.
         /// </summary>
         public async Task<List<TutorAvailabilityResponse>> GetAvailabilitiesAsync(string tutorId)
         {
             var allSlots = await _context.Tutoravailabilities
-                .Where(a => a.Tutorid == tutorId && a.Isactive)
+                .Where(a => a.Tutorid == tutorId)
                 .OrderBy(a => a.Dayofweek)
                 .ThenBy(a => a.Starttime)
                 .ToListAsync();
 
-            var today = DateOnly.FromDateTime(VietnamTimeHelper.Now);
-
-            // Chỉ trả về slot còn trong cửa sổ hiệu lực: [Createdat, Createdat + 30 ngày]
             return allSlots
-                .Where(a =>
-                {
-                    var validFrom = DateOnly.FromDateTime(
-                        VietnamTimeHelper.ToVietnamTime(a.Createdat ?? MV.DomainLayer.Helpers.VietnamTimeHelper.Now));
-                    var validTo = validFrom.AddDays(AvailabilityValidDays);
-                    return today >= validFrom && today <= validTo;
-                })
                 .Select(MapToResponse)
                 .ToList();
-        }
-
-        /// <summary>
-        /// Update an existing availability slot with overlap validation
-        /// </summary>
-        public async Task<TutorAvailabilityResponse> UpdateAvailabilityAsync(string tutorId, int availabilityId, UpdateAvailabilityRequest request)
-        {
-            // Parse time strings to TimeOnly — ParseTimeOnly handles "24:00" → 23:59
-            var startTime = ParseTimeOnly(request.Starttime);
-            var endTime = ParseTimeOnly(request.Endtime);
-
-            // Business validation: starttime must be before endtime
-            if (startTime >= endTime)
-            {
-                throw new ArgumentException("Giờ bắt đầu phải trước giờ kết thúc.");
-            }
-
-            var availability = await _context.Tutoravailabilities
-                .FirstOrDefaultAsync(a => a.Availabilityid == availabilityId);
-
-            if (availability == null)
-            {
-                throw new KeyNotFoundException("Không tìm thấy slot lịch học.");
-            }
-
-            // Security check: only owner can update
-            if (availability.Tutorid != tutorId)
-            {
-                throw new UnauthorizedAccessException("Bạn không có quyền cập nhật slot lịch học này.");
-            }
-
-            // ── Kiểm tra conflict: có lesson/reservation đang dùng slot hiện tại không ──
-            var oldDayOfWeek = availability.Dayofweek!.Value;
-            var oldSlotStart = availability.Starttime!.Value.ToTimeSpan();
-            var oldSlotEnd   = availability.Endtime!.Value.ToTimeSpan();
-
-            var hasUpcomingLessons = await HasFutureLessonInSlotAsync(tutorId, oldDayOfWeek, oldSlotStart, oldSlotEnd);
-
-            if (hasUpcomingLessons)
-                throw new InvalidOperationException(
-                    "Không thể chỉnh sửa khung giờ này vì đang có buổi học được đặt lịch. Vui lòng hủy booking trước khi thay đổi.");
-
-            // Check for overlapping slots on the same day (excluding the current one)
-            var existingSlots = await _context.Tutoravailabilities
-                .Where(a => a.Tutorid == tutorId && a.Dayofweek == request.Dayofweek && a.Availabilityid != availabilityId && a.Isactive)
-                .ToListAsync();
-
-            foreach (var slot in existingSlots)
-            {
-                if (slot.Starttime.HasValue && slot.Endtime.HasValue)
-                {
-                    // Check if new slot overlaps with existing slot
-                    if (startTime < slot.Endtime.Value && endTime > slot.Starttime.Value)
-                    {
-                        throw new InvalidOperationException(
-                            $"Time slot overlaps with existing slot: {slot.Starttime.Value:HH:mm} - {slot.Endtime.Value:HH:mm}");
-                    }
-                }
-            }
-
-            // Update availability entity
-            availability.Dayofweek = request.Dayofweek;
-            availability.Starttime = startTime;
-            availability.Endtime = endTime;
-            // CreatedAt remains unchanged
-
-            _context.Tutoravailabilities.Update(availability);
-            await _context.SaveChangesAsync();
-
-            return MapToResponse(availability);
         }
 
         /// <summary>
@@ -202,10 +191,55 @@ namespace MV.ApplicationLayer.Services
                 throw new InvalidOperationException(
                     "Không thể xóa khung giờ này vì đang có buổi học được đặt lịch. Vui lòng hủy booking trước khi xóa.");
 
-            availability.Isactive = false;
+            _context.Tutoravailabilities.Remove(availability);
             await _context.SaveChangesAsync();
 
             return true;
+        }
+
+        /// <summary>
+        /// Delete multiple availability slots at once (only owner can delete)
+        /// </summary>
+        public async Task<int> BulkDeleteAvailabilitiesAsync(string tutorId, BulkDeleteAvailabilityRequest request)
+        {
+            var availabilities = await _context.Tutoravailabilities
+                .Where(a => request.AvailabilityIds.Contains(a.Availabilityid))
+                .ToListAsync();
+
+            if (availabilities.Count == 0)
+            {
+                return 0; // No records found
+            }
+
+            // Security check: all slots must belong to the owner
+            var unauthorizedSlots = availabilities.Where(a => a.Tutorid != tutorId).ToList();
+            if (unauthorizedSlots.Any())
+            {
+                throw new UnauthorizedAccessException(
+                    $"Bạn không có quyền xóa {unauthorizedSlots.Count} slot(s) lịch học này.");
+            }
+
+            // Check for upcoming lessons in any of the slots
+            foreach (var availability in availabilities)
+            {
+                var slotDayOfWeek = availability.Dayofweek!.Value;
+                var slotStartTime = availability.Starttime!.Value.ToTimeSpan();
+                var slotEndTime = availability.Endtime!.Value.ToTimeSpan();
+
+                var hasUpcomingLessons = await HasFutureLessonInSlotAsync(tutorId, slotDayOfWeek, slotStartTime, slotEndTime);
+
+                if (hasUpcomingLessons)
+                {
+                    throw new InvalidOperationException(
+                        $"Không thể xóa khung giờ {availability.Starttime:HH:mm}-{availability.Endtime:HH:mm} (ngày {availability.Dayofweek}) vì đang có buổi học được đặt lịch. Vui lòng hủy booking trước khi xóa.");
+                }
+            }
+
+            // All validations passed, delete all slots
+            _context.Tutoravailabilities.RemoveRange(availabilities);
+            await _context.SaveChangesAsync();
+
+            return availabilities.Count;
         }
 
         /// <summary>
@@ -236,7 +270,9 @@ namespace MV.ApplicationLayer.Services
             {
                 var startVn = VietnamTimeHelper.ToVietnamTime(l.Scheduledstart);
                 var endVn = VietnamTimeHelper.ToVietnamTime(l.Scheduledend);
-                return (int)startVn.DayOfWeek == dayOfWeek
+                // Convert C# DayOfWeek (0=Sunday, 1=Monday...) to ISO format (1=Monday, 7=Sunday)
+                var isoDayOfWeek = startVn.DayOfWeek == DayOfWeek.Sunday ? 7 : (int)startVn.DayOfWeek;
+                return isoDayOfWeek == dayOfWeek
                     && startVn.TimeOfDay < slotEnd
                     && endVn.TimeOfDay > slotStart;
             });
@@ -244,27 +280,17 @@ namespace MV.ApplicationLayer.Services
 
         /// <summary>
         /// Map entity to response DTO.
-        /// Computes ValidFrom / ValidTo / IsActive from Createdat (converted to Vietnam time).
-        /// No extra DB columns needed.
         /// </summary>
         private static TutorAvailabilityResponse MapToResponse(Tutoravailability entity)
         {
-            var createdVn = VietnamTimeHelper.ToVietnamTime(entity.Createdat ?? MV.DomainLayer.Helpers.VietnamTimeHelper.Now);
-            var validFrom = DateOnly.FromDateTime(createdVn);
-            var validTo = validFrom.AddDays(AvailabilityValidDays);
-            var today = DateOnly.FromDateTime(VietnamTimeHelper.Now);
-
             return new TutorAvailabilityResponse
             {
                 Availabilityid = entity.Availabilityid,
                 Tutorid = entity.Tutorid ?? string.Empty,
-                Dayofweek = entity.Dayofweek ?? 0,
+                Dayofweek = entity.Dayofweek ?? 1,
                 Starttime = entity.Starttime?.ToString("HH:mm") ?? string.Empty,
                 Endtime = entity.Endtime?.ToString("HH:mm") ?? string.Empty,
-                Createdat = VietnamTimeHelper.ToVietnamTime(entity.Createdat ?? MV.DomainLayer.Helpers.VietnamTimeHelper.Now),
-                ValidFrom = validFrom,
-                ValidTo = validTo,
-                IsActive = today >= validFrom && today <= validTo
+                Createdat = VietnamTimeHelper.ToVietnamTime(entity.Createdat ?? MV.DomainLayer.Helpers.VietnamTimeHelper.Now)
             };
         }
     }

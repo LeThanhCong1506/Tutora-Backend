@@ -5,7 +5,8 @@ namespace MV.DomainLayer.DTO.RequestModel
     // Mô tả chi tiết một khung giờ rảnh
     public class WeeklyFreeTimeSlot
     {
-        [Range(0, 6, ErrorMessage = "Day of week must be 0 (Sun) to 6 (Sat).")]
+        /// <summary>Day of week (1 = Monday, 2 = Tuesday, ..., 7 = Sunday)</summary>
+        [Range(1, 7, ErrorMessage = "Day of week must be between 1 (Monday) and 7 (Sunday)")]
         public int DayOfWeek { get; set; }
 
         [Required(ErrorMessage = "Please provide the start time.")]

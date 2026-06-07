@@ -214,8 +214,6 @@ namespace MV.ApplicationLayer.Services
                 Tutorid = tutorId,
                 Name = request.Name.Trim(),
                 Packagetype = request.PackageType,
-                Durationminutespersession = request.DurationMinutesPerSession,
-                Description = request.Description,
                 Isactive = true,
                 Createdat = now,
                 Updatedat = now,
@@ -367,6 +365,8 @@ namespace MV.ApplicationLayer.Services
                 Subjectid = p.SubjectId,
                 Gradelevelid = p.GradeLevelId,
                 Priceperhour = p.PricePerHour,
+                Durationminutespersession = p.DurationMinutesPerSession,
+                Sessionsperweek = p.SessionsPerWeek,
                 Currency = string.IsNullOrWhiteSpace(p.Currency) ? "VND" : p.Currency!,
                 Isactive = p.IsActive
             });
@@ -382,6 +382,8 @@ namespace MV.ApplicationLayer.Services
                 GradeLevelId = price.Gradelevelid,
                 GradeLevelName = price.Gradelevel?.Gradename,
                 PricePerHour = price.Priceperhour,
+                DurationMinutesPerSession = price.Durationminutespersession,
+                SessionsPerWeek = price.Sessionsperweek,
                 Currency = price.Currency,
                 IsActive = price.Isactive
             };
@@ -399,11 +401,6 @@ namespace MV.ApplicationLayer.Services
                 throw new ArgumentException("PackageType phải là 1 (flexible) hoặc 2 (fixed)");
             }
 
-            if (request.DurationMinutesPerSession <= 0)
-            {
-                throw new ArgumentException("Thời lượng mỗi buổi phải lớn hơn 0 phút");
-            }
-
             if (request.PackageType == Tutorpackage.FixedPackageType && !request.FixedSlots.Any())
             {
                 throw new ArgumentException("Package fixed phải có ít nhất một fixed slot");
@@ -416,9 +413,9 @@ namespace MV.ApplicationLayer.Services
 
             foreach (var slot in request.FixedSlots)
             {
-                if (slot.DayOfWeek < 0 || slot.DayOfWeek > 6)
+                if (slot.DayOfWeek < 1 || slot.DayOfWeek > 7)
                 {
-                    throw new ArgumentException("DayOfWeek phải nằm trong khoảng 0-6");
+                    throw new ArgumentException("DayOfWeek phải nằm trong khoảng 1-7 (1=Monday, 7=Sunday)");
                 }
 
                 if (!TimeOnly.TryParse(slot.StartTime, out var start) || !TimeOnly.TryParse(slot.EndTime, out var end))
@@ -429,11 +426,6 @@ namespace MV.ApplicationLayer.Services
                 if (start >= end)
                 {
                     throw new ArgumentException("StartTime phải trước EndTime");
-                }
-
-                if ((int)(end - start).TotalMinutes != request.DurationMinutesPerSession)
-                {
-                    throw new ArgumentException("Thời lượng fixed slot phải bằng DurationMinutesPerSession");
                 }
             }
         }
@@ -446,8 +438,6 @@ namespace MV.ApplicationLayer.Services
                 TutorId = package.Tutorid,
                 Name = package.Name,
                 PackageType = package.Packagetype,
-                DurationMinutesPerSession = package.Durationminutespersession,
-                Description = package.Description,
                 IsActive = package.Isactive,
                 FixedSlots = package.Tutorpackagefixedslots
                     .OrderBy(s => s.Dayofweek)
