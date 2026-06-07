@@ -380,20 +380,6 @@ public partial class BookingService(
             .ToList();
     }
 
-    /// <summary>
-    /// Convert ISO 8601 day of week (1=Monday, 7=Sunday) to Vietnamese day name
-    /// </summary>
-    private static string GetDayOfWeekVn(int dow) => dow switch
-    {
-        1 => "Thứ Hai",
-        2 => "Thứ Ba",
-        3 => "Thứ Tư",
-        4 => "Thứ Năm",
-        5 => "Thứ Sáu",
-        6 => "Thứ Bảy",
-        7 => "Chủ nhật",
-        _ => $"ngày {dow}"
-    };
 
     private async Task ValidateSlotsAsync(string tutorId, IReadOnlyList<LessonSlot> lessonSlots)
     {
