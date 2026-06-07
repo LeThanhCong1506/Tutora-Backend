@@ -1,4 +1,4 @@
-using System.Linq;
+﻿using System.Linq;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using MV.DomainLayer.Entities;
@@ -86,8 +86,8 @@ namespace MV.InfrastructureLayer.Repositories
                     Priceperhour = 0,
                     Currency = "VND",
                     Isactive = false,
-                    Createdat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now,
-                    Updatedat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now
+                    Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow,
+                    Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
                 });
             await _context.Tutorsubjectgradeprices.AddRangeAsync(prices);
         }
@@ -97,7 +97,7 @@ namespace MV.InfrastructureLayer.Repositories
             var existing = _context.Tutorsubjectgradeprices.Where(p => p.Tutorid == tutorId);
             _context.Tutorsubjectgradeprices.RemoveRange(existing);
 
-            var now = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+            var now = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
             var newPrices = prices.Select(p =>
             {
                 p.Tutorid = tutorId;
@@ -216,7 +216,7 @@ namespace MV.InfrastructureLayer.Repositories
 
         public async Task<int> CountBankChangesInLastMonthAsync(string tutorId, CancellationToken cancellationToken = default)
         {
-            var oneMonthAgo = MV.DomainLayer.Helpers.VietnamTimeHelper.Now.AddMonths(-1);
+            var oneMonthAgo = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow.AddMonths(-1);
             return await _context.BankChangeLogs
                 .Where(log => log.Tutorid == tutorId && log.Changedat >= oneMonthAgo)
                 .CountAsync(cancellationToken);

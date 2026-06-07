@@ -4,8 +4,6 @@ using MV.DomainLayer.Entities;
 using MV.InfrastructureLayer.DBContext;
 using MV.ApplicationLayer.RepositoryInterfaces;
 using static MV.DomainLayer.Constants.LessonStatus;
-using static MV.DomainLayer.Helpers.VietnamTimeHelper;
-
 namespace MV.InfrastructureLayer.Repositories;
 
 public class LessonRepository(AgoraDbContext context) : ILessonRepository
@@ -95,7 +93,7 @@ public class LessonRepository(AgoraDbContext context) : ILessonRepository
 
         var total = await q.CountAsync();
 
-        // Load entities into memory first — ToVietnamTime() cannot be translated to SQL
+        // Load entities into memory first — MV.DomainLayer.Helpers.TimeZoneHelper.ToUserTime() cannot be translated to SQL
         var rawItems = await q
             .OrderByDescending(l => l.Scheduledstart)
             .Skip((page - 1) * pageSize).Take(pageSize)
@@ -105,9 +103,9 @@ public class LessonRepository(AgoraDbContext context) : ILessonRepository
         {
             LessonId        = l.Lessonid,
             Status          = l.Status,
-            ScheduledStart  = ToVietnamTime(l.Scheduledstart),
-            ScheduledEnd    = ToVietnamTime(l.Scheduledend),
-            ConfirmDeadline = l.Confirmdeadline.HasValue ? ToVietnamTime(l.Confirmdeadline.Value) : null,
+            ScheduledStart  = MV.DomainLayer.Helpers.TimeZoneHelper.ToUserTime(l.Scheduledstart),
+            ScheduledEnd    = MV.DomainLayer.Helpers.TimeZoneHelper.ToUserTime(l.Scheduledend),
+            ConfirmDeadline = l.Confirmdeadline.HasValue ? MV.DomainLayer.Helpers.TimeZoneHelper.ToUserTime(l.Confirmdeadline.Value) : null,
             LessonPrice     = l.Lessonprice,
             SubjectName     = l.Booking?.Subject?.Subjectname,
             TutorName       = l.Booking?.Tutor?.Tutor?.Fullname,
@@ -119,7 +117,7 @@ public class LessonRepository(AgoraDbContext context) : ILessonRepository
 
     public async Task<StudentLessonDetailResponse?> GetStudentLessonDetailAsync(int lessonId, string studentId)
     {
-        // Load entity into memory first — ToVietnamTime() cannot be translated to SQL
+        // Load entity into memory first — MV.DomainLayer.Helpers.TimeZoneHelper.ToUserTime() cannot be translated to SQL
         var lesson = await context.Lessons
             .AsNoTracking()
             .Include(l => l.Booking).ThenInclude(b => b!.Tutorsubjectgradeprice).ThenInclude(p => p!.Subject)
@@ -134,13 +132,13 @@ public class LessonRepository(AgoraDbContext context) : ILessonRepository
         {
             LessonId        = lesson.Lessonid,
             Status          = lesson.Status,
-            ScheduledStart  = ToVietnamTime(lesson.Scheduledstart),
-            ScheduledEnd    = ToVietnamTime(lesson.Scheduledend),
-            ConfirmDeadline = lesson.Confirmdeadline.HasValue ? ToVietnamTime(lesson.Confirmdeadline.Value) : null,
+            ScheduledStart  = MV.DomainLayer.Helpers.TimeZoneHelper.ToUserTime(lesson.Scheduledstart),
+            ScheduledEnd    = MV.DomainLayer.Helpers.TimeZoneHelper.ToUserTime(lesson.Scheduledend),
+            ConfirmDeadline = lesson.Confirmdeadline.HasValue ? MV.DomainLayer.Helpers.TimeZoneHelper.ToUserTime(lesson.Confirmdeadline.Value) : null,
             LessonPrice     = lesson.Lessonprice,
             MeetingLink     = lesson.Meetinglink,
-            CheckinTime     = lesson.Checkintime.HasValue  ? ToVietnamTime(lesson.Checkintime.Value)  : null,
-            CheckoutTime    = lesson.Checkouttime.HasValue ? ToVietnamTime(lesson.Checkouttime.Value) : null,
+            CheckinTime     = lesson.Checkintime.HasValue  ? MV.DomainLayer.Helpers.TimeZoneHelper.ToUserTime(lesson.Checkintime.Value)  : null,
+            CheckoutTime    = lesson.Checkouttime.HasValue ? MV.DomainLayer.Helpers.TimeZoneHelper.ToUserTime(lesson.Checkouttime.Value) : null,
             SubjectName     = lesson.Booking?.Subject?.Subjectname,
             TutorName       = lesson.Booking?.Tutor?.Tutor?.Fullname,
             TutorAvatar     = lesson.Booking?.Tutor?.Tutor?.Avatarurl,
@@ -156,7 +154,7 @@ public class LessonRepository(AgoraDbContext context) : ILessonRepository
 
     public async Task<IReadOnlyList<StudentLessonSummaryResponse>> GetStudentPendingLessonsAsync(string studentId)
     {
-        // Load entities into memory first — ToVietnamTime() cannot be translated to SQL
+        // Load entities into memory first — MV.DomainLayer.Helpers.TimeZoneHelper.ToUserTime() cannot be translated to SQL
         var rawItems = await context.Lessons
             .AsNoTracking()
             .Include(l => l.Booking).ThenInclude(b => b!.Tutorsubjectgradeprice).ThenInclude(p => p!.Subject)
@@ -169,9 +167,9 @@ public class LessonRepository(AgoraDbContext context) : ILessonRepository
         {
             LessonId        = l.Lessonid,
             Status          = l.Status,
-            ScheduledStart  = ToVietnamTime(l.Scheduledstart),
-            ScheduledEnd    = ToVietnamTime(l.Scheduledend),
-            ConfirmDeadline = l.Confirmdeadline.HasValue ? ToVietnamTime(l.Confirmdeadline.Value) : null,
+            ScheduledStart  = MV.DomainLayer.Helpers.TimeZoneHelper.ToUserTime(l.Scheduledstart),
+            ScheduledEnd    = MV.DomainLayer.Helpers.TimeZoneHelper.ToUserTime(l.Scheduledend),
+            ConfirmDeadline = l.Confirmdeadline.HasValue ? MV.DomainLayer.Helpers.TimeZoneHelper.ToUserTime(l.Confirmdeadline.Value) : null,
             SubjectName     = l.Booking?.Subject?.Subjectname,
             TutorName       = l.Booking?.Tutor?.Tutor?.Fullname,
             BookingId       = l.Bookingid
