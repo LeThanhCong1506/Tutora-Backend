@@ -31,8 +31,6 @@ public partial class Booking
 
     public int? Totalsessions { get; set; }
 
-    public int? Durationminutespersession { get; set; }
-
     [NotMapped]
     public string? Packagetype { get; set; }
 

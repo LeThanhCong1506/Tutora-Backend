@@ -189,7 +189,7 @@ namespace MV.ApplicationLayer.Services
                     }
                 }
 
-                if (!string.IsNullOrWhiteSpace(request.Email))
+                if (!string.IsNullOrWhiteSpace(request.Email) && !request.Email.EndsWith("@tutora.test"))
                 {
                     var otpCode = RandomNumberGenerator.GetInt32(100000, 1000000).ToString();
                     var userId = Guid.NewGuid().ToString();

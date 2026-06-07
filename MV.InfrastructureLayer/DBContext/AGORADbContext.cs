@@ -279,11 +279,12 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
                 .HasColumnType("timestamp without time zone")
                 .HasColumnName("depositpaidat");
             entity.Property(e => e.Discountapplied)
-                .HasPrecision(12, 2)
-                .HasDefaultValueSql("0")
+                .HasPrecision(18, 2)
                 .HasColumnName("discountapplied");
+
             entity.Property(e => e.Escrowstatus)
-                .HasMaxLength(30)
+                .HasMaxLength(20)
+                .HasDefaultValueSql("'held'::character varying")
                 .HasColumnName("escrowstatus");
             entity.Property(e => e.Finalprice)
                 .HasPrecision(12, 2)
@@ -305,7 +306,7 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
                 .HasColumnName("locationward");
             entity.Property(e => e.Packageid).HasColumnName("packageid");
             entity.Property(e => e.Totalsessions).HasColumnName("totalsessions");
-            entity.Property(e => e.Durationminutespersession).HasColumnName("durationminutespersession");
+
             entity.Property(e => e.Priceperhour)
                 .HasPrecision(12, 2)
                 .HasColumnName("priceperhour");
