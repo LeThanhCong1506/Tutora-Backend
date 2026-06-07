@@ -48,7 +48,6 @@ namespace MV.DomainLayer.DTO.ResponseModel
         public string? TeachingAreaCity { get; set; }
         public string? TeachingAreaDistrict { get; set; }
         public string? TeachingMode { get; set; }
-        public List<SubjectInfo>? Subjects { get; set; }
     }
 
     public class SubjectInfo

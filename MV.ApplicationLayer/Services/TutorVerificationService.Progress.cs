@@ -25,7 +25,7 @@ namespace MV.ApplicationLayer.Services
                 Sections = new VerificationSections
                 {
                     Video = BuildVideoSection(profile),
-                    BasicInfo = BuildBasicInfoSection(profile, subjects, user),
+                    BasicInfo = BuildBasicInfoSection(profile, user),
                     Introduction = BuildIntroductionSection(profile),
                     Certificates = BuildCertificatesSection(certificates, profile),
                     IdentityCard = await BuildIdentityCardSectionAsync(user),
@@ -47,11 +47,9 @@ namespace MV.ApplicationLayer.Services
             };
         }
 
-        private static BasicInfoSection BuildBasicInfoSection(Tutorprofile? profile, List<Tutorsubject>? subjects, User user)
+        private static BasicInfoSection BuildBasicInfoSection(Tutorprofile? profile, User user)
         {
-            var hasHeadline = !string.IsNullOrWhiteSpace(profile?.Headline);
-            var hasSubjects = subjects != null && subjects.Count > 0;
-            var isComplete = hasHeadline && hasSubjects;
+            var isComplete = !string.IsNullOrWhiteSpace(profile?.Headline);
 
             return new BasicInfoSection
             {
@@ -61,14 +59,7 @@ namespace MV.ApplicationLayer.Services
                 Headline = profile?.Headline,
                 TeachingAreaCity = profile?.Teachingareacity,
                 TeachingAreaDistrict = profile?.Teachingareadistrict,
-                TeachingMode = TeachingMode.Online,
-                Subjects = subjects?.Select(s => new SubjectInfo
-                {
-                    SubjectId = s.Subjectid ?? 0,
-                    SubjectName = s.Subject?.Subjectname,
-                    GradeLevels = s.Gradelevels,
-                    Tags = s.Tags
-                }).ToList()
+                TeachingMode = TeachingMode.Online
             };
         }
 

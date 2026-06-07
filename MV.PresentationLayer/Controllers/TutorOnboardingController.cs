@@ -121,63 +121,7 @@ namespace MV.PresentationLayer.Controllers
                 errors.Add("Quận/huyện là bắt buộc.");
             }
 
-            // Validate Subjects
-            if (request.Subjects == null || request.Subjects.Count == 0)
-            {
-                errors.Add("Phải có ít nhất 1 môn học.");
-            }
-            else
-            {
-                if (request.Subjects.Count > 5)
-                {
-                    errors.Add("Tối đa 5 môn học.");
-                }
 
-                for (int i = 0; i < request.Subjects.Count; i++)
-                {
-                    var subject = request.Subjects[i];
-                    if (subject.SubjectId <= 0)
-                    {
-                        errors.Add($"Môn học [{i + 1}]: ID môn học không hợp lệ.");
-                    }
-                    if (subject.GradeLevels == null || subject.GradeLevels.Count == 0)
-                    {
-                        errors.Add($"Môn học [{i + 1}]: Phải có ít nhất 1 cấp lớp.");
-                    }
-                    if (subject.Tags == null || subject.Tags.Count == 0)
-                    {
-                        errors.Add($"Môn học [{i + 1}]: Phải có ít nhất 1 thẻ tag.");
-                    }
-                    else
-                    {
-                        if (subject.Tags.Count > 10)
-                        {
-                            errors.Add($"Môn học [{i + 1}]: Tối đa 10 thẻ tag.");
-                        }
-                        var emptyTags = subject.Tags.Where(t => string.IsNullOrWhiteSpace(t)).Count();
-                        if (emptyTags > 0)
-                        {
-                            errors.Add($"Môn học [{i + 1}]: Có {emptyTags} thẻ tag trống hoặc chứa khoảng trắng.");
-                        }
-                        var longTags = subject.Tags.Where(t => !string.IsNullOrWhiteSpace(t) && t.Length > 50).Count();
-                        if (longTags > 0)
-                        {
-                            errors.Add($"Môn học [{i + 1}]: Có {longTags} thẻ tag vượt quá 50 ký tự.");
-                        }
-                    }
-                }
-
-                // Check duplicate subjects
-                var duplicateSubjects = request.Subjects
-                    .GroupBy(s => s.SubjectId)
-                    .Where(g => g.Count() > 1)
-                    .Select(g => g.Key)
-                    .ToList();
-                if (duplicateSubjects.Any())
-                {
-                    errors.Add($"Các môn học bị trùng: {string.Join(", ", duplicateSubjects)}.");
-                }
-            }
 
             // Return all validation errors if any
             if (errors.Any())

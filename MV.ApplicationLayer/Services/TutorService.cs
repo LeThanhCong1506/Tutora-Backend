@@ -88,34 +88,7 @@ namespace MV.ApplicationLayer.Services
             profile.Teachingareadistrict = request.TeachingAreaDistrict;
             profile.Updatedat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
 
-            // Subjects — delete old, insert new
-            var existingSubjects = await _unitOfWork.TutorRepository.GetTutorSubjectsByTutorIdAsync(userId);
-            if (existingSubjects != null && existingSubjects.Any())
-            {
-                _unitOfWork.TutorRepository.DeleteTutorSubjects(existingSubjects);
-                await _unitOfWork.SaveChangesAsync();
-            }
 
-            var requestedSubjectIds = request.Subjects.Select(s => s.SubjectId).Distinct().ToList();
-            var existingSubjectIds = await _unitOfWork.TutorRepository.GetExistingSubjectIdsAsync(requestedSubjectIds);
-            var invalidIds = requestedSubjectIds.Except(existingSubjectIds).ToList();
-            if (invalidIds.Any())
-            {
-                throw new ArgumentException($"Subject IDs không tồn tại: {string.Join(", ", invalidIds)}");
-            }
-
-            var newSubjects = request.Subjects.Select(s => new Tutorsubject
-            {
-                Tutorid = userId,
-                Subjectid = s.SubjectId,
-                Gradelevels = JsonSerializer.Serialize(s.GradeLevels),
-                Tags = s.Tags != null && s.Tags.Any() ? JsonSerializer.Serialize(s.Tags) : null
-            }).ToList();
-
-            if (newSubjects.Any())
-            {
-                await _unitOfWork.TutorRepository.CreateTutorSubjectsAsync(newSubjects);
-            }
 
             await _unitOfWork.SaveChangesAsync();
             await TryAutoActivateProfileAsync(userId);
