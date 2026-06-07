@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.Constants;
@@ -50,7 +50,7 @@ public class WarningService : IWarningService
             Reason = request.Reason,
             Relatedbookingid = request.RelatedBookingId,
             Issuedby = issuedBy,
-            Createdat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now
+            Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
         };
 
         _warningRepo.AddWarning(warning);
@@ -76,13 +76,13 @@ public class WarningService : IWarningService
             Reason = warning.Reason,
             IssuedByName = issuer?.Fullname,
             RelatedBookingId = warning.Relatedbookingid,
-            CreatedAt = warning.Createdat.HasValue ? VietnamTimeHelper.ToVietnamTime(warning.Createdat.Value) : (DateTime?)null
+            CreatedAt = warning.Createdat.HasValue ? TimeZoneHelper.ToUserTime(warning.Createdat.Value) : (DateTime?)null
         };
     }
 
     public async Task<bool> CheckAndApplySuspensionAsync(string userId)
     {
-        var now = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+        var now = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
         var thirtyDaysAgo = now.AddDays(-30);
 
         var isSuspended = await _warningRepo.HasActiveSuspensionAsync(userId);
@@ -143,7 +143,7 @@ public class WarningService : IWarningService
             SuspensionType = activeSuspension != null
                 ? (activeSuspension.Enddate.HasValue ? SuspensionType.Temporary : SuspensionType.Permanent)
                 : null,
-            SuspensionEndDate = activeSuspension?.Enddate.HasValue == true ? VietnamTimeHelper.ToVietnamTime(activeSuspension.Enddate.Value) : (DateTime?)null,
+            SuspensionEndDate = activeSuspension?.Enddate.HasValue == true ? TimeZoneHelper.ToUserTime(activeSuspension.Enddate.Value) : (DateTime?)null,
             Warnings = warnings.Select(w => new WarningHistoryResponse
             {
                 WarningId = w.Warningid,
@@ -151,7 +151,7 @@ public class WarningService : IWarningService
                 Reason = w.Reason,
                 IssuedByName = w.IssuedbyNavigation?.Fullname,
                 RelatedBookingId = w.Relatedbookingid,
-                CreatedAt = w.Createdat.HasValue ? VietnamTimeHelper.ToVietnamTime(w.Createdat.Value) : (DateTime?)null
+                CreatedAt = w.Createdat.HasValue ? TimeZoneHelper.ToUserTime(w.Createdat.Value) : (DateTime?)null
             }).ToList()
         };
     }
@@ -171,7 +171,7 @@ public class WarningService : IWarningService
             foreach (var existing in existingSuspensions)
                 existing.Isactive = false;
 
-            var now = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+            var now = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
             DateTime? endDate = suspensionType == SuspensionType.Temporary && durationDays > 0
                 ? now.AddDays(durationDays)
                 : null;
@@ -221,8 +221,8 @@ public class WarningService : IWarningService
                 UserEmail = user.Email,
                 SuspensionType = suspensionType,
                 Reason = reason,
-                StartDate = VietnamTimeHelper.ToVietnamTime(now),
-                EndDate = endDate.HasValue ? VietnamTimeHelper.ToVietnamTime(endDate.Value) : (DateTime?)null,
+                StartDate = TimeZoneHelper.ToUserTime(now),
+                EndDate = endDate.HasValue ? TimeZoneHelper.ToUserTime(endDate.Value) : (DateTime?)null,
                 CreatedByName = creatorName,
                 IsActive = true
             };
@@ -242,7 +242,7 @@ public class WarningService : IWarningService
         if (suspension == null) return false;
 
         suspension.Isactive = false;
-        suspension.Enddate = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+        suspension.Enddate = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 
         var user = await _userRepo.GetUserByIdAsync(userId);
         if (user != null) user.Status = 1;
@@ -268,8 +268,8 @@ public class WarningService : IWarningService
             UserEmail = s.User?.Email,
             SuspensionType = s.Suspensiontype,
             Reason = s.Reason,
-            StartDate = s.Startdate.HasValue ? VietnamTimeHelper.ToVietnamTime(s.Startdate.Value) : (DateTime?)null,
-            EndDate = s.Enddate.HasValue ? VietnamTimeHelper.ToVietnamTime(s.Enddate.Value) : (DateTime?)null,
+            StartDate = s.Startdate.HasValue ? TimeZoneHelper.ToUserTime(s.Startdate.Value) : (DateTime?)null,
+            EndDate = s.Enddate.HasValue ? TimeZoneHelper.ToUserTime(s.Enddate.Value) : (DateTime?)null,
                     CreatedByName = s.CreatedbyNavigation?.Fullname ?? SystemActors.DisplayName,
             IsActive = s.Isactive
         }).ToList();
@@ -279,7 +279,7 @@ public class WarningService : IWarningService
 
     public async Task<int> ProcessAutoUnsuspendAsync(CancellationToken ct = default)
     {
-        var expiredSuspensions = await _warningRepo.GetExpiredActiveSuspensionsAsync(MV.DomainLayer.Helpers.VietnamTimeHelper.Now);
+        var expiredSuspensions = await _warningRepo.GetExpiredActiveSuspensionsAsync(MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow);
         var count = 0;
 
         foreach (var suspension in expiredSuspensions)

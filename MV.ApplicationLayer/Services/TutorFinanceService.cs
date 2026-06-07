@@ -1,4 +1,4 @@
-using Hangfire;
+﻿using Hangfire;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using MV.ApplicationLayer.JobHandlers;
@@ -55,14 +55,14 @@ public class TutorFinanceService(
             FrozenBalance = wallet.Frozenbalance ?? 0,
             TotalEarned = totalEarned,
             PendingSettlement = pendingSettlement,
-            LastWithdrawalAt = lastWithdrawal.HasValue ? VietnamTimeHelper.ToVietnamTime(lastWithdrawal.Value) : (DateTime?)null
+            LastWithdrawalAt = lastWithdrawal.HasValue ? TimeZoneHelper.ToUserTime(lastWithdrawal.Value) : (DateTime?)null
         };
     }
 
     public async Task<EarningsResponse> GetEarningsAsync(string tutorId, string period, DateTime? from, DateTime? to, CancellationToken ct = default)
     {
-        from ??= MV.DomainLayer.Helpers.VietnamTimeHelper.Now.AddMonths(-6);
-        to ??= MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+        from ??= MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow.AddMonths(-6);
+        to ??= MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 
         var transactions = await context.Wallettransactions
             .AsNoTracking()
@@ -138,7 +138,7 @@ public class TutorFinanceService(
             Amount = t.Amount ?? 0,
             TransactionType = t.Transactiontype ?? string.Empty,
             Description = t.Description ?? string.Empty,
-            CreatedAt = VietnamTimeHelper.ToVietnamTime(t.Createdat ?? MV.DomainLayer.Helpers.VietnamTimeHelper.Now)
+            CreatedAt = TimeZoneHelper.ToUserTime(t.Createdat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow)
         }).ToList();
 
         return new TransactionHistoryPagedResponse
@@ -169,7 +169,7 @@ public class TutorFinanceService(
             Description = raw.Description ?? string.Empty,
             ReferenceId = raw.Referenceid,
             ReferenceTable = raw.Referencetable,
-            CreatedAt = VietnamTimeHelper.ToVietnamTime(raw.Createdat ?? MV.DomainLayer.Helpers.VietnamTimeHelper.Now)
+            CreatedAt = TimeZoneHelper.ToUserTime(raw.Createdat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow)
         };
     }
 
@@ -189,7 +189,7 @@ public class TutorFinanceService(
             AccountNumber = tutor.Bankaccountnumber,
             AccountHolderName = tutor.Bankaccountname,
             IsVerified = tutor.Isbankverified ?? false,
-            BankChangedAt = tutor.Bankchangedat.HasValue ? VietnamTimeHelper.ToVietnamTime(tutor.Bankchangedat.Value) : (DateTime?)null
+            BankChangedAt = tutor.Bankchangedat.HasValue ? TimeZoneHelper.ToUserTime(tutor.Bankchangedat.Value) : (DateTime?)null
         };
     }
 
@@ -203,8 +203,8 @@ public class TutorFinanceService(
         tutor.Bankaccountnumber = request.AccountNumber;
         tutor.Bankaccountname = request.AccountHolderName;
         tutor.Isbankverified = false;
-        tutor.Bankchangedat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
-        tutor.Updatedat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+        tutor.Bankchangedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
+        tutor.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 
         await context.SaveChangesAsync(ct);
 
@@ -216,7 +216,7 @@ public class TutorFinanceService(
             AccountNumber = tutor.Bankaccountnumber,
             AccountHolderName = tutor.Bankaccountname,
             IsVerified = tutor.Isbankverified ?? false,
-            BankChangedAt = tutor.Bankchangedat.HasValue ? VietnamTimeHelper.ToVietnamTime(tutor.Bankchangedat.Value) : (DateTime?)null
+            BankChangedAt = tutor.Bankchangedat.HasValue ? TimeZoneHelper.ToUserTime(tutor.Bankchangedat.Value) : (DateTime?)null
         };
     }
 
@@ -288,7 +288,7 @@ public class TutorFinanceService(
                 throw new BankNotVerifiedException();
 
             wallet.Balance -= request.Amount;
-            wallet.Lastupdated = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+            wallet.Lastupdated = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 
             var withdrawalStatus = approvalDecision.Decision switch
             {
@@ -307,7 +307,7 @@ public class TutorFinanceService(
                 Accountholdername = tutor.Bankaccountname,
                 Status = withdrawalStatus,
                 Decision = approvalDecision.Decision,
-                Requestedat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now
+                Requestedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
             };
 
             context.Withdrawalrequests.Add(withdrawal);
@@ -318,7 +318,7 @@ public class TutorFinanceService(
                 Amount = -request.Amount,
                 Transactiontype = TransactionType.Withdrawal,
                 Description = "Withdrawal request",
-                Createdat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now
+                Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
             };
 
             context.Wallettransactions.Add(walletTransaction);
@@ -380,8 +380,8 @@ public class TutorFinanceService(
                 BankName = withdrawal.Bankname,
                 AccountNumber = withdrawal.Accountnumber,
                 AccountHolderName = withdrawal.Accountholdername,
-                RequestedAt = VietnamTimeHelper.ToVietnamTime(withdrawal.Requestedat ?? MV.DomainLayer.Helpers.VietnamTimeHelper.Now),
-                ProcessedAt = withdrawal.Processedat.HasValue ? VietnamTimeHelper.ToVietnamTime(withdrawal.Processedat.Value) : (DateTime?)null
+                RequestedAt = TimeZoneHelper.ToUserTime(withdrawal.Requestedat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow),
+                ProcessedAt = withdrawal.Processedat.HasValue ? TimeZoneHelper.ToUserTime(withdrawal.Processedat.Value) : (DateTime?)null
             };
         }
         catch
@@ -411,8 +411,8 @@ public class TutorFinanceService(
             WithdrawalId = w.Withdrawalid,
             Amount = w.Amount ?? 0,
             Status = w.Status ?? string.Empty,
-            RequestedAt = VietnamTimeHelper.ToVietnamTime(w.Requestedat ?? MV.DomainLayer.Helpers.VietnamTimeHelper.Now),
-            ProcessedAt = w.Processedat.HasValue ? VietnamTimeHelper.ToVietnamTime(w.Processedat.Value) : (DateTime?)null
+            RequestedAt = TimeZoneHelper.ToUserTime(w.Requestedat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow),
+            ProcessedAt = w.Processedat.HasValue ? TimeZoneHelper.ToUserTime(w.Processedat.Value) : (DateTime?)null
         }).ToList();
 
         return new WithdrawalListResponse
@@ -443,8 +443,8 @@ public class TutorFinanceService(
             BankName = raw.Bankname,
             AccountNumber = raw.Accountnumber,
             AccountHolderName = raw.Accountholdername,
-            RequestedAt = VietnamTimeHelper.ToVietnamTime(raw.Requestedat ?? MV.DomainLayer.Helpers.VietnamTimeHelper.Now),
-            ProcessedAt = raw.Processedat.HasValue ? VietnamTimeHelper.ToVietnamTime(raw.Processedat.Value) : (DateTime?)null
+            RequestedAt = TimeZoneHelper.ToUserTime(raw.Requestedat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow),
+            ProcessedAt = raw.Processedat.HasValue ? TimeZoneHelper.ToUserTime(raw.Processedat.Value) : (DateTime?)null
         };
     }
 
@@ -471,10 +471,10 @@ public class TutorFinanceService(
                 throw new WalletNotFoundException();
 
             wallet.Balance += withdrawal.Amount ?? 0;
-            wallet.Lastupdated = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+            wallet.Lastupdated = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 
             withdrawal.Status = WithdrawalStatus.Cancelled;
-            withdrawal.Processedat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+            withdrawal.Processedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 
             var refundTransaction = new Wallettransaction
             {
@@ -482,7 +482,7 @@ public class TutorFinanceService(
                 Amount = withdrawal.Amount ?? 0,
                 Transactiontype = TransactionType.Refund,
                 Description = $"Cancelled withdrawal #{withdrawalId}",
-                Createdat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now
+                Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
             };
 
             context.Wallettransactions.Add(refundTransaction);

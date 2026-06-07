@@ -1,4 +1,4 @@
-using MV.DomainLayer.Constants;
+﻿using MV.DomainLayer.Constants;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using MV.ApplicationLayer.ServiceInterfaces;
@@ -296,7 +296,7 @@ namespace MV.PresentationLayer.Controllers
             {
                 message = "Test notification sent successfully.",
                 userId = userId,
-                timestamp = MV.DomainLayer.Helpers.VietnamTimeHelper.Now
+                timestamp = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
             });
         }
     }

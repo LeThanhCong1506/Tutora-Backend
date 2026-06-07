@@ -1,4 +1,4 @@
-using Microsoft.AspNetCore.Http;
+﻿using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO.RequestModel;
@@ -84,7 +84,7 @@ namespace MV.ApplicationLayer.Services
             var videoUrl = await _storageService.UploadFileAsync(VideoBucket, userId, request.VideoFile);
 
             profile.Videointrourl = videoUrl;
-            profile.Updatedat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+            profile.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 
             await _unitOfWork.SaveChangesAsync();
 

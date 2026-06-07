@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.Logging;
 using MV.ApplicationLayer.ServiceInterfaces;
@@ -130,7 +130,7 @@ namespace MV.ApplicationLayer.Services
                 var ekycData = new
                 {
                     OcrResult = resultData,
-                    VerifiedAt = MV.DomainLayer.Helpers.VietnamTimeHelper.Now
+                    VerifiedAt = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
                 };
                 user.Ekycrawdata = JsonSerializer.Serialize(ekycData);
 
@@ -229,7 +229,7 @@ namespace MV.ApplicationLayer.Services
                 {
                     var oldStatus = profile.Profilestatus;
                     profile.Profilestatus = newStatus;
-                    profile.Updatedat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+                    profile.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 
                     if (string.Equals(newStatus, TutorProfileStatus.Active, StringComparison.OrdinalIgnoreCase))
                     {
@@ -325,7 +325,7 @@ namespace MV.ApplicationLayer.Services
             }
 
             profile.Profilestatus = TutorProfileStatus.PendingApproval;
-            profile.Updatedat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+            profile.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 
             await _unitOfWork.SaveChangesAsync();
 

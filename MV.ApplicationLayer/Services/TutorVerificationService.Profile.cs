@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Distributed;
 using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO.ResponseModel;
@@ -80,7 +80,7 @@ namespace MV.ApplicationLayer.Services
                     CredentialId = c.Credentialid,
                     CredentialUrl = c.Credentialurl,
                     CertificateFileUrl = c.Certificatefileurl,
-                    CreatedAt = VietnamTimeHelper.ToVietnamTime(c.Createdat ?? MV.DomainLayer.Helpers.VietnamTimeHelper.Now),
+                    CreatedAt = TimeZoneHelper.ToUserTime(c.Createdat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow),
                     VerificationStatus = c.Verificationstatus,
                     VerificationNote = c.Verificationnote
                 }).ToList(),
@@ -167,7 +167,7 @@ namespace MV.ApplicationLayer.Services
                     Dayofweek      = a.Dayofweek ?? 0,
                     Starttime      = a.Starttime?.ToString("HH:mm") ?? string.Empty,
                     Endtime        = a.Endtime?.ToString("HH:mm") ?? string.Empty,
-                    Createdat      = VietnamTimeHelper.ToVietnamTime(a.Createdat ?? MV.DomainLayer.Helpers.VietnamTimeHelper.Now),
+                    Createdat      = TimeZoneHelper.ToUserTime(a.Createdat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow),
                     IsActive       = a.Isactive
                 })
                 .ToList();
@@ -207,8 +207,8 @@ namespace MV.ApplicationLayer.Services
                 Rating = f.Rating,
                 Comment = f.Comment,
                 ReplyComment = f.ReplyComment,
-                RepliedAt = f.RepliedAt.HasValue ? VietnamTimeHelper.ToVietnamTime(f.RepliedAt.Value) : (DateTime?)null,
-                CreatedAt = f.CreatedAt.HasValue ? VietnamTimeHelper.ToVietnamTime(f.CreatedAt.Value) : (DateTime?)null,
+                RepliedAt = f.RepliedAt.HasValue ? TimeZoneHelper.ToUserTime(f.RepliedAt.Value) : (DateTime?)null,
+                CreatedAt = f.CreatedAt.HasValue ? TimeZoneHelper.ToUserTime(f.CreatedAt.Value) : (DateTime?)null,
                 InitialGoal = f.InitialGoal,
                 ActualResult = f.ActualResult,
                 CourseDuration = f.CourseDuration
@@ -276,7 +276,7 @@ namespace MV.ApplicationLayer.Services
                     CredentialId = c.Credentialid,
                     CredentialUrl = c.Credentialurl,
                     CertificateFileUrl = c.Certificatefileurl,
-                    CreatedAt = VietnamTimeHelper.ToVietnamTime(c.Createdat ?? MV.DomainLayer.Helpers.VietnamTimeHelper.Now),
+                    CreatedAt = TimeZoneHelper.ToUserTime(c.Createdat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow),
                     VerificationStatus = c.Verificationstatus,
                     VerificationNote = c.Verificationnote
                 }).ToList(),
@@ -303,7 +303,7 @@ namespace MV.ApplicationLayer.Services
                     TotalLessons = b.Lessons?.Count ?? 0,
                     CompletedLessons = b.Lessons?.Count(l => l.Status == Completed || l.Status == PendingConfirmation) ?? 0,
                     Status = b.Status,
-                    StartDate = b.Startdate.HasValue ? VietnamTimeHelper.ToVietnamTime(b.Startdate.Value) : (DateTime?)null
+                    StartDate = b.Startdate.HasValue ? TimeZoneHelper.ToUserTime(b.Startdate.Value) : (DateTime?)null
                 }).ToList()
             };
 

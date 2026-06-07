@@ -1,4 +1,4 @@
-using MV.DomainLayer.Constants;
+﻿using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO.RequestModel;
 using MV.DomainLayer.DTO.ResponseModel;
 using MV.DomainLayer.Entities;
@@ -50,7 +50,7 @@ namespace MV.ApplicationLayer.Services
                 profile.Profilestatus = TutorProfileStatus.PendingApproval;
             }
 
-            profile.Updatedat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+            profile.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
             await _unitOfWork.UserRepository.UpdateTutorProfileAsync(profile);
             await _unitOfWork.SaveChangesAsync();
         }
@@ -80,7 +80,7 @@ namespace MV.ApplicationLayer.Services
                     Dayofweek = slot.DayOfWeek,
                     Starttime = startTime,
                     Endtime = endTime,
-                    Createdat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now
+                    Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
                 });
             }
 
@@ -127,7 +127,7 @@ namespace MV.ApplicationLayer.Services
             {
                 profile.Rejectionnote = null;
                 profile.Reviewedby = ApprovalStatusText.AdminReviewer;
-                profile.Reviewedat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+                profile.Reviewedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 
                 // Approve all pending certificates
                 var certificates = await _unitOfWork.TutorRepository.GetCertificatesByTutorIdAsync(tutorId);
@@ -138,7 +138,7 @@ namespace MV.ApplicationLayer.Services
                     {
                         cert.Verificationstatus = CertificateStatus.Verified;
                         cert.Verificationnote = ApprovalStatusText.NoteApprovedByAdmin;
-                        cert.Updatedat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+                        cert.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
                     }
                 }
 
@@ -168,7 +168,7 @@ namespace MV.ApplicationLayer.Services
                 statusText = ApprovalStatusText.Rejected;
             }
 
-            profile.Updatedat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+            profile.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
             await _unitOfWork.UserRepository.UpdateTutorProfileAsync(profile);
             await _unitOfWork.SaveChangesAsync();
 

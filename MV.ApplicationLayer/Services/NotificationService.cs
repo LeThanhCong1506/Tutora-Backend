@@ -1,4 +1,4 @@
-using Microsoft.AspNetCore.SignalR;
+﻿using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Logging;
 using MV.ApplicationLayer.Hubs;
 using MV.ApplicationLayer.ServiceInterfaces;
@@ -39,7 +39,7 @@ namespace MV.ApplicationLayer.Services
                     {
                         Status = NotificationStatus.Failed,
                         Message = "Không tìm thấy người dùng.",
-                        Timestamp = VietnamTimeHelper.UtcNow
+                        Timestamp = TimeZoneHelper.UtcNow
                     };
                 }
 
@@ -51,7 +51,7 @@ namespace MV.ApplicationLayer.Services
                     Type = request.Type,
                     Referenceid = request.Referenceid,
                     Isread = false,
-                    Createdat = VietnamTimeHelper.UtcNow
+                    Createdat = TimeZoneHelper.UtcNow
                 };
 
                 await _unitOfWork.NotificationRepository.CreateNotificationAsync(notification);
@@ -66,7 +66,7 @@ namespace MV.ApplicationLayer.Services
                 {
                     Status = NotificationStatus.Success,
                     Message = "Tạo thông báo thành công.",
-                    Timestamp = VietnamTimeHelper.UtcNow
+                    Timestamp = TimeZoneHelper.UtcNow
                 };
             }
             catch (Exception ex)
@@ -76,7 +76,7 @@ namespace MV.ApplicationLayer.Services
                 {
                     Status = NotificationStatus.Failed,
                     Message = $"Lỗi khi tạo thông báo: {ex.Message}",
-                    Timestamp = VietnamTimeHelper.UtcNow
+                    Timestamp = TimeZoneHelper.UtcNow
                 };
             }
         }
@@ -91,7 +91,7 @@ namespace MV.ApplicationLayer.Services
                     {
                         Status = NotificationStatus.Failed,
                         Message = "Không có thông báo nào để tạo.",
-                        Timestamp = VietnamTimeHelper.UtcNow
+                        Timestamp = TimeZoneHelper.UtcNow
                     };
                 }
 
@@ -107,7 +107,7 @@ namespace MV.ApplicationLayer.Services
                         Type = request.Type,
                         Referenceid = request.Referenceid,
                         Isread = false,
-                        Createdat = VietnamTimeHelper.UtcNow
+                        Createdat = TimeZoneHelper.UtcNow
                     };
 
                     notifications.Add(notification);
@@ -119,7 +119,7 @@ namespace MV.ApplicationLayer.Services
                     {
                         Status = NotificationStatus.Failed,
                         Message = "Không có thông báo hợp lệ nào để tạo.",
-                        Timestamp = VietnamTimeHelper.UtcNow
+                        Timestamp = TimeZoneHelper.UtcNow
                     };
                 }
 
@@ -137,7 +137,7 @@ namespace MV.ApplicationLayer.Services
                 {
                     Status = NotificationStatus.Success,
                     Message = $"Đã tạo và gửi {notifications.Count} thông báo thành công.",
-                    Timestamp = VietnamTimeHelper.UtcNow
+                    Timestamp = TimeZoneHelper.UtcNow
                 };
             }
             catch (Exception ex)
@@ -147,7 +147,7 @@ namespace MV.ApplicationLayer.Services
                 {
                     Status = NotificationStatus.Failed,
                     Message = $"Lỗi khi tạo thông báo hàng loạt: {ex.Message}",
-                    Timestamp = VietnamTimeHelper.UtcNow
+                    Timestamp = TimeZoneHelper.UtcNow
                 };
             }
         }
@@ -210,7 +210,7 @@ namespace MV.ApplicationLayer.Services
                     {
                         Status = NotificationStatus.Failed,
                         Message = "Không tìm thấy thông báo.",
-                        Timestamp = VietnamTimeHelper.UtcNow
+                        Timestamp = TimeZoneHelper.UtcNow
                     };
                 }
 
@@ -220,7 +220,7 @@ namespace MV.ApplicationLayer.Services
                     {
                         Status = NotificationStatus.Failed,
                         Message = "Bạn không có quyền đánh dấu thông báo này là đã đọc.",
-                        Timestamp = VietnamTimeHelper.UtcNow
+                        Timestamp = TimeZoneHelper.UtcNow
                     };
                 }
 
@@ -235,7 +235,7 @@ namespace MV.ApplicationLayer.Services
                 {
                     Status = NotificationStatus.Success,
                     Message = "Đã đánh dấu thông báo là đã đọc.",
-                    Timestamp = VietnamTimeHelper.UtcNow
+                    Timestamp = TimeZoneHelper.UtcNow
                 };
             }
             catch (Exception ex)
@@ -244,7 +244,7 @@ namespace MV.ApplicationLayer.Services
                 {
                     Status = NotificationStatus.Failed,
                     Message = $"Lỗi khi đánh dấu thông báo là đã đọc: {ex.Message}",
-                    Timestamp = VietnamTimeHelper.UtcNow
+                    Timestamp = TimeZoneHelper.UtcNow
                 };
             }
         }
@@ -262,7 +262,7 @@ namespace MV.ApplicationLayer.Services
                 {
                     Status = NotificationStatus.Success,
                     Message = "Đã đánh dấu tất cả thông báo là đã đọc.",
-                    Timestamp = VietnamTimeHelper.UtcNow
+                    Timestamp = TimeZoneHelper.UtcNow
                 };
             }
             catch (Exception ex)
@@ -271,7 +271,7 @@ namespace MV.ApplicationLayer.Services
                 {
                     Status = NotificationStatus.Failed,
                     Message = $"Lỗi khi đánh dấu tất cả thông báo là đã đọc: {ex.Message}",
-                    Timestamp = VietnamTimeHelper.UtcNow
+                    Timestamp = TimeZoneHelper.UtcNow
                 };
             }
         }
@@ -286,7 +286,7 @@ namespace MV.ApplicationLayer.Services
                     {
                         Status = NotificationStatus.Failed,
                         Message = "Notification type is required.",
-                        Timestamp = VietnamTimeHelper.UtcNow
+                        Timestamp = TimeZoneHelper.UtcNow
                     };
                 }
 
@@ -299,7 +299,7 @@ namespace MV.ApplicationLayer.Services
                 {
                     Status = NotificationStatus.Success,
                     Message = "Marked notifications of the selected type as read.",
-                    Timestamp = VietnamTimeHelper.UtcNow
+                    Timestamp = TimeZoneHelper.UtcNow
                 };
             }
             catch (Exception ex)
@@ -308,7 +308,7 @@ namespace MV.ApplicationLayer.Services
                 {
                     Status = NotificationStatus.Failed,
                     Message = $"Error marking notifications as read by type: {ex.Message}",
-                    Timestamp = VietnamTimeHelper.UtcNow
+                    Timestamp = TimeZoneHelper.UtcNow
                 };
             }
         }
@@ -325,7 +325,7 @@ namespace MV.ApplicationLayer.Services
                     {
                         Status = NotificationStatus.Failed,
                         Message = "Không tìm thấy thông báo.",
-                        Timestamp = VietnamTimeHelper.UtcNow
+                        Timestamp = TimeZoneHelper.UtcNow
                     };
                 }
 
@@ -335,7 +335,7 @@ namespace MV.ApplicationLayer.Services
                     {
                         Status = NotificationStatus.Failed,
                         Message = "Bạn không có quyền xóa thông báo này.",
-                        Timestamp = VietnamTimeHelper.UtcNow
+                        Timestamp = TimeZoneHelper.UtcNow
                     };
                 }
 
@@ -347,7 +347,7 @@ namespace MV.ApplicationLayer.Services
                     {
                         Status = NotificationStatus.Failed,
                         Message = "Xóa thông báo thất bại.",
-                        Timestamp = VietnamTimeHelper.UtcNow
+                        Timestamp = TimeZoneHelper.UtcNow
                     };
                 }
 
@@ -357,7 +357,7 @@ namespace MV.ApplicationLayer.Services
                 {
                     Status = NotificationStatus.Success,
                     Message = "Xóa thông báo thành công.",
-                    Timestamp = VietnamTimeHelper.UtcNow
+                    Timestamp = TimeZoneHelper.UtcNow
                 };
             }
             catch (Exception ex)
@@ -366,7 +366,7 @@ namespace MV.ApplicationLayer.Services
                 {
                     Status = NotificationStatus.Failed,
                     Message = $"Lỗi khi xóa thông báo: {ex.Message}",
-                    Timestamp = VietnamTimeHelper.UtcNow
+                    Timestamp = TimeZoneHelper.UtcNow
                 };
             }
         }
@@ -383,7 +383,7 @@ namespace MV.ApplicationLayer.Services
                     {
                         Status = NotificationStatus.Failed,
                         Message = "Không tìm thấy thông báo nào để xóa.",
-                        Timestamp = VietnamTimeHelper.UtcNow
+                        Timestamp = TimeZoneHelper.UtcNow
                     };
                 }
 
@@ -391,7 +391,7 @@ namespace MV.ApplicationLayer.Services
                 {
                     Status = NotificationStatus.Success,
                     Message = "Đã xóa tất cả thông báo thành công.",
-                    Timestamp = VietnamTimeHelper.UtcNow
+                    Timestamp = TimeZoneHelper.UtcNow
                 };
             }
             catch (Exception ex)
@@ -400,7 +400,7 @@ namespace MV.ApplicationLayer.Services
                 {
                     Status = NotificationStatus.Failed,
                     Message = $"Lỗi khi xóa tất cả thông báo: {ex.Message}",
-                    Timestamp = VietnamTimeHelper.UtcNow
+                    Timestamp = TimeZoneHelper.UtcNow
                 };
             }
         }
@@ -415,11 +415,11 @@ namespace MV.ApplicationLayer.Services
                     {
                         Status = NotificationStatus.Failed,
                         Message = "Số ngày phải ít nhất là 1.",
-                        Timestamp = VietnamTimeHelper.UtcNow
+                        Timestamp = TimeZoneHelper.UtcNow
                     };
                 }
 
-                var beforeDate = VietnamTimeHelper.UtcNow.AddDays(-daysOld);
+                var beforeDate = TimeZoneHelper.UtcNow.AddDays(-daysOld);
                 var result = await _unitOfWork.NotificationRepository.DeleteOldNotificationsAsync(beforeDate);
 
                 if (!result)
@@ -428,7 +428,7 @@ namespace MV.ApplicationLayer.Services
                     {
                         Status = NotificationStatus.Success,
                         Message = "Không tìm thấy thông báo cũ nào để xóa.",
-                        Timestamp = VietnamTimeHelper.UtcNow
+                        Timestamp = TimeZoneHelper.UtcNow
                     };
                 }
 
@@ -436,7 +436,7 @@ namespace MV.ApplicationLayer.Services
                 {
                     Status = NotificationStatus.Success,
                     Message = $"Đã xóa các thông báo cũ hơn {daysOld} ngày thành công.",
-                    Timestamp = VietnamTimeHelper.UtcNow
+                    Timestamp = TimeZoneHelper.UtcNow
                 };
             }
             catch (Exception ex)
@@ -445,7 +445,7 @@ namespace MV.ApplicationLayer.Services
                 {
                     Status = NotificationStatus.Failed,
                     Message = $"Lỗi khi xóa thông báo cũ: {ex.Message}",
-                    Timestamp = VietnamTimeHelper.UtcNow
+                    Timestamp = TimeZoneHelper.UtcNow
                 };
             }
         }
@@ -463,7 +463,7 @@ namespace MV.ApplicationLayer.Services
                 Referenceid = notification.Referenceid,
                 Isread = notification.Isread,
                 Createdat = notification.Createdat.HasValue
-                                     ? VietnamTimeHelper.ToVietnamTime(notification.Createdat.Value)
+                                     ? TimeZoneHelper.ToUserTime(notification.Createdat.Value)
                                      : (DateTime?)null,
                 // Username có thể null nếu user đăng ký bằng email/phone — fallback về Fullname
                 Username     = notification.User?.Username ?? notification.User?.Fullname,

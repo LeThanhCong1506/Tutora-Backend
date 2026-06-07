@@ -1,4 +1,4 @@
-using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Logging;
 using MV.ApplicationLayer.Helpers;
 using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO.ResponseModel;
@@ -38,7 +38,7 @@ public partial class PaymentService
         if (booking.Status != BookingStatus.Accepted && booking.Status != BookingStatus.PendingPayment)
             throw new BookingException(BookingErrorCodes.InvalidBookingStatus, "Booking chưa ở trạng thái sẵn sàng để thanh toán", 409);
 
-        if (booking.Paymentdueat <= MV.DomainLayer.Helpers.VietnamTimeHelper.Now)
+        if (booking.Paymentdueat <= MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow)
             throw new BookingException(BookingErrorCodes.BookingExpired, "Booking đã quá hạn thanh toán", 409);
 
         var depositAmount = (int)(booking.Depositamount ?? 0);
@@ -79,7 +79,7 @@ public partial class PaymentService
 
         var orderCode = OrderCodeHelper.GenerateBookingOrderCode(bookingId);
         booking.Status = BookingStatus.PendingPayment;
-        booking.Updatedat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+        booking.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 
         var wallet = await walletRepo.GetByUserIdAsNoTrackingAsync(userId);
         var expiredAt = booking.Paymentdueat.HasValue

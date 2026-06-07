@@ -1,4 +1,4 @@
-using Microsoft.AspNetCore.Http;
+﻿using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO.RequestModel;
@@ -34,7 +34,7 @@ namespace MV.ApplicationLayer.Services
             // Validate year issued (if provided)
             if (request.YearIssued.HasValue)
             {
-                var currentYear = MV.DomainLayer.Helpers.VietnamTimeHelper.Now.Year;
+                var currentYear = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow.Year;
                 if (request.YearIssued < 1900 || request.YearIssued > currentYear)
                 {
                     throw new ArgumentException($"Năm cấp phải nằm trong khoảng 1900 đến {currentYear}");
@@ -59,8 +59,8 @@ namespace MV.ApplicationLayer.Services
                 Credentialid = request.CredentialId,
                 Credentialurl = request.CredentialUrl,
                 Certificatefileurl = certificateFileUrl,
-                Createdat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now,
-                Updatedat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now
+                Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow,
+                Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
             };
 
             // Save certificate to DB first
@@ -141,7 +141,7 @@ namespace MV.ApplicationLayer.Services
             certificate.Verificationnote = validationSummary.IsValid
                 ? "Auto-verified by system"
                 : string.Join("; ", validationSummary.Errors);
-            certificate.Updatedat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+            certificate.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 
             await _unitOfWork.SaveChangesAsync();
 
@@ -158,7 +158,7 @@ namespace MV.ApplicationLayer.Services
                 {
                     profile.Profilestatus = TutorProfileStatus.Active;
                     profile.Ispublic = true;
-                    profile.Updatedat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+                    profile.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
                     await _unitOfWork.SaveChangesAsync();
                     isProfileActivated = true;
 
@@ -211,7 +211,7 @@ namespace MV.ApplicationLayer.Services
                 certificate.Certificatefileurl = newFileUrl;
             }
 
-            certificate.Updatedat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+            certificate.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
             await _unitOfWork.SaveChangesAsync();
 
             return MapToCertificateResponse(certificate);
@@ -261,7 +261,7 @@ namespace MV.ApplicationLayer.Services
                 CredentialId = certificate.Credentialid,
                 CredentialUrl = certificate.Credentialurl,
                 CertificateFileUrl = certificate.Certificatefileurl,
-                CreatedAt = VietnamTimeHelper.ToVietnamTime(certificate.Createdat ?? MV.DomainLayer.Helpers.VietnamTimeHelper.Now),
+                CreatedAt = TimeZoneHelper.ToUserTime(certificate.Createdat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow),
                 VerificationStatus = certificate.Verificationstatus,
                 VerificationNote = certificate.Verificationnote
             };
