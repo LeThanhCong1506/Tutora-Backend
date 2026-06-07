@@ -292,7 +292,7 @@ public partial class LessonService : ILessonService
                 TutorId = lesson.Tutor.Tutorid,
                 FullName = lesson.Tutor.Tutor.Fullname,
                 AvatarUrl = lesson.Tutor.Tutor.Avatarurl,
-                HourlyRate = lesson.Tutor.Hourlyrate
+                HourlyRate = lesson.Booking?.Priceperhour
             } : null
         };
     }

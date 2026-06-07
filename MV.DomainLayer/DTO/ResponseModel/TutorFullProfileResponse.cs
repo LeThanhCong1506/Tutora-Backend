@@ -31,11 +31,6 @@ namespace MV.DomainLayer.DTO.ResponseModel
         // --- Certificates ---
         public List<CertificateResponse>? Certificates { get; set; }
 
-        // --- Pricing ---
-        public decimal? HourlyRate { get; set; }
-        public decimal? TrialLessonPrice { get; set; }
-        public bool? AllowPriceNegotiation { get; set; }
-
         // --- Schedule (Tutor Availability) ---
         public List<TutorAvailabilityResponse>? Availabilities { get; set; }
 

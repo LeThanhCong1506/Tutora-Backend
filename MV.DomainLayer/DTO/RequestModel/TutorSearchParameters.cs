@@ -107,16 +107,6 @@ namespace MV.DomainLayer.DTO.RequestModel
         /// </summary>
         public string? VerificationStatus { get; set; }
 
-        /// <summary>
-        /// Only show tutors with trial lesson available
-        /// </summary>
-        public bool? HasTrialLesson { get; set; }
-
-        /// <summary>
-        /// Only show tutors who allow price negotiation
-        /// </summary>
-        public bool? AllowPriceNegotiation { get; set; }
-
         // ==================== SORTING (Figma: SORT BY dropdown) ====================
 
         /// <summary>

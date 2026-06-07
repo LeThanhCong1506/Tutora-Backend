@@ -148,8 +148,7 @@ namespace MV.ApplicationLayer.Services
             {
                 TutorId = profile.Tutorid,
                 Headline = profile.Headline,
-                Bio = profile.Bio,
-                HourlyRate = profile.Hourlyrate
+                Bio = profile.Bio
             };
         }
 

@@ -83,8 +83,5 @@ namespace MV.DomainLayer.DTO.ResponseModel
 
     public class PricingSection : BaseSectionInfo
     {
-        public decimal? HourlyRate { get; set; }
-        public decimal? TrialLessonPrice { get; set; }
-        public bool? AllowPriceNegotiation { get; set; }
     }
 }

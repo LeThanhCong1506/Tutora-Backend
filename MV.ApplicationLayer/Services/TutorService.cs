@@ -55,7 +55,6 @@ namespace MV.ApplicationLayer.Services
             {
                 Headline = tutorEntity.Headline,
                 Bio = tutorEntity.Bio,
-                HourlyRate = tutorEntity.Hourlyrate,
                 Education = tutorEntity.Education,
                 Experience = tutorEntity.Experience,
                 Gpa = tutorEntity.Gpa,
@@ -172,24 +171,13 @@ namespace MV.ApplicationLayer.Services
             var profile = await _unitOfWork.TutorRepository.GetTutorProfileByIdAsync(userId);
             if (profile == null) return false;
 
-            var priceRequests = request.SubjectGradePrices.Any()
-                ? request.SubjectGradePrices
-                : request.SubjectIds.Select(subjectId => new TutorSubjectGradePriceRequest
-                {
-                    SubjectId = subjectId,
-                    GradeLevelId = 1,
-                    PricePerHour = request.HourlyRate,
-                    Currency = "VND",
-                    IsActive = request.HourlyRate > 0
-                }).ToList();
-
-            await ValidateSubjectGradePricesAsync(priceRequests);
+            await ValidateSubjectGradePricesAsync(request.SubjectGradePrices);
 
             profile.Updatedat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
 
             await _unitOfWork.TutorRepository.ReplaceTutorSubjectGradePricesAsync(
                 userId,
-                MapSubjectGradePriceRequests(userId, priceRequests));
+                MapSubjectGradePriceRequests(userId, request.SubjectGradePrices));
 
             await _unitOfWork.SaveChangesAsync();
             await TryAutoActivateProfileAsync(userId);
@@ -205,9 +193,6 @@ namespace MV.ApplicationLayer.Services
 
             return new TutorPricingResponse
             {
-                HourlyRate = profile.Hourlyrate,
-                TrialLessonPrice = profile.Triallessonprice,
-                AllowPriceNegotiation = profile.Allowpricenegotiation,
                 SubjectGradePrices = profile.Tutorsubjectgradeprices.Select(MapSubjectGradePriceResponse).ToList()
             };
         }
@@ -217,46 +202,18 @@ namespace MV.ApplicationLayer.Services
             var profile = await _unitOfWork.TutorRepository.GetTutorProfileByIdAsync(tutorId);
             if (profile == null) return false;
 
-            var usesNewPricing = request.SubjectGradePrices.Any();
-            if (!usesNewPricing && (request.HourlyRate < 50000 || request.HourlyRate > 2000000))
+            if (!request.SubjectGradePrices.Any())
             {
-                throw new ArgumentException("Giá theo giờ phải nằm trong khoảng 50,000 - 2,000,000 VND");
+                throw new ArgumentException("Cần ít nhất một giá theo môn và lớp");
             }
 
-            if (usesNewPricing)
-            {
-                await ValidateSubjectGradePricesAsync(request.SubjectGradePrices);
-            }
+            await ValidateSubjectGradePricesAsync(request.SubjectGradePrices);
 
-            var effectiveHourlyRate = usesNewPricing
-                ? request.SubjectGradePrices.Where(p => p.IsActive).Select(p => (decimal?)p.PricePerHour).Min()
-                : request.HourlyRate;
-
-            if (request.TrialLessonPrice.HasValue && effectiveHourlyRate.HasValue && request.TrialLessonPrice.Value > effectiveHourlyRate.Value)
-            {
-                throw new ArgumentException("Giá buổi học thử phải thấp hơn hoặc bằng giá theo giờ");
-            }
-
-            profile.Triallessonprice = request.TrialLessonPrice;
-            profile.Allowpricenegotiation = request.AllowPriceNegotiation;
             profile.Updatedat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
 
-            if (usesNewPricing)
-            {
-                await _unitOfWork.TutorRepository.ReplaceTutorSubjectGradePricesAsync(
-                    tutorId,
-                    MapSubjectGradePriceRequests(tutorId, request.SubjectGradePrices));
-            }
-            else
-            {
-                var existingPrices = await _unitOfWork.TutorRepository.GetTutorSubjectGradePricesAsync(tutorId);
-                foreach (var price in existingPrices)
-                {
-                    price.Priceperhour = request.HourlyRate;
-                    price.Isactive = request.HourlyRate > 0;
-                    price.Updatedat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
-                }
-            }
+            await _unitOfWork.TutorRepository.ReplaceTutorSubjectGradePricesAsync(
+                tutorId,
+                MapSubjectGradePriceRequests(tutorId, request.SubjectGradePrices));
 
             await _unitOfWork.SaveChangesAsync();
             await TryAutoActivateProfileAsync(tutorId);

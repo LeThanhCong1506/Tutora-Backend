@@ -55,23 +55,6 @@ namespace MV.DomainLayer.DTO.ResponseModel
         /// </summary>
         public List<TutorSubjectInfo>? Subjects { get; set; }
 
-        // === Pricing ===
-        /// <summary>
-        /// Price per session (HỌC PHÍ/BUỔI in Figma)
-        /// Displayed as "$45", "$60" etc.
-        /// </summary>
-        public decimal? HourlyRate { get; set; }
-
-        /// <summary>
-        /// Trial lesson price (if available)
-        /// </summary>
-        public decimal? TrialLessonPrice { get; set; }
-
-        /// <summary>
-        /// Whether tutor allows price negotiation
-        /// </summary>
-        public bool? AllowPriceNegotiation { get; set; }
-
         // === Location & Mode ===
         public string? TeachingAreaCity { get; set; }
         public string? TeachingAreaDistrict { get; set; }

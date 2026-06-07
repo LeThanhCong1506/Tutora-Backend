@@ -182,10 +182,7 @@ namespace MV.ApplicationLayer.Services
             return new PricingSection
             {
                 Status = hasHourlyRate ? SectionStatus.Updated : SectionStatus.InProgress,
-                UpdatedAt = hasHourlyRate && profile?.Updatedat != null ? VietnamTimeHelper.ToVietnamTime(profile.Updatedat.Value) : (DateTime?)null,
-                HourlyRate = hourlyRate,
-                TrialLessonPrice = profile?.Triallessonprice,
-                AllowPriceNegotiation = profile?.Allowpricenegotiation
+                UpdatedAt = hasHourlyRate && profile?.Updatedat != null ? VietnamTimeHelper.ToVietnamTime(profile.Updatedat.Value) : (DateTime?)null
             };
         }
     }

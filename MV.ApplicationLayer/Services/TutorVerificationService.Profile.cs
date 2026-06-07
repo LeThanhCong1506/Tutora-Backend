@@ -39,10 +39,6 @@ namespace MV.ApplicationLayer.Services
             var subjects = await _unitOfWork.TutorRepository.GetTutorSubjectsByTutorIdAsync(tutorId);
             var certificates = await _unitOfWork.TutorRepository.GetCertificatesByTutorIdAsync(tutorId);
             var prices = await _unitOfWork.TutorRepository.GetTutorSubjectGradePricesAsync(tutorId);
-            var hourlyRate = prices.Where(p => p.Isactive)
-                .OrderBy(p => p.Priceperhour)
-                .Select(p => (decimal?)p.Priceperhour)
-                .FirstOrDefault();
 
             var response = new TutorProfilePreviewResponse
             {
@@ -89,10 +85,7 @@ namespace MV.ApplicationLayer.Services
                     VerificationNote = c.Verificationnote
                 }).ToList(),
 
-                // Pricing
-                HourlyRate = hourlyRate,
-                TrialLessonPrice = profile.Triallessonprice,
-                AllowPriceNegotiation = profile.Allowpricenegotiation
+                // Pricing — removed (see SubjectGradePrices per subject)
             };
 
             // Cache the result
@@ -150,10 +143,6 @@ namespace MV.ApplicationLayer.Services
                 .Include(ts => ts.Gradelevel)
                 .Where(ts => ts.Tutorid == tutorId)
                 .ToListAsync();
-            var hourlyRate = subjects.Where(p => p.Isactive)
-                .OrderBy(p => p.Priceperhour)
-                .Select(p => (decimal?)p.Priceperhour)
-                .FirstOrDefault();
 
             // Fetch certificates
             var certificates = await _dbContext.Tutorcertificates
@@ -304,10 +293,7 @@ namespace MV.ApplicationLayer.Services
                     VerificationNote = c.Verificationnote
                 }).ToList(),
 
-                // Pricing
-                HourlyRate = hourlyRate,
-                TrialLessonPrice = profile.Triallessonprice,
-                AllowPriceNegotiation = profile.Allowpricenegotiation,
+                // Pricing — removed (see SubjectGradePrices per subject)
 
                 // Schedule
                 Availabilities = availabilities,

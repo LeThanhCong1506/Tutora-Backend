@@ -5,21 +5,6 @@ namespace MV.DomainLayer.DTO.ResponseModel
     /// </summary>
     public class TutorPricingResponse
     {
-        /// <summary>
-        /// Hourly rate in VND
-        /// </summary>
-        public decimal? HourlyRate { get; set; }
-
-        /// <summary>
-        /// Trial lesson price in VND
-        /// </summary>
-        public decimal? TrialLessonPrice { get; set; }
-
-        /// <summary>
-        /// Whether the tutor allows price negotiation
-        /// </summary>
-        public bool? AllowPriceNegotiation { get; set; }
-
         public List<TutorSubjectGradePriceResponse> SubjectGradePrices { get; set; } = new();
     }
 

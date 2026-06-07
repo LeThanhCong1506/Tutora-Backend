@@ -26,18 +26,6 @@ namespace MV.ApplicationLayer.Services
             if (!string.IsNullOrEmpty(request.VideoIntroUrl) && profile.Videointrourl != request.VideoIntroUrl)
             { profile.Videointrourl = request.VideoIntroUrl; hasCriticalChange = true; }
 
-            if (request.HourlyRate.HasValue && profile.Hourlyrate != request.HourlyRate.Value)
-            {
-                var prices = await _unitOfWork.TutorRepository.GetTutorSubjectGradePricesAsync(userId);
-                foreach (var price in prices)
-                {
-                    price.Priceperhour = request.HourlyRate.Value;
-                    price.Isactive = request.HourlyRate.Value > 0;
-                    price.Updatedat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
-                }
-                hasCriticalChange = true;
-            }
-
             if (!string.IsNullOrEmpty(request.Education) && profile.Education != request.Education)
             { profile.Education = request.Education; hasCriticalChange = true; }
 
@@ -262,7 +250,6 @@ namespace MV.ApplicationLayer.Services
         private static bool IsProfileReadyForReview(Tutorprofile p) =>
             !string.IsNullOrWhiteSpace(p.Headline) &&
             !string.IsNullOrWhiteSpace(p.Bio) &&
-            p.Hourlyrate > 0 &&
             !string.IsNullOrWhiteSpace(p.Teachingareacity) &&
             true;
     }

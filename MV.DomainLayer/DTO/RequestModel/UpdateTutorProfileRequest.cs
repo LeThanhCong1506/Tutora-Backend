@@ -1,4 +1,4 @@
-﻿using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations;
 
 namespace MV.DomainLayer.DTO.RequestModel
 {
@@ -9,9 +9,6 @@ namespace MV.DomainLayer.DTO.RequestModel
 
         [StringLength(5000, MinimumLength = 50, ErrorMessage = "Bio must be at least 50 characters.")]
         public string? Bio { get; set; }
-
-        [Range(1000, 100000000, ErrorMessage = "Hourly Rate must be between 1,000 and 100,000,000 VND.")]
-        public decimal? HourlyRate { get; set; }
 
         [StringLength(255, ErrorMessage = "Education cannot exceed 255 characters.")]
         public string? Education { get; set; }

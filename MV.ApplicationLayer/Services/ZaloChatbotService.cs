@@ -133,8 +133,10 @@ public class ZaloChatbotService : IZaloChatbotService
             {
                 var t = results.Items[i];
                 var rating = t.AverageRating.HasValue ? $"{t.AverageRating:F1}" : "Mới";
-                var price = t.HourlyRate.HasValue ? $"{t.HourlyRate:N0}đ/h" : "Liên hệ";
-                sb.AppendLine($"{i + 1}. {t.FullName} - {rating} sao — {price}");
+                var subjects = t.Subjects != null && t.Subjects.Any()
+                    ? string.Join(", ", t.Subjects.Select(s => s.SubjectName).Distinct().Take(2))
+                    : "Nhiều môn";
+                sb.AppendLine($"{i + 1}. {t.FullName} - {rating} sao — {subjects}");
             }
             sb.AppendLine($"\nXem chi tiết: https://zalo.me/app/link/{_miniAppId}?path=/tutor-search");
 

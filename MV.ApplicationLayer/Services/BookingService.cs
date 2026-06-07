@@ -551,7 +551,7 @@ public partial class BookingService(
                 TutorId = tutor.Tutorid,
                 FullName = tutor.Tutor?.Fullname,
                 AvatarUrl = tutor.Tutor?.Avatarurl,
-                HourlyRate = b.Priceperhour ?? tutor.Hourlyrate
+                HourlyRate = b.Priceperhour
             },
             Subject = subject == null ? null : new SubjectResponse
             {
