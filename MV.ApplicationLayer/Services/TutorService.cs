@@ -193,6 +193,52 @@ namespace MV.ApplicationLayer.Services
             return true;
         }
 
+        public async Task<TutorSubjectGradePriceResponse> AddSubjectGradePriceAsync(string tutorId, TutorSubjectGradePriceRequest request)
+        {
+            var profile = await _unitOfWork.TutorRepository.GetTutorProfileByIdAsync(tutorId);
+            if (profile == null)
+            {
+                throw new ArgumentException("Không tìm thấy hồ sơ gia sư");
+            }
+
+            // Validate single price entry
+            await ValidateSubjectGradePricesAsync(new List<TutorSubjectGradePriceRequest> { request });
+
+            // Check if already exists
+            var existing = await _unitOfWork.TutorRepository.GetTutorSubjectGradePriceAsync(
+                tutorId, request.SubjectId, request.GradeLevelId);
+            
+            if (existing != null)
+            {
+                throw new ArgumentException($"Đã tồn tại giá cho môn {request.SubjectId} và khối {request.GradeLevelId}. Vui lòng dùng PUT để cập nhật.");
+            }
+
+            // Create new price entry
+            var newPrice = new Tutorsubjectgradeprice
+            {
+                Tutorid = tutorId,
+                Subjectid = request.SubjectId,
+                Gradelevelid = request.GradeLevelId,
+                Priceperhour = request.PricePerHour,
+                Durationminutespersession = request.DurationMinutesPerSession,
+                Sessionsperweek = request.SessionsPerWeek,
+                Currency = string.IsNullOrWhiteSpace(request.Currency) ? "VND" : request.Currency!,
+                Isactive = request.IsActive
+            };
+
+            await _unitOfWork.TutorRepository.AddTutorSubjectGradePriceAsync(newPrice);
+            profile.Updatedat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+            
+            await _unitOfWork.SaveChangesAsync();
+            await TryAutoActivateProfileAsync(tutorId);
+
+            // Reload to get navigation properties
+            var created = await _unitOfWork.TutorRepository.GetTutorSubjectGradePriceAsync(
+                tutorId, request.SubjectId, request.GradeLevelId);
+
+            return MapSubjectGradePriceResponse(created!);
+        }
+
         // ─── Packages ────────────────────────────────────────────────────────
 
         public async Task<List<TutorPackageResponse>> GetTutorPackagesAsync(string tutorId, bool includeInactive = false)
