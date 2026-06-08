@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Distributed;
 using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO.ResponseModel;
@@ -167,8 +167,7 @@ namespace MV.ApplicationLayer.Services
                     Dayofweek      = a.Dayofweek ?? 1,  // Default to Monday (1) instead of Sunday (0)
                     Starttime      = a.Starttime?.ToString("HH:mm") ?? string.Empty,
                     Endtime        = a.Endtime?.ToString("HH:mm") ?? string.Empty,
-                    Createdat      = TimeZoneHelper.ToUserTime(a.Createdat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow),
-                    IsActive       = a.Isactive
+                    Createdat      = TimeZoneHelper.ToUserTime(a.Createdat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow)
                 })
                 .ToList();
 

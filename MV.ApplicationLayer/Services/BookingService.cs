@@ -367,6 +367,7 @@ public partial class BookingService(
             {
                 var startVn = TimeZoneHelper.ToUserTime(l.Scheduledstart);
                 var endVn = TimeZoneHelper.ToUserTime(l.Scheduledend);
+                var isoDayOfWeek = startVn.DayOfWeek == DayOfWeek.Sunday ? 7 : (int)startVn.DayOfWeek;
                 return new ScheduleItemResponse
                 {
                     DayOfWeek = isoDayOfWeek,
@@ -592,7 +593,7 @@ public partial class BookingService(
             }).ToList(),
             Lessons = lessons,
             StartDate = b.Startdate,
-            // BE luôn lưu UTC (DateTime.UtcNow), ToVietnamTime() convert sang UTC+7 khi trả về FE.
+            // BE luôn lưu UTC (DateTime.UtcNow), ToUserTime() convert sang múi giờ của FE truyền vào.
             // Pattern này đúng cả local lẫn cloud deployment.
             CreatedAt = b.Createdat.HasValue ? TimeZoneHelper.ToUserTime(b.Createdat.Value) : (DateTime?)null,
             PaymentDueAt = b.Paymentdueat.HasValue ? TimeZoneHelper.ToUserTime(b.Paymentdueat.Value) : (DateTime?)null,

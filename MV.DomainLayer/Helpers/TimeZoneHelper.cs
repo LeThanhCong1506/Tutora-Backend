@@ -103,4 +103,39 @@ public static class TimeZoneHelper
     {
         return ToUtc(localDt, TimezoneContext.CurrentTimezone);
     }
+
+    /// <summary>
+    /// Converts a weekly recurring schedule (ISO DayOfWeek and TimeOnly) from the user's timezone to UTC.
+    /// This is essential for storing availability slots consistently.
+    /// </summary>
+    public static (int UtcIsoDayOfWeek, TimeOnly UtcTime) ShiftToUtc(int localIsoDayOfWeek, TimeOnly localTime, string? timeZoneId = null)
+    {
+        // Use an arbitrary week where dates perfectly map to ISO DayOfWeek.
+        // Jan 1, 2024 is a Monday (ISO 1).
+        var baseDate = new DateTime(2024, 1, localIsoDayOfWeek, localTime.Hour, localTime.Minute, localTime.Second, DateTimeKind.Unspecified);
+        
+        var utcDate = ToUtc(baseDate, timeZoneId ?? TimezoneContext.CurrentTimezone);
+        
+        var utcIsoDayOfWeek = utcDate.DayOfWeek == DayOfWeek.Sunday ? 7 : (int)utcDate.DayOfWeek;
+        var utcTime = TimeOnly.FromDateTime(utcDate);
+
+        return (utcIsoDayOfWeek, utcTime);
+    }
+
+    /// <summary>
+    /// Converts a weekly recurring schedule (ISO DayOfWeek and TimeOnly) from UTC to the user's timezone.
+    /// </summary>
+    public static (int LocalIsoDayOfWeek, TimeOnly LocalTime) ShiftToUserTime(int utcIsoDayOfWeek, TimeOnly utcTime, string? timeZoneId = null)
+    {
+        // Use an arbitrary week where dates perfectly map to ISO DayOfWeek.
+        // Jan 1, 2024 is a Monday (ISO 1).
+        var baseDate = new DateTime(2024, 1, utcIsoDayOfWeek, utcTime.Hour, utcTime.Minute, utcTime.Second, DateTimeKind.Utc);
+        
+        var localDate = ToUserTime(baseDate, timeZoneId ?? TimezoneContext.CurrentTimezone);
+        
+        var localIsoDayOfWeek = localDate.DayOfWeek == DayOfWeek.Sunday ? 7 : (int)localDate.DayOfWeek;
+        var localTime = TimeOnly.FromDateTime(localDate);
+
+        return (localIsoDayOfWeek, localTime);
+    }
 }
