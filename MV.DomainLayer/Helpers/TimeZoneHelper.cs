@@ -3,6 +3,12 @@ namespace MV.DomainLayer.Helpers;
 /// <summary>
 /// Helper class for handling timezone conversions supporting multiple timezones (UTC+0 base).
 /// Replaces VietnamTimeHelper.
+///
+/// CONTRACT:
+///   - WRITE to DB: luôn dùng <see cref="UtcNow"/> hoặc <see cref="ToUtc"/> — lưu UTC+0.
+///   - READ from DB: luôn dùng <see cref="ToUserTime(DateTime)"/> hoặc overloads — convert UTC → timezone user.
+///   - Timezone user được truyền qua header "X-Timezone" (ví dụ: "Asia/Ho_Chi_Minh")
+///     và được đọc từ <see cref="TimezoneContext.CurrentTimezone"/> (set bởi TimezoneMiddleware).
 /// </summary>
 public static class TimeZoneHelper
 {

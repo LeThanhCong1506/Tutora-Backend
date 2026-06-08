@@ -22,6 +22,7 @@ using MV.InfrastructureLayer;
 using MV.InfrastructureLayer.DBContext;
 using MV.InfrastructureLayer.ExternalServices;
 using MV.InfrastructureLayer.Repositories;
+using MV.InfrastructureLayer.Services;
 using MV.ApplicationLayer.RepositoryInterfaces;
 using PayOS;
 using Resend;
@@ -29,6 +30,11 @@ using SP25.OJT202.AccountManagement.Presentation.Middlewares;
 using StackExchange.Redis;
 using System.Text;
 
+// Npgsql Legacy Timestamp Mode
+// Giữ lại để tương thích với DB hiện tại dùng `timestamp without time zone`.
+// Mọi DateTime GHI xuống DB phải là UTC (dùng TimeZoneHelper.UtcNow).
+// Mọi DateTime ĐỌC từ DB sẽ được tự động gắn Kind=Utc bởi ValueConverter trong AgoraDbContext.
+// Frontend chịu trách nhiệm gửi header X-Timezone để backend convert khi trả response.
 AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
 
 var builder = WebApplication.CreateBuilder(args);
@@ -48,6 +54,7 @@ builder.Services.Configure<FraudDetectionSettings>(builder.Configuration.GetSect
 builder.Services.Configure<TrustScoringSettings>(builder.Configuration.GetSection(TrustScoringSettings.SectionName));
 builder.Services.Configure<MV.DomainLayer.Settings.PayoutSettings>(builder.Configuration.GetSection(MV.DomainLayer.Settings.PayoutSettings.SectionName));
 builder.Services.Configure<ZaloOAConfig>(builder.Configuration.GetSection(ConfigurationKeys.ZaloOA.SectionName));
+builder.Services.Configure<CloudinarySettings>(builder.Configuration.GetSection("Cloudinary"));
 
 builder.Services.AddKeyedSingleton<PayOSClient>(ServiceKeys.PayOS.Checkout, (sp, _) =>
 {
@@ -194,15 +201,6 @@ builder.Services.Configure<ResendClientOptions>(o =>
     o.ApiToken = builder.Configuration[$"{ResendSettings.SectionName}:ApiKey"]!;
 });
 
-var supabaseUrl = builder.Configuration[ConfigurationKeys.Supabase.BaseUrl];
-var supabaseKey = builder.Configuration[ConfigurationKeys.Supabase.ServiceRoleKey]; // Dùng Key Service Role để đọc bucket private
-
-var options = new Supabase.SupabaseOptions
-{
-    AutoRefreshToken = true,
-    AutoConnectRealtime = true
-};
-
 // 1. Đăng ký HttpClient cho FptAiService (Để nó gọi API ra ngoài được)
 builder.Services.AddHttpClient<IFptAiService, FptAiService>();
 
@@ -239,7 +237,7 @@ builder.Services.AddScoped<INotificationService, NotificationService>();
 builder.Services.AddScoped<IExportService, ExportService>();
 builder.Services.AddScoped<IPasswordService, PasswordService>();
 builder.Services.AddScoped<IUserTestService, UserTestService>();
-builder.Services.AddScoped<ISupabaseStorageService, SupabaseStorageService>();
+builder.Services.AddScoped<IFileStorageService, CloudinaryStorageService>();
 builder.Services.AddScoped<ISimpleAuthService, SimpleAuthService>();
 builder.Services.AddScoped<IZaloAuthService, ZaloAuthService>();
 builder.Services.AddScoped<IRefreshTokenService, RefreshTokenService>();
@@ -325,10 +323,6 @@ builder.Services.AddScoped<ITutorSearchService, TutorSearchService>();
 
 //Unit of work
 builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
-
-// Đăng ký Supabase Client là Scoped (mỗi request 1 client)
-builder.Services.AddScoped<Supabase.Client>(_ =>
-    new Supabase.Client(supabaseUrl, supabaseKey, options));
 
 // Background job
 //builder.Services.AddHostedService<EmailConsumerService>();
@@ -473,10 +467,10 @@ app.MapControllers();
 app.MapHub<NotificationHub>("/notificationHub");
 app.MapHub<ChatHub>("/hubs/chat");
 
-// --- KHỞI TẠO SUPABASE STORAGE BUCKET ---
+// --- KHỞI TẠO CLOUDINARY STORAGE BUCKET ---
 using (var scope = app.Services.CreateScope())
 {
-    var storageService = scope.ServiceProvider.GetRequiredService<ISupabaseStorageService>();
+    var storageService = scope.ServiceProvider.GetRequiredService<IFileStorageService>();
     await storageService.EnsureBucketExistsAsync(StorageBucket.Avatars);
 }
 

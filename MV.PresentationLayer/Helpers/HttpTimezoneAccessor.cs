@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Http;
 using MV.ApplicationLayer.Interfaces;
+using MV.PresentationLayer.Middlewares;
 
 namespace MV.PresentationLayer.Helpers;
 
@@ -15,15 +16,22 @@ public class HttpTimezoneAccessor : ITimezoneAccessor
     public string GetCurrentTimezone()
     {
         var context = _httpContextAccessor.HttpContext;
-        if (context != null && context.Items.TryGetValue("UserTimezone", out var timezoneObj))
+        if (context == null) return "UTC";
+
+        // 1. Đọc từ HttpContext.Items (được set bởi TimezoneMiddleware)
+        if (context.Items.TryGetValue(TimezoneMiddleware.TimezoneItemKey, out var timezoneObj)
+            && timezoneObj is string tzFromItems
+            && !string.IsNullOrWhiteSpace(tzFromItems))
         {
-            if (timezoneObj is string timezone && !string.IsNullOrWhiteSpace(timezone))
-            {
-                return timezone;
-            }
+            return tzFromItems;
         }
-        
-        // Default to UTC if no timezone is specified or available
+
+        // 2. Fallback: đọc thẳng từ header nếu middleware chưa chạy
+        var tzFromHeader = context.Request.Headers["X-Timezone"].FirstOrDefault();
+        if (!string.IsNullOrWhiteSpace(tzFromHeader))
+            return tzFromHeader;
+
+        // 3. Default UTC
         return "UTC";
     }
 }
