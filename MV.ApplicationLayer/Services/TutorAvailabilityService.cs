@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using MV.ApplicationLayer.Helpers;
 using MV.ApplicationLayer.Interfaces;
 using MV.ApplicationLayer.ServiceInterfaces;
@@ -129,7 +129,7 @@ namespace MV.ApplicationLayer.Services
                     Dayofweek = req.Dayofweek,
                     Starttime = startTime,
                     Endtime = endTime,
-                    Createdat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now
+                    Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
                 };
 
                 newSlots.Add(availability);
@@ -292,8 +292,7 @@ namespace MV.ApplicationLayer.Services
                 Dayofweek = entity.Dayofweek ?? 1,
                 Starttime = entity.Starttime?.ToString("HH:mm") ?? string.Empty,
                 Endtime = entity.Endtime?.ToString("HH:mm") ?? string.Empty,
-                Createdat = TimeZoneHelper.ToUserTime(entity.Createdat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow),
-                IsActive = entity.Isactive
+                Createdat = TimeZoneHelper.ToUserTime(entity.Createdat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow)
             };
         }
     }

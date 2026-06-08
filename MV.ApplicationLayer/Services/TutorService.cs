@@ -1,4 +1,4 @@
-﻿using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.Constants;
@@ -13,7 +13,7 @@ namespace MV.ApplicationLayer.Services
     public partial class TutorService : ITutorService
     {
         private readonly IUnitOfWork _unitOfWork;
-        private readonly ISupabaseStorageService _storageService;
+        private readonly IFileStorageService _storageService;
         private readonly IFptAiService _fptAiService;
         private readonly ICertificateVerificationService _certificateVerificationService;
         private readonly ILogger<TutorService> _logger;
@@ -32,7 +32,7 @@ namespace MV.ApplicationLayer.Services
 
         public TutorService(
             IUnitOfWork unitOfWork,
-            ISupabaseStorageService storageService,
+            IFileStorageService storageService,
             IFptAiService fptAiService,
             ICertificateVerificationService certificateVerificationService,
             ILogger<TutorService> logger)

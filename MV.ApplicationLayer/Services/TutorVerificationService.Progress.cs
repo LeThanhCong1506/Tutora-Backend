@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging;
 using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO.ResponseModel;
 using MV.DomainLayer.Entities;
@@ -108,57 +108,20 @@ namespace MV.ApplicationLayer.Services
             };
         }
 
-        /// <summary>Build identity card section with fresh signed URLs generated on demand.</summary>
-        private async Task<IdentityCardSection> BuildIdentityCardSectionAsync(User user)
+        private Task<IdentityCardSection> BuildIdentityCardSectionAsync(User user)
         {
             var hasFront = !string.IsNullOrWhiteSpace(user.Idcardfronturl);
             var hasBack = !string.IsNullOrWhiteSpace(user.Idcardbackurl);
             var isComplete = hasFront && hasBack;
 
-            string? freshFrontUrl = null;
-            string? freshBackUrl = null;
-            const int oneYearInSeconds = 31536000;
-
-            if (hasFront)
-            {
-                try
-                {
-                    string frontPath = GetRelativePath(user.Idcardfronturl!, "id-cards");
-                    freshFrontUrl = await _supabaseClient.Storage
-                        .From("id-cards")
-                        .CreateSignedUrl(frontPath, oneYearInSeconds);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Failed to generate fresh signed URL for front ID card of user {UserId}", user.Userid);
-                    freshFrontUrl = user.Idcardfronturl;
-                }
-            }
-
-            if (hasBack)
-            {
-                try
-                {
-                    string backPath = GetRelativePath(user.Idcardbackurl!, "id-cards");
-                    freshBackUrl = await _supabaseClient.Storage
-                        .From("id-cards")
-                        .CreateSignedUrl(backPath, oneYearInSeconds);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Failed to generate fresh signed URL for back ID card of user {UserId}", user.Userid);
-                    freshBackUrl = user.Idcardbackurl;
-                }
-            }
-
-            return new IdentityCardSection
+            return Task.FromResult(new IdentityCardSection
             {
                 Status = isComplete ? SectionStatus.Updated : SectionStatus.InProgress,
                 UpdatedAt = isComplete && user.Createdat.HasValue ? TimeZoneHelper.ToUserTime(user.Createdat.Value) : (DateTime?)null,
-                FrontImageUrl = freshFrontUrl,
-                BackImageUrl = freshBackUrl,
+                FrontImageUrl = user.Idcardfronturl,
+                BackImageUrl = user.Idcardbackurl,
                 IsVerified = user.Isidentityverified ?? false
-            };
+            });
         }
 
         private static PricingSection BuildPricingSection(Tutorprofile? profile, List<Tutorsubjectgradeprice>? prices)

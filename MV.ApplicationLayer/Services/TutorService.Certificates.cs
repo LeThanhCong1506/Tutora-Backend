@@ -1,4 +1,4 @@
-﻿using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO.RequestModel;
@@ -41,7 +41,7 @@ namespace MV.ApplicationLayer.Services
                 }
             }
 
-            // Upload certificate file to Supabase
+            // Upload certificate file to Cloudinary
             var certificateFileUrl = await _storageService.UploadFileAsync(
                 CertificateBucket,
                 tutorId,

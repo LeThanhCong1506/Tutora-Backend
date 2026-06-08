@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using MV.ApplicationLayer.Helpers;
 using MV.ApplicationLayer.ServiceInterfaces;
@@ -23,7 +23,7 @@ public partial class LessonService : ILessonService
     private readonly IChatService _chatService;
     private readonly INotificationService _notificationService;
     private readonly IZaloOAService _zaloOAService;
-    private readonly ISupabaseStorageService _storageService;
+    private readonly IFileStorageService _storageService;
     private readonly ILogger<LessonService> _logger;
 
     // Retained for transaction management only (BeginTransactionAsync)
@@ -39,7 +39,7 @@ public partial class LessonService : ILessonService
         IChatService chatService,
         INotificationService notificationService,
         IZaloOAService zaloOAService,
-        ISupabaseStorageService storageService,
+        IFileStorageService storageService,
         ILogger<LessonService> logger)
     {
         _lessonRepo = lessonRepo;

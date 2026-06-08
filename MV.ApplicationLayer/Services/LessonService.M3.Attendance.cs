@@ -1,4 +1,4 @@
-﻿using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using MV.DomainLayer.Constants;
@@ -319,7 +319,7 @@ public partial class LessonService
         // Ensure bucket exists
         await _storageService.EnsureBucketExistsAsync(LessonAttachmentBucket);
 
-        // Upload to Supabase Storage using lesson-specific folder
+        // Upload to Cloudinary Storage using lesson-specific folder
         var folderPath = $"lesson-{lessonId}";
         var fileUrl = await _storageService.UploadFileAsync(LessonAttachmentBucket, folderPath, file);
 

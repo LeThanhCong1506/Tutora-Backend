@@ -1967,6 +1967,34 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
         });
 
         OnModelCreatingPartial(modelBuilder);
+
+        // ── UTC DateTime Convention ───────────────────────────────────────────
+        // Vì DB dùng `timestamp without time zone` + EnableLegacyTimestampBehavior,
+        // EF Core đọc DateTime ra với Kind = Unspecified.
+        // Convention này đảm bảo tất cả DateTime/DateTime? từ DB đều có Kind = Utc
+        // để TimeZoneHelper.ToUserTime() hoạt động đúng.
+        foreach (var entityType in modelBuilder.Model.GetEntityTypes())
+        {
+            foreach (var property in entityType.GetProperties())
+            {
+                if (property.ClrType == typeof(DateTime))
+                {
+                    property.SetValueConverter(new Microsoft.EntityFrameworkCore.Storage.ValueConversion.ValueConverter<DateTime, DateTime>(
+                        v => v.Kind == DateTimeKind.Utc ? v : DateTime.SpecifyKind(v, DateTimeKind.Utc),
+                        v => DateTime.SpecifyKind(v, DateTimeKind.Utc)
+                    ));
+                }
+                else if (property.ClrType == typeof(DateTime?))
+                {
+                    property.SetValueConverter(new Microsoft.EntityFrameworkCore.Storage.ValueConversion.ValueConverter<DateTime?, DateTime?>(
+                        v => v.HasValue
+                            ? (v.Value.Kind == DateTimeKind.Utc ? v : DateTime.SpecifyKind(v.Value, DateTimeKind.Utc))
+                            : v,
+                        v => v.HasValue ? DateTime.SpecifyKind(v.Value, DateTimeKind.Utc) : v
+                    ));
+                }
+            }
+        }
     }
 
     partial void OnModelCreatingPartial(ModelBuilder modelBuilder);

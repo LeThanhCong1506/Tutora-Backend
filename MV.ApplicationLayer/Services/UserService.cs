@@ -1,4 +1,4 @@
-﻿using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http;
 using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO.RequestModel;
@@ -17,7 +17,7 @@ namespace MV.ApplicationLayer.Services
         private readonly IUnitOfWork _unitOfWork;
         private readonly IPasswordRepository _passwordRepository;
         private readonly ITutorVerificationService _verificationService;
-        private readonly ISupabaseStorageService _storage;
+        private readonly IFileStorageService _storage;
         private readonly INotificationService _notificationService;
         private const string UserAvatarBucket = StorageBucket.Avatars;
 
@@ -25,7 +25,7 @@ namespace MV.ApplicationLayer.Services
             IUnitOfWork unitOfWork,
             IPasswordRepository passwordRepository,
             ITutorVerificationService verificationService,
-            ISupabaseStorageService storage,
+            IFileStorageService storage,
             INotificationService notificationService)
         {
             _unitOfWork = unitOfWork;

@@ -15,11 +15,11 @@ namespace MV.PresentationLayer.Controllers;
 public class ChatController : ControllerBase
 {
     private readonly IChatService _chatService;
-    private readonly ISupabaseStorageService _storageService;
+    private readonly IFileStorageService _storageService;
     private const string ChatImageBucket = "chat-images";
     private const long MaxImageSizeBytes = 5 * 1024 * 1024; // 5MB
 
-    public ChatController(IChatService chatService, ISupabaseStorageService storageService)
+    public ChatController(IChatService chatService, IFileStorageService storageService)
     {
         _chatService = chatService;
         _storageService = storageService;

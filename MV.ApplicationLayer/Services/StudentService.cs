@@ -1,4 +1,4 @@
-﻿using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
 using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.Constants;
@@ -16,7 +16,7 @@ namespace MV.ApplicationLayer.Services
     public class StudentService : IStudentService
     {
         private readonly IUnitOfWork _unitOfWork;
-        private readonly ISupabaseStorageService _storage;
+        private readonly IFileStorageService _storage;
         private readonly IConfiguration _config;
         private readonly IPasswordRepository _passwordRepository;
         private const int MaxStudentsPerParent = 5;
@@ -31,7 +31,7 @@ namespace MV.ApplicationLayer.Services
 
         public StudentService(
             IUnitOfWork unitOfWork,
-            ISupabaseStorageService storage,
+            IFileStorageService storage,
             IConfiguration config,
             IPasswordRepository passwordRepository)
         {
@@ -136,7 +136,7 @@ namespace MV.ApplicationLayer.Services
             var student = await _unitOfWork.StudentRepository.GetByIdAndParentAsync(studentId, parentId)
                 ?? throw new NotStudentOwnerException(studentId);
 
-            var oldFilePath = student.Avatarurl != null ? ExtractFilePathFromUrl(student.Avatarurl, _config["Supabase:BaseUrl"]!) : null;
+            var oldFilePath = student.Avatarurl;
             if (oldFilePath != null)
                 await _storage.DeleteFileAsync(AvatarBucket, studentId, oldFilePath);
 
@@ -371,10 +371,7 @@ namespace MV.ApplicationLayer.Services
             var student = await _unitOfWork.StudentRepository.FindByStudentOrLinkedUserAsync(studentUserId)
                 ?? throw new StudentNotFoundException();
 
-            // Xóa ảnh cũ trên storage nếu có
-            var oldFilePath = student.Avatarurl != null
-                ? ExtractFilePathFromUrl(student.Avatarurl, _config["Supabase:BaseUrl"]!)
-                : null;
+            var oldFilePath = student.Avatarurl;
             if (oldFilePath != null)
                 await _storage.DeleteFileAsync(AvatarBucket, studentUserId, oldFilePath);
 
@@ -432,16 +429,7 @@ namespace MV.ApplicationLayer.Services
             return await _storage.UploadFileAsync(AvatarBucket, parentId, avatarFile);
         }
 
-        private static string? ExtractFilePathFromUrl(string url, string supabaseBaseUrl)
-        {
-            var storagePath = "/storage/v1/object/public/";
-            var idx = url.IndexOf(storagePath, StringComparison.Ordinal);
-            if (idx < 0) return null;
 
-            var pathPart = url[(idx + storagePath.Length)..];
-            var slashIdx = pathPart.IndexOf('/');
-            return slashIdx < 0 ? null : pathPart[(slashIdx + 1)..];
-        }
 
         private static void ValidateBirthdate(DateOnly? birthdate)
         {
