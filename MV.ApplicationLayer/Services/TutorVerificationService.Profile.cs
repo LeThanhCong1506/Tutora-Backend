@@ -164,13 +164,37 @@ namespace MV.ApplicationLayer.Services
                 {
                     Availabilityid = a.Availabilityid,
                     Tutorid        = a.Tutorid ?? string.Empty,
-                    Dayofweek      = a.Dayofweek ?? 0,
+                    Dayofweek      = a.Dayofweek ?? 1,  // Default to Monday (1) instead of Sunday (0)
                     Starttime      = a.Starttime?.ToString("HH:mm") ?? string.Empty,
                     Endtime        = a.Endtime?.ToString("HH:mm") ?? string.Empty,
                     Createdat      = TimeZoneHelper.ToUserTime(a.Createdat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow),
                     IsActive       = a.Isactive
                 })
                 .ToList();
+
+            // Get packages with fixed slots (only active packages)
+            var packages = await _dbContext.Tutorpackages
+                .AsNoTracking()
+                .Include(p => p.Tutorpackagefixedslots)
+                .Where(p => p.Tutorid == tutorId && p.Isactive)
+                .OrderBy(p => p.Createdat)
+                .ToListAsync();
+
+            var packageResponses = packages.Select(p => new TutorPackageResponse
+            {
+                PackageId = p.Packageid,
+                TutorId = p.Tutorid,
+                Name = p.Name,
+                PackageType = p.Packagetype,
+                IsActive = p.Isactive,
+                FixedSlots = p.Tutorpackagefixedslots.Select(fs => new TutorPackageFixedSlotResponse
+                {
+                    FixedSlotId = fs.Fixedslotid,
+                    DayOfWeek = fs.Dayofweek,
+                    StartTime = fs.Starttime.ToString("HH:mm"),
+                    EndTime = fs.Endtime.ToString("HH:mm")
+                }).ToList()
+            }).ToList();
 
             // Get feedbacks sent To this tutor (with reviewer info)
             var rawFeedbacksQuery = await _dbContext.Feedbacks
@@ -285,6 +309,9 @@ namespace MV.ApplicationLayer.Services
 
                 // Schedule
                 Availabilities = availabilities,
+
+                // Packages
+                Packages = packageResponses,
 
                 // Feedback Statistics
                 TotalFeedbacks = totalFeedbacks,

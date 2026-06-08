@@ -369,7 +369,7 @@ public partial class BookingService(
                 var endVn = TimeZoneHelper.ToUserTime(l.Scheduledend);
                 return new ScheduleItemResponse
                 {
-                    DayOfWeek = (int)startVn.DayOfWeek,
+                    DayOfWeek = isoDayOfWeek,
                     StartTime = startVn.ToString("HH:mm"),
                     EndTime = endVn.ToString("HH:mm")
                 };
@@ -378,17 +378,6 @@ public partial class BookingService(
             .ToList();
     }
 
-    private static string GetDayOfWeekVn(int dow) => dow switch
-    {
-        0 => "Chủ nhật",
-        1 => "Thứ Hai",
-        2 => "Thứ Ba",
-        3 => "Thứ Tư",
-        4 => "Thứ Năm",
-        5 => "Thứ Sáu",
-        6 => "Thứ Bảy",
-        _ => $"ngày {dow}"
-    };
 
     private async Task ValidateSlotsAsync(string tutorId, IReadOnlyList<LessonSlot> lessonSlots)
     {
@@ -414,7 +403,10 @@ public partial class BookingService(
                 var validFrom = DateOnly.FromDateTime(TimeZoneHelper.ToUserTime(a.Createdat ?? TimeZoneHelper.UtcNow));
                 var validTo = validFrom.AddDays(AvailabilityValidDays);
 
-                return a.Dayofweek.Value == (int)startVn.DayOfWeek
+                // Convert C# DayOfWeek (0=Sunday, 1=Monday...) to ISO format (1=Monday, 7=Sunday)
+                var isoDayOfWeek = startVn.DayOfWeek == DayOfWeek.Sunday ? 7 : (int)startVn.DayOfWeek;
+
+                return a.Dayofweek.Value == isoDayOfWeek
                     && a.Starttime.Value <= startTime
                     && a.Endtime.Value >= endTime
                     && bookingDate >= validFrom
@@ -474,7 +466,10 @@ public partial class BookingService(
 
         while (result.Count < totalSessions)
         {
-            foreach (var fixedSlot in fixedSlots.Where(s => s.Dayofweek == (int)currentDate.DayOfWeek))
+            // Convert C# DayOfWeek (0=Sunday, 1=Monday...) to ISO format (1=Monday, 7=Sunday)
+            var isoDayOfWeek = currentDate.DayOfWeek == DayOfWeek.Sunday ? 7 : (int)currentDate.DayOfWeek;
+
+            foreach (var fixedSlot in fixedSlots.Where(s => s.Dayofweek == isoDayOfWeek))
             {
                 if (result.Count >= totalSessions) break;
 
@@ -584,11 +579,16 @@ public partial class BookingService(
             Status = b.Status,
             PaymentStatus = b.Paymentstatus,
             PaymentCode = b.Paymentcode,
-            Schedule = lessons?.Select(l => new ScheduleItemResponse
+            Schedule = lessons?.Select(l => 
             {
-                DayOfWeek = (int)l.ScheduledStart.DayOfWeek,
-                StartTime = l.ScheduledStart.ToString("HH:mm"),
-                EndTime = l.ScheduledEnd.ToString("HH:mm")
+                // Convert C# DayOfWeek (0=Sunday, 1=Monday...) to ISO format (1=Monday, 7=Sunday)
+                var isoDayOfWeek = l.ScheduledStart.DayOfWeek == DayOfWeek.Sunday ? 7 : (int)l.ScheduledStart.DayOfWeek;
+                return new ScheduleItemResponse
+                {
+                    DayOfWeek = isoDayOfWeek,
+                    StartTime = l.ScheduledStart.ToString("HH:mm"),
+                    EndTime = l.ScheduledEnd.ToString("HH:mm")
+                };
             }).ToList(),
             Lessons = lessons,
             StartDate = b.Startdate,

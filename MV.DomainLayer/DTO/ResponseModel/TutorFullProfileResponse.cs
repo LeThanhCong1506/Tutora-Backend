@@ -34,6 +34,9 @@ namespace MV.DomainLayer.DTO.ResponseModel
         // --- Schedule (Tutor Availability) ---
         public List<TutorAvailabilityResponse>? Availabilities { get; set; }
 
+        // --- Packages ---
+        public List<TutorPackageResponse>? Packages { get; set; }
+
         // --- Feedback Statistics ---
         public int TotalFeedbacks { get; set; }
         public double AverageRating { get; set; }

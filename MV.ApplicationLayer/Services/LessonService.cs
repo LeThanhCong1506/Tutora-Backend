@@ -181,7 +181,8 @@ public partial class LessonService : ILessonService
         var effectiveStartVn = new DateTime(effectiveDateVn.Year, effectiveDateVn.Month, effectiveDateVn.Day);
 
         var calendar = new Dictionary<int, List<ScheduleItemRequest>>();
-        for (int i = 0; i < 7; i++)
+        // Initialize calendar with keys 1-7 (Monday-Sunday)
+        for (int i = 1; i <= 7; i++)
             calendar[i] = [];
 
         foreach (var item in schedule)
@@ -197,7 +198,8 @@ public partial class LessonService : ILessonService
 
         while (result.Count < sessionCount)
         {
-            var dayOfWeek = (int)currentDate.DayOfWeek;
+            // Convert C# DayOfWeek (0=Sunday, 1=Monday...) to ISO format (1=Monday, 7=Sunday)
+            var dayOfWeek = currentDate.DayOfWeek == DayOfWeek.Sunday ? 7 : (int)currentDate.DayOfWeek;
             var timeSlots = calendar[dayOfWeek];
 
             if (timeSlots.Count == 0)

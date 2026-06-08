@@ -270,7 +270,11 @@ namespace MV.ApplicationLayer.Services
             {
                 var startVn = TimeZoneHelper.ToUserTime(l.Scheduledstart);
                 var endVn = TimeZoneHelper.ToUserTime(l.Scheduledend);
-                return (int)startVn.DayOfWeek == dayOfWeek
+
+                // Convert C# DayOfWeek (0=Sunday, 1=Monday...) to ISO format (1=Monday, 7=Sunday)
+                var isoDayOfWeek = startVn.DayOfWeek == DayOfWeek.Sunday ? 7 : (int)startVn.DayOfWeek;
+
+                return isoDayOfWeek == dayOfWeek
                     && startVn.TimeOfDay < slotEnd
                     && endVn.TimeOfDay > slotStart;
             });
@@ -285,7 +289,7 @@ namespace MV.ApplicationLayer.Services
             {
                 Availabilityid = entity.Availabilityid,
                 Tutorid = entity.Tutorid ?? string.Empty,
-                Dayofweek = entity.Dayofweek ?? 0,
+                Dayofweek = entity.Dayofweek ?? 1,
                 Starttime = entity.Starttime?.ToString("HH:mm") ?? string.Empty,
                 Endtime = entity.Endtime?.ToString("HH:mm") ?? string.Empty,
                 Createdat = TimeZoneHelper.ToUserTime(entity.Createdat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow),
