@@ -280,6 +280,19 @@ namespace MV.ApplicationLayer.Services
                     GradeLevels = s.Gradelevel?.Gradename,
                     Tags = null
                 }).ToList(),
+                SubjectGradePrices = subjects?.Where(s => s.Isactive).Select(s => new TutorSubjectGradePriceResponse
+                {
+                    Id = s.Id,
+                    SubjectId = s.Subjectid,
+                    SubjectName = s.Subject?.Subjectname,
+                    GradeLevelId = s.Gradelevelid,
+                    GradeLevelName = s.Gradelevel?.Gradename,
+                    PricePerHour = s.Priceperhour,
+                    DurationMinutesPerSession = s.Durationminutespersession,
+                    SessionsPerWeek = s.Sessionsperweek,
+                    Currency = s.Currency,
+                    IsActive = s.Isactive
+                }).ToList(),
 
                 // Introduction
                 Bio = profile.Bio,
