@@ -1,4 +1,4 @@
-﻿using System.Linq;
+using System.Linq;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using MV.DomainLayer.Entities;
@@ -122,7 +122,7 @@ namespace MV.InfrastructureLayer.Repositories
 
         public async Task AddTutorSubjectGradePriceAsync(Tutorsubjectgradeprice price)
         {
-            var now = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+            var now = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
             price.Createdat ??= now;
             price.Updatedat = now;
             price.Currency = string.IsNullOrWhiteSpace(price.Currency) ? "VND" : price.Currency;

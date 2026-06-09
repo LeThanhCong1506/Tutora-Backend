@@ -269,7 +269,7 @@ namespace MV.ApplicationLayer.Services
                 return;
             }
 
-            var now = VietnamTimeHelper.Now;
+            var now = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
             _context.Tutorpackages.Add(new Tutorpackage
             {
                 Tutorid = tutorId,

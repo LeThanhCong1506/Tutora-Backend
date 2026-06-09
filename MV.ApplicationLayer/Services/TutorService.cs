@@ -227,7 +227,7 @@ namespace MV.ApplicationLayer.Services
             };
 
             await _unitOfWork.TutorRepository.AddTutorSubjectGradePriceAsync(newPrice);
-            profile.Updatedat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+            profile.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
             
             await _unitOfWork.SaveChangesAsync();
             await TryAutoActivateProfileAsync(tutorId);
