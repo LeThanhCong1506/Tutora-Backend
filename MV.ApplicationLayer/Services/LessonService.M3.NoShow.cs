@@ -209,13 +209,18 @@ public partial class LessonService
 
         var duration = originalLesson.Scheduledend - originalLesson.Scheduledstart;
 
+        // Normalize timezone: nếu frontend gửi UTC thì convert sang UTC, nếu Unspecified thì coi như VN time
+        var scheduledStartUtc = newScheduledStart.Kind == DateTimeKind.Utc 
+            ? newScheduledStart 
+            : MV.DomainLayer.Helpers.VietnamTimeHelper.ToUtc(newScheduledStart);
+
         var makeupLesson = new Lesson
         {
             Bookingid = originalLesson.Bookingid,
             Tutorid = tutorId,
             Studentid = originalLesson.Studentid,
-            Scheduledstart = newScheduledStart,
-            Scheduledend = newScheduledStart.Add(duration),
+            Scheduledstart = scheduledStartUtc,
+            Scheduledend = scheduledStartUtc.Add(duration),
             Lessonprice = 0,
             Status = Scheduled,
             Ismakeup = true,

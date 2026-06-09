@@ -12,9 +12,17 @@ public partial class LessonService
 
     public async Task<List<CalendarDayResponse>> GetTutorCalendarAsync(string tutorId, DateTime startDate, DateTime endDate)
     {
+        // Normalize timezone: nếu frontend gửi UTC thì giữ nguyên, nếu Unspecified thì coi như VN time và convert sang UTC
+        var startUtc = startDate.Kind == DateTimeKind.Utc 
+            ? startDate 
+            : ToUtc(startDate);
+        var endUtc = endDate.Kind == DateTimeKind.Utc 
+            ? endDate 
+            : ToUtc(endDate);
+
         var lessons = await _context.Lessons
             .AsNoTracking()
-            .Where(l => l.Tutorid == tutorId && l.Scheduledstart >= startDate && l.Scheduledstart <= endDate)
+            .Where(l => l.Tutorid == tutorId && l.Scheduledstart >= startUtc && l.Scheduledstart <= endUtc)
             .Include(l => l.Booking)
                 .ThenInclude(b => b!.Tutorsubjectgradeprice)
                     .ThenInclude(p => p!.Subject)
@@ -47,6 +55,14 @@ public partial class LessonService
 
     public async Task<List<CalendarDayResponse>> GetStudentCalendarAsync(string studentUserId, DateTime startDate, DateTime endDate)
     {
+        // Normalize timezone
+        var startUtc = startDate.Kind == DateTimeKind.Utc 
+            ? startDate 
+            : ToUtc(startDate);
+        var endUtc = endDate.Kind == DateTimeKind.Utc 
+            ? endDate 
+            : ToUtc(endDate);
+
         // Resolve studentId từ studentId hoặc linkedUserId (account tự đăng ký)
         var profile = await _context.Studentprofiles
             .AsNoTracking()
@@ -58,8 +74,8 @@ public partial class LessonService
         var lessons = await _context.Lessons
             .AsNoTracking()
             .Where(l => l.Studentid == profile.Studentid
-                     && l.Scheduledstart >= startDate
-                     && l.Scheduledstart <= endDate)
+                     && l.Scheduledstart >= startUtc
+                     && l.Scheduledstart <= endUtc)
             .Include(l => l.Booking)
                 .ThenInclude(b => b!.Tutorsubjectgradeprice)
                     .ThenInclude(p => p!.Subject)

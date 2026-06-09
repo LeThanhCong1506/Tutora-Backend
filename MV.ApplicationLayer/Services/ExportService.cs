@@ -334,8 +334,16 @@ namespace MV.ApplicationLayer.Services
             var endDate = toDate ?? MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
             var startDate = fromDate ?? endDate.AddDays(-30);
 
+            // Normalize timezone
+            var startUtc = startDate.Kind == DateTimeKind.Utc 
+                ? startDate 
+                : MV.DomainLayer.Helpers.VietnamTimeHelper.ToUtc(startDate);
+            var endUtc = endDate.Kind == DateTimeKind.Utc 
+                ? endDate 
+                : MV.DomainLayer.Helpers.VietnamTimeHelper.ToUtc(endDate);
+
             var lessons = await _context.Lessons
-                .Where(l => l.Tutorid == tutorId && l.Scheduledstart >= startDate && l.Scheduledstart <= endDate)
+                .Where(l => l.Tutorid == tutorId && l.Scheduledstart >= startUtc && l.Scheduledstart <= endUtc)
                 .Include(l => l.Booking)
                     .ThenInclude(b => b!.Tutorsubjectgradeprice)
                         .ThenInclude(p => p!.Subject)
@@ -415,6 +423,14 @@ namespace MV.ApplicationLayer.Services
             var endDate = toDate ?? MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
             var startDate = fromDate ?? endDate.AddDays(-30);
 
+            // Normalize timezone
+            var startUtc = startDate.Kind == DateTimeKind.Utc 
+                ? startDate 
+                : MV.DomainLayer.Helpers.VietnamTimeHelper.ToUtc(startDate);
+            var endUtc = endDate.Kind == DateTimeKind.Utc 
+                ? endDate 
+                : MV.DomainLayer.Helpers.VietnamTimeHelper.ToUtc(endDate);
+
             // Get tutor's wallet
             var wallet = await _context.Wallets
                 .FirstOrDefaultAsync(w => w.Userid == tutorId);
@@ -435,7 +451,7 @@ namespace MV.ApplicationLayer.Services
             }
 
             var transactions = await _context.Wallettransactions
-                .Where(t => t.Walletid == wallet.Walletid && t.Createdat >= startDate && t.Createdat <= endDate)
+                .Where(t => t.Walletid == wallet.Walletid && t.Createdat >= startUtc && t.Createdat <= endUtc)
                 .OrderByDescending(t => t.Createdat)
                 .ToListAsync();
 
@@ -533,8 +549,16 @@ namespace MV.ApplicationLayer.Services
             var endDate = toDate ?? MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
             var startDate = fromDate ?? endDate.AddDays(-30);
 
+            // Normalize timezone
+            var startUtc = startDate.Kind == DateTimeKind.Utc 
+                ? startDate 
+                : MV.DomainLayer.Helpers.VietnamTimeHelper.ToUtc(startDate);
+            var endUtc = endDate.Kind == DateTimeKind.Utc 
+                ? endDate 
+                : MV.DomainLayer.Helpers.VietnamTimeHelper.ToUtc(endDate);
+
             var feedbacks = await _context.Feedbacks
-                .Where(f => f.Touserid == tutorId && f.Createdat >= startDate && f.Createdat <= endDate && f.Isvisible == true)
+                .Where(f => f.Touserid == tutorId && f.Createdat >= startUtc && f.Createdat <= endUtc && f.Isvisible == true)
                 .Include(f => f.Fromuser)
                 .Include(f => f.Lesson)
                     .ThenInclude(l => l!.Student)

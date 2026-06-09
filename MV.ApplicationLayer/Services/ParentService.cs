@@ -325,6 +325,14 @@ public class ParentService : IParentService
     {
         try
         {
+            // Normalize timezone: nếu frontend gửi UTC thì giữ nguyên, nếu Unspecified thì coi như VN time
+            var startUtc = startDate.Kind == DateTimeKind.Utc 
+                ? startDate 
+                : ToUtc(startDate);
+            var endUtc = endDate.Kind == DateTimeKind.Utc 
+                ? endDate 
+                : ToUtc(endDate);
+
             var studentIds = role == UserRole.Parent
                 ? await _context.Studentprofiles.Where(s => s.Parentid == userId).Select(s => s.Studentid).ToListAsync()
                 : await _context.Studentprofiles.Where(s => s.Studentid == userId || s.Linkeduserid == userId).Select(s => s.Studentid).ToListAsync();
@@ -334,7 +342,7 @@ public class ParentService : IParentService
 
             var lessons = await _context.Lessons
                 .AsNoTracking()
-                .Where(l => l.Studentid != null && studentIds.Contains(l.Studentid) && l.Scheduledstart >= startDate && l.Scheduledstart <= endDate)
+                .Where(l => l.Studentid != null && studentIds.Contains(l.Studentid) && l.Scheduledstart >= startUtc && l.Scheduledstart <= endUtc)
                 .Include(l => l.Booking)
                     .ThenInclude(b => b!.Tutorsubjectgradeprice)
                         .ThenInclude(p => p!.Subject)

@@ -36,7 +36,13 @@ public class LessonRepository(AgoraDbContext context) : ILessonRepository
             .AsQueryable();
 
         if (fromDate.HasValue)
-            q = q.Where(l => l.Scheduledstart >= fromDate.Value);
+        {
+            // Normalize timezone: nếu UTC thì giữ nguyên, nếu Unspecified thì coi như VN time
+            var fromUtc = fromDate.Value.Kind == DateTimeKind.Utc 
+                ? fromDate.Value 
+                : MV.DomainLayer.Helpers.VietnamTimeHelper.ToUtc(fromDate.Value);
+            q = q.Where(l => l.Scheduledstart >= fromUtc);
+        }
         if (!string.IsNullOrWhiteSpace(status))
             q = q.Where(l => l.Status == status);
 
@@ -61,7 +67,13 @@ public class LessonRepository(AgoraDbContext context) : ILessonRepository
             .AsQueryable();
 
         if (fromDate.HasValue)
-            q = q.Where(l => l.Scheduledstart >= fromDate.Value);
+        {
+            // Normalize timezone: nếu UTC thì giữ nguyên, nếu Unspecified thì coi như VN time
+            var fromUtc = fromDate.Value.Kind == DateTimeKind.Utc 
+                ? fromDate.Value 
+                : MV.DomainLayer.Helpers.VietnamTimeHelper.ToUtc(fromDate.Value);
+            q = q.Where(l => l.Scheduledstart >= fromUtc);
+        }
         if (!string.IsNullOrWhiteSpace(status))
             q = q.Where(l => l.Status == status);
 
