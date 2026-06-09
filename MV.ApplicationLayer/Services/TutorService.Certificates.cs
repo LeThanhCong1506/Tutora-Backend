@@ -41,7 +41,7 @@ namespace MV.ApplicationLayer.Services
                 }
             }
 
-            // Upload certificate file to Cloudinary
+            // Upload certificate file to Storage
             var certificateFileUrl = await _storageService.UploadFileAsync(
                 CertificateBucket,
                 tutorId,
