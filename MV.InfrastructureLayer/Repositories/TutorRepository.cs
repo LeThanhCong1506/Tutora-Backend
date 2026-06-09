@@ -110,6 +110,26 @@ namespace MV.InfrastructureLayer.Repositories
             await _context.Tutorsubjectgradeprices.AddRangeAsync(newPrices);
         }
 
+        public async Task<Tutorsubjectgradeprice?> GetTutorSubjectGradePriceAsync(string tutorId, int subjectId, int gradeLevelId)
+        {
+            return await _context.Tutorsubjectgradeprices
+                .Include(p => p.Subject)
+                .Include(p => p.Gradelevel)
+                .FirstOrDefaultAsync(p => p.Tutorid == tutorId 
+                    && p.Subjectid == subjectId 
+                    && p.Gradelevelid == gradeLevelId);
+        }
+
+        public async Task AddTutorSubjectGradePriceAsync(Tutorsubjectgradeprice price)
+        {
+            var now = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+            price.Createdat ??= now;
+            price.Updatedat = now;
+            price.Currency = string.IsNullOrWhiteSpace(price.Currency) ? "VND" : price.Currency;
+            
+            await _context.Tutorsubjectgradeprices.AddAsync(price);
+        }
+
         public async Task<List<int>> GetExistingSubjectIdsAsync(List<int> subjectIds)
         {
             return await _context.Subjects
