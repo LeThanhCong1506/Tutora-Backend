@@ -16,11 +16,33 @@ namespace MV.PresentationLayer.Controllers
     public class StudentController : ControllerBase
     {
         private readonly IStudentService _studentService;
+        private readonly IUserService _userService;
 
-        public StudentController(IStudentService studentService)
-            => _studentService = studentService ?? throw new ArgumentNullException(nameof(studentService));
+        public StudentController(IStudentService studentService, IUserService userService)
+        {
+            _studentService = studentService ?? throw new ArgumentNullException(nameof(studentService));
+            _userService = userService ?? throw new ArgumentNullException(nameof(userService));
+        }
 
         private string GetStudentUserId() => User.FindFirstValue(ClaimTypes.NameIdentifier)!;
+
+        /// <summary>
+        /// Get student profile information
+        /// </summary>
+        [HttpGet("profile")]
+        public async Task<ActionResult<APIResponse<UserResponse>>> GetStudentProfile()
+        {
+            try
+            {
+                var userId = GetStudentUserId();
+                var user = await _userService.GetUserByIdAsync(userId);
+                return Ok(APIResponse<UserResponse>.Success(user, "Lấy thông tin người dùng thành công."));
+            }
+            catch (UserNotFoundException)
+            {
+                return NotFound(APIResponse<object>.Fail(ApiMessages.UserNotFound, 404));
+            }
+        }
 
         /// <summary>
         /// Student checks if they are linked to a parent.
