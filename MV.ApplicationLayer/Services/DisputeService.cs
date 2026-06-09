@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.Constants;
@@ -8,7 +8,6 @@ using MV.DomainLayer.Helpers;
 using MV.ApplicationLayer.Interfaces;
 using MV.ApplicationLayer.RepositoryInterfaces;
 using System.Text.Json;
-using static MV.DomainLayer.Helpers.VietnamTimeHelper;
 using static MV.DomainLayer.Constants.LessonStatus;
 
 namespace MV.ApplicationLayer.Services;
@@ -86,7 +85,7 @@ public class DisputeService : IDisputeService
             CreatedByName = d.CreatedByName,
             TutorName = d.TutorName,
             LessonPrice = d.LessonPrice,
-            CreatedAt = d.Createdat.HasValue ? ToVietnamTime(d.Createdat.Value) : (DateTime?)null
+            CreatedAt = d.Createdat.HasValue ? MV.DomainLayer.Helpers.TimeZoneHelper.ToUserTime(d.Createdat.Value) : (DateTime?)null
         }).ToList();
 
         return new PagedList<DisputeListResponse>(disputes, totalCount, query.Page, query.PageSize);
@@ -108,8 +107,8 @@ public class DisputeService : IDisputeService
             Reason = dispute.Reason,
             Status = dispute.Status,
             Evidence = DeserializeJsonList(dispute.Evidence),
-            CreatedAt = dispute.Createdat.HasValue ? ToVietnamTime(dispute.Createdat.Value) : (DateTime?)null,
-            ResolvedAt = dispute.Resolvedat.HasValue ? ToVietnamTime(dispute.Resolvedat.Value) : (DateTime?)null,
+            CreatedAt = dispute.Createdat.HasValue ? MV.DomainLayer.Helpers.TimeZoneHelper.ToUserTime(dispute.Createdat.Value) : (DateTime?)null,
+            ResolvedAt = dispute.Resolvedat.HasValue ? MV.DomainLayer.Helpers.TimeZoneHelper.ToUserTime(dispute.Resolvedat.Value) : (DateTime?)null,
             ResolutionNote = dispute.Resolutionnote,
             RefundAmount = dispute.Refundamount,
             RefundPercentage = dispute.Refundpercentage,
@@ -129,8 +128,8 @@ public class DisputeService : IDisputeService
             Lesson = dispute.Lesson != null ? new DisputeLessonResponse
             {
                 LessonId = dispute.Lesson.Lessonid,
-                ScheduledStart = ToVietnamTime(dispute.Lesson.Scheduledstart),
-                ScheduledEnd = ToVietnamTime(dispute.Lesson.Scheduledend),
+                ScheduledStart = MV.DomainLayer.Helpers.TimeZoneHelper.ToUserTime(dispute.Lesson.Scheduledstart),
+                ScheduledEnd = MV.DomainLayer.Helpers.TimeZoneHelper.ToUserTime(dispute.Lesson.Scheduledend),
                 Status = dispute.Lesson.Status,
                 LessonPrice = dispute.Lesson.Lessonprice,
                 LessonContent = dispute.Lesson.Lessoncontent,
@@ -167,7 +166,7 @@ public class DisputeService : IDisputeService
             SenderId = m.Senderid ?? string.Empty,
             Content = m.Content ?? string.Empty,
             MessageType = m.Messagetype ?? ChatMessageType.Text,
-            CreatedAt = m.Createdat.HasValue ? ToVietnamTime(m.Createdat.Value) : (DateTime?)null
+            CreatedAt = m.Createdat.HasValue ? MV.DomainLayer.Helpers.TimeZoneHelper.ToUserTime(m.Createdat.Value) : (DateTime?)null
         }).ToList();
     }
 
@@ -201,7 +200,7 @@ public class DisputeService : IDisputeService
         await using var tx = await _context.Database.BeginTransactionAsync();
         try
         {
-            var now = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+            var now = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
             var lessonId = dispute.Lessonid ?? 0;
             var tutorId = dispute.Lesson?.Tutorid;
 
@@ -270,7 +269,7 @@ public class DisputeService : IDisputeService
 
     public async Task<DisputeStatsResponse> GetDisputeStatsAsync()
     {
-        var now = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+        var now = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
         var startOfMonth = new DateTime(now.Year, now.Month, 1, 0, 0, 0, DateTimeKind.Utc);
 
         return new DisputeStatsResponse

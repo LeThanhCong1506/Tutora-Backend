@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using MV.ApplicationLayer.ServiceInterfaces;
@@ -49,7 +49,7 @@ public class TrustScoringService(
             return new TrustScoreResult { BaseScore = _settings.BaseScore, TotalScore = 0 };
         }
 
-        var accountAgeDays = (int)(MV.DomainLayer.Helpers.VietnamTimeHelper.Now - (tutorStats.Createdat ?? MV.DomainLayer.Helpers.VietnamTimeHelper.Now)).TotalDays;
+        var accountAgeDays = (int)(MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow - (tutorStats.Createdat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow)).TotalDays;
 
         var result = new TrustScoreResult { BaseScore = _settings.BaseScore };
 
@@ -142,7 +142,7 @@ public class TrustScoringService(
             Fraudflags = JsonSerializer.Serialize(scoreResult.FraudFlags),
             Totalscore = scoreResult.TotalScore,
             Decision = decision.Decision,
-            Createdat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now
+            Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
         };
 
         context.Withdrawalscores.Add(scoreEntity);
@@ -261,7 +261,7 @@ public class TrustScoringService(
 
         if (bankChangedAt.HasValue)
         {
-            var daysSinceChange = (MV.DomainLayer.Helpers.VietnamTimeHelper.Now - bankChangedAt.Value).TotalDays;
+            var daysSinceChange = (MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow - bankChangedAt.Value).TotalDays;
             if (daysSinceChange < _settings.BankChangedRecentlyDays)
             {
                 result.NegativeFactors.Add(new ScoreFactor

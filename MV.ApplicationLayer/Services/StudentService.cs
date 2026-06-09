@@ -16,7 +16,7 @@ namespace MV.ApplicationLayer.Services
     public class StudentService : IStudentService
     {
         private readonly IUnitOfWork _unitOfWork;
-        private readonly ISupabaseStorageService _storage;
+        private readonly IFileStorageService _storage;
         private readonly IConfiguration _config;
         private readonly IPasswordRepository _passwordRepository;
         private const int MaxStudentsPerParent = 5;
@@ -31,7 +31,7 @@ namespace MV.ApplicationLayer.Services
 
         public StudentService(
             IUnitOfWork unitOfWork,
-            ISupabaseStorageService storage,
+            IFileStorageService storage,
             IConfiguration config,
             IPasswordRepository passwordRepository)
         {
@@ -95,7 +95,7 @@ namespace MV.ApplicationLayer.Services
                 Birthdate = request.Birthdate,
                 Status = 1,
                 Isemailverified = false,
-                Createdat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now,
+                Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow,
                 Primaryrole = UserRole.Student
             };
 
@@ -110,7 +110,7 @@ namespace MV.ApplicationLayer.Services
                 School = request.School,
                 Gradelevelid = request.GradeLevelId,
                 Learninggoals = request.Learninggoals,
-                Createdat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now
+                Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
             };
 
             // 4. Lưu cả User và Studentprofile
@@ -127,7 +127,7 @@ namespace MV.ApplicationLayer.Services
                 TemporaryPassword = tempPassword,
                 FullName = request.Fullname,
                 ParentId = parentId,
-                CreatedAt = VietnamTimeHelper.ToVietnamTime(student.Createdat ?? MV.DomainLayer.Helpers.VietnamTimeHelper.Now)
+                CreatedAt = TimeZoneHelper.ToUserTime(student.Createdat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow)
             };
         }
 
@@ -136,7 +136,7 @@ namespace MV.ApplicationLayer.Services
             var student = await _unitOfWork.StudentRepository.GetByIdAndParentAsync(studentId, parentId)
                 ?? throw new NotStudentOwnerException(studentId);
 
-            var oldFilePath = student.Avatarurl != null ? ExtractFilePathFromUrl(student.Avatarurl, _config["Supabase:BaseUrl"]!) : null;
+            var oldFilePath = student.Avatarurl;
             if (oldFilePath != null)
                 await _storage.DeleteFileAsync(AvatarBucket, studentId, oldFilePath);
 
@@ -208,7 +208,7 @@ namespace MV.ApplicationLayer.Services
                 ?? throw new NotStudentOwnerException(studentId);
 
             student.Studentcode = await GenerateUniqueLinkCodeAsync();
-            student.Studentcodeexpiresat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now.AddHours(LinkCodeExpiryHours);
+            student.Studentcodeexpiresat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow.AddHours(LinkCodeExpiryHours);
 
             _unitOfWork.StudentRepository.Update(student);
             await _unitOfWork.SaveChangesAsync();
@@ -221,7 +221,7 @@ namespace MV.ApplicationLayer.Services
             var student = await _unitOfWork.StudentRepository.FindByStudentCodeAsync(code)
                 ?? throw new LinkCodeNotFoundException();
 
-            if (!student.Studentcodeexpiresat.HasValue || student.Studentcodeexpiresat < MV.DomainLayer.Helpers.VietnamTimeHelper.Now)
+            if (!student.Studentcodeexpiresat.HasValue || student.Studentcodeexpiresat < MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow)
                 throw new LinkCodeExpiredException();
 
             if (student.Linkeduserid != null)
@@ -247,7 +247,7 @@ namespace MV.ApplicationLayer.Services
             // Generate unique parent code
             var code = await GenerateUniqueParentCodeAsync();
             parent.Parentcode = code;
-            parent.Parentcodeexpiresat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now.AddHours(LinkCodeExpiryHours);
+            parent.Parentcodeexpiresat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow.AddHours(LinkCodeExpiryHours);
 
             await _unitOfWork.UserRepository.UpdateUserAsync(parent);
             await _unitOfWork.SaveChangesAsync();
@@ -261,7 +261,7 @@ namespace MV.ApplicationLayer.Services
             var parent = await _unitOfWork.UserRepository.GetUserByParentCodeAsync(parentCode)
                 ?? throw new ParentCodeNotFoundException();
 
-            if (!parent.Parentcodeexpiresat.HasValue || parent.Parentcodeexpiresat < MV.DomainLayer.Helpers.VietnamTimeHelper.Now)
+            if (!parent.Parentcodeexpiresat.HasValue || parent.Parentcodeexpiresat < MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow)
                 throw new ParentCodeExpiredException();
 
             // 2. Tìm Studentprofile của student (nếu có)
@@ -291,7 +291,7 @@ namespace MV.ApplicationLayer.Services
                     Linkeduserid = studentUserId,
                     Fullname = user.Fullname ?? "Học sinh",
                     Avatarurl = user.Avatarurl,
-                    Createdat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now
+                    Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
                 };
 
                 await _unitOfWork.StudentRepository.CreateAsync(student);
@@ -336,7 +336,7 @@ namespace MV.ApplicationLayer.Services
                 TemporaryPassword = newPassword,
                 FullName = student.Fullname ?? "",
                 ParentId = parentId,
-                CreatedAt = VietnamTimeHelper.ToVietnamTime(student.Createdat ?? MV.DomainLayer.Helpers.VietnamTimeHelper.Now)
+                CreatedAt = TimeZoneHelper.ToUserTime(student.Createdat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow)
             };
         }
 
@@ -371,10 +371,7 @@ namespace MV.ApplicationLayer.Services
             var student = await _unitOfWork.StudentRepository.FindByStudentOrLinkedUserAsync(studentUserId)
                 ?? throw new StudentNotFoundException();
 
-            // Xóa ảnh cũ trên storage nếu có
-            var oldFilePath = student.Avatarurl != null
-                ? ExtractFilePathFromUrl(student.Avatarurl, _config["Supabase:BaseUrl"]!)
-                : null;
+            var oldFilePath = student.Avatarurl;
             if (oldFilePath != null)
                 await _storage.DeleteFileAsync(AvatarBucket, studentUserId, oldFilePath);
 
@@ -432,16 +429,7 @@ namespace MV.ApplicationLayer.Services
             return await _storage.UploadFileAsync(AvatarBucket, parentId, avatarFile);
         }
 
-        private static string? ExtractFilePathFromUrl(string url, string supabaseBaseUrl)
-        {
-            var storagePath = "/storage/v1/object/public/";
-            var idx = url.IndexOf(storagePath, StringComparison.Ordinal);
-            if (idx < 0) return null;
 
-            var pathPart = url[(idx + storagePath.Length)..];
-            var slashIdx = pathPart.IndexOf('/');
-            return slashIdx < 0 ? null : pathPart[(slashIdx + 1)..];
-        }
 
         private static void ValidateBirthdate(DateOnly? birthdate)
         {
@@ -558,8 +546,8 @@ namespace MV.ApplicationLayer.Services
             LearningGoals = s.Learninggoals,
             AvatarURL = s.Avatarurl,
             StudentCode = s.Studentcode,
-            StudentCodeExpiresAt = s.Studentcodeexpiresat.HasValue ? VietnamTimeHelper.ToVietnamTime(s.Studentcodeexpiresat.Value) : (DateTime?)null,
-            CreatedAt = s.Createdat.HasValue ? VietnamTimeHelper.ToVietnamTime(s.Createdat.Value) : (DateTime?)null
+            StudentCodeExpiresAt = s.Studentcodeexpiresat.HasValue ? TimeZoneHelper.ToUserTime(s.Studentcodeexpiresat.Value) : (DateTime?)null,
+            CreatedAt = s.Createdat.HasValue ? TimeZoneHelper.ToUserTime(s.Createdat.Value) : (DateTime?)null
         };
 
         #endregion

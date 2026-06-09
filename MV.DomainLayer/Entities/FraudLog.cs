@@ -1,4 +1,4 @@
-using System.ComponentModel.DataAnnotations;
+﻿using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
 namespace MV.DomainLayer.Entities;
@@ -36,7 +36,7 @@ public class FraudLog
     public string? Metadata { get; set; }
 
     [Column("checkedat")]
-    public DateTime Checkedat { get; set; } = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+    public DateTime Checkedat { get; set; } = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 
     public virtual Tutorprofile? Tutor { get; set; }
     public virtual Withdrawalrequest? Withdrawalrequest { get; set; }

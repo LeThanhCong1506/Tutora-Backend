@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -35,7 +35,7 @@ public class PaymentTimeoutJob(IServiceProvider sp, ILogger<PaymentTimeoutJob> l
         using var scope = sp.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<IAppDbContext>();
         var notify = scope.ServiceProvider.GetRequiredService<INotificationService>();
-        var now = VietnamTimeHelper.UtcNow;
+        var now = TimeZoneHelper.UtcNow;
 
         var expired = await db.Bookings
             .Include(b => b.Chatchannels)
@@ -88,7 +88,7 @@ public class PaymentTimeoutJob(IServiceProvider sp, ILogger<PaymentTimeoutJob> l
         using var scope = sp.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<IAppDbContext>();
         var notify = scope.ServiceProvider.GetRequiredService<INotificationService>();
-        var now = VietnamTimeHelper.UtcNow;
+        var now = TimeZoneHelper.UtcNow;
 
         var expiredRemaining = await db.Bookings
             .Include(b => b.Student)

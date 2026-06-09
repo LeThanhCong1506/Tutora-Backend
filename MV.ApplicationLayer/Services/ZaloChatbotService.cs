@@ -1,4 +1,4 @@
-using Microsoft.Extensions.Configuration;
+﻿using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.Constants;
@@ -155,7 +155,7 @@ public class ZaloChatbotService : IZaloChatbotService
 
     private static async Task SaveSession(IDatabase db, string key, ChatSession session)
     {
-        session.UpdatedAt = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+        session.UpdatedAt = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
         await db.StringSetAsync(key, JsonSerializer.Serialize(session), TimeSpan.FromMinutes(10));
     }
 }
@@ -166,5 +166,5 @@ public class ChatSession
     public string? Subject { get; set; }
     public string? Grade { get; set; }
     public string? Area { get; set; }
-    public DateTime UpdatedAt { get; set; } = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+    public DateTime UpdatedAt { get; set; } = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 }

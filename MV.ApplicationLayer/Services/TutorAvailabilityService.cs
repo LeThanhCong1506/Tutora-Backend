@@ -63,7 +63,7 @@ namespace MV.ApplicationLayer.Services
                 Dayofweek = request.Dayofweek,
                 Starttime = startTime,
                 Endtime = endTime,
-                Createdat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now
+                Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
             };
 
             _context.Tutoravailabilities.Add(availability);
@@ -131,7 +131,7 @@ namespace MV.ApplicationLayer.Services
                     Dayofweek = req.Dayofweek,
                     Starttime = startTime,
                     Endtime = endTime,
-                    Createdat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now
+                    Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
                 };
 
                 newSlots.Add(availability);
@@ -269,7 +269,7 @@ namespace MV.ApplicationLayer.Services
                 return;
             }
 
-            var now = VietnamTimeHelper.Now;
+            var now = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
             _context.Tutorpackages.Add(new Tutorpackage
             {
                 Tutorid = tutorId,
@@ -285,7 +285,7 @@ namespace MV.ApplicationLayer.Services
         {
             var lessons = await _context.Lessons
                 .Where(l => l.Tutorid == tutorId
-                    && l.Scheduledstart > MV.DomainLayer.Helpers.VietnamTimeHelper.Now
+                    && l.Scheduledstart > MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
                     && l.Status != LessonStatus.Cancelled
                     && l.Status != LessonStatus.CancelledNoshow
                     && l.Status != LessonStatus.Completed
@@ -295,10 +295,12 @@ namespace MV.ApplicationLayer.Services
 
             return lessons.Any(l =>
             {
-                var startVn = VietnamTimeHelper.ToVietnamTime(l.Scheduledstart);
-                var endVn = VietnamTimeHelper.ToVietnamTime(l.Scheduledend);
+                var startVn = TimeZoneHelper.ToUserTime(l.Scheduledstart);
+                var endVn = TimeZoneHelper.ToUserTime(l.Scheduledend);
+
                 // Convert C# DayOfWeek (0=Sunday, 1=Monday...) to ISO format (1=Monday, 7=Sunday)
                 var isoDayOfWeek = startVn.DayOfWeek == DayOfWeek.Sunday ? 7 : (int)startVn.DayOfWeek;
+
                 return isoDayOfWeek == dayOfWeek
                     && startVn.TimeOfDay < slotEnd
                     && endVn.TimeOfDay > slotStart;
@@ -317,7 +319,7 @@ namespace MV.ApplicationLayer.Services
                 Dayofweek = entity.Dayofweek ?? 1,
                 Starttime = entity.Starttime?.ToString("HH:mm") ?? string.Empty,
                 Endtime = entity.Endtime?.ToString("HH:mm") ?? string.Empty,
-                Createdat = VietnamTimeHelper.ToVietnamTime(entity.Createdat ?? MV.DomainLayer.Helpers.VietnamTimeHelper.Now)
+                Createdat = TimeZoneHelper.ToUserTime(entity.Createdat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow)
             };
         }
     }

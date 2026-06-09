@@ -1,4 +1,4 @@
-using System.Security.Cryptography;
+﻿using System.Security.Cryptography;
 using System.Text.Encodings.Web;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Configuration;
@@ -109,7 +109,7 @@ namespace MV.ApplicationLayer.Services
                     };
                 }
 
-                await _unitOfWork.UserRepository.UpdateLastLoginAtAsync(user.Userid, MV.DomainLayer.Helpers.VietnamTimeHelper.Now);
+                await _unitOfWork.UserRepository.UpdateLastLoginAtAsync(user.Userid, MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow);
                 await _unitOfWork.SaveChangesAsync();
 
                 return await CreateTokenResponseAsync(user);
@@ -162,7 +162,7 @@ namespace MV.ApplicationLayer.Services
                         if (!string.IsNullOrEmpty(request.Phone))
                             existingUser.Phone = request.Phone;
                         existingUser.Otpcode = otpCode;
-                        existingUser.Otpexpiresat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now.AddMinutes(10);
+                        existingUser.Otpexpiresat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow.AddMinutes(10);
                         existingUser.Otpattempts = 0;
                         
                         await _unitOfWork.UserRepository.UpdateUserAsync(existingUser);
@@ -203,10 +203,10 @@ namespace MV.ApplicationLayer.Services
                         Status = 1,
                         Isemailverified = false,
                         Isphoneverified = false,
-                        Createdat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now,
+                        Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow,
                         Primaryrole = requestedRole,
                         Otpcode = otpCode,
-                        Otpexpiresat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now.AddMinutes(10),
+                        Otpexpiresat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow.AddMinutes(10),
                         Otpattempts = 0
                     };
 
@@ -215,7 +215,7 @@ namespace MV.ApplicationLayer.Services
                         newUser.Tutorprofile = new Tutorprofile
                         {
                             Tutorid = userId,
-                            Createdat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now,
+                            Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow,
                             Profilestatus = TutorProfileStatus.Draft
                         };
                     }
@@ -225,7 +225,7 @@ namespace MV.ApplicationLayer.Services
                         {
                             Studentid = userId,
                             Parentid = null,
-                            Createdat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now
+                            Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
                         });
                     }
                     else if (string.Equals(requestedRole, UserRole.Parent, StringComparison.OrdinalIgnoreCase))
@@ -234,7 +234,7 @@ namespace MV.ApplicationLayer.Services
                         {
                             Userid = userId,
                             Balance = 0,
-                            Lastupdated = MV.DomainLayer.Helpers.VietnamTimeHelper.Now
+                            Lastupdated = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
                         };
                     }
 
@@ -284,7 +284,7 @@ namespace MV.ApplicationLayer.Services
                     return new TokenResponse { ErrorMessage = "Quá nhiều lần nhập OTP không hợp lệ. Vui lòng gửi lại mã mới." };
                 }
 
-                if (user.Otpexpiresat == null || user.Otpexpiresat <= MV.DomainLayer.Helpers.VietnamTimeHelper.Now)
+                if (user.Otpexpiresat == null || user.Otpexpiresat <= MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow)
                 {
                     return new TokenResponse { ErrorMessage = "OTP đã hết hạn. Vui lòng gửi lại mã mới." };
                 }
@@ -367,7 +367,7 @@ namespace MV.ApplicationLayer.Services
                 
                 // Store token in Otpcode and set expiry to 10 minutes
                 user.Otpcode = token;
-                user.Otpexpiresat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now.AddMinutes(10);
+                user.Otpexpiresat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow.AddMinutes(10);
                 
                 await _unitOfWork.UserRepository.UpdateUserAsync(user);
                 await _unitOfWork.SaveChangesAsync();
@@ -517,7 +517,7 @@ namespace MV.ApplicationLayer.Services
                     return new TokenResponse { ErrorMessage = "Yêu cầu không hợp lệ." };
                 }
 
-                if (user.Otpcode != request.Token || user.Otpexpiresat == null || user.Otpexpiresat < MV.DomainLayer.Helpers.VietnamTimeHelper.Now)
+                if (user.Otpcode != request.Token || user.Otpexpiresat == null || user.Otpexpiresat < MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow)
                 {
                     return new TokenResponse { ErrorMessage = "Đường link đã hết hạn hoặc không hợp lệ. Vui lòng yêu cầu lại." };
                 }
@@ -581,8 +581,8 @@ namespace MV.ApplicationLayer.Services
                 Tokenhash = tokenHash,
                 Userid = userId,
                 Tokenfamily = Guid.NewGuid().ToString(),
-                Expiresat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now.AddDays(expiryDays),
-                Createdat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now
+                Expiresat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow.AddDays(expiryDays),
+                Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
             };
 
             await _unitOfWork.RefreshTokenRepository.CreateAsync(refreshToken);
@@ -593,7 +593,7 @@ namespace MV.ApplicationLayer.Services
         private static void SetEmailOtp(User user)
         {
             user.Otpcode = RandomNumberGenerator.GetInt32(100000, 1000000).ToString();
-            user.Otpexpiresat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now.AddMinutes(10);
+            user.Otpexpiresat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow.AddMinutes(10);
             user.Otpattempts = 0;
         }
 
@@ -611,7 +611,7 @@ namespace MV.ApplicationLayer.Services
                 Status = 1,
                 Isemailverified = !string.IsNullOrEmpty(request.Email), // Verified since this is called after OTP check
                 Isphoneverified = !string.IsNullOrEmpty(request.Phone),
-                Createdat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now,
+                Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow,
                 Username = null,
                 Primaryrole = requestedRole
             };
@@ -621,7 +621,7 @@ namespace MV.ApplicationLayer.Services
                 newUser.Tutorprofile = new Tutorprofile
                 {
                     Tutorid = userId,
-                    Createdat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now,
+                    Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow,
                     Profilestatus = TutorProfileStatus.Draft
                 };
             }
@@ -631,7 +631,7 @@ namespace MV.ApplicationLayer.Services
                 {
                     Studentid = userId,
                     Parentid = null,
-                    Createdat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now
+                    Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
                 });
             }
             else if (string.Equals(requestedRole, UserRole.Parent, StringComparison.OrdinalIgnoreCase))
@@ -640,7 +640,7 @@ namespace MV.ApplicationLayer.Services
                 {
                     Userid = userId,
                     Balance = 0,
-                    Lastupdated = MV.DomainLayer.Helpers.VietnamTimeHelper.Now
+                    Lastupdated = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
                 };
             }
 

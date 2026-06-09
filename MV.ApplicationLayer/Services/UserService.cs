@@ -17,7 +17,7 @@ namespace MV.ApplicationLayer.Services
         private readonly IUnitOfWork _unitOfWork;
         private readonly IPasswordRepository _passwordRepository;
         private readonly ITutorVerificationService _verificationService;
-        private readonly ISupabaseStorageService _storage;
+        private readonly IFileStorageService _storage;
         private readonly INotificationService _notificationService;
         private const string UserAvatarBucket = StorageBucket.Avatars;
 
@@ -25,7 +25,7 @@ namespace MV.ApplicationLayer.Services
             IUnitOfWork unitOfWork,
             IPasswordRepository passwordRepository,
             ITutorVerificationService verificationService,
-            ISupabaseStorageService storage,
+            IFileStorageService storage,
             INotificationService notificationService)
         {
             _unitOfWork = unitOfWork;
@@ -53,8 +53,8 @@ namespace MV.ApplicationLayer.Services
                 Gender = u.Gender,
                 Avatarurl = u.Avatarurl,
                 Status = u.Status,
-                Createdat = u.Createdat.HasValue ? VietnamTimeHelper.ToVietnamTime(u.Createdat.Value) : (DateTime?)null,
-                LastLoginAt = u.Lastloginat.HasValue ? VietnamTimeHelper.ToVietnamTime(u.Lastloginat.Value) : (DateTime?)null,
+                Createdat = u.Createdat.HasValue ? TimeZoneHelper.ToUserTime(u.Createdat.Value) : (DateTime?)null,
+                LastLoginAt = u.Lastloginat.HasValue ? TimeZoneHelper.ToUserTime(u.Lastloginat.Value) : (DateTime?)null,
                 Role = u.Primaryrole ?? UserRole.User
             }).ToList();
 
@@ -83,8 +83,8 @@ namespace MV.ApplicationLayer.Services
                 Gender = user.Gender,
                 Avatarurl = user.Avatarurl,
                 Status = user.Status,
-                Createdat = user.Createdat.HasValue ? VietnamTimeHelper.ToVietnamTime(user.Createdat.Value) : (DateTime?)null,
-                LastLoginAt = user.Lastloginat.HasValue ? VietnamTimeHelper.ToVietnamTime(user.Lastloginat.Value) : (DateTime?)null,
+                Createdat = user.Createdat.HasValue ? TimeZoneHelper.ToUserTime(user.Createdat.Value) : (DateTime?)null,
+                LastLoginAt = user.Lastloginat.HasValue ? TimeZoneHelper.ToUserTime(user.Lastloginat.Value) : (DateTime?)null,
                 Role = user.Primaryrole,
                 Idcardbackurl = user.Idcardbackurl,
                 Idcardfronturl = user.Idcardfronturl,
@@ -127,11 +127,11 @@ namespace MV.ApplicationLayer.Services
                     Gender = u.Gender,
                     Address = u.Address,
                     Status = u.Status,
-                    Createdat = u.Createdat.HasValue ? VietnamTimeHelper.ToVietnamTime(u.Createdat.Value) : (DateTime?)null,
+                    Createdat = u.Createdat.HasValue ? TimeZoneHelper.ToUserTime(u.Createdat.Value) : (DateTime?)null,
                     ProfileStatus = u.Tutorprofile?.Profilestatus,
                     RejectionNote = u.Tutorprofile?.Rejectionnote,
-                    ProfileCreatedAt = u.Tutorprofile?.Createdat.HasValue == true ? VietnamTimeHelper.ToVietnamTime(u.Tutorprofile.Createdat.Value) : (DateTime?)null,
-                    ProfileUpdatedAt = u.Tutorprofile?.Updatedat.HasValue == true ? VietnamTimeHelper.ToVietnamTime(u.Tutorprofile.Updatedat.Value) : (DateTime?)null,
+                    ProfileCreatedAt = u.Tutorprofile?.Createdat.HasValue == true ? TimeZoneHelper.ToUserTime(u.Tutorprofile.Createdat.Value) : (DateTime?)null,
+                    ProfileUpdatedAt = u.Tutorprofile?.Updatedat.HasValue == true ? TimeZoneHelper.ToUserTime(u.Tutorprofile.Updatedat.Value) : (DateTime?)null,
                     Sections = progress?.Sections ?? new VerificationSections()
                 });
             }
@@ -195,7 +195,7 @@ namespace MV.ApplicationLayer.Services
                 Address = request.Address,
                 Gender = request.Gender,
                 Status = 1,
-                Createdat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now,
+                Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow,
                 Primaryrole = roleToUse
             };
 
@@ -204,7 +204,7 @@ namespace MV.ApplicationLayer.Services
                 newUser.Tutorprofile = new Tutorprofile
                 {
                     Tutorid = userId,
-                    Createdat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now,
+                    Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow,
                     Profilestatus = TutorProfileStatus.Draft
                 };
             }
@@ -217,12 +217,12 @@ namespace MV.ApplicationLayer.Services
                     Parentid = request.ParentId,
                     Fullname = request.Fullname,
                     Birthdate = request.Birthdate,
-                    Createdat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now
+                    Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
                 });
             }
             else if (string.Equals(roleToUse, UserRole.Parent, StringComparison.OrdinalIgnoreCase))
             {
-                newUser.Wallet = new Wallet { Userid = userId, Balance = 0, Lastupdated = MV.DomainLayer.Helpers.VietnamTimeHelper.Now };
+                newUser.Wallet = new Wallet { Userid = userId, Balance = 0, Lastupdated = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow };
             }
 
             await _unitOfWork.UserRepository.CreateUserAsync(newUser);
@@ -283,7 +283,7 @@ namespace MV.ApplicationLayer.Services
             var user = await _unitOfWork.UserRepository.GetUserByIdAsync(userId)
                 ?? throw new UserNotFoundException();
 
-            var now = VietnamTimeHelper.Now;
+            var now = TimeZoneHelper.UtcNow;
             var willDeactivate = !(user.Isdeactivated ?? false);
 
             user.Isdeactivated = willDeactivate;
@@ -303,7 +303,7 @@ namespace MV.ApplicationLayer.Services
             return new DeactivationStatusResponse
             {
                 IsDeactivated = willDeactivate,
-                DeactivatedAt = VietnamTimeHelper.ToVietnamTime(now),
+                DeactivatedAt = TimeZoneHelper.ToUserTime(now),
                 Message = message
             };
         }
@@ -347,8 +347,8 @@ namespace MV.ApplicationLayer.Services
             Gender = user.Gender,
             Avatarurl = user.Avatarurl,
             Status = user.Status,
-            Createdat = user.Createdat.HasValue ? VietnamTimeHelper.ToVietnamTime(user.Createdat.Value) : (DateTime?)null,
-            LastLoginAt = user.Lastloginat.HasValue ? VietnamTimeHelper.ToVietnamTime(user.Lastloginat.Value) : (DateTime?)null,
+            Createdat = user.Createdat.HasValue ? TimeZoneHelper.ToUserTime(user.Createdat.Value) : (DateTime?)null,
+            LastLoginAt = user.Lastloginat.HasValue ? TimeZoneHelper.ToUserTime(user.Lastloginat.Value) : (DateTime?)null,
             Role = user.Primaryrole
         };
     }

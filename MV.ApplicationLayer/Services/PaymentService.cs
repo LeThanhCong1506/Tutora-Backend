@@ -77,7 +77,7 @@ public partial class PaymentService(
         EnsureDepositAmountsCalculated(booking);
 
         var txId = string.IsNullOrWhiteSpace(request?.TransactionId)
-            ? $"admin-{bookingId}-{MV.DomainLayer.Helpers.VietnamTimeHelper.Now:yyyyMMddHHmmss}"
+            ? $"admin-{bookingId}-{MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow:yyyyMMddHHmmss}"
             : request.TransactionId.Trim();
 
         // Auto-detect phase: if deposit not paid yet, confirm deposit; otherwise confirm remaining
@@ -133,7 +133,7 @@ public partial class PaymentService(
                     try
                     {
                         var orderCode = OrderCodeHelper.GenerateBookingOrderCode(bookingId);
-                    var txId = $"poll-{bookingId}-{PaymentPhase.DepositShort}-{MV.DomainLayer.Helpers.VietnamTimeHelper.Now:yyyyMMddHHmmss}";
+                    var txId = $"poll-{bookingId}-{PaymentPhase.DepositShort}-{MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow:yyyyMMddHHmmss}";
                         await ConfirmPaymentInternalAsync(orderCode, (int)info.Amount, txId, CancellationToken.None);
                     }
                     catch (Exception confirmEx)
@@ -147,7 +147,7 @@ public partial class PaymentService(
                     try
                     {
                         var orderCode = OrderCodeHelper.GenerateRemainingOrderCode(bookingId);
-                    var txId = $"poll-{bookingId}-{PaymentPhase.RemainingShort}-{MV.DomainLayer.Helpers.VietnamTimeHelper.Now:yyyyMMddHHmmss}";
+                    var txId = $"poll-{bookingId}-{PaymentPhase.RemainingShort}-{MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow:yyyyMMddHHmmss}";
                         await ConfirmPaymentInternalAsync(orderCode, (int)info.Amount, txId, CancellationToken.None);
                     }
                     catch (Exception confirmEx)
@@ -207,7 +207,7 @@ public partial class PaymentService(
                 return;
             }
 
-            if (booking.Paymentdueat.HasValue && booking.Paymentdueat.Value <= MV.DomainLayer.Helpers.VietnamTimeHelper.Now)
+            if (booking.Paymentdueat.HasValue && booking.Paymentdueat.Value <= MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow)
                 throw new BookingException(BookingErrorCodes.BookingExpired, "Booking payment expired", 409);
 
             // Ensure deposit amounts calculated
@@ -229,9 +229,9 @@ public partial class PaymentService(
             booking.Status = BookingStatus.DepositPaid;
             booking.Paymentstatus = DepositEscrowed;
             booking.Paymentdueat = null; // Clear deposit deadline
-            booking.Depositpaidat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+            booking.Depositpaidat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
             booking.Escrowstatus = Holding;
-            booking.Updatedat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+            booking.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 
             // Escrow 50% of tutor receivable to frozen balance
             if (!string.IsNullOrWhiteSpace(booking.Tutorid))
@@ -241,7 +241,7 @@ public partial class PaymentService(
                 var totalEscrow = booking.Tutorfee ?? 0;
                 var depositEscrow = Math.Round(totalEscrow * 0.5m, 2);
                 wallet.Frozenbalance = (wallet.Frozenbalance ?? 0) + depositEscrow;
-                wallet.Lastupdated = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+                wallet.Lastupdated = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 
                 walletRepo.AddTransaction(new Wallettransaction
                 {
@@ -251,7 +251,7 @@ public partial class PaymentService(
                     Referencetable = ReferenceTable.Payment,
                     Referenceid = booking.Bookingid,
                     Description = txId,
-                    Createdat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now
+                    Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
                 });
             }
 
@@ -335,9 +335,9 @@ public partial class PaymentService(
             // Update booking for fully paid
             booking.Status = BookingStatus.Paid;
             booking.Paymentstatus = Escrowed;
-            booking.Remainingpaidat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+            booking.Remainingpaidat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
             booking.Paymentdueat = null; // Clear remaining deadline
-            booking.Updatedat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+            booking.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 
             // Escrow remaining 50% of tutor receivable to frozen balance
             if (!string.IsNullOrWhiteSpace(booking.Tutorid))
@@ -348,7 +348,7 @@ public partial class PaymentService(
                 var depositEscrow = Math.Round(totalEscrow * 0.5m, 2);
                 var remainingEscrow = totalEscrow - depositEscrow;
                 wallet.Frozenbalance = (wallet.Frozenbalance ?? 0) + remainingEscrow;
-                wallet.Lastupdated = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+                wallet.Lastupdated = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 
                 walletRepo.AddTransaction(new Wallettransaction
                 {
@@ -358,7 +358,7 @@ public partial class PaymentService(
                     Referencetable = ReferenceTable.Payment,
                     Referenceid = booking.Bookingid,
                     Description = txId,
-                    Createdat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now
+                    Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
                 });
             }
 

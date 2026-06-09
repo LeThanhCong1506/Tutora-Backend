@@ -1,9 +1,7 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO.ResponseModel;
 using static MV.DomainLayer.Constants.LessonStatus;
-using static MV.DomainLayer.Helpers.VietnamTimeHelper;
-
 namespace MV.ApplicationLayer.Services;
 
 public partial class LessonService
@@ -25,15 +23,15 @@ public partial class LessonService
 
         // Group theo NGÀY Việt Nam để tránh lệch ngày do UTC+7
         var grouped = lessons
-            .GroupBy(l => ToVietnamTime(l.Scheduledstart).Date)
+            .GroupBy(l => MV.DomainLayer.Helpers.TimeZoneHelper.ToUserTime(l.Scheduledstart).Date)
             .Select(g => new CalendarDayResponse
             {
                 Date = g.Key,
                 Lessons = g.Select(l => new CalendarLessonResponse
                 {
                     LessonId = l.Lessonid,
-                    ScheduledStart = ToVietnamTime(l.Scheduledstart),
-                    ScheduledEnd = ToVietnamTime(l.Scheduledend),
+                    ScheduledStart = MV.DomainLayer.Helpers.TimeZoneHelper.ToUserTime(l.Scheduledstart),
+                    ScheduledEnd = MV.DomainLayer.Helpers.TimeZoneHelper.ToUserTime(l.Scheduledend),
                     StudentName = l.Booking?.Student?.Fullname,
                     SubjectName = l.Booking?.Subject?.Subjectname,
                     Status = l.Status,
@@ -70,15 +68,15 @@ public partial class LessonService
             .ToListAsync();
 
         return lessons
-            .GroupBy(l => ToVietnamTime(l.Scheduledstart).Date)
+            .GroupBy(l => MV.DomainLayer.Helpers.TimeZoneHelper.ToUserTime(l.Scheduledstart).Date)
             .Select(g => new CalendarDayResponse
             {
                 Date = g.Key,
                 Lessons = g.Select(l => new CalendarLessonResponse
                 {
                     LessonId = l.Lessonid,
-                    ScheduledStart = ToVietnamTime(l.Scheduledstart),
-                    ScheduledEnd = ToVietnamTime(l.Scheduledend),
+                    ScheduledStart = MV.DomainLayer.Helpers.TimeZoneHelper.ToUserTime(l.Scheduledstart),
+                    ScheduledEnd = MV.DomainLayer.Helpers.TimeZoneHelper.ToUserTime(l.Scheduledend),
                     TutorName = l.Booking?.Tutor?.Tutor?.Fullname,
                     SubjectName = l.Booking?.Subject?.Subjectname,
                     Status = l.Status,
@@ -90,10 +88,10 @@ public partial class LessonService
 
     public async Task<TutorDashboardStatsResponse> GetTutorDashboardStatsAsync(string tutorId)
     {
-        var now = UtcNow;
-        var vnNow = ToVietnamTime(now);
+        var now = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
+        var vnNow = MV.DomainLayer.Helpers.TimeZoneHelper.ToUserTime(now);
         var startOfMonth = TimeZoneInfo.ConvertTimeToUtc(
-            new DateTime(vnNow.Year, vnNow.Month, 1, 0, 0, 0, DateTimeKind.Unspecified), Tz);
+            new DateTime(vnNow.Year, vnNow.Month, 1, 0, 0, 0, DateTimeKind.Unspecified), MV.DomainLayer.Helpers.TimeZoneHelper.GetTimeZoneInfo("Asia/Ho_Chi_Minh"));
 
         var upcomingCount = await _context.Lessons
             .CountAsync(l => l.Tutorid == tutorId && l.Status == Scheduled && l.Scheduledstart > now);
@@ -122,7 +120,7 @@ public partial class LessonService
 
         var tutorProfile = await _context.Tutorprofiles.FirstOrDefaultAsync(t => t.Tutorid == tutorId);
 
-        // Load entity trước, rồi project sang DTO để dùng được ToVietnamTime()
+        // Load entity trước, rồi project sang DTO để dùng được MV.DomainLayer.Helpers.TimeZoneHelper.ToUserTime()
         var nextLessonEntities = await _context.Lessons
             .AsNoTracking()
             .Where(l => l.Tutorid == tutorId && l.Status == Scheduled && l.Scheduledstart > now)
@@ -139,8 +137,8 @@ public partial class LessonService
         {
             LessonId = l.Lessonid,
             BookingId = l.Bookingid,
-            ScheduledStart = ToVietnamTime(l.Scheduledstart),
-            ScheduledEnd = ToVietnamTime(l.Scheduledend),
+            ScheduledStart = MV.DomainLayer.Helpers.TimeZoneHelper.ToUserTime(l.Scheduledstart),
+            ScheduledEnd = MV.DomainLayer.Helpers.TimeZoneHelper.ToUserTime(l.Scheduledend),
             StudentName = l.Booking?.Student?.Fullname,
             SubjectName = l.Booking?.Subject?.Subjectname,
             MeetingLink = l.Meetinglink

@@ -1,4 +1,4 @@
-using MV.DomainLayer.Constants;
+﻿using MV.DomainLayer.Constants;
 using MV.DomainLayer.Helpers;
 using static MV.DomainLayer.Constants.LessonStatus;
 
@@ -60,16 +60,16 @@ public class LessonDetailResponse
     public LessonReportResponse? Report { get; set; }
 
     // Time calculations (so sánh với giờ VN vì ScheduledStart/ConfirmDeadline đã là giờ VN)
-    public TimeSpan? TimeUntilStart => ScheduledStart > VietnamTimeHelper.Now
-        ? ScheduledStart - VietnamTimeHelper.Now
+    public TimeSpan? TimeUntilStart => ScheduledStart > TimeZoneHelper.UtcNow
+        ? ScheduledStart - TimeZoneHelper.UtcNow
         : null;
 
-    public TimeSpan? TimeRemainingToConfirm => ConfirmDeadline.HasValue && ConfirmDeadline > VietnamTimeHelper.Now
-        ? ConfirmDeadline - VietnamTimeHelper.Now
+    public TimeSpan? TimeRemainingToConfirm => ConfirmDeadline.HasValue && ConfirmDeadline > TimeZoneHelper.UtcNow
+        ? ConfirmDeadline - TimeZoneHelper.UtcNow
         : null;
 
     public bool CanCheckIn => Status == Scheduled &&
-        Math.Abs((VietnamTimeHelper.Now - ScheduledStart).TotalMinutes) <= 15;
+        Math.Abs((TimeZoneHelper.UtcNow - ScheduledStart).TotalMinutes) <= 15;
 
     public bool CanSubmitReport => Status == InProgress && CheckInTime.HasValue;
 }

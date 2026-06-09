@@ -1,4 +1,4 @@
-using Microsoft.Extensions.Configuration;
+﻿using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Microsoft.IdentityModel.Tokens;
 using MV.ApplicationLayer.ServiceInterfaces;
@@ -137,7 +137,7 @@ namespace MV.ApplicationLayer.Services
                 Password = _passwordRepository.HashPassword(password),
                 Status = 1,
                 Isemailverified = true,
-                Createdat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now,
+                Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow,
                 Username = null,
                 Primaryrole = roleToUse
             };
@@ -147,7 +147,7 @@ namespace MV.ApplicationLayer.Services
                 newUser.Tutorprofile = new Tutorprofile
                 {
                     Tutorid = userId,
-                    Createdat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now,
+                    Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow,
                     Profilestatus = TutorProfileStatus.Draft
                 };
             }
@@ -156,12 +156,12 @@ namespace MV.ApplicationLayer.Services
                 newUser.StudentprofileParents.Add(new Studentprofile
                 {
                     Studentid = userId,
-                    Createdat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now
+                    Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
                 });
             }
             else if (string.Equals(roleToUse, UserRole.Parent, StringComparison.OrdinalIgnoreCase))
             {
-                newUser.Wallet = new Wallet { Userid = userId, Balance = 0, Lastupdated = MV.DomainLayer.Helpers.VietnamTimeHelper.Now };
+                newUser.Wallet = new Wallet { Userid = userId, Balance = 0, Lastupdated = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow };
             }
 
             return (newUser, null);
@@ -205,8 +205,8 @@ namespace MV.ApplicationLayer.Services
                 Tokenhash = tokenHash,
                 Userid = user.Userid,
                 Tokenfamily = Guid.NewGuid().ToString(),
-                Expiresat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now.AddDays(expiryDays),
-                Createdat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now
+                Expiresat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow.AddDays(expiryDays),
+                Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
             };
 
             await _unitOfWork.RefreshTokenRepository.CreateAsync(refreshToken);

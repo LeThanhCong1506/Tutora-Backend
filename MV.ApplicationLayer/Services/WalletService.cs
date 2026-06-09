@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -37,8 +37,8 @@ public class WalletService(
             Userid = userId,
             Amount = request.Amount,
             Status = TopupStatus.Pending,
-            Createdat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now,
-            Expiresat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now.AddHours(24)
+            Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow,
+            Expiresat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow.AddHours(24)
         };
 
         context.Topuprequests.Add(topup);
@@ -113,12 +113,12 @@ public class WalletService(
             var w = await context.Wallets
             .FromSqlRaw(SqlQueries.LockWalletByUserId, topup.Userid)
                 .FirstOrDefaultAsync(ct)
-                ?? new Wallet { Userid = topup.Userid, Balance = 0, Frozenbalance = 0, Lastupdated = MV.DomainLayer.Helpers.VietnamTimeHelper.Now };
+                ?? new Wallet { Userid = topup.Userid, Balance = 0, Frozenbalance = 0, Lastupdated = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow };
 
             if (w.Walletid == 0) context.Wallets.Add(w);
 
             w.Balance = (w.Balance ?? 0) + topup.Amount;
-            w.Lastupdated = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+            w.Lastupdated = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 
             context.Wallettransactions.Add(new Wallettransaction
             {
@@ -129,11 +129,11 @@ public class WalletService(
                 Referenceid = topup.Topuprequestid,
                 Description = data.Reference,
                 Ordercode = data.OrderCode,
-                Createdat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now
+                Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
             });
 
             topup.Status = TopupStatus.Completed;
-            topup.Completedat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+            topup.Completedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 
             await context.SaveChangesAsync(ct);
             await tx.CommitAsync(ct);
@@ -160,7 +160,7 @@ public class WalletService(
             Balance = bal,
             FrozenBalance = frz,
             TotalBalance = bal + frz,
-            LastUpdated = w != null && w.Lastupdated.HasValue ? VietnamTimeHelper.ToVietnamTime(w.Lastupdated.Value) : (DateTime?)null
+            LastUpdated = w != null && w.Lastupdated.HasValue ? TimeZoneHelper.ToUserTime(w.Lastupdated.Value) : (DateTime?)null
         };
     }
 
@@ -197,7 +197,7 @@ public class WalletService(
             Description = t.Description ?? "",
             ReferenceId = t.Referenceid,
             ReferenceTable = t.Referencetable,
-            CreatedAt = VietnamTimeHelper.ToVietnamTime(t.Createdat ?? MV.DomainLayer.Helpers.VietnamTimeHelper.Now)
+            CreatedAt = TimeZoneHelper.ToUserTime(t.Createdat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow)
         }).ToList();
 
         return new TransactionHistoryPagedResponse
@@ -254,7 +254,7 @@ public class WalletService(
                     400);
 
             wallet.Balance = balance - amount;
-            wallet.Lastupdated = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+            wallet.Lastupdated = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 
             context.Wallettransactions.Add(new Wallettransaction
             {
@@ -265,7 +265,7 @@ public class WalletService(
                 Referenceid = null,
                 Description = $"Bank verification fee - Code: {verificationCode}",
                 Ordercode = null,
-                Createdat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now
+                Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
             });
 
             await context.SaveChangesAsync();

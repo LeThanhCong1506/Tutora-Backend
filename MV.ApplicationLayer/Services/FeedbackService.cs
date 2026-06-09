@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.Constants;
@@ -67,7 +67,7 @@ public class FeedbackService : IFeedbackService
             Comment = request.Comment,
             Feedbacktype = string.IsNullOrEmpty(request.FeedbackType) ? FeedbackType.ParentToTutor : request.FeedbackType,
             Isvisible = true,
-            Createdat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now
+            Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
         };
 
         _context.Feedbacks.Add(feedback);
@@ -90,7 +90,7 @@ public class FeedbackService : IFeedbackService
             Comment = request.Comment,
             ParentName = (await _context.Users.FindAsync(fromUserId))?.Fullname,
             IsVisible = true,
-            CreatedAt = VietnamTimeHelper.ToVietnamTime(feedback.Createdat ?? MV.DomainLayer.Helpers.VietnamTimeHelper.Now)
+            CreatedAt = TimeZoneHelper.ToUserTime(feedback.Createdat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow)
         };
     }
 
@@ -110,7 +110,7 @@ public class FeedbackService : IFeedbackService
             throw new InvalidOperationException("Đánh giá này đã được trả lời rồi");
 
         feedback.Replycomment = request.ReplyComment;
-        feedback.Repliedat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+        feedback.Repliedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 
         await _context.SaveChangesAsync();
 
@@ -123,9 +123,9 @@ public class FeedbackService : IFeedbackService
             Comment = feedback.Comment,
             ParentName = feedback.Fromuser?.Fullname,
             Reply = feedback.Replycomment,
-            RepliedAt = feedback.Repliedat.HasValue ? VietnamTimeHelper.ToVietnamTime(feedback.Repliedat.Value) : (DateTime?)null,
+            RepliedAt = feedback.Repliedat.HasValue ? TimeZoneHelper.ToUserTime(feedback.Repliedat.Value) : (DateTime?)null,
             IsVisible = feedback.Isvisible ?? true,
-            CreatedAt = VietnamTimeHelper.ToVietnamTime(feedback.Createdat ?? MV.DomainLayer.Helpers.VietnamTimeHelper.Now)
+            CreatedAt = TimeZoneHelper.ToUserTime(feedback.Createdat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow)
         };
     }
 
@@ -175,9 +175,9 @@ public class FeedbackService : IFeedbackService
             ParentAvatarUrl = f.ParentAvatarUrl,
             SubjectName = f.SubjectName,
             Reply = f.Reply,
-            RepliedAt = f.RepliedAt.HasValue ? VietnamTimeHelper.ToVietnamTime(f.RepliedAt.Value) : (DateTime?)null,
+            RepliedAt = f.RepliedAt.HasValue ? TimeZoneHelper.ToUserTime(f.RepliedAt.Value) : (DateTime?)null,
             IsVisible = f.IsVisible ?? true,
-            CreatedAt = VietnamTimeHelper.ToVietnamTime(f.Createdat ?? MV.DomainLayer.Helpers.VietnamTimeHelper.Now)
+            CreatedAt = TimeZoneHelper.ToUserTime(f.Createdat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow)
         }).ToList();
 
         return new PagedList<FeedbackListResponse>(feedbacks, totalCount, page, pageSize);
@@ -342,7 +342,7 @@ public class FeedbackService : IFeedbackService
             ActualResult = request.ActualResult,
             CourseDuration = request.CourseDuration,
             Isvisible = true,
-            Createdat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now
+            Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
         };
 
         _context.Feedbacks.Add(feedback);
@@ -363,7 +363,7 @@ public class FeedbackService : IFeedbackService
             Comment = request.Comment,
             ParentName = (await _context.Users.FindAsync(fromUserId))?.Fullname,
             IsVisible = true,
-            CreatedAt = VietnamTimeHelper.ToVietnamTime(feedback.Createdat ?? MV.DomainLayer.Helpers.VietnamTimeHelper.Now)
+            CreatedAt = TimeZoneHelper.ToUserTime(feedback.Createdat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow)
         };
     }
 
