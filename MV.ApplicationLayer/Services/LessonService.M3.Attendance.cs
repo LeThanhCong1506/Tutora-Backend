@@ -40,7 +40,7 @@ public partial class LessonService
                     "Phụ huynh chưa thanh toán 50% còn lại. Vui lòng đợi thanh toán trước khi bắt đầu buổi tiếp theo.", 400);
         }
 
-        var now = VietnamTimeHelper.UtcNow;
+        var now = TimeZoneHelper.UtcNow;
         var minutesDiff = Math.Abs((now - lesson.Scheduledstart).TotalMinutes);
         if (minutesDiff > 15)
             throw new LessonException(LessonErrorCodes.CheckInTooEarly, "Chỉ được điểm danh trong vòng ±15 phút so với giờ bắt đầu", 400);
@@ -72,7 +72,7 @@ public partial class LessonService
         // ── Gửi thông báo + link vào chat cho Parent và Student ──
         var parentId = lesson.Booking?.Parentid;
         var studentProfileId = lesson.Booking?.Studentid; // ProfileId (stu_xxx), KHÔNG phải UserId
-        var lessonTimeVn = VietnamTimeHelper.ToVietnamTime(lesson.Scheduledstart).ToString("dd/MM HH:mm");
+        var lessonTimeVn = TimeZoneHelper.ToUserTime(lesson.Scheduledstart).ToString("dd/MM HH:mm");
         // hasMeetLink được tính lại SAU khi Tencent RTC RoomId đã được set
         var hasMeetLink = !string.IsNullOrWhiteSpace(lesson.Meetinglink);
         string chatContent;
@@ -107,7 +107,7 @@ public partial class LessonService
         {
             lessonId,
             meetingLink = lesson.Meetinglink,
-            scheduledStart = VietnamTimeHelper.ToVietnamTime(lesson.Scheduledstart)
+            scheduledStart = TimeZoneHelper.ToUserTime(lesson.Scheduledstart)
         };
 
         // ── Gửi cho Parent ──
@@ -203,8 +203,8 @@ public partial class LessonService
         if (!lesson.Checkintime.HasValue)
             throw new LessonException(LessonErrorCodes.NotCheckedIn, "Vui lòng điểm danh vào trước", 400);
 
-        lesson.Checkouttime = VietnamTimeHelper.UtcNow;
-        lesson.Realend = VietnamTimeHelper.UtcNow;
+        lesson.Checkouttime = TimeZoneHelper.UtcNow;
+        lesson.Realend = TimeZoneHelper.UtcNow;
 
         await _context.SaveChangesAsync();
         _logger.LogInformation("Tutor {TutorId} checked out from lesson {LessonId}", tutorId, lessonId);
@@ -232,7 +232,7 @@ public partial class LessonService
             if (lesson.Lessonreport != null)
                 throw new LessonException(LessonErrorCodes.ReportAlreadySubmitted, "Báo cáo buổi học đã được gửi rồi", 400);
 
-            var now = VietnamTimeHelper.UtcNow;
+            var now = TimeZoneHelper.UtcNow;
 
             if (lesson.Status == Scheduled)
             {
@@ -319,7 +319,7 @@ public partial class LessonService
         // Ensure bucket exists
         await _storageService.EnsureBucketExistsAsync(LessonAttachmentBucket);
 
-        // Upload to Supabase Storage using lesson-specific folder
+        // Upload to Storage using lesson-specific folder
         var folderPath = $"lesson-{lessonId}";
         var fileUrl = await _storageService.UploadFileAsync(LessonAttachmentBucket, folderPath, file);
 

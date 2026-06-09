@@ -1,4 +1,4 @@
-using Microsoft.AspNetCore.Authorization;
+﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using MV.ApplicationLayer.RepositoryInterfaces;
 using MV.ApplicationLayer.ServiceInterfaces;
@@ -78,7 +78,7 @@ namespace MV.PresentationLayer.Controllers
             [FromQuery] DateTime? endDate)
         {
             var userId = UserHelper.GetUserId(User);
-            var start = startDate ?? MV.DomainLayer.Helpers.VietnamTimeHelper.Now.Date;
+            var start = startDate ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow.Date;
             var end = endDate ?? start.AddDays(30);
 
             var result = await _lessonService.GetStudentCalendarAsync(userId, start, end);

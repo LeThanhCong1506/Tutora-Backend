@@ -1,4 +1,4 @@
-using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Logging;
 using MV.ApplicationLayer.Helpers;
 using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO.RequestModel;
@@ -36,8 +36,8 @@ public partial class BookingService
         }
 
         booking.Status = BookingStatus.Accepted;
-        booking.Updatedat = VietnamTimeHelper.UtcNow;
-        booking.Paymentdueat = VietnamTimeHelper.UtcNow.AddHours(24);
+        booking.Updatedat = TimeZoneHelper.UtcNow;
+        booking.Paymentdueat = TimeZoneHelper.UtcNow.AddHours(24);
         booking.Depositamount = Math.Ceiling((booking.Finalprice ?? 0) * 0.5m);
         booking.Remainingamount = (booking.Finalprice ?? 0) - booking.Depositamount.Value;
 
@@ -98,8 +98,8 @@ public partial class BookingService
         booking.Status = BookingStatus.Cancelled;
         booking.Cancellationreason = reason;
         booking.Cancelledby = tutorId;
-        booking.Cancelledat = VietnamTimeHelper.UtcNow;
-        booking.Updatedat = VietnamTimeHelper.UtcNow;
+        booking.Cancelledat = TimeZoneHelper.UtcNow;
+        booking.Updatedat = TimeZoneHelper.UtcNow;
 
         foreach (var lesson in booking.Lessons.Where(l => l.Status == LessonStatus.Reserved))
             lesson.Status = LessonStatus.Cancelled;

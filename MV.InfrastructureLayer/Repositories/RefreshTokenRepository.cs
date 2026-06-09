@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using MV.DomainLayer.Entities;
 using MV.InfrastructureLayer.DBContext;
 using MV.ApplicationLayer.RepositoryInterfaces;
@@ -31,7 +31,7 @@ namespace MV.InfrastructureLayer.Repositories
                 .Where(t => t.Tokenfamily == tokenFamily && t.Revokedat == null)
                 .ToListAsync();
 
-            var now = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+            var now = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
             foreach (var token in tokens)
             {
                 token.Revokedat = now;
@@ -44,7 +44,7 @@ namespace MV.InfrastructureLayer.Repositories
                 .Where(t => t.Userid == userId && t.Revokedat == null)
                 .ToListAsync();
 
-            var now = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+            var now = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
             foreach (var token in tokens)
             {
                 token.Revokedat = now;

@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using MV.DomainLayer.Constants;
 using MV.DomainLayer.Entities;
 using MV.InfrastructureLayer.DBContext;
@@ -53,7 +53,7 @@ namespace MV.InfrastructureLayer.Repositories
 
         public void SoftDelete(Studentprofile student)
         {
-            student.Deletedat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+            student.Deletedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
             _context.Update(student);
         }
 

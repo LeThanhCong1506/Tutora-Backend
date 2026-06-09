@@ -1,4 +1,4 @@
-using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Logging;
 using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.DTO.ResponseModel.Certificate;
 using MV.DomainLayer.Entities;
@@ -258,7 +258,7 @@ namespace MV.ApplicationLayer.Services
             result.Details.ExtractedIssueDate = extractedIssueDate;
             result.Details.UserInputYear = userInputYear;
 
-            var now = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+            var now = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
             var currentYear = now.Year;
 
             // Bước 1: Parse ngày từ OCR và kiểm tra có hợp lệ không
@@ -386,7 +386,7 @@ namespace MV.ApplicationLayer.Services
             var anyFourDigits = Regex.Match(dateString, @"\d{4}");
             if (anyFourDigits.Success && int.TryParse(anyFourDigits.Value, out var anyYear))
             {
-                if (anyYear >= 1950 && anyYear <= MV.DomainLayer.Helpers.VietnamTimeHelper.Now.Year + 1)
+                if (anyYear >= 1950 && anyYear <= MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow.Year + 1)
                     return (null, anyYear);
             }
 

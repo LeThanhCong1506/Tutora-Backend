@@ -1,4 +1,4 @@
-namespace MV.DomainLayer.DTO.ResponseModel
+﻿namespace MV.DomainLayer.DTO.ResponseModel
 {
     public class StudyRecommendationResponse
     {
@@ -7,6 +7,6 @@ namespace MV.DomainLayer.DTO.ResponseModel
         public float Score { get; set; }
         //public List<WeakTopicDetail> WeakTopics { get; set; } = new();
         public string AiRecommendation { get; set; } = string.Empty;
-        public DateTime GeneratedAt { get; set; } = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+        public DateTime GeneratedAt { get; set; } = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
     }
 }

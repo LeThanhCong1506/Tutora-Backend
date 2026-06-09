@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -111,7 +111,7 @@ public class PayoutService(
                 withdrawal.Payostransactionid = response.TransactionId;
                 withdrawal.Payosstatus = PayoutConstants.PayOSStatus.Success;
                 withdrawal.Status = WithdrawalStatus.Approved;
-                withdrawal.Processedat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+                withdrawal.Processedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 
                 await context.SaveChangesAsync(ct);
 
@@ -204,7 +204,7 @@ public class PayoutService(
         {
             logger.LogInformation("Starting pending payouts processing");
 
-            var now = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+            var now = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
             var pendingWithdrawals = await context.Withdrawalrequests
                 .Where(w => w.Status == WithdrawalStatus.Pending
                     && string.IsNullOrEmpty(w.Payostransactionid)
@@ -234,7 +234,7 @@ public class PayoutService(
                     if (!result.IsSuccess && result.ShouldRetry)
                     {
                         withdrawal.Retrycount = (withdrawal.Retrycount ?? 0) + 1;
-                        withdrawal.Lastretryat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+                        withdrawal.Lastretryat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 
                         // Check if reached max retries
                         if (withdrawal.Retrycount >= _settings.MaxRetries)
@@ -244,7 +244,7 @@ public class PayoutService(
 
                             // Reject withdrawal - keep original error code, don't overwrite
                             withdrawal.Status = WithdrawalStatus.Rejected;
-                            withdrawal.Processedat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+                            withdrawal.Processedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 
                             // payosresponsecode and payoserror already set by CreatePayoutAsync
                             await context.SaveChangesAsync(ct);
@@ -296,7 +296,7 @@ public class PayoutService(
         if (!ShouldRetryError(errorCode))
         {
             withdrawal.Status = WithdrawalStatus.Rejected;
-            withdrawal.Processedat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+            withdrawal.Processedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 
             await CreatePayoutFailedAlertAsync(withdrawal.Withdrawalid, errorCode, errorMessage, ct);
 
@@ -315,7 +315,7 @@ public class PayoutService(
     {
         var recentAlert = await context.Systemalerts
             .Where(a => a.Type == PayoutConstants.AlertTypes.LowBalance && !a.Resolved
-                && a.Createdat >= MV.DomainLayer.Helpers.VietnamTimeHelper.Now.AddMinutes(-_settings.AlertDeduplicationWindowMinutes))
+                && a.Createdat >= MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow.AddMinutes(-_settings.AlertDeduplicationWindowMinutes))
             .FirstOrDefaultAsync(ct);
 
         if (recentAlert is not null)
@@ -331,7 +331,7 @@ public class PayoutService(
             Message = $"Số dư PayOS không đủ cho yêu cầu rút tiền {withdrawalId} (số tiền: {amount:N0} VND). Vui lòng nạp tiền vào ví PayOS.",
             Metadata = JsonSerializer.Serialize(new { withdrawalId, amount }),
             Resolved = false,
-            Createdat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now
+            Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
         };
 
         context.Systemalerts.Add(alert);
@@ -349,7 +349,7 @@ public class PayoutService(
             Message = $"Rút tiền thất bại cho yêu cầu {withdrawalId}: {errorMessage}",
             Metadata = JsonSerializer.Serialize(new { withdrawalId, errorCode, errorMessage }),
             Resolved = false,
-            Createdat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now
+            Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
         };
 
         context.Systemalerts.Add(alert);
@@ -405,7 +405,7 @@ public class PayoutService(
             return new MV.DomainLayer.DTO.ResponseModel.Admin.PayOSBalanceResponse
             {
                 Balance = balance,
-                LastChecked = VietnamTimeHelper.ToVietnamTime(MV.DomainLayer.Helpers.VietnamTimeHelper.Now),
+                LastChecked = TimeZoneHelper.ToUserTime(MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow),
                 AlertLevel = alertLevel
             };
         }

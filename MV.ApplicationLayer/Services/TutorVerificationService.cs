@@ -8,7 +8,7 @@ using MV.DomainLayer.DTO.ResponseModel;
 using MV.DomainLayer.Entities;
 using MV.ApplicationLayer.Interfaces;
 using MV.ApplicationLayer.Interfaces;
-using Supabase;
+
 using System.Globalization;
 using System.Text.Json;
 using static MV.DomainLayer.Constants.LessonStatus;
@@ -18,7 +18,7 @@ namespace MV.ApplicationLayer.Services
     public partial class TutorVerificationService : ITutorVerificationService
     {
         private readonly IUnitOfWork _unitOfWork;
-        private readonly Client _supabaseClient;
+        private readonly HttpClient _httpClient;
         private readonly IFptAiService _fptAiService;
         private readonly IDistributedCache _cache;
         private readonly IAppDbContext _dbContext;
@@ -35,14 +35,14 @@ namespace MV.ApplicationLayer.Services
 
         public TutorVerificationService(
             IUnitOfWork unitOfWork,
-            Client supabaseClient,
+            IHttpClientFactory httpClientFactory,
             IFptAiService fptAiService,
             IDistributedCache cache,
             IAppDbContext dbContext,
             ILogger<TutorVerificationService> logger)
         {
             _unitOfWork = unitOfWork;
-            _supabaseClient = supabaseClient;
+            _httpClient = httpClientFactory.CreateClient();
             _fptAiService = fptAiService;
             _cache = cache;
             _dbContext = dbContext;
@@ -67,19 +67,16 @@ namespace MV.ApplicationLayer.Services
                     return APIResponse<FptAiResult>.Fail("Không tìm thấy người dùng.", 404);
                 }
 
-                // 2. Tải ảnh mặt trước CCCD từ Supabase (Bucket Private "id-cards")
+                // 2. Tải ảnh mặt trước CCCD từ URL
                 byte[] idCardBytes;
                 try
                 {
-                    string cleanFrontPath = GetRelativePath(frontImgPath, "id-cards");
-                    idCardBytes = await _supabaseClient.Storage
-                        .From("id-cards")
-                        .Download(cleanFrontPath, (Supabase.Storage.TransformOptions?)null, null);
+                    idCardBytes = await _httpClient.GetByteArrayAsync(frontImgPath);
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Failed to download ID card from Supabase for user {UserId}", userId);
-                    return APIResponse<FptAiResult>.Fail($"Lỗi không tải được ảnh CCCD từ Supabase: {ex.Message}", 500);
+                    _logger.LogError(ex, "Failed to download ID card for user {UserId}", userId);
+                    return APIResponse<FptAiResult>.Fail($"Lỗi không tải được ảnh CCCD: {ex.Message}", 500);
                 }
 
                 // 3. Gọi FPT.AI để quét thông tin CCCD (OCR)
@@ -130,7 +127,7 @@ namespace MV.ApplicationLayer.Services
                 var ekycData = new
                 {
                     OcrResult = resultData,
-                    VerifiedAt = MV.DomainLayer.Helpers.VietnamTimeHelper.Now
+                    VerifiedAt = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
                 };
                 user.Ekycrawdata = JsonSerializer.Serialize(ekycData);
 
@@ -229,7 +226,7 @@ namespace MV.ApplicationLayer.Services
                 {
                     var oldStatus = profile.Profilestatus;
                     profile.Profilestatus = newStatus;
-                    profile.Updatedat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+                    profile.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 
                     if (string.Equals(newStatus, TutorProfileStatus.Active, StringComparison.OrdinalIgnoreCase))
                     {
@@ -282,36 +279,7 @@ namespace MV.ApplicationLayer.Services
                    hasBio && hasEducation && hasHourlyRate && hasAvatar && hasVideo;
         }
 
-        private string GetRelativePath(string inputUrl, string bucketName)
-        {
-            // Nếu input không chứa http thì nó đã là path rồi -> trả về luôn
-            if (string.IsNullOrEmpty(inputUrl) || !inputUrl.StartsWith("http"))
-            {
-                return inputUrl;
-            }
 
-            // Logic: Tìm vị trí tên bucket và lấy phần sau nó
-            // URL chuẩn thường là: .../storage/v1/object/public/id-cards/folder/file.jpg
-            var keyword = $"/{bucketName}/";
-            int index = inputUrl.IndexOf(keyword);
-
-            if (index >= 0)
-            {
-                // Lấy phần substring sau 'id-cards/'
-                // Cần xử lý cả trường hợp có Query String (?token=...) nếu là signed url
-                string path = inputUrl.Substring(index + keyword.Length);
-
-                // Cắt bỏ query params nếu có
-                int queryIndex = path.IndexOf('?');
-                if (queryIndex >= 0)
-                {
-                    path = path.Substring(0, queryIndex);
-                }
-                return path;
-            }
-
-            return inputUrl; // Fallback
-        }
 
         /// <summary>
         /// Get verification progress for a tutor - returns status of all sections
@@ -325,7 +293,7 @@ namespace MV.ApplicationLayer.Services
             }
 
             profile.Profilestatus = TutorProfileStatus.PendingApproval;
-            profile.Updatedat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+            profile.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 
             await _unitOfWork.SaveChangesAsync();
 

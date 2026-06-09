@@ -41,11 +41,13 @@ public class AdminDashboardService(
     {
         logger.LogInformation("AdminDashboardService.GetStatsAsync");
 
-        var vnNow = VietnamTimeHelper.Now;
-        var monthStartUtc = new DateTime(vnNow.Year, vnNow.Month, 1, 0, 0, 0, DateTimeKind.Unspecified).AddHours(-7);
-        var todayStartUtc = vnNow.Date.AddHours(-7);
+        var nowUtc = TimeZoneHelper.UtcNow;
+        var userNow = TimeZoneHelper.ToUserTime(nowUtc);
+        var monthStartUser = new DateTime(userNow.Year, userNow.Month, 1, 0, 0, 0, DateTimeKind.Unspecified);
+        var monthStartUtc = TimeZoneHelper.ToUtc(monthStartUser);
+        var todayStartUser = userNow.Date;
+        var todayStartUtc = TimeZoneHelper.ToUtc(todayStartUser);
         var todayEndUtc = todayStartUtc.AddDays(1);
-        var nowUtc = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
 
         // Sequential fetch — EF Core DbContext is not thread-safe, cannot run concurrent queries
         var users = await context.Users
@@ -162,13 +164,14 @@ public class AdminDashboardService(
         DateTime? to,
         CancellationToken ct = default)
     {
-        var nowUtc = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+        var nowUtc = TimeZoneHelper.UtcNow;
         var toUtc = to ?? nowUtc;
         var fromUtc = from ?? toUtc.AddDays(-30);
 
-        var vnNow = VietnamTimeHelper.Now;
+        var userNow = TimeZoneHelper.ToUserTime(nowUtc);
         var weekStartUtc = nowUtc.AddDays(-7);
-        var monthStartUtc = new DateTime(vnNow.Year, vnNow.Month, 1, 0, 0, 0, DateTimeKind.Unspecified).AddHours(-7);
+        var monthStartUser = new DateTime(userNow.Year, userNow.Month, 1, 0, 0, 0, DateTimeKind.Unspecified);
+        var monthStartUtc = TimeZoneHelper.ToUtc(monthStartUser);
 
         logger.LogInformation(
             "AdminDashboardService.GetUserStatsAsync from={From} to={To}", fromUtc, toUtc);
@@ -207,8 +210,8 @@ public class AdminDashboardService(
 
         return new AdminUserStatsResponse
         {
-            FilterFrom = VietnamTimeHelper.ToVietnamTime(fromUtc),
-            FilterTo = VietnamTimeHelper.ToVietnamTime(toUtc),
+            FilterFrom = TimeZoneHelper.ToUserTime(fromUtc),
+            FilterTo = TimeZoneHelper.ToUserTime(toUtc),
             ByRole = new UserStatsByRole
             {
                 TotalTutors = tutors.Count,
@@ -249,7 +252,7 @@ public class AdminDashboardService(
         DateTime? to,
         CancellationToken ct = default)
     {
-        var nowUtc = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+        var nowUtc = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
         var toUtc = to ?? nowUtc;
         var fromUtc = from ?? toUtc.AddDays(-30);
 
@@ -363,8 +366,8 @@ public class AdminDashboardService(
 
         return new AdminTutorPerformanceResponse
         {
-            FilterFrom = VietnamTimeHelper.ToVietnamTime(fromUtc),
-            FilterTo = VietnamTimeHelper.ToVietnamTime(toUtc),
+            FilterFrom = TimeZoneHelper.ToUserTime(fromUtc),
+            FilterTo = TimeZoneHelper.ToUserTime(toUtc),
             PlatformAverageRating = platformAvgRating,
             PlatformAvgCompletionRate = platformAvgCompletion,
             TopByRating = topByRating,
@@ -387,7 +390,7 @@ public class AdminDashboardService(
         DateTime? to,
         CancellationToken ct = default)
     {
-        var nowUtc = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+        var nowUtc = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
         var toUtc = to ?? nowUtc;
         var fromUtc = from ?? toUtc.AddDays(-30);
 
@@ -452,7 +455,7 @@ public class AdminDashboardService(
             .Where(d => d.Createdat >= fromUtc && d.Createdat <= toUtc)
             .GroupBy(d =>
             {
-                var vn = VietnamTimeHelper.ToVietnamTime(d.Createdat!.Value);
+                var vn = TimeZoneHelper.ToUserTime(d.Createdat!.Value);
                 return $"{vn.Year}-{vn.Month:D2}";
             })
             .Select(g => new DisputeTrendItem
@@ -466,8 +469,8 @@ public class AdminDashboardService(
 
         return new AdminDisputeStatsResponse
         {
-            FilterFrom = VietnamTimeHelper.ToVietnamTime(fromUtc),
-            FilterTo = VietnamTimeHelper.ToVietnamTime(toUtc),
+            FilterFrom = TimeZoneHelper.ToUserTime(fromUtc),
+            FilterTo = TimeZoneHelper.ToUserTime(toUtc),
             Overview = new DisputeStatsOverview
             {
                 TotalDisputes = total,
