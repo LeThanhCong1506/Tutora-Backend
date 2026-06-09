@@ -1,4 +1,4 @@
-﻿using MV.DomainLayer.Constants;
+using MV.DomainLayer.Constants;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using MV.ApplicationLayer.ServiceInterfaces;
@@ -23,20 +23,46 @@ public class ParentController : ControllerBase
     private readonly IStudentService _studentService;
     private readonly ILessonService _lessonService;
     private readonly ILogger<ParentController> _logger;
+    private readonly IUserService _userService;
 
     public ParentController(
         IParentService parentService,
         IStudentService studentService,
         ILessonService lessonService,
-        ILogger<ParentController> logger)
+        ILogger<ParentController> logger,
+        IUserService userService)
     {
         _parentService = parentService;
         _studentService = studentService;
         _lessonService = lessonService;
         _logger = logger;
+        _userService = userService;
     }
 
     private string GetParentId() => User.FindFirstValue(ClaimTypes.NameIdentifier)!;
+
+    // =====================================================================
+    // PROFILE MANAGEMENT
+    // =====================================================================
+
+    /// <summary>
+    /// Get parent profile information
+    /// </summary>
+    [HttpGet("profile")]
+    [Authorize(Roles = UserRole.Parent)]
+    public async Task<ActionResult<APIResponse<UserResponse>>> GetParentProfile()
+    {
+        try
+        {
+            var userId = GetParentId();
+            var user = await _userService.GetUserByIdAsync(userId);
+            return Ok(APIResponse<UserResponse>.Success(user, "Lấy thông tin người dùng thành công."));
+        }
+        catch (UserNotFoundException)
+        {
+            return NotFound(APIResponse<object>.Fail(ApiMessages.UserNotFound, 404));
+        }
+    }
 
     // =====================================================================
     // LESSON MANAGEMENT
