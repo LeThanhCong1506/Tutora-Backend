@@ -13,6 +13,7 @@ namespace MV.ApplicationLayer.Services
     public class TutorAvailabilityService : ITutorAvailabilityService
     {
         private readonly IAppDbContext _context;
+        private const string DefaultFlexiblePackageName = "Gói lịch rảnh linh hoạt";
 
 
 
@@ -66,6 +67,7 @@ namespace MV.ApplicationLayer.Services
             };
 
             _context.Tutoravailabilities.Add(availability);
+            await EnsureFlexiblePackageAsync(tutorId);
             await _context.SaveChangesAsync();
 
             return MapToResponse(availability);
@@ -137,6 +139,7 @@ namespace MV.ApplicationLayer.Services
 
             // All validations passed, add all slots to database
             _context.Tutoravailabilities.AddRange(newSlots);
+            await EnsureFlexiblePackageAsync(tutorId);
             await _context.SaveChangesAsync();
 
             // Map to response
@@ -252,6 +255,30 @@ namespace MV.ApplicationLayer.Services
             if (timeStr.Trim() == "24:00")
                 return new TimeOnly(23, 59);
             return TimeOnly.Parse(timeStr);
+        }
+
+        private async Task EnsureFlexiblePackageAsync(string tutorId)
+        {
+            var hasFlexiblePackage = await _context.Tutorpackages
+                .AnyAsync(p => p.Tutorid == tutorId
+                    && p.Packagetype == Tutorpackage.FlexiblePackageType
+                    && p.Isactive);
+
+            if (hasFlexiblePackage)
+            {
+                return;
+            }
+
+            var now = VietnamTimeHelper.Now;
+            _context.Tutorpackages.Add(new Tutorpackage
+            {
+                Tutorid = tutorId,
+                Name = DefaultFlexiblePackageName,
+                Packagetype = Tutorpackage.FlexiblePackageType,
+                Isactive = true,
+                Createdat = now,
+                Updatedat = now
+            });
         }
 
         private async Task<bool> HasFutureLessonInSlotAsync(string tutorId, int dayOfWeek, TimeSpan slotStart, TimeSpan slotEnd)
