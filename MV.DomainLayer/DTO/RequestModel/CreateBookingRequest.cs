@@ -21,8 +21,6 @@ public class CreateBookingRequest
 
     public int? TotalSessions { get; set; }
 
-    public List<ScheduleItemRequest>? Schedule { get; set; }
-
     public List<FlexibleBookingSlotRequest>? FlexibleSlots { get; set; }
 
     [Required]

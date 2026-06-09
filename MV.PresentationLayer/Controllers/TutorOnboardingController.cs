@@ -389,6 +389,30 @@ namespace MV.PresentationLayer.Controllers
             }
         }
 
+        /// <summary>
+        /// Add a single subject-grade-price entry for tutor
+        /// </summary>
+        [HttpPost("{id}/profile/pricing/subject-grade")]
+        public async Task<IActionResult> AddSubjectGradePrice([FromRoute] string id, [FromBody] TutorSubjectGradePriceRequest request)
+        {
+            var currentUserId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (currentUserId != id)
+            {
+                return StatusCode(403, APIResponse.Fail("Bạn chỉ có thể thêm giá cho chính mình.", 403));
+            }
+
+            try
+            {
+                var result = await _tutorService.AddSubjectGradePriceAsync(id, request);
+                return CreatedAtAction(nameof(GetPricing), new { id }, 
+                    APIResponse<TutorSubjectGradePriceResponse>.Success(result, "Thêm giá môn học thành công.", 201));
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(APIResponse.Fail(ex.Message, 400));
+            }
+        }
+
         [HttpGet("{id}/profile/packages")]
         public async Task<IActionResult> GetPackages([FromRoute] string id, [FromQuery] bool includeInactive = false)
         {
