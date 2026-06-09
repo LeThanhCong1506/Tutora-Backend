@@ -1,4 +1,4 @@
-﻿using MV.DomainLayer.Constants;
+using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO.RequestModel;
 using MV.DomainLayer.DTO.ResponseModel;
 using MV.DomainLayer.Exceptions;
@@ -52,10 +52,6 @@ namespace MV.ApplicationLayer.Services
                 Email = u.Email,
                 Fullname = u.Fullname,
                 Phone = u.Phone,
-                IdentityNumber = u.Identitynumber,
-                Idcardfronturl = u.Idcardfronturl,
-                Idcardbackurl = u.Idcardbackurl,
-                Isidentityverified = u.Isidentityverified,
                 Address = u.Address,
                 Birthdate = u.Birthdate,
                 Gender = u.Gender,

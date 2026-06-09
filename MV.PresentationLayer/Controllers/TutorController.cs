@@ -5,8 +5,6 @@ using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.DTO;
 using MV.DomainLayer.DTO.RequestModel;
 using MV.DomainLayer.DTO.ResponseModel;
-using System.Security.Claims;
-using MV.DomainLayer.Exceptions;
 
 namespace MV.PresentationLayer.Controllers
 {
@@ -24,27 +22,6 @@ namespace MV.PresentationLayer.Controllers
             _tutorService = tutorService;
             _userService = userService;
             _verificationService = verificationService;
-        }
-
-        private string GetTutorId() => User.FindFirstValue(ClaimTypes.NameIdentifier)!;
-
-        /// <summary>
-        /// Get tutor profile information
-        /// </summary>
-        [HttpGet("profile")]
-        [Authorize(Roles = UserRole.Tutor)]
-        public async Task<ActionResult<APIResponse<UserResponse>>> GetTutorProfile()
-        {
-            try
-            {
-                var userId = GetTutorId();
-                var user = await _userService.GetUserByIdAsync(userId);
-                return Ok(APIResponse<UserResponse>.Success(user, "Lấy thông tin người dùng thành công."));
-            }
-            catch (UserNotFoundException)
-            {
-                return NotFound(APIResponse<object>.Fail(ApiMessages.UserNotFound, 404));
-            }
         }
 
         // --- PUBLIC / GET ---

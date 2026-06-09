@@ -77,7 +77,6 @@ namespace MV.ApplicationLayer.Services
                 Email = user.Email,
                 Fullname = user.Fullname,
                 Phone = user.Phone,
-                IdentityNumber = user.Identitynumber,
                 Birthdate = user.Birthdate,
                 Address = user.Address,
                 Gender = user.Gender,
@@ -85,11 +84,7 @@ namespace MV.ApplicationLayer.Services
                 Status = user.Status,
                 Createdat = user.Createdat.HasValue ? TimeZoneHelper.ToUserTime(user.Createdat.Value) : (DateTime?)null,
                 LastLoginAt = user.Lastloginat.HasValue ? TimeZoneHelper.ToUserTime(user.Lastloginat.Value) : (DateTime?)null,
-                Role = user.Primaryrole,
-                Idcardbackurl = user.Idcardbackurl,
-                Idcardfronturl = user.Idcardfronturl,
-                Isidentityverified = user.Isidentityverified,
-                EkycRawData = user.Ekycrawdata
+                Role = user.Primaryrole
             };
         }
 
