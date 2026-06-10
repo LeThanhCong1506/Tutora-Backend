@@ -22,6 +22,7 @@ namespace MV.PresentationLayer.Controllers
 
         private string GetStudentUserId() => User.FindFirstValue(ClaimTypes.NameIdentifier)!;
 
+
         /// <summary>
         /// Student checks if they are linked to a parent.
         /// </summary>

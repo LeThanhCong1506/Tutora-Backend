@@ -5,6 +5,7 @@ using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.DTO;
 using MV.DomainLayer.DTO.RequestModel;
 using MV.DomainLayer.DTO.ResponseModel;
+using System.Security.Claims;
 
 namespace MV.PresentationLayer.Controllers
 {
@@ -52,12 +53,16 @@ namespace MV.PresentationLayer.Controllers
         }
 
 
-        [HttpGet("{id}/profile")]
-        public async Task<IActionResult> GetTutorProfileInfo(string id)
+        [HttpGet("profile")]
+        public async Task<IActionResult> GetTutorProfileInfo()
         {
+            var currentUserId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (string.IsNullOrEmpty(currentUserId))
+                return Unauthorized(APIResponse<object>.Fail(ApiMessages.Unauthorized, 401));
+
             try
             {
-                var result = await _userService.GetTutorProfileShortAsync(id);
+                var result = await _userService.GetTutorProfileShortAsync(currentUserId);
                 return Ok(APIResponse<TutorProfileShortResponse>.Success(result, "Lấy thông tin hồ sơ gia sư thành công."));
             }
             catch (KeyNotFoundException ex)
