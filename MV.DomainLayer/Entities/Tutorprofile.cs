@@ -70,8 +70,8 @@ public partial class Tutorprofile
 
     public string? Subscriptiontype { get; set; }
 
-    /// <summary>online | offline | both</summary>
-    public string? Teachingmode { get; set; }
+    // /// <summary>online | offline | both</summary>
+    // public string? Teachingmode { get; set; }
 
     public string? Bankname { get; set; }
 
