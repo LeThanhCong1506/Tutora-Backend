@@ -30,7 +30,13 @@ public partial class BookingService(
 
     public async Task<BookingResponse> CreateBookingAsync(string userId, string userRole, CreateBookingRequest dto)
     {
-        if (dto.StartDate.Date < TimeZoneHelper.UtcNow.Date)
+        // Normalize StartDate: nếu Kind là Utc thì convert sang user time để so sánh ngày
+        // Nếu Unspecified thì coi như đã là user time
+        var startDateLocal = dto.StartDate.Kind == DateTimeKind.Utc 
+            ? TimeZoneHelper.ToUserTime(dto.StartDate)
+            : dto.StartDate;
+            
+        if (startDateLocal.Date < TimeZoneHelper.ToUserTime(TimeZoneHelper.UtcNow).Date)
             throw new BookingException(BookingErrorCodes.InvalidStartDate, "Ngày bắt đầu phải là ngày hiện tại hoặc trong tương lai", 400);
 
         var resolvedStudentId = !string.IsNullOrWhiteSpace(dto.StudentId)
@@ -348,7 +354,11 @@ public partial class BookingService(
 
     public async Task<List<ScheduleItemResponse>> GetTutorBookedSlotsAsync(string tutorId, DateTime startDate)
     {
-        var fromUtc = TimeZoneHelper.ToUtc(startDate);
+        // Normalize timezone: nếu frontend gửi UTC thì dùng, nếu Unspecified thì coi như user time
+        var startDateUtc = startDate.Kind == DateTimeKind.Utc 
+            ? startDate 
+            : TimeZoneHelper.ToUtc(startDate);
+        var fromUtc = startDateUtc;
         var toUtc = fromUtc.AddDays(WeeksPerMonth * 7);
 
         var lessons = await context.Lessons
@@ -397,22 +407,40 @@ public partial class BookingService(
             var endTime = TimeOnly.FromTimeSpan(endVn.TimeOfDay);
             var bookingDate = DateOnly.FromDateTime(startVn);
 
-            var covered = tutorAvailabilities.Any(a =>
+            // Convert C# DayOfWeek (0=Sunday, 1=Monday...) to ISO format (1=Monday, 7=Sunday)
+            var isoDayOfWeek = startVn.DayOfWeek == DayOfWeek.Sunday ? 7 : (int)startVn.DayOfWeek;
+
+            // Debug logging
+            logger.LogInformation(
+                "Validating slot: Date={Date}, DayOfWeek={DayOfWeek}, ISO={ISO}, Time={StartTime}-{EndTime}",
+                startVn.ToString("dd/MM/yyyy"),
+                startVn.DayOfWeek,
+                isoDayOfWeek,
+                startTime,
+                endTime);
+
+            var covered = false;
+            foreach (var a in tutorAvailabilities)
             {
-                if (!a.Starttime.HasValue || !a.Endtime.HasValue || !a.Dayofweek.HasValue) return false;
+                if (!a.Starttime.HasValue || !a.Endtime.HasValue || !a.Dayofweek.HasValue) continue;
 
-                var validFrom = DateOnly.FromDateTime(TimeZoneHelper.ToUserTime(a.Createdat ?? TimeZoneHelper.UtcNow));
-                var validTo = validFrom.AddDays(AvailabilityValidDays);
+                logger.LogInformation(
+                    "Checking availability: DayOfWeek={AvailDay}, Time={AvailStart}-{AvailEnd}, Match: Day={DayMatch}, Start={StartMatch}, End={EndMatch}",
+                    a.Dayofweek.Value,
+                    a.Starttime.Value,
+                    a.Endtime.Value,
+                    a.Dayofweek.Value == isoDayOfWeek,
+                    a.Starttime.Value <= startTime,
+                    a.Endtime.Value >= endTime);
 
-                // Convert C# DayOfWeek (0=Sunday, 1=Monday...) to ISO format (1=Monday, 7=Sunday)
-                var isoDayOfWeek = startVn.DayOfWeek == DayOfWeek.Sunday ? 7 : (int)startVn.DayOfWeek;
-
-                return a.Dayofweek.Value == isoDayOfWeek
+                if (a.Dayofweek.Value == isoDayOfWeek
                     && a.Starttime.Value <= startTime
-                    && a.Endtime.Value >= endTime
-                    && bookingDate >= validFrom
-                    && bookingDate <= validTo;
-            });
+                    && a.Endtime.Value >= endTime)
+                {
+                    covered = true;
+                    break;
+                }
+            }
 
             if (!covered)
                 throw new BookingException(BookingErrorCodes.ScheduleNotInAvailability,
@@ -500,8 +528,16 @@ public partial class BookingService(
         return slots
             .Select(s =>
             {
-                var start = TimeZoneHelper.ToUtc(s.ScheduledStart);
-                var end = TimeZoneHelper.ToUtc(s.ScheduledEnd);
+                // Frontend gửi datetime theo giờ user timezone
+                // Cần chuyển sang UTC để lưu DB và so sánh
+                // Nếu Kind là Unspecified, coi như User Time
+                var start = s.ScheduledStart.Kind == DateTimeKind.Utc 
+                    ? s.ScheduledStart 
+                    : TimeZoneHelper.ToUtc(s.ScheduledStart);
+                var end = s.ScheduledEnd.Kind == DateTimeKind.Utc 
+                    ? s.ScheduledEnd 
+                    : TimeZoneHelper.ToUtc(s.ScheduledEnd);
+                    
                 if (end <= start || Math.Abs((end - start - duration).TotalMinutes) > 1)
                     throw new BookingException(BookingErrorCodes.InvalidSchedule,
                         $"Mỗi buổi học phải kéo dài {durationMinutes} phút", 400);

@@ -1,6 +1,7 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using MV.DomainLayer.DTO.ResponseModel;
 using MV.DomainLayer.Entities;
+using MV.DomainLayer.Helpers;
 using MV.InfrastructureLayer.DBContext;
 using MV.ApplicationLayer.RepositoryInterfaces;
 using static MV.DomainLayer.Constants.LessonStatus;
@@ -34,7 +35,13 @@ public class LessonRepository(AgoraDbContext context) : ILessonRepository
             .AsQueryable();
 
         if (fromDate.HasValue)
-            q = q.Where(l => l.Scheduledstart >= fromDate.Value);
+        {
+            // Normalize timezone: nếu UTC thì giữ nguyên, nếu Unspecified thì coi như user time
+            var fromUtc = fromDate.Value.Kind == DateTimeKind.Utc 
+                ? fromDate.Value 
+                : TimeZoneHelper.ToUtc(fromDate.Value);
+            q = q.Where(l => l.Scheduledstart >= fromUtc);
+        }
         if (!string.IsNullOrWhiteSpace(status))
             q = q.Where(l => l.Status == status);
 
@@ -59,7 +66,13 @@ public class LessonRepository(AgoraDbContext context) : ILessonRepository
             .AsQueryable();
 
         if (fromDate.HasValue)
-            q = q.Where(l => l.Scheduledstart >= fromDate.Value);
+        {
+            // Normalize timezone: nếu UTC thì giữ nguyên, nếu Unspecified thì coi như user time
+            var fromUtc = fromDate.Value.Kind == DateTimeKind.Utc 
+                ? fromDate.Value 
+                : TimeZoneHelper.ToUtc(fromDate.Value);
+            q = q.Where(l => l.Scheduledstart >= fromUtc);
+        }
         if (!string.IsNullOrWhiteSpace(status))
             q = q.Where(l => l.Status == status);
 

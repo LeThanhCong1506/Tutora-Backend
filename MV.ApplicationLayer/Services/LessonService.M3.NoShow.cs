@@ -5,6 +5,7 @@ using MV.DomainLayer.DTO.RequestModel;
 using MV.DomainLayer.DTO.ResponseModel;
 using MV.DomainLayer.Entities;
 using MV.DomainLayer.Exceptions;
+using MV.DomainLayer.Helpers;
 using static MV.DomainLayer.Constants.LessonStatus;
 
 namespace MV.ApplicationLayer.Services;
@@ -209,13 +210,18 @@ public partial class LessonService
 
         var duration = originalLesson.Scheduledend - originalLesson.Scheduledstart;
 
+        // Normalize timezone: nếu frontend gửi UTC thì convert sang UTC, nếu Unspecified thì coi như user time
+        var scheduledStartUtc = newScheduledStart.Kind == DateTimeKind.Utc 
+            ? newScheduledStart 
+            : TimeZoneHelper.ToUtc(newScheduledStart);
+
         var makeupLesson = new Lesson
         {
             Bookingid = originalLesson.Bookingid,
             Tutorid = tutorId,
             Studentid = originalLesson.Studentid,
-            Scheduledstart = newScheduledStart,
-            Scheduledend = newScheduledStart.Add(duration),
+            Scheduledstart = scheduledStartUtc,
+            Scheduledend = scheduledStartUtc.Add(duration),
             Lessonprice = 0,
             Status = Scheduled,
             Ismakeup = true,

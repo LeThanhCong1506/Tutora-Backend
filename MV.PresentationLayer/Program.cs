@@ -106,6 +106,10 @@ builder.Services.AddControllers()
         options.JsonSerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
         // Cấu hình này sẽ bảo bộ serialize bỏ qua các vòng lặp tham chiếu
         options.JsonSerializerOptions.ReferenceHandler = System.Text.Json.Serialization.ReferenceHandler.IgnoreCycles;
+        // Cấu hình để ASP.NET Core tự động xử lý DateTime từ JSON
+        // Nếu frontend gửi ISO 8601 với timezone (ví dụ: "2026-06-10T14:00:00Z" hoặc "2026-06-10T14:00:00+07:00")
+        // thì sẽ được convert đúng. Nếu không có timezone thì coi như UTC.
+        // Note: Nếu muốn frontend gửi local time (VN) thì cần gửi với offset: "2026-06-10T14:00:00+07:00"
     });
 
 var signalRBuilder = builder.Services.AddSignalR(options =>
