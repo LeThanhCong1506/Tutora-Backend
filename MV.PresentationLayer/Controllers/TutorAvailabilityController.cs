@@ -117,9 +117,9 @@ namespace MV.PresentationLayer.Controllers
 
         /// <summary>
         /// Update multiple availability slots at once
-        /// PUT /api/tutor/availabilities/bulk
+        /// PATCH /api/tutor/availabilities/bulk
         /// </summary>
-        [HttpPut("bulk")]
+        [HttpPatch("bulk")]
         public async Task<IActionResult> BulkUpdateAvailabilities([FromBody] BulkUpdateAvailabilityRequest request)
         {
             try
