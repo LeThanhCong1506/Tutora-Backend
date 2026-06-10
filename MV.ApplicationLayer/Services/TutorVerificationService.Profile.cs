@@ -80,7 +80,7 @@ namespace MV.ApplicationLayer.Services
                     CredentialId = c.Credentialid,
                     CredentialUrl = c.Credentialurl,
                     CertificateFileUrl = c.Certificatefileurl,
-                    CreatedAt = VietnamTimeHelper.ToVietnamTime(c.Createdat ?? MV.DomainLayer.Helpers.VietnamTimeHelper.Now),
+                    CreatedAt = TimeZoneHelper.ToUserTime(c.Createdat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow),
                     VerificationStatus = c.Verificationstatus,
                     VerificationNote = c.Verificationnote
                 }).ToList(),
@@ -167,7 +167,7 @@ namespace MV.ApplicationLayer.Services
                     Dayofweek      = a.Dayofweek ?? 1,  // Default to Monday (1) instead of Sunday (0)
                     Starttime      = a.Starttime?.ToString("HH:mm") ?? string.Empty,
                     Endtime        = a.Endtime?.ToString("HH:mm") ?? string.Empty,
-                    Createdat      = VietnamTimeHelper.ToVietnamTime(a.Createdat ?? MV.DomainLayer.Helpers.VietnamTimeHelper.Now)
+                    Createdat      = TimeZoneHelper.ToUserTime(a.Createdat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow)
                 })
                 .ToList();
 
@@ -230,8 +230,8 @@ namespace MV.ApplicationLayer.Services
                 Rating = f.Rating,
                 Comment = f.Comment,
                 ReplyComment = f.ReplyComment,
-                RepliedAt = f.RepliedAt.HasValue ? VietnamTimeHelper.ToVietnamTime(f.RepliedAt.Value) : (DateTime?)null,
-                CreatedAt = f.CreatedAt.HasValue ? VietnamTimeHelper.ToVietnamTime(f.CreatedAt.Value) : (DateTime?)null,
+                RepliedAt = f.RepliedAt.HasValue ? TimeZoneHelper.ToUserTime(f.RepliedAt.Value) : (DateTime?)null,
+                CreatedAt = f.CreatedAt.HasValue ? TimeZoneHelper.ToUserTime(f.CreatedAt.Value) : (DateTime?)null,
                 InitialGoal = f.InitialGoal,
                 ActualResult = f.ActualResult,
                 CourseDuration = f.CourseDuration
@@ -280,6 +280,19 @@ namespace MV.ApplicationLayer.Services
                     GradeLevels = s.Gradelevel?.Gradename,
                     Tags = null
                 }).ToList(),
+                SubjectGradePrices = subjects?.Where(s => s.Isactive).Select(s => new TutorSubjectGradePriceResponse
+                {
+                    Id = s.Id,
+                    SubjectId = s.Subjectid,
+                    SubjectName = s.Subject?.Subjectname,
+                    GradeLevelId = s.Gradelevelid,
+                    GradeLevelName = s.Gradelevel?.Gradename,
+                    PricePerHour = s.Priceperhour,
+                    DurationMinutesPerSession = s.Durationminutespersession,
+                    SessionsPerWeek = s.Sessionsperweek,
+                    Currency = s.Currency,
+                    IsActive = s.Isactive
+                }).ToList(),
 
                 // Introduction
                 Bio = profile.Bio,
@@ -299,7 +312,7 @@ namespace MV.ApplicationLayer.Services
                     CredentialId = c.Credentialid,
                     CredentialUrl = c.Credentialurl,
                     CertificateFileUrl = c.Certificatefileurl,
-                    CreatedAt = VietnamTimeHelper.ToVietnamTime(c.Createdat ?? MV.DomainLayer.Helpers.VietnamTimeHelper.Now),
+                    CreatedAt = TimeZoneHelper.ToUserTime(c.Createdat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow),
                     VerificationStatus = c.Verificationstatus,
                     VerificationNote = c.Verificationnote
                 }).ToList(),
@@ -329,7 +342,7 @@ namespace MV.ApplicationLayer.Services
                     TotalLessons = b.Lessons?.Count ?? 0,
                     CompletedLessons = b.Lessons?.Count(l => l.Status == Completed || l.Status == PendingConfirmation) ?? 0,
                     Status = b.Status,
-                    StartDate = b.Startdate.HasValue ? VietnamTimeHelper.ToVietnamTime(b.Startdate.Value) : (DateTime?)null
+                    StartDate = b.Startdate.HasValue ? TimeZoneHelper.ToUserTime(b.Startdate.Value) : (DateTime?)null
                 }).ToList()
             };
 

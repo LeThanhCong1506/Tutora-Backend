@@ -1,4 +1,4 @@
-using Microsoft.AspNetCore.Authorization;
+﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using MV.ApplicationLayer.Interfaces;
@@ -60,7 +60,7 @@ public class TRTCController(
             return Forbid();
 
         // Buổi học phải đang diễn ra hoặc sắp diễn ra (không quá 30 phút trước giờ bắt đầu)
-        var now = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+        var now = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
         var allowedFrom = lesson.Scheduledstart.AddMinutes(-30);
         if (now < allowedFrom)
         {

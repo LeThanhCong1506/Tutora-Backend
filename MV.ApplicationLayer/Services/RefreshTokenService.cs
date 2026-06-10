@@ -1,4 +1,4 @@
-using Microsoft.Extensions.Configuration;
+﻿using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.Constants;
@@ -66,7 +66,7 @@ namespace MV.ApplicationLayer.Services
                 }
 
                 // 4. Kiểm tra hết hạn
-                if (storedToken.Expiresat < MV.DomainLayer.Helpers.VietnamTimeHelper.Now)
+                if (storedToken.Expiresat < MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow)
                 {
                     return new TokenResponse { ErrorMessage = "Refresh token đã hết hạn. Vui lòng đăng nhập lại." };
                 }
@@ -115,12 +115,12 @@ namespace MV.ApplicationLayer.Services
                     Tokenhash = newTokenHash,
                     Userid = userId,
                     Tokenfamily = storedToken.Tokenfamily,
-                    Expiresat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now.AddDays(expiryDays),
-                    Createdat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now
+                    Expiresat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow.AddDays(expiryDays),
+                    Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
                 };
 
                 // 10. Revoke token cũ, lưu token mới
-                storedToken.Revokedat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+                storedToken.Revokedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
                 storedToken.Replacedbytokenhash = newTokenHash;
                 await _unitOfWork.RefreshTokenRepository.CreateAsync(newRefreshToken);
                 await _unitOfWork.SaveChangesAsync();
@@ -149,7 +149,7 @@ namespace MV.ApplicationLayer.Services
                 if (storedToken != null && !storedToken.Revokedat.HasValue)
                 {
                     await _unitOfWork.RefreshTokenRepository.RevokeAllByFamilyAsync(storedToken.Tokenfamily);
-                    await _unitOfWork.UserRepository.UpdateLastLoginAtAsync(storedToken.Userid, MV.DomainLayer.Helpers.VietnamTimeHelper.Now);
+                    await _unitOfWork.UserRepository.UpdateLastLoginAtAsync(storedToken.Userid, MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow);
                     await _unitOfWork.SaveChangesAsync();
                 }
             }

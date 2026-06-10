@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO.RequestModel;
 using MV.InfrastructureLayer.DBContext;
@@ -184,7 +184,7 @@ namespace MV.InfrastructureLayer.Repositories
         public async Task CreateUserAsync(User user)
         {
             // Set default values nếu chưa có
-            user.Createdat ??= MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+            user.Createdat ??= MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
             user.Status ??= 1; // 1: Active
 
             await _context.Users.AddAsync(user);
@@ -206,8 +206,8 @@ namespace MV.InfrastructureLayer.Repositories
                 Priceperhour = 0,
                 Currency = "VND",
                 Isactive = false,
-                Createdat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now,
-                Updatedat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now
+                Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow,
+                Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
             });
         }
 
@@ -319,7 +319,7 @@ namespace MV.InfrastructureLayer.Repositories
             return await _context.Users
                 .FirstOrDefaultAsync(u => u.Parentcode == parentCode
                     && u.Parentcodeexpiresat != null
-                    && u.Parentcodeexpiresat > MV.DomainLayer.Helpers.VietnamTimeHelper.Now);
+                    && u.Parentcodeexpiresat > MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow);
         }
     }
 }

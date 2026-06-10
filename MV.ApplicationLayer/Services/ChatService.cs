@@ -1,4 +1,4 @@
-using Microsoft.AspNetCore.SignalR;
+﻿using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Logging;
 using MV.ApplicationLayer.Hubs;
 using MV.ApplicationLayer.ServiceInterfaces;
@@ -40,10 +40,10 @@ public class ChatService(
             SenderAvatarUrl = m.Sender?.Avatarurl,
             Content = m.Content ?? string.Empty,
             MessageType = m.Messagetype ?? ChatMessageType.Text,
-            CreatedAt = m.Createdat.HasValue ? VietnamTimeHelper.ToVietnamTime(m.Createdat.Value) : (DateTime?)null,
+            CreatedAt = m.Createdat.HasValue ? TimeZoneHelper.ToUserTime(m.Createdat.Value) : (DateTime?)null,
             Metadata = string.IsNullOrEmpty(m.Metadata) ? null : JsonSerializer.Deserialize<object>(m.Metadata),
             IsRead = m.Isread ?? false,
-            ReadAt = m.Readat.HasValue ? VietnamTimeHelper.ToVietnamTime(m.Readat.Value) : (DateTime?)null
+            ReadAt = m.Readat.HasValue ? TimeZoneHelper.ToUserTime(m.Readat.Value) : (DateTime?)null
         }).ToList();
 
         return new PagedList<ChatMessageResponse>(messageDtos, total, page, pageSize);
@@ -90,7 +90,7 @@ public class ChatService(
                 OtherUserName = otherUserName,
                 OtherUserAvatarUrl = otherUserAvatarUrl,
                 Status = channel.Status,
-                LastMessageAt = channel.Lastmessageat.HasValue ? VietnamTimeHelper.ToVietnamTime(channel.Lastmessageat.Value) : (DateTime?)null,
+                LastMessageAt = channel.Lastmessageat.HasValue ? TimeZoneHelper.ToUserTime(channel.Lastmessageat.Value) : (DateTime?)null,
                 LastMessagePreview = lastMessagePreview,
                 UnreadCount = unreadCount
             });
@@ -118,11 +118,11 @@ public class ChatService(
             Senderid = userId,
             Content = dto.Content,
             Messagetype = dto.MessageType ?? ChatMessageType.Text,
-            Createdat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now,
+            Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow,
             Metadata = metadataJson
         };
 
-        channel.Lastmessageat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+        channel.Lastmessageat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 
         chatRepo.AddMessage(message);
         chatRepo.UpdateChannel(channel);
@@ -138,7 +138,7 @@ public class ChatService(
             SenderAvatarUrl = sender?.Avatarurl,
             Content = message.Content ?? string.Empty,
             MessageType = message.Messagetype ?? ChatMessageType.Text,
-            CreatedAt = message.Createdat.HasValue ? VietnamTimeHelper.ToVietnamTime(message.Createdat.Value) : (DateTime?)null,
+            CreatedAt = message.Createdat.HasValue ? TimeZoneHelper.ToUserTime(message.Createdat.Value) : (DateTime?)null,
             Metadata = dto.Metadata,
             IsRead = false,
             ReadAt = null
@@ -219,7 +219,7 @@ public class ChatService(
         {
             Tutorid = tutorId,
             Status = ChatChannelStatus.Active,
-            Createdat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now
+            Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
         };
 
         if (isStudent) channel.Studentid = parentId;
@@ -244,7 +244,7 @@ public class ChatService(
         var unread = await chatRepo.GetUnreadMessagesAsync(channelId, userId);
         if (unread.Count == 0) return;
 
-        var now = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+        var now = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
         foreach (var msg in unread)
         {
             msg.Isread = true;

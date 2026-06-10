@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -37,7 +37,7 @@ public class GhostUserCleanupJob(IServiceProvider sp, ILogger<GhostUserCleanupJo
         var db = scope.ServiceProvider.GetRequiredService<IAppDbContext>();
         
         // Quét những User chưa verify email và đã tạo quá 12h
-        var thresholdTime = VietnamTimeHelper.Now.AddHours(-12);
+        var thresholdTime = TimeZoneHelper.UtcNow.AddHours(-12);
 
         var ghostUsers = await db.Users
             .Include(u => u.Wallet)

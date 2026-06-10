@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.Constants;
@@ -10,8 +10,6 @@ using MV.DomainLayer.Helpers;
 using MV.ApplicationLayer.Interfaces;
 using System.Text.Json;
 using static MV.DomainLayer.Constants.LessonStatus;
-using static MV.DomainLayer.Helpers.VietnamTimeHelper;
-
 namespace MV.ApplicationLayer.Services;
 
 /// <summary>
@@ -45,7 +43,7 @@ public class ParentService : IParentService
             ? await _context.Studentprofiles.Where(s => s.Parentid == userId).Select(s => s.Studentid).ToListAsync()
             : await _context.Studentprofiles.Where(s => s.Studentid == userId || s.Linkeduserid == userId).Select(s => s.Studentid).ToListAsync();
 
-        // Load entity trước, project sang DTO trong memory để dùng được ToVietnamTime()
+        // Load entity trước, project sang DTO trong memory để dùng được MV.DomainLayer.Helpers.TimeZoneHelper.ToUserTime()
         var lessons = await _context.Lessons
             .AsNoTracking()
             .Where(l => l.Status == PendingConfirmation &&
@@ -66,10 +64,10 @@ public class ParentService : IParentService
         {
             LessonId = l.Lessonid,
             BookingId = l.Bookingid,
-            ScheduledStart = ToVietnamTime(l.Scheduledstart),
-            ScheduledEnd = ToVietnamTime(l.Scheduledend),
-            SubmittedAt = ToVietnamTime(l.Submittedat),
-            ConfirmDeadline = ToVietnamTime(l.Confirmdeadline),
+            ScheduledStart = MV.DomainLayer.Helpers.TimeZoneHelper.ToUserTime(l.Scheduledstart),
+            ScheduledEnd = MV.DomainLayer.Helpers.TimeZoneHelper.ToUserTime(l.Scheduledend),
+            SubmittedAt = MV.DomainLayer.Helpers.TimeZoneHelper.ToUserTime(l.Submittedat),
+            ConfirmDeadline = MV.DomainLayer.Helpers.TimeZoneHelper.ToUserTime(l.Confirmdeadline),
             TutorName = l.Tutor?.Tutor?.Fullname,
             TutorAvatarUrl = l.Tutor?.Tutor?.Avatarurl,
             StudentName = l.Booking?.Student?.Fullname,
@@ -111,19 +109,19 @@ public class ParentService : IParentService
             LessonId = lesson.Lessonid,
             BookingId = lesson.Bookingid,
             // Tất cả datetime trả về giờ Việt Nam (UTC+7) để frontend hiển thị đúng
-            ScheduledStart = ToVietnamTime(lesson.Scheduledstart),
-            ScheduledEnd = ToVietnamTime(lesson.Scheduledend),
-            RealStart = ToVietnamTime(lesson.Realstart),
-            RealEnd = ToVietnamTime(lesson.Realend),
-            CheckInTime = ToVietnamTime(lesson.Checkintime),
-            CheckOutTime = ToVietnamTime(lesson.Checkouttime),
+            ScheduledStart = MV.DomainLayer.Helpers.TimeZoneHelper.ToUserTime(lesson.Scheduledstart),
+            ScheduledEnd = MV.DomainLayer.Helpers.TimeZoneHelper.ToUserTime(lesson.Scheduledend),
+            RealStart = MV.DomainLayer.Helpers.TimeZoneHelper.ToUserTime(lesson.Realstart),
+            RealEnd = MV.DomainLayer.Helpers.TimeZoneHelper.ToUserTime(lesson.Realend),
+            CheckInTime = MV.DomainLayer.Helpers.TimeZoneHelper.ToUserTime(lesson.Checkintime),
+            CheckOutTime = MV.DomainLayer.Helpers.TimeZoneHelper.ToUserTime(lesson.Checkouttime),
             IsTutorPresent = lesson.Istutorpresent,
             IsStudentPresent = lesson.Isstudentpresent,
             AttendanceNote = lesson.Attendancenote,
             Status = lesson.Status,
-            SubmittedAt = ToVietnamTime(lesson.Submittedat),
-            ConfirmDeadline = ToVietnamTime(lesson.Confirmdeadline),
-            ParentAckAt = ToVietnamTime(lesson.Parentackat),
+            SubmittedAt = MV.DomainLayer.Helpers.TimeZoneHelper.ToUserTime(lesson.Submittedat),
+            ConfirmDeadline = MV.DomainLayer.Helpers.TimeZoneHelper.ToUserTime(lesson.Confirmdeadline),
+            ParentAckAt = MV.DomainLayer.Helpers.TimeZoneHelper.ToUserTime(lesson.Parentackat),
             IsSettled = lesson.Issettled,
             LessonContent = lesson.Lessoncontent,
             Homework = lesson.Homework,
@@ -156,7 +154,7 @@ public class ParentService : IParentService
                 HomeworkAssigned = lesson.Lessonreport.Homeworkassigned,
                 StudentPerformanceRating = lesson.Lessonreport.Studentperformancerating,
                 Attachments = DeserializeJsonList(lesson.Lessonreport.Attachments),
-                CreatedAt = lesson.Lessonreport.Createdat.HasValue ? ToVietnamTime(lesson.Lessonreport.Createdat.Value) : (DateTime?)null
+                CreatedAt = lesson.Lessonreport.Createdat.HasValue ? MV.DomainLayer.Helpers.TimeZoneHelper.ToUserTime(lesson.Lessonreport.Createdat.Value) : (DateTime?)null
             } : null
         };
     }
@@ -225,7 +223,7 @@ public class ParentService : IParentService
             Reason = request.Reason,
             Status = DisputeStatus.Pending,
             Evidence = request.Evidence != null ? JsonSerializer.Serialize(request.Evidence) : null,
-            Createdat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now
+            Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
         };
 
         _context.Disputes.Add(dispute);
@@ -264,7 +262,7 @@ public class ParentService : IParentService
             Reason = dispute.Reason,
             Status = dispute.Status,
             Evidence = request.Evidence,
-            CreatedAt = dispute.Createdat.HasValue ? ToVietnamTime(dispute.Createdat.Value) : (DateTime?)null,
+            CreatedAt = dispute.Createdat.HasValue ? MV.DomainLayer.Helpers.TimeZoneHelper.ToUserTime(dispute.Createdat.Value) : (DateTime?)null,
             CreatedBy = new DisputeUserResponse
             {
                 UserId = userId
@@ -312,7 +310,7 @@ public class ParentService : IParentService
             Reason = d.Reason,
             TutorName = d.TutorName,
             LessonPrice = d.LessonPrice,
-            CreatedAt = d.Createdat.HasValue ? ToVietnamTime(d.Createdat.Value) : (DateTime?)null
+            CreatedAt = d.Createdat.HasValue ? MV.DomainLayer.Helpers.TimeZoneHelper.ToUserTime(d.Createdat.Value) : (DateTime?)null
         }).ToList();
 
         return new PagedList<DisputeListResponse>(disputes, totalCount, page, pageSize);
@@ -347,15 +345,15 @@ public class ParentService : IParentService
                 .ToListAsync();
 
             return lessons
-                .GroupBy(l => ToVietnamTime(l.Scheduledstart).Date)
+                .GroupBy(l => MV.DomainLayer.Helpers.TimeZoneHelper.ToUserTime(l.Scheduledstart).Date)
                 .Select(g => new CalendarDayResponse
                 {
                     Date = g.Key,
                     Lessons = g.Select(l => new CalendarLessonResponse
                     {
                         LessonId = l.Lessonid,
-                        ScheduledStart = ToVietnamTime(l.Scheduledstart),
-                        ScheduledEnd = ToVietnamTime(l.Scheduledend),
+                        ScheduledStart = MV.DomainLayer.Helpers.TimeZoneHelper.ToUserTime(l.Scheduledstart),
+                        ScheduledEnd = MV.DomainLayer.Helpers.TimeZoneHelper.ToUserTime(l.Scheduledend),
                         StudentName = l.Booking?.Student?.Fullname,
                         TutorName = l.Booking?.Tutor?.Tutor?.Fullname,
                         SubjectName = l.Booking?.Subject?.Subjectname,

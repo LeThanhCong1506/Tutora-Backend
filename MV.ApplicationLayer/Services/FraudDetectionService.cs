@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -62,7 +62,7 @@ public class FraudDetectionService(
             Isflagged = r.IsFlagged,
             Message = r.Message,
             Metadata = r.Metadata != null ? JsonSerializer.Serialize(r.Metadata) : null,
-            Checkedat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now
+            Checkedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
         }).ToList();
 
         context.Fraudlogs.AddRange(logs);
@@ -73,7 +73,7 @@ public class FraudDetectionService(
 
     private async Task<RuleResult> CheckVelocityAsync(string tutorId, CancellationToken ct)
     {
-        var now = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+        var now = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
         var today = now.Date;
         var weekStart = today.AddDays(-(int)today.DayOfWeek);
         var monthStart = new DateTime(now.Year, now.Month, 1);
@@ -119,7 +119,7 @@ public class FraudDetectionService(
 
     private async Task<RuleResult> CheckAmountLimitsAsync(string tutorId, decimal amount, CancellationToken ct)
     {
-        var now = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+        var now = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
         var today = now.Date;
         var monthStart = new DateTime(now.Year, now.Month, 1);
 
@@ -181,7 +181,7 @@ public class FraudDetectionService(
                 ApiMessages.TutorProfileNotFound, null);
         }
 
-        var accountAge = MV.DomainLayer.Helpers.VietnamTimeHelper.Now - (tutor.Createdat ?? MV.DomainLayer.Helpers.VietnamTimeHelper.Now);
+        var accountAge = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow - (tutor.Createdat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow);
         var accountAgeDays = (int)accountAge.TotalDays;
 
         var metadata = new Dictionary<string, object>
@@ -218,7 +218,7 @@ public class FraudDetectionService(
                 new Dictionary<string, object> { ["has_bank_change"] = false });
         }
 
-        var hoursSinceChange = (MV.DomainLayer.Helpers.VietnamTimeHelper.Now - tutor.Bankchangedat.Value).TotalHours;
+        var hoursSinceChange = (MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow - tutor.Bankchangedat.Value).TotalHours;
 
         if (hoursSinceChange < _settings.BankChangeCooldownHours)
         {
@@ -232,7 +232,7 @@ public class FraudDetectionService(
                 });
         }
 
-        var monthStart = new DateTime(MV.DomainLayer.Helpers.VietnamTimeHelper.Now.Year, MV.DomainLayer.Helpers.VietnamTimeHelper.Now.Month, 1);
+        var monthStart = new DateTime(MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow.Year, MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow.Month, 1);
         var changeCount = await context.BankChangeLogs
             .AsNoTracking()
             .Where(b => b.Tutorid == tutorId && b.Changedat >= monthStart)
@@ -297,7 +297,7 @@ public class FraudDetectionService(
             }
         }
 
-        var lookbackDate = MV.DomainLayer.Helpers.VietnamTimeHelper.Now.AddDays(-_settings.IpPatternLookbackDays);
+        var lookbackDate = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow.AddDays(-_settings.IpPatternLookbackDays);
         var distinctIps = await context.Loginhistories
             .AsNoTracking()
             .Where(l => l.Userid == tutorId && l.Loggedat >= lookbackDate)

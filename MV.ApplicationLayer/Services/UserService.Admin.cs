@@ -1,4 +1,4 @@
-using MV.DomainLayer.Constants;
+﻿using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO.RequestModel;
 using MV.DomainLayer.DTO.ResponseModel;
 using MV.DomainLayer.Exceptions;
@@ -61,8 +61,8 @@ namespace MV.ApplicationLayer.Services
                 Gender = u.Gender,
                 Avatarurl = u.Avatarurl,
                 Status = u.Status,
-                Createdat = u.Createdat.HasValue ? VietnamTimeHelper.ToVietnamTime(u.Createdat.Value) : (DateTime?)null,
-                LastLoginAt = u.Lastloginat.HasValue ? VietnamTimeHelper.ToVietnamTime(u.Lastloginat.Value) : (DateTime?)null,
+                Createdat = u.Createdat.HasValue ? TimeZoneHelper.ToUserTime(u.Createdat.Value) : (DateTime?)null,
+                LastLoginAt = u.Lastloginat.HasValue ? TimeZoneHelper.ToUserTime(u.Lastloginat.Value) : (DateTime?)null,
                 Role = u.Primaryrole ?? UserRole.User
             }).ToList();
 
@@ -126,7 +126,7 @@ namespace MV.ApplicationLayer.Services
                 PreviousRole    = previousRole,
                 NewRole         = newRole,
                 ChangedByAdminId = adminUserId,
-                ChangedAt       = VietnamTimeHelper.ToVietnamTime(MV.DomainLayer.Helpers.VietnamTimeHelper.Now)
+                ChangedAt       = TimeZoneHelper.ToUserTime(MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow)
             };
         }
 

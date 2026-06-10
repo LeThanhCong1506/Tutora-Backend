@@ -64,7 +64,7 @@ public class ReconciliationJob : BackgroundService
             .Where(w => w.Status == WithdrawalStatus.Pending
                 && w.Payostransactionid != null
                 && w.Lastretryat != null
-                && w.Lastretryat < MV.DomainLayer.Helpers.VietnamTimeHelper.Now.AddHours(-1))
+                && w.Lastretryat < MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow.AddHours(-1))
             .ToListAsync(ct);
 
         if (!stuckTransactions.Any())
@@ -119,7 +119,7 @@ public class ReconciliationJob : BackgroundService
         {
             withdrawal.Status = WithdrawalStatus.Approved;
             withdrawal.Payosstatus = PayoutConstants.PayOSStatus.Success;
-            withdrawal.Processedat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+            withdrawal.Processedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
             statusChanged = true;
         }
         else if (statusResult.Status == PayoutConstants.PayOSStatus.Failed && withdrawal.Status != WithdrawalStatus.Rejected)
@@ -138,7 +138,7 @@ public class ReconciliationJob : BackgroundService
         }
 
         // Check if stuck for > 4 hours, create system alert
-        if (withdrawal.Lastretryat < MV.DomainLayer.Helpers.VietnamTimeHelper.Now.AddHours(-4))
+        if (withdrawal.Lastretryat < MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow.AddHours(-4))
         {
             _logger.LogError("Rút tiền {WithdrawalId} bị kẹt > 4 giờ, tạo cảnh báo hệ thống.",
                 withdrawal.Withdrawalid);
@@ -163,7 +163,7 @@ public class ReconciliationJob : BackgroundService
                         status = withdrawal.Status
                     }),
                     Resolved = false,
-                    Createdat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now
+                    Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
                 };
 
                 context.Systemalerts.Add(alert);

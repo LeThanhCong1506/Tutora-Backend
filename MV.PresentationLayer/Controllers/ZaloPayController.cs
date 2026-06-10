@@ -56,7 +56,8 @@ public class ZaloPayController(
         //        https://openapi.zalopay.vn/v2/create (production)
         //   mac = HMAC-SHA256($"{app_id}|{app_trans_id}|{app_user}|{amount}|{app_time}|{embed_data}|{item}", Key1)
 
-        var appTransId = $"{MV.DomainLayer.Helpers.VietnamTimeHelper.Now:yyMMdd}_{booking.BookingId}_{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}";
+        var vnNow = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, MV.DomainLayer.Helpers.TimeZoneHelper.GetTimeZoneInfo("Asia/Ho_Chi_Minh"));
+        var appTransId = $"{vnNow:yyMMdd}_{booking.BookingId}_{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}";
         var amount = (long)booking.Amount;
 
         logger.LogInformation("ZaloPay create-order: booking={BookingId} amount={Amount}", request.BookingId, amount);

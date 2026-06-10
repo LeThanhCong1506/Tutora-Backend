@@ -70,6 +70,11 @@ namespace MV.ApplicationLayer.ServiceInterfaces
         /// </summary>
         Task<bool> UpdateTutorPricingAsync(string tutorId, UpdateTutorPricingRequest request);
 
+        /// <summary>
+        /// Add a single subject-grade-price entry for tutor.
+        /// </summary>
+        Task<TutorSubjectGradePriceResponse> AddSubjectGradePriceAsync(string tutorId, TutorSubjectGradePriceRequest request);
+
         Task<List<TutorPackageResponse>> GetTutorPackagesAsync(string tutorId, bool includeInactive = false);
 
         Task<TutorPackageResponse?> CreateTutorPackageAsync(string tutorId, CreateTutorPackageRequest request);

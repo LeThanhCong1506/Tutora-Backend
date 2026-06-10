@@ -30,7 +30,7 @@ public partial class BookingService(
 
     public async Task<BookingResponse> CreateBookingAsync(string userId, string userRole, CreateBookingRequest dto)
     {
-        if (dto.StartDate.Date < VietnamTimeHelper.Now.Date)
+        if (dto.StartDate.Date < TimeZoneHelper.UtcNow.Date)
             throw new BookingException(BookingErrorCodes.InvalidStartDate, "Ngày bắt đầu phải là ngày hiện tại hoặc trong tương lai", 400);
 
         var resolvedStudentId = !string.IsNullOrWhiteSpace(dto.StudentId)
@@ -118,8 +118,8 @@ public partial class BookingService(
             Locationdistrict = dto.LocationDistrict,
             Locationward = dto.LocationWard,
             Locationdetail = dto.LocationDetail,
-            Createdat = VietnamTimeHelper.Now,
-            Responsedeadline = VietnamTimeHelper.Now.AddHours(24)
+            Createdat = TimeZoneHelper.UtcNow,
+            Responsedeadline = TimeZoneHelper.UtcNow.AddHours(24)
         };
 
         await using var tx = await context.Database.BeginTransactionAsync(IsolationLevel.Serializable);
@@ -140,7 +140,7 @@ public partial class BookingService(
                     Scheduledend = slot.End,
                     Lessonprice = lessonPrice,
                     Status = Reserved,
-                    Createdat = VietnamTimeHelper.Now
+                    Createdat = TimeZoneHelper.UtcNow
                 });
             }
 
@@ -257,7 +257,7 @@ public partial class BookingService(
                     if (parentWallet != null)
                     {
                         parentWallet.Balance = (parentWallet.Balance ?? 0) + refundAmount;
-                        parentWallet.Lastupdated = VietnamTimeHelper.UtcNow;
+                        parentWallet.Lastupdated = TimeZoneHelper.UtcNow;
 
                         context.Wallettransactions.Add(new Wallettransaction
                         {
@@ -267,7 +267,7 @@ public partial class BookingService(
                             Referencetable = ReferenceTable.Booking,
                             Referenceid = bookingId,
                             Description = $"Hoàn tiền booking #{bookingId}",
-                            Createdat = VietnamTimeHelper.UtcNow
+                            Createdat = TimeZoneHelper.UtcNow
                         });
                     }
                 }
@@ -281,7 +281,7 @@ public partial class BookingService(
                     if (tutorWallet != null)
                     {
                         tutorWallet.Frozenbalance = Math.Max(0, (tutorWallet.Frozenbalance ?? 0) - tutorEscrowAmount);
-                        tutorWallet.Lastupdated = VietnamTimeHelper.UtcNow;
+                        tutorWallet.Lastupdated = TimeZoneHelper.UtcNow;
 
                         context.Wallettransactions.Add(new Wallettransaction
                         {
@@ -291,7 +291,7 @@ public partial class BookingService(
                             Referencetable = ReferenceTable.Booking,
                             Referenceid = bookingId,
                             Description = $"Giải phóng escrow booking #{bookingId} do hủy",
-                            Createdat = VietnamTimeHelper.UtcNow
+                            Createdat = TimeZoneHelper.UtcNow
                         });
                     }
                 }
@@ -299,8 +299,8 @@ public partial class BookingService(
                 booking.Status = BookingStatus.Cancelled;
                 booking.Cancellationreason = reason;
                 booking.Cancelledby = userId;
-                booking.Cancelledat = VietnamTimeHelper.UtcNow;
-                booking.Updatedat = VietnamTimeHelper.UtcNow;
+                booking.Cancelledat = TimeZoneHelper.UtcNow;
+                booking.Updatedat = TimeZoneHelper.UtcNow;
                 booking.Refundstatus = RefundStatus.Refunded;
                 booking.Refundamount = refundAmount;
 
@@ -334,8 +334,8 @@ public partial class BookingService(
             booking.Status = BookingStatus.Cancelled;
             booking.Cancellationreason = reason;
             booking.Cancelledby = userId;
-            booking.Cancelledat = VietnamTimeHelper.UtcNow;
-            booking.Updatedat = VietnamTimeHelper.UtcNow;
+            booking.Cancelledat = TimeZoneHelper.UtcNow;
+            booking.Updatedat = TimeZoneHelper.UtcNow;
 
             foreach (var l in booking.Lessons.Where(x => x.Status is Scheduled or Reserved))
                 l.Status = Cancelled;
@@ -348,7 +348,7 @@ public partial class BookingService(
 
     public async Task<List<ScheduleItemResponse>> GetTutorBookedSlotsAsync(string tutorId, DateTime startDate)
     {
-        var fromUtc = VietnamTimeHelper.ToUtc(startDate);
+        var fromUtc = TimeZoneHelper.ToUtc(startDate);
         var toUtc = fromUtc.AddDays(WeeksPerMonth * 7);
 
         var lessons = await context.Lessons
@@ -365,9 +365,8 @@ public partial class BookingService(
         return lessons
             .Select(l =>
             {
-                var startVn = VietnamTimeHelper.ToVietnamTime(l.Scheduledstart);
-                var endVn = VietnamTimeHelper.ToVietnamTime(l.Scheduledend);
-                // Convert C# DayOfWeek (0=Sunday, 1=Monday...) to ISO format (1=Monday, 7=Sunday)
+                var startVn = TimeZoneHelper.ToUserTime(l.Scheduledstart);
+                var endVn = TimeZoneHelper.ToUserTime(l.Scheduledend);
                 var isoDayOfWeek = startVn.DayOfWeek == DayOfWeek.Sunday ? 7 : (int)startVn.DayOfWeek;
                 return new ScheduleItemResponse
                 {
@@ -392,8 +391,8 @@ public partial class BookingService(
 
         foreach (var slot in lessonSlots)
         {
-            var startVn = VietnamTimeHelper.ToVietnamTime(slot.Start);
-            var endVn = VietnamTimeHelper.ToVietnamTime(slot.End);
+            var startVn = TimeZoneHelper.ToUserTime(slot.Start);
+            var endVn = TimeZoneHelper.ToUserTime(slot.End);
             var startTime = TimeOnly.FromTimeSpan(startVn.TimeOfDay);
             var endTime = TimeOnly.FromTimeSpan(endVn.TimeOfDay);
             var bookingDate = DateOnly.FromDateTime(startVn);
@@ -402,7 +401,7 @@ public partial class BookingService(
             {
                 if (!a.Starttime.HasValue || !a.Endtime.HasValue || !a.Dayofweek.HasValue) return false;
 
-                var validFrom = DateOnly.FromDateTime(VietnamTimeHelper.ToVietnamTime(a.Createdat ?? VietnamTimeHelper.Now));
+                var validFrom = DateOnly.FromDateTime(TimeZoneHelper.ToUserTime(a.Createdat ?? TimeZoneHelper.UtcNow));
                 var validTo = validFrom.AddDays(AvailabilityValidDays);
 
                 // Convert C# DayOfWeek (0=Sunday, 1=Monday...) to ISO format (1=Monday, 7=Sunday)
@@ -457,8 +456,8 @@ public partial class BookingService(
         if (package.Tutorpackagefixedslots.Count == 0)
             throw new BookingException(BookingErrorCodes.InvalidSchedule, "Package cố định chưa có khung giờ", 400);
 
-        var startDateVn = VietnamTimeHelper.ToVietnamTime(VietnamTimeHelper.ToUtc(startDate)).Date;
-        var todayVn = VietnamTimeHelper.ToVietnamTime(VietnamTimeHelper.Now).Date;
+        var startDateVn = TimeZoneHelper.ToUserTime(TimeZoneHelper.ToUtc(startDate)).Date;
+        var todayVn = TimeZoneHelper.ToUserTime(TimeZoneHelper.UtcNow).Date;
         var currentDate = startDateVn >= todayVn ? startDateVn : todayVn;
         var fixedSlots = package.Tutorpackagefixedslots
             .OrderBy(s => s.Dayofweek)
@@ -480,8 +479,8 @@ public partial class BookingService(
                 var end = new DateTime(currentDate.Year, currentDate.Month, currentDate.Day,
                     fixedSlot.Endtime.Hour, fixedSlot.Endtime.Minute, 0, DateTimeKind.Unspecified);
                 result.Add(new LessonSlot(
-                    TimeZoneInfo.ConvertTimeToUtc(start, VietnamTimeHelper.Tz),
-                    TimeZoneInfo.ConvertTimeToUtc(end, VietnamTimeHelper.Tz)));
+                    MV.DomainLayer.Helpers.TimeZoneHelper.ToUtc(start),
+                    MV.DomainLayer.Helpers.TimeZoneHelper.ToUtc(end)));
             }
 
             currentDate = currentDate.AddDays(1);
@@ -501,8 +500,8 @@ public partial class BookingService(
         return slots
             .Select(s =>
             {
-                var start = VietnamTimeHelper.ToUtc(s.ScheduledStart);
-                var end = VietnamTimeHelper.ToUtc(s.ScheduledEnd);
+                var start = TimeZoneHelper.ToUtc(s.ScheduledStart);
+                var end = TimeZoneHelper.ToUtc(s.ScheduledEnd);
                 if (end <= start || Math.Abs((end - start - duration).TotalMinutes) > 1)
                     throw new BookingException(BookingErrorCodes.InvalidSchedule,
                         $"Mỗi buổi học phải kéo dài {durationMinutes} phút", 400);
@@ -522,8 +521,8 @@ public partial class BookingService(
             {
                 LessonId = l.Lessonid,
                 SessionIndex = i + 1,
-                ScheduledStart = VietnamTimeHelper.ToVietnamTime(l.Scheduledstart),
-                ScheduledEnd = VietnamTimeHelper.ToVietnamTime(l.Scheduledend),
+                ScheduledStart = TimeZoneHelper.ToUserTime(l.Scheduledstart),
+                ScheduledEnd = TimeZoneHelper.ToUserTime(l.Scheduledend),
                 Status = l.Status,
                 LessonPrice = l.Lessonprice
             })
@@ -594,20 +593,20 @@ public partial class BookingService(
             }).ToList(),
             Lessons = lessons,
             StartDate = b.Startdate,
-            // BE luôn lưu UTC (DateTime.UtcNow), ToVietnamTime() convert sang UTC+7 khi trả về FE.
+            // BE luôn lưu UTC (DateTime.UtcNow), ToUserTime() convert sang múi giờ của FE truyền vào.
             // Pattern này đúng cả local lẫn cloud deployment.
-            CreatedAt = b.Createdat.HasValue ? VietnamTimeHelper.ToVietnamTime(b.Createdat.Value) : (DateTime?)null,
-            PaymentDueAt = b.Paymentdueat.HasValue ? VietnamTimeHelper.ToVietnamTime(b.Paymentdueat.Value) : (DateTime?)null,
+            CreatedAt = b.Createdat.HasValue ? TimeZoneHelper.ToUserTime(b.Createdat.Value) : (DateTime?)null,
+            PaymentDueAt = b.Paymentdueat.HasValue ? TimeZoneHelper.ToUserTime(b.Paymentdueat.Value) : (DateTime?)null,
             DepositAmount = b.Depositamount,
             RemainingAmount = b.Remainingamount,
-            DepositPaidAt = b.Depositpaidat.HasValue ? VietnamTimeHelper.ToVietnamTime(b.Depositpaidat.Value) : (DateTime?)null,
-            RemainingPaidAt = b.Remainingpaidat.HasValue ? VietnamTimeHelper.ToVietnamTime(b.Remainingpaidat.Value) : (DateTime?)null,
+            DepositPaidAt = b.Depositpaidat.HasValue ? TimeZoneHelper.ToUserTime(b.Depositpaidat.Value) : (DateTime?)null,
+            RemainingPaidAt = b.Remainingpaidat.HasValue ? TimeZoneHelper.ToUserTime(b.Remainingpaidat.Value) : (DateTime?)null,
             EscrowStatus = b.Escrowstatus,
             RefundAmount = b.Refundamount,
             RefundStatus = b.Refundstatus,
             CancellationReason = b.Cancellationreason,
             CancelledBy = b.Cancelledby,
-            CancelledAt = b.Cancelledat.HasValue ? VietnamTimeHelper.ToVietnamTime(b.Cancelledat.Value) : (DateTime?)null
+            CancelledAt = b.Cancelledat.HasValue ? TimeZoneHelper.ToUserTime(b.Cancelledat.Value) : (DateTime?)null
         };
     }
 

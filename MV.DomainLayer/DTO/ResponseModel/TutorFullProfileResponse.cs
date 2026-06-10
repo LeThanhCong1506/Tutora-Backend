@@ -20,6 +20,7 @@ namespace MV.DomainLayer.DTO.ResponseModel
         public string? TeachingAreaDistrict { get; set; }
         public string? TeachingMode { get; set; }
         public List<SubjectInfo>? Subjects { get; set; }
+        public List<TutorSubjectGradePriceResponse>? SubjectGradePrices { get; set; }
 
         // --- Introduction ---
         public string? Bio { get; set; }

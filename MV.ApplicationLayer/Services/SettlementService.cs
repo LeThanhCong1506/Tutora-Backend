@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.Constants;
@@ -9,8 +9,6 @@ using MV.DomainLayer.Exceptions;
 using MV.DomainLayer.Helpers;
 using MV.ApplicationLayer.Interfaces;
 using static MV.DomainLayer.Constants.LessonStatus;
-using static MV.DomainLayer.Helpers.VietnamTimeHelper;
-
 namespace MV.ApplicationLayer.Services;
 
 /// <summary>
@@ -37,7 +35,7 @@ public class SettlementService : ISettlementService
     /// </summary>
     public async Task<int> ProcessAutoConfirmAsync(CancellationToken ct = default)
     {
-        var now = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+        var now = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 
         var lessonsToConfirm = await _context.Lessons
             .Where(l => l.Status == PendingConfirmation &&
@@ -109,7 +107,7 @@ public class SettlementService : ISettlementService
                     Userid = tutorId,
                     Balance = 0,
                     Frozenbalance = 0,
-                    Lastupdated = MV.DomainLayer.Helpers.VietnamTimeHelper.Now
+                    Lastupdated = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
                 };
                 _context.Wallets.Add(tutorWallet);
             }
@@ -117,7 +115,7 @@ public class SettlementService : ISettlementService
             // Update lesson status
             lesson.Status = Completed;
             lesson.Issettled = true;
-            lesson.Parentackat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+            lesson.Parentackat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 
             bool isBookingCompleted = false;
             // Update booking sessions remaining
@@ -152,7 +150,7 @@ public class SettlementService : ISettlementService
                 }
                 tutorWallet.Frozenbalance = Math.Max(0, currentFrozen - totalEarned);
                 tutorWallet.Balance += totalEarned;
-                tutorWallet.Lastupdated = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+                tutorWallet.Lastupdated = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
                 amountReleasedNow = totalEarned;
                 var transaction = new Wallettransaction
                 {
@@ -160,7 +158,7 @@ public class SettlementService : ISettlementService
                     Amount = totalEarned,
                     Transactiontype = TransactionType.EscrowRelease,
                     Description = $"Thanh toán hoàn tất khóa học #{lesson.Bookingid}",
-                    Createdat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now
+                    Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
                 };
                 _context.Wallettransactions.Add(transaction);
                 await _context.SaveChangesAsync();
@@ -274,14 +272,14 @@ public class SettlementService : ISettlementService
                 {
                     tutorWallet.Balance += tutorAmount;
                 }
-                tutorWallet.Lastupdated = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+                tutorWallet.Lastupdated = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
             }
 
             // Add refund to parent's balance
             if (parentWallet != null && refundAmount > 0)
             {
                 parentWallet.Balance += refundAmount;
-                parentWallet.Lastupdated = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+                parentWallet.Lastupdated = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 
                 // Create refund transaction
                 var refundTx = new Wallettransaction
@@ -290,7 +288,7 @@ public class SettlementService : ISettlementService
                     Amount = refundAmount,
                     Transactiontype = TransactionType.Refund,
                     Description = $"Hoàn tiền buổi học #{lesson.Lessonid} ({refundPercentage}%)",
-                    Createdat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now
+                    Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
                 };
                 _context.Wallettransactions.Add(refundTx);
 
@@ -355,9 +353,9 @@ public class SettlementService : ISettlementService
     /// </summary>
     public async Task<List<PendingLessonResponse>> GetPendingSettlementsAsync()
     {
-        var now = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+        var now = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 
-        // Load entities first, then project in memory to use ToVietnamTime()
+        // Load entities first, then project in memory to use MV.DomainLayer.Helpers.TimeZoneHelper.ToUserTime()
         var lessons = await _context.Lessons
             .AsNoTracking()
             .Where(l => l.Status == PendingConfirmation && l.Issettled != true)
@@ -375,10 +373,10 @@ public class SettlementService : ISettlementService
         {
             LessonId = l.Lessonid,
             BookingId = l.Bookingid,
-            ScheduledStart = ToVietnamTime(l.Scheduledstart),
-            ScheduledEnd = ToVietnamTime(l.Scheduledend),
-            SubmittedAt = ToVietnamTime(l.Submittedat),
-            ConfirmDeadline = ToVietnamTime(l.Confirmdeadline),
+            ScheduledStart = MV.DomainLayer.Helpers.TimeZoneHelper.ToUserTime(l.Scheduledstart),
+            ScheduledEnd = MV.DomainLayer.Helpers.TimeZoneHelper.ToUserTime(l.Scheduledend),
+            SubmittedAt = MV.DomainLayer.Helpers.TimeZoneHelper.ToUserTime(l.Submittedat),
+            ConfirmDeadline = MV.DomainLayer.Helpers.TimeZoneHelper.ToUserTime(l.Confirmdeadline),
             TutorName = l.Tutor?.Tutor?.Fullname,
             TutorAvatarUrl = l.Tutor?.Tutor?.Avatarurl,
             StudentName = l.Booking?.Student?.Fullname,

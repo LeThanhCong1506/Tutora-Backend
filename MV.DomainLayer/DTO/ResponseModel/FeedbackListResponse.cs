@@ -1,4 +1,4 @@
-namespace MV.DomainLayer.DTO.ResponseModel;
+﻿namespace MV.DomainLayer.DTO.ResponseModel;
 
 /// <summary>
 /// Feedback list for tutor profile (public)
@@ -53,7 +53,7 @@ public class FeedbackListResponse
     {
         get
         {
-            var elapsed = MV.DomainLayer.Helpers.VietnamTimeHelper.Now - CreatedAt;
+            var elapsed = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow - CreatedAt;
             if (elapsed.TotalDays >= 30)
                 return $"{(int)(elapsed.TotalDays / 30)} tháng trước";
             if (elapsed.TotalDays >= 1)

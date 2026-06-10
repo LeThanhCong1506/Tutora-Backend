@@ -1,4 +1,4 @@
-using MV.DomainLayer.Helpers;
+﻿using MV.DomainLayer.Helpers;
 
 namespace MV.DomainLayer.DTO.ResponseModel;
 
@@ -42,10 +42,10 @@ public class PendingLessonResponse
     {
         get
         {
-            if (!ConfirmDeadline.HasValue || ConfirmDeadline <= VietnamTimeHelper.Now)
+            if (!ConfirmDeadline.HasValue || ConfirmDeadline <= TimeZoneHelper.UtcNow)
                 return "Hết hạn";
 
-            var remaining = ConfirmDeadline.Value - VietnamTimeHelper.Now;
+            var remaining = ConfirmDeadline.Value - TimeZoneHelper.UtcNow;
             if (remaining.TotalHours >= 1)
                 return $"{(int)remaining.TotalHours}h {remaining.Minutes}m";
             return $"{remaining.Minutes}m";
@@ -56,5 +56,5 @@ public class PendingLessonResponse
     /// Is deadline approaching (less than 4 hours)
     /// </summary>
     public bool IsUrgent => ConfirmDeadline.HasValue &&
-        (ConfirmDeadline.Value - VietnamTimeHelper.Now).TotalHours < 4;
+        (ConfirmDeadline.Value - TimeZoneHelper.UtcNow).TotalHours < 4;
 }

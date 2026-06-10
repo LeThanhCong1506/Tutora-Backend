@@ -13,7 +13,7 @@ namespace MV.ApplicationLayer.Services
     public partial class TutorService : ITutorService
     {
         private readonly IUnitOfWork _unitOfWork;
-        private readonly ISupabaseStorageService _storageService;
+        private readonly IFileStorageService _storageService;
         private readonly IFptAiService _fptAiService;
         private readonly ICertificateVerificationService _certificateVerificationService;
         private readonly ILogger<TutorService> _logger;
@@ -32,7 +32,7 @@ namespace MV.ApplicationLayer.Services
 
         public TutorService(
             IUnitOfWork unitOfWork,
-            ISupabaseStorageService storageService,
+            IFileStorageService storageService,
             IFptAiService fptAiService,
             ICertificateVerificationService certificateVerificationService,
             ILogger<TutorService> logger)
@@ -86,7 +86,7 @@ namespace MV.ApplicationLayer.Services
             profile.Headline = request.Headline;
             profile.Teachingareacity = request.TeachingAreaCity;
             profile.Teachingareadistrict = request.TeachingAreaDistrict;
-            profile.Updatedat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+            profile.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 
 
 
@@ -132,7 +132,7 @@ namespace MV.ApplicationLayer.Services
             profile.Gpascale = request.GpaScale;
             profile.Gpa = request.Gpa;
             profile.Experience = request.Experience;
-            profile.Updatedat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+            profile.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 
             await _unitOfWork.SaveChangesAsync();
             await TryAutoActivateProfileAsync(userId);
@@ -146,7 +146,7 @@ namespace MV.ApplicationLayer.Services
 
             await ValidateSubjectGradePricesAsync(request.SubjectGradePrices);
 
-            profile.Updatedat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+            profile.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 
             await _unitOfWork.TutorRepository.ReplaceTutorSubjectGradePricesAsync(
                 userId,
@@ -182,7 +182,7 @@ namespace MV.ApplicationLayer.Services
 
             await ValidateSubjectGradePricesAsync(request.SubjectGradePrices);
 
-            profile.Updatedat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+            profile.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 
             await _unitOfWork.TutorRepository.ReplaceTutorSubjectGradePricesAsync(
                 tutorId,
@@ -191,6 +191,52 @@ namespace MV.ApplicationLayer.Services
             await _unitOfWork.SaveChangesAsync();
             await TryAutoActivateProfileAsync(tutorId);
             return true;
+        }
+
+        public async Task<TutorSubjectGradePriceResponse> AddSubjectGradePriceAsync(string tutorId, TutorSubjectGradePriceRequest request)
+        {
+            var profile = await _unitOfWork.TutorRepository.GetTutorProfileByIdAsync(tutorId);
+            if (profile == null)
+            {
+                throw new ArgumentException("Không tìm thấy hồ sơ gia sư");
+            }
+
+            // Validate single price entry
+            await ValidateSubjectGradePricesAsync(new List<TutorSubjectGradePriceRequest> { request });
+
+            // Check if already exists
+            var existing = await _unitOfWork.TutorRepository.GetTutorSubjectGradePriceAsync(
+                tutorId, request.SubjectId, request.GradeLevelId);
+            
+            if (existing != null)
+            {
+                throw new ArgumentException($"Đã tồn tại giá cho môn {request.SubjectId} và khối {request.GradeLevelId}. Vui lòng dùng PUT để cập nhật.");
+            }
+
+            // Create new price entry
+            var newPrice = new Tutorsubjectgradeprice
+            {
+                Tutorid = tutorId,
+                Subjectid = request.SubjectId,
+                Gradelevelid = request.GradeLevelId,
+                Priceperhour = request.PricePerHour,
+                Durationminutespersession = request.DurationMinutesPerSession,
+                Sessionsperweek = request.SessionsPerWeek,
+                Currency = string.IsNullOrWhiteSpace(request.Currency) ? "VND" : request.Currency!,
+                Isactive = request.IsActive
+            };
+
+            await _unitOfWork.TutorRepository.AddTutorSubjectGradePriceAsync(newPrice);
+            profile.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
+            
+            await _unitOfWork.SaveChangesAsync();
+            await TryAutoActivateProfileAsync(tutorId);
+
+            // Reload to get navigation properties
+            var created = await _unitOfWork.TutorRepository.GetTutorSubjectGradePriceAsync(
+                tutorId, request.SubjectId, request.GradeLevelId);
+
+            return MapSubjectGradePriceResponse(created!);
         }
 
         // ─── Packages ────────────────────────────────────────────────────────
@@ -208,7 +254,7 @@ namespace MV.ApplicationLayer.Services
 
             ValidateTutorPackageRequest(request);
 
-            var now = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+            var now = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
             var package = new Tutorpackage
             {
                 Tutorid = tutorId,
@@ -238,7 +284,7 @@ namespace MV.ApplicationLayer.Services
             if (package == null) return false;
 
             package.Isactive = false;
-            package.Updatedat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+            package.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
             await _unitOfWork.SaveChangesAsync();
             return true;
         }
@@ -259,7 +305,7 @@ namespace MV.ApplicationLayer.Services
             }
 
             profile.Profilestatus = TutorProfileStatus.PendingApproval;
-            profile.Updatedat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+            profile.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 
             await _unitOfWork.SaveChangesAsync();
             _logger.LogInformation("Profile {TutorId} submitted for admin review", tutorId);
@@ -290,7 +336,7 @@ namespace MV.ApplicationLayer.Services
             {
                 profile.Profilestatus = TutorProfileStatus.Active;
                 profile.Ispublic = true;
-                profile.Updatedat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+                profile.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
                 await _unitOfWork.SaveChangesAsync();
 
                 _logger.LogInformation("Profile {TutorId} auto-activated", tutorId);

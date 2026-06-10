@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.DTO.ResponseModel.Admin;
 using MV.DomainLayer.Entities;
@@ -32,9 +32,9 @@ public class SystemAlertService(IAppDbContext context) : ISystemAlertService
             Severity = a.Severity,
             Message = a.Message,
             Resolved = a.Resolved,
-            ResolvedAt = a.Resolvedat.HasValue ? VietnamTimeHelper.ToVietnamTime(a.Resolvedat.Value) : (DateTime?)null,
+            ResolvedAt = a.Resolvedat.HasValue ? TimeZoneHelper.ToUserTime(a.Resolvedat.Value) : (DateTime?)null,
             ResolvedBy = a.Resolvedby,
-            CreatedAt = VietnamTimeHelper.ToVietnamTime(a.Createdat)
+            CreatedAt = TimeZoneHelper.ToUserTime(a.Createdat)
         }).ToList();
 
         return new SystemAlertResponse
@@ -55,7 +55,7 @@ public class SystemAlertService(IAppDbContext context) : ISystemAlertService
             Message = message,
             Metadata = metadata,
             Resolved = false,
-            Createdat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now
+            Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
         };
 
         context.Systemalerts.Add(alert);
@@ -72,7 +72,7 @@ public class SystemAlertService(IAppDbContext context) : ISystemAlertService
             return false;
 
         alert.Resolved = true;
-        alert.Resolvedat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+        alert.Resolvedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
         alert.Resolvedby = resolvedBy;
 
         await context.SaveChangesAsync(ct);

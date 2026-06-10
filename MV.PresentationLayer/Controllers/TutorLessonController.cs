@@ -1,4 +1,4 @@
-using Microsoft.AspNetCore.Authorization;
+﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.Constants;
@@ -48,7 +48,7 @@ public class TutorLessonController : ControllerBase
         [FromQuery] DateTime? endDate)
     {
         var tutorId = UserHelper.GetUserId(User);
-        var start = startDate ?? MV.DomainLayer.Helpers.VietnamTimeHelper.Now.Date;
+        var start = startDate ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow.Date;
         var end = endDate ?? start.AddDays(30);
 
         var result = await _lessonService.GetTutorCalendarAsync(tutorId, start, end);

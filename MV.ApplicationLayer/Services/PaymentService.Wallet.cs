@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using MV.ApplicationLayer.Helpers;
 using System.Data;
@@ -28,7 +28,7 @@ public partial class PaymentService
         {
             if (booking.Status != BookingStatus.Accepted && booking.Status != BookingStatus.PendingPayment)
                 throw new BookingException(BookingErrorCodes.InvalidBookingStatus, "Booking not ready for payment", 409);
-            if (booking.Paymentdueat <= MV.DomainLayer.Helpers.VietnamTimeHelper.Now)
+            if (booking.Paymentdueat <= MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow)
                 throw new BookingException(BookingErrorCodes.BookingExpired, "Booking payment expired", 409);
         }
         else
@@ -65,7 +65,7 @@ public partial class PaymentService
                 throw new BookingException(WalletErrorCodes.InsufficientBalance, "Số dư ví không đủ, vui lòng nạp thêm tiền", 400);
 
             wallet.Balance = (wallet.Balance ?? 0) - amount;
-            wallet.Lastupdated = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+            wallet.Lastupdated = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 
             walletRepo.AddTransaction(new Wallettransaction
             {
@@ -75,19 +75,19 @@ public partial class PaymentService
                 Referencetable = ReferenceTable.Booking,
                 Referenceid = bookingId,
                 Description = description,
-                Createdat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now
+                Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
             });
 
-            var txId = $"wallet-{bookingId}-{(isDepositPhase ? PaymentPhase.DepositShort : PaymentPhase.RemainingShort)}-{MV.DomainLayer.Helpers.VietnamTimeHelper.Now:yyyyMMddHHmmss}";
+            var txId = $"wallet-{bookingId}-{(isDepositPhase ? PaymentPhase.DepositShort : PaymentPhase.RemainingShort)}-{MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow:yyyyMMddHHmmss}";
 
             if (isDepositPhase)
             {
                 booking.Status = BookingStatus.DepositPaid;
                 booking.Paymentstatus = DepositEscrowed;
-                booking.Depositpaidat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+                booking.Depositpaidat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
                 booking.Paymentdueat = null;
                 booking.Escrowstatus = Holding;
-                booking.Updatedat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+                booking.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 
                 if (!string.IsNullOrWhiteSpace(booking.Tutorid))
                 {
@@ -95,7 +95,7 @@ public partial class PaymentService
                     var totalEscrow = booking.Tutorfee ?? 0;
                     var depositEscrow = Math.Round(totalEscrow * 0.5m, 2);
                     tutorWallet.Frozenbalance = (tutorWallet.Frozenbalance ?? 0) + depositEscrow;
-                    tutorWallet.Lastupdated = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+                    tutorWallet.Lastupdated = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 
                     walletRepo.AddTransaction(new Wallettransaction
                     {
@@ -105,7 +105,7 @@ public partial class PaymentService
                         Referencetable = ReferenceTable.Payment,
                         Referenceid = bookingId,
                         Description = txId,
-                        Createdat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now
+                        Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
                     });
                 }
 
@@ -123,9 +123,9 @@ public partial class PaymentService
             {
                 booking.Status = BookingStatus.Paid;
                 booking.Paymentstatus = Escrowed;
-                booking.Remainingpaidat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+                booking.Remainingpaidat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
                 booking.Paymentdueat = null;
-                booking.Updatedat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+                booking.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 
                 if (!string.IsNullOrWhiteSpace(booking.Tutorid))
                 {
@@ -134,7 +134,7 @@ public partial class PaymentService
                     var depositEscrow = Math.Round(totalEscrow * 0.5m, 2);
                     var remainingEscrow = totalEscrow - depositEscrow;
                     tutorWallet.Frozenbalance = (tutorWallet.Frozenbalance ?? 0) + remainingEscrow;
-                    tutorWallet.Lastupdated = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+                    tutorWallet.Lastupdated = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 
                     walletRepo.AddTransaction(new Wallettransaction
                     {
@@ -144,7 +144,7 @@ public partial class PaymentService
                         Referencetable = ReferenceTable.Payment,
                         Referenceid = bookingId,
                         Description = txId,
-                        Createdat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now
+                        Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
                     });
                 }
 
@@ -192,7 +192,7 @@ public partial class PaymentService
         {
             Balance = wallet?.Balance ?? 0,
             FrozenBalance = wallet?.Frozenbalance ?? 0,
-            LastUpdated = wallet != null && wallet.Lastupdated.HasValue ? VietnamTimeHelper.ToVietnamTime(wallet.Lastupdated.Value) : (DateTime?)null
+            LastUpdated = wallet != null && wallet.Lastupdated.HasValue ? TimeZoneHelper.ToUserTime(wallet.Lastupdated.Value) : (DateTime?)null
         };
     }
 }
