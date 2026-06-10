@@ -48,6 +48,7 @@ builder.Services.Configure<FraudDetectionSettings>(builder.Configuration.GetSect
 builder.Services.Configure<TrustScoringSettings>(builder.Configuration.GetSection(TrustScoringSettings.SectionName));
 builder.Services.Configure<MV.DomainLayer.Settings.PayoutSettings>(builder.Configuration.GetSection(MV.DomainLayer.Settings.PayoutSettings.SectionName));
 builder.Services.Configure<ZaloOAConfig>(builder.Configuration.GetSection(ConfigurationKeys.ZaloOA.SectionName));
+builder.Services.Configure<InternalApiSettings>(builder.Configuration.GetSection(InternalApiSettings.SectionName));
 
 builder.Services.AddKeyedSingleton<PayOSClient>(ServiceKeys.PayOS.Checkout, (sp, _) =>
 {
