@@ -6,6 +6,7 @@ using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO;
 using MV.DomainLayer.DTO.ResponseModel;
 using MV.DomainLayer.Entities;
+using MV.DomainLayer.Helpers;
 using MV.ApplicationLayer.Interfaces;
 using MV.ApplicationLayer.Interfaces;
 
@@ -138,8 +139,8 @@ namespace MV.ApplicationLayer.Services
                 if (string.IsNullOrEmpty(user.Address))
                     user.Address = resultData.Address;
 
-                if (string.IsNullOrEmpty(user.Gender))
-                    user.Gender = resultData.Sex;
+                if (user.Gender == null)
+                    user.Gender = GenderHelper.FromEkycSex(resultData.Sex);
 
                 if (user.Birthdate == null && !string.IsNullOrEmpty(resultData.Dob))
                 {

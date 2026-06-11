@@ -1,4 +1,5 @@
 ﻿using System.ComponentModel.DataAnnotations;
+using MV.DomainLayer.Enums;
 
 namespace MV.DomainLayer.DTO.RequestModel
 {
@@ -41,8 +42,8 @@ namespace MV.DomainLayer.DTO.RequestModel
         public string? Address { get; set; }
 
         [Required(ErrorMessage = "Gender must not be empty.")]
-        [Range(0, 2, ErrorMessage = "Gender value is invalid.")]
-        public string? Gender { get; set; }
+        [EnumDataType(typeof(Gender), ErrorMessage = "Gender value is invalid.")]
+        public Gender? Gender { get; set; }
 
         [Required(ErrorMessage = "User role must not be empty.")]
         public string RoleName { get; set; } = null!; // "Admin", "Tutor", "Student", "Parent"

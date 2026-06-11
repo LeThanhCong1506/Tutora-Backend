@@ -1,3 +1,5 @@
+using MV.DomainLayer.Enums;
+
 namespace MV.DomainLayer.DTO.ResponseModel
 {
     public class UserResponse
@@ -10,7 +12,7 @@ namespace MV.DomainLayer.DTO.ResponseModel
 
         public DateOnly? Birthdate { get; set; }
         public string? Address { get; set; }
-        public string? Gender { get; set; }
+        public Gender? Gender { get; set; }
         public string? Avatarurl { get; set; }
         public int? Status { get; set; }
         public DateTime? Createdat { get; set; }
