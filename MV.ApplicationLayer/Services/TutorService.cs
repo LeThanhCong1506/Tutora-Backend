@@ -27,9 +27,6 @@ namespace MV.ApplicationLayer.Services
         private static readonly string[] AllowedCertificateExtensions = { ".jpg", ".jpeg", ".png", ".pdf" };
         private const long MaxCertificateFileSize = 10 * 1024 * 1024; // 10 MB
 
-        // Liveness threshold
-        private const double LIVENESS_THRESHOLD = 85.0;
-
         public TutorService(
             IUnitOfWork unitOfWork,
             IFileStorageService storageService,
