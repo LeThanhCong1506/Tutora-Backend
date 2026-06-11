@@ -401,23 +401,25 @@ public partial class BookingService(
 
         foreach (var slot in lessonSlots)
         {
+            // slot.Start/End are UTC — compare directly against UTC availability rows
+            var isoDayUtc = slot.Start.DayOfWeek == DayOfWeek.Sunday ? 7 : (int)slot.Start.DayOfWeek;
+            var startUtc = TimeOnly.FromTimeSpan(slot.Start.TimeOfDay);
+            var endUtc = TimeOnly.FromTimeSpan(slot.End.TimeOfDay);
+
+            // Local (+7) conversions kept only for human-readable error messages and logging
             var startVn = TimeZoneHelper.ToUserTime(slot.Start);
             var endVn = TimeZoneHelper.ToUserTime(slot.End);
-            var startTime = TimeOnly.FromTimeSpan(startVn.TimeOfDay);
-            var endTime = TimeOnly.FromTimeSpan(endVn.TimeOfDay);
             var bookingDate = DateOnly.FromDateTime(startVn);
-
-            // Convert C# DayOfWeek (0=Sunday, 1=Monday...) to ISO format (1=Monday, 7=Sunday)
-            var isoDayOfWeek = startVn.DayOfWeek == DayOfWeek.Sunday ? 7 : (int)startVn.DayOfWeek;
 
             // Debug logging
             logger.LogInformation(
-                "Validating slot: Date={Date}, DayOfWeek={DayOfWeek}, ISO={ISO}, Time={StartTime}-{EndTime}",
+                "Validating slot (UTC): DayOfWeek={ISO}, Time={StartTime}-{EndTime} | Local(+7): {Date} {StartVn}-{EndVn}",
+                isoDayUtc,
+                startUtc,
+                endUtc,
                 startVn.ToString("dd/MM/yyyy"),
-                startVn.DayOfWeek,
-                isoDayOfWeek,
-                startTime,
-                endTime);
+                startVn.ToString("HH:mm"),
+                endVn.ToString("HH:mm"));
 
             var covered = false;
             foreach (var a in tutorAvailabilities)
@@ -425,17 +427,17 @@ public partial class BookingService(
                 if (!a.Starttime.HasValue || !a.Endtime.HasValue || !a.Dayofweek.HasValue) continue;
 
                 logger.LogInformation(
-                    "Checking availability: DayOfWeek={AvailDay}, Time={AvailStart}-{AvailEnd}, Match: Day={DayMatch}, Start={StartMatch}, End={EndMatch}",
+                    "Checking availability (UTC): DayOfWeek={AvailDay}, Time={AvailStart}-{AvailEnd}, Match: Day={DayMatch}, Start={StartMatch}, End={EndMatch}",
                     a.Dayofweek.Value,
                     a.Starttime.Value,
                     a.Endtime.Value,
-                    a.Dayofweek.Value == isoDayOfWeek,
-                    a.Starttime.Value <= startTime,
-                    a.Endtime.Value >= endTime);
+                    a.Dayofweek.Value == isoDayUtc,
+                    a.Starttime.Value <= startUtc,
+                    a.Endtime.Value >= endUtc);
 
-                if (a.Dayofweek.Value == isoDayOfWeek
-                    && a.Starttime.Value <= startTime
-                    && a.Endtime.Value >= endTime)
+                if (a.Dayofweek.Value == isoDayUtc
+                    && a.Starttime.Value <= startUtc
+                    && a.Endtime.Value >= endUtc)
                 {
                     covered = true;
                     break;

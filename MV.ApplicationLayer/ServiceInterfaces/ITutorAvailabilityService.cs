@@ -21,6 +21,11 @@ namespace MV.ApplicationLayer.ServiceInterfaces
         Task<List<TutorAvailabilityResponse>> GetAvailabilitiesAsync(string tutorId);
 
         /// <summary>
+        /// Update multiple availability slots at once (only owner can update)
+        /// </summary>
+        Task<List<TutorAvailabilityResponse>> BulkUpdateAvailabilitiesAsync(string tutorId, BulkUpdateAvailabilityRequest request);
+
+        /// <summary>
         /// Delete an availability slot (only owner can delete)
         /// </summary>
         Task<bool> DeleteAvailabilityAsync(string tutorId, int availabilityId);

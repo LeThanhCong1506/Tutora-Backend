@@ -14,6 +14,7 @@ namespace MV.ApplicationLayer.Services
     {
         private readonly IAppDbContext _context;
         private const string DefaultFlexiblePackageName = "Gói lịch rảnh linh hoạt";
+        private const string AvailabilityTimeZone = "Asia/Ho_Chi_Minh";
 
 
 
@@ -38,9 +39,9 @@ namespace MV.ApplicationLayer.Services
                 throw new ArgumentException("Giờ bắt đầu phải trước giờ kết thúc.");
             }
 
-            // Convert user timezone to UTC for storage
-            var (utcStartDay, utcStartTime) = TimeZoneHelper.ShiftToUtc(request.Dayofweek, localStartTime);
-            var (utcEndDay, utcEndTime) = TimeZoneHelper.ShiftToUtc(request.Dayofweek, localEndTime);
+            // Convert user timezone (+7) to UTC for storage
+            var (utcStartDay, utcStartTime) = TimeZoneHelper.ShiftToUtc(request.Dayofweek, localStartTime, AvailabilityTimeZone);
+            var (utcEndDay, utcEndTime) = TimeZoneHelper.ShiftToUtc(request.Dayofweek, localEndTime, AvailabilityTimeZone);
 
             // Check for overlapping slots on the same day (in UTC)
             var existingSlots = await _context.Tutoravailabilities
@@ -55,9 +56,9 @@ namespace MV.ApplicationLayer.Services
                     // Overlap occurs if: newStart < existingEnd AND newEnd > existingStart
                     if (utcStartTime < slot.Endtime.Value && utcEndTime > slot.Starttime.Value)
                     {
-                        // Convert existing slot back to user timezone for error message
-                        var (_, existingLocalStart) = TimeZoneHelper.ShiftToUserTime(slot.Dayofweek ?? 1, slot.Starttime.Value);
-                        var (_, existingLocalEnd) = TimeZoneHelper.ShiftToUserTime(slot.Dayofweek ?? 1, slot.Endtime.Value);
+                        // Convert existing slot back to user timezone (+7) for error message
+                        var (_, existingLocalStart) = TimeZoneHelper.ShiftToUserTime(slot.Dayofweek ?? 1, slot.Starttime.Value, AvailabilityTimeZone);
+                        var (_, existingLocalEnd) = TimeZoneHelper.ShiftToUserTime(slot.Dayofweek ?? 1, slot.Endtime.Value, AvailabilityTimeZone);
                         
                         throw new InvalidOperationException(
                             $"Time slot overlaps with existing slot: {existingLocalStart:HH:mm} - {existingLocalEnd:HH:mm}");
@@ -108,9 +109,9 @@ namespace MV.ApplicationLayer.Services
                     throw new ArgumentException($"Giờ bắt đầu phải trước giờ kết thúc (slot: {req.Starttime} - {req.Endtime}).");
                 }
 
-                // Convert user timezone to UTC
-                var (utcStartDay, utcStartTime) = TimeZoneHelper.ShiftToUtc(req.Dayofweek, localStartTime);
-                var (utcEndDay, utcEndTime) = TimeZoneHelper.ShiftToUtc(req.Dayofweek, localEndTime);
+                // Convert user timezone (+7) to UTC
+                var (utcStartDay, utcStartTime) = TimeZoneHelper.ShiftToUtc(req.Dayofweek, localStartTime, AvailabilityTimeZone);
+                var (utcEndDay, utcEndTime) = TimeZoneHelper.ShiftToUtc(req.Dayofweek, localEndTime, AvailabilityTimeZone);
 
                 // Check overlap with existing slots on the same day (in UTC)
                 var daySlots = existingSlots.Where(a => a.Dayofweek == utcStartDay).ToList();
@@ -120,9 +121,9 @@ namespace MV.ApplicationLayer.Services
                     {
                         if (utcStartTime < slot.Endtime.Value && utcEndTime > slot.Starttime.Value)
                         {
-                            // Convert to user timezone for error message
-                            var (_, existingLocalStart) = TimeZoneHelper.ShiftToUserTime(slot.Dayofweek ?? 1, slot.Starttime.Value);
-                            var (_, existingLocalEnd) = TimeZoneHelper.ShiftToUserTime(slot.Dayofweek ?? 1, slot.Endtime.Value);
+                            // Convert to user timezone (+7) for error message
+                            var (_, existingLocalStart) = TimeZoneHelper.ShiftToUserTime(slot.Dayofweek ?? 1, slot.Starttime.Value, AvailabilityTimeZone);
+                            var (_, existingLocalEnd) = TimeZoneHelper.ShiftToUserTime(slot.Dayofweek ?? 1, slot.Endtime.Value, AvailabilityTimeZone);
                             
                             throw new InvalidOperationException(
                                 $"Time slot {req.Starttime}-{req.Endtime} overlaps with existing slot: {existingLocalStart:HH:mm} - {existingLocalEnd:HH:mm}");
@@ -167,8 +168,106 @@ namespace MV.ApplicationLayer.Services
         }
 
         /// <summary>
+        /// Update multiple availability slots at once.
+        /// Converts user timezone (+7) to UTC before saving. Blocks if a future booking exists in the old slot.
+        /// </summary>
+        public async Task<List<TutorAvailabilityResponse>> BulkUpdateAvailabilitiesAsync(string tutorId, BulkUpdateAvailabilityRequest request)
+        {
+            var updateIds = request.Availabilities.Select(a => a.Availabilityid).ToList();
+
+            var availabilities = await _context.Tutoravailabilities
+                .Where(a => updateIds.Contains(a.Availabilityid))
+                .ToListAsync();
+
+            if (availabilities.Count == 0)
+                throw new ArgumentException("Không tìm thấy khung giờ nào để cập nhật.");
+
+            var notFound = updateIds.Except(availabilities.Select(a => a.Availabilityid)).ToList();
+            if (notFound.Any())
+                throw new ArgumentException($"Không tìm thấy các khung giờ với ID: {string.Join(", ", notFound)}.");
+
+            // Ownership check
+            var unauthorizedSlots = availabilities.Where(a => a.Tutorid != tutorId).ToList();
+            if (unauthorizedSlots.Any())
+                throw new UnauthorizedAccessException(
+                    $"Bạn không có quyền cập nhật {unauthorizedSlots.Count} slot(s) lịch học này.");
+
+            // Future-lesson guard: block if any old slot has an upcoming booking
+            foreach (var availability in availabilities)
+            {
+                var slotDayOfWeek = availability.Dayofweek!.Value;
+                var slotStartTime = availability.Starttime!.Value.ToTimeSpan();
+                var slotEndTime = availability.Endtime!.Value.ToTimeSpan();
+
+                var hasUpcomingLessons = await HasFutureLessonInSlotAsync(tutorId, slotDayOfWeek, slotStartTime, slotEndTime);
+                if (hasUpcomingLessons)
+                    throw new InvalidOperationException(
+                        $"Không thể cập nhật khung giờ {availability.Starttime:HH:mm}-{availability.Endtime:HH:mm} (ngày {availability.Dayofweek}) vì đang có buổi học được đặt lịch. Vui lòng hủy booking trước khi cập nhật.");
+            }
+
+            // Get all existing slots for this tutor excluding the ones being updated (for overlap check)
+            var otherExistingSlots = await _context.Tutoravailabilities
+                .Where(a => a.Tutorid == tutorId && !updateIds.Contains(a.Availabilityid))
+                .ToListAsync();
+
+            var processedNewSlots = new List<(int utcDay, TimeOnly utcStart, TimeOnly utcEnd, int itemId)>();
+
+            foreach (var item in request.Availabilities)
+            {
+                var localStartTime = ParseTimeOnly(item.Starttime);
+                var localEndTime = ParseTimeOnly(item.Endtime);
+
+                if (localStartTime >= localEndTime)
+                    throw new ArgumentException($"Giờ bắt đầu phải trước giờ kết thúc (slot ID: {item.Availabilityid}).");
+
+                var (utcStartDay, utcStartTime) = TimeZoneHelper.ShiftToUtc(item.Dayofweek, localStartTime, AvailabilityTimeZone);
+                var (_, utcEndTime) = TimeZoneHelper.ShiftToUtc(item.Dayofweek, localEndTime, AvailabilityTimeZone);
+
+                // Check overlap with other existing slots (not in update set)
+                var dayOtherSlots = otherExistingSlots.Where(a => a.Dayofweek == utcStartDay).ToList();
+                foreach (var slot in dayOtherSlots)
+                {
+                    if (slot.Starttime.HasValue && slot.Endtime.HasValue &&
+                        utcStartTime < slot.Endtime.Value && utcEndTime > slot.Starttime.Value)
+                    {
+                        var (_, existingLocalStart) = TimeZoneHelper.ShiftToUserTime(slot.Dayofweek ?? 1, slot.Starttime.Value, AvailabilityTimeZone);
+                        var (_, existingLocalEnd) = TimeZoneHelper.ShiftToUserTime(slot.Dayofweek ?? 1, slot.Endtime.Value, AvailabilityTimeZone);
+                        throw new InvalidOperationException(
+                            $"Slot {item.Starttime}-{item.Endtime} bị trùng với slot hiện tại: {existingLocalStart:HH:mm} - {existingLocalEnd:HH:mm}");
+                    }
+                }
+
+                // Check overlap with other items in this batch
+                var conflicting = processedNewSlots.FirstOrDefault(ns =>
+                    ns.utcDay == utcStartDay &&
+                    utcStartTime < ns.utcEnd && utcEndTime > ns.utcStart);
+
+                if (conflicting != default)
+                    throw new InvalidOperationException(
+                        $"Slot {item.Starttime}-{item.Endtime} bị trùng với slot khác trong cùng request (ID: {conflicting.itemId}).");
+
+                processedNewSlots.Add((utcStartDay, utcStartTime, utcEndTime, item.Availabilityid));
+            }
+
+            // Apply updates to tracked entities
+            foreach (var item in request.Availabilities)
+            {
+                var entity = availabilities.First(a => a.Availabilityid == item.Availabilityid);
+                var processed = processedNewSlots.First(p => p.itemId == item.Availabilityid);
+
+                entity.Dayofweek = processed.utcDay;
+                entity.Starttime = processed.utcStart;
+                entity.Endtime = processed.utcEnd;
+            }
+
+            await _context.SaveChangesAsync();
+
+            return availabilities.Select(MapToResponse).ToList();
+        }
+
+        /// <summary>
         /// Get all availability slots for a tutor.
-        /// Returns all slots in user timezone, ordered by day and start time.
+        /// Returns all slots in user timezone (+7), ordered by day and start time.
         /// </summary>
         public async Task<List<TutorAvailabilityResponse>> GetAvailabilitiesAsync(string tutorId)
         {
@@ -325,17 +424,16 @@ namespace MV.ApplicationLayer.Services
 
         /// <summary>
         /// Map entity to response DTO.
-        /// Converts UTC time back to user timezone for display.
+        /// Converts UTC time back to +7 (Asia/Ho_Chi_Minh) for display.
         /// </summary>
         private static TutorAvailabilityResponse MapToResponse(Tutoravailability entity)
         {
-            // Convert UTC back to user timezone for response
             var utcDay = entity.Dayofweek ?? 1;
             var utcStartTime = entity.Starttime ?? TimeOnly.MinValue;
             var utcEndTime = entity.Endtime ?? TimeOnly.MinValue;
 
-            var (localDay, localStartTime) = TimeZoneHelper.ShiftToUserTime(utcDay, utcStartTime);
-            var (_, localEndTime) = TimeZoneHelper.ShiftToUserTime(utcDay, utcEndTime);
+            var (localDay, localStartTime) = TimeZoneHelper.ShiftToUserTime(utcDay, utcStartTime, AvailabilityTimeZone);
+            var (_, localEndTime) = TimeZoneHelper.ShiftToUserTime(utcDay, utcEndTime, AvailabilityTimeZone);
 
             return new TutorAvailabilityResponse
             {
