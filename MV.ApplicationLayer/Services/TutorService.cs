@@ -13,7 +13,7 @@ namespace MV.ApplicationLayer.Services
     public partial class TutorService : ITutorService
     {
         private readonly IUnitOfWork _unitOfWork;
-        private readonly ISupabaseStorageService _storageService;
+        private readonly IFileStorageService _storageService;
         private readonly IFptAiService _fptAiService;
         private readonly ICertificateVerificationService _certificateVerificationService;
         private readonly ILogger<TutorService> _logger;
@@ -32,7 +32,7 @@ namespace MV.ApplicationLayer.Services
 
         public TutorService(
             IUnitOfWork unitOfWork,
-            ISupabaseStorageService storageService,
+            IFileStorageService storageService,
             IFptAiService fptAiService,
             ICertificateVerificationService certificateVerificationService,
             ILogger<TutorService> logger)
@@ -55,7 +55,6 @@ namespace MV.ApplicationLayer.Services
             {
                 Headline = tutorEntity.Headline,
                 Bio = tutorEntity.Bio,
-                HourlyRate = tutorEntity.Hourlyrate,
                 Education = tutorEntity.Education,
                 Experience = tutorEntity.Experience,
                 Gpa = tutorEntity.Gpa,
@@ -87,36 +86,9 @@ namespace MV.ApplicationLayer.Services
             profile.Headline = request.Headline;
             profile.Teachingareacity = request.TeachingAreaCity;
             profile.Teachingareadistrict = request.TeachingAreaDistrict;
-            profile.Updatedat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+            profile.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 
-            // Subjects — delete old, insert new
-            var existingSubjects = await _unitOfWork.TutorRepository.GetTutorSubjectsByTutorIdAsync(userId);
-            if (existingSubjects != null && existingSubjects.Any())
-            {
-                _unitOfWork.TutorRepository.DeleteTutorSubjects(existingSubjects);
-                await _unitOfWork.SaveChangesAsync();
-            }
 
-            var requestedSubjectIds = request.Subjects.Select(s => s.SubjectId).Distinct().ToList();
-            var existingSubjectIds = await _unitOfWork.TutorRepository.GetExistingSubjectIdsAsync(requestedSubjectIds);
-            var invalidIds = requestedSubjectIds.Except(existingSubjectIds).ToList();
-            if (invalidIds.Any())
-            {
-                throw new ArgumentException($"Subject IDs không tồn tại: {string.Join(", ", invalidIds)}");
-            }
-
-            var newSubjects = request.Subjects.Select(s => new Tutorsubject
-            {
-                Tutorid = userId,
-                Subjectid = s.SubjectId,
-                Gradelevels = JsonSerializer.Serialize(s.GradeLevels),
-                Tags = s.Tags != null && s.Tags.Any() ? JsonSerializer.Serialize(s.Tags) : null
-            }).ToList();
-
-            if (newSubjects.Any())
-            {
-                await _unitOfWork.TutorRepository.CreateTutorSubjectsAsync(newSubjects);
-            }
 
             await _unitOfWork.SaveChangesAsync();
             await TryAutoActivateProfileAsync(userId);
@@ -160,7 +132,7 @@ namespace MV.ApplicationLayer.Services
             profile.Gpascale = request.GpaScale;
             profile.Gpa = request.Gpa;
             profile.Experience = request.Experience;
-            profile.Updatedat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+            profile.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 
             await _unitOfWork.SaveChangesAsync();
             await TryAutoActivateProfileAsync(userId);
@@ -172,24 +144,13 @@ namespace MV.ApplicationLayer.Services
             var profile = await _unitOfWork.TutorRepository.GetTutorProfileByIdAsync(userId);
             if (profile == null) return false;
 
-            var priceRequests = request.SubjectGradePrices.Any()
-                ? request.SubjectGradePrices
-                : request.SubjectIds.Select(subjectId => new TutorSubjectGradePriceRequest
-                {
-                    SubjectId = subjectId,
-                    GradeLevelId = 1,
-                    PricePerHour = request.HourlyRate,
-                    Currency = "VND",
-                    IsActive = request.HourlyRate > 0
-                }).ToList();
+            await ValidateSubjectGradePricesAsync(request.SubjectGradePrices);
 
-            await ValidateSubjectGradePricesAsync(priceRequests);
-
-            profile.Updatedat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+            profile.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 
             await _unitOfWork.TutorRepository.ReplaceTutorSubjectGradePricesAsync(
                 userId,
-                MapSubjectGradePriceRequests(userId, priceRequests));
+                MapSubjectGradePriceRequests(userId, request.SubjectGradePrices));
 
             await _unitOfWork.SaveChangesAsync();
             await TryAutoActivateProfileAsync(userId);
@@ -205,9 +166,6 @@ namespace MV.ApplicationLayer.Services
 
             return new TutorPricingResponse
             {
-                HourlyRate = profile.Hourlyrate,
-                TrialLessonPrice = profile.Triallessonprice,
-                AllowPriceNegotiation = profile.Allowpricenegotiation,
                 SubjectGradePrices = profile.Tutorsubjectgradeprices.Select(MapSubjectGradePriceResponse).ToList()
             };
         }
@@ -217,50 +175,68 @@ namespace MV.ApplicationLayer.Services
             var profile = await _unitOfWork.TutorRepository.GetTutorProfileByIdAsync(tutorId);
             if (profile == null) return false;
 
-            var usesNewPricing = request.SubjectGradePrices.Any();
-            if (!usesNewPricing && (request.HourlyRate < 50000 || request.HourlyRate > 2000000))
+            if (!request.SubjectGradePrices.Any())
             {
-                throw new ArgumentException("Giá theo giờ phải nằm trong khoảng 50,000 - 2,000,000 VND");
+                throw new ArgumentException("Cần ít nhất một giá theo môn và lớp");
             }
 
-            if (usesNewPricing)
-            {
-                await ValidateSubjectGradePricesAsync(request.SubjectGradePrices);
-            }
+            await ValidateSubjectGradePricesAsync(request.SubjectGradePrices);
 
-            var effectiveHourlyRate = usesNewPricing
-                ? request.SubjectGradePrices.Where(p => p.IsActive).Select(p => (decimal?)p.PricePerHour).Min()
-                : request.HourlyRate;
+            profile.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 
-            if (request.TrialLessonPrice.HasValue && effectiveHourlyRate.HasValue && request.TrialLessonPrice.Value > effectiveHourlyRate.Value)
-            {
-                throw new ArgumentException("Giá buổi học thử phải thấp hơn hoặc bằng giá theo giờ");
-            }
-
-            profile.Triallessonprice = request.TrialLessonPrice;
-            profile.Allowpricenegotiation = request.AllowPriceNegotiation;
-            profile.Updatedat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
-
-            if (usesNewPricing)
-            {
-                await _unitOfWork.TutorRepository.ReplaceTutorSubjectGradePricesAsync(
-                    tutorId,
-                    MapSubjectGradePriceRequests(tutorId, request.SubjectGradePrices));
-            }
-            else
-            {
-                var existingPrices = await _unitOfWork.TutorRepository.GetTutorSubjectGradePricesAsync(tutorId);
-                foreach (var price in existingPrices)
-                {
-                    price.Priceperhour = request.HourlyRate;
-                    price.Isactive = request.HourlyRate > 0;
-                    price.Updatedat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
-                }
-            }
+            await _unitOfWork.TutorRepository.ReplaceTutorSubjectGradePricesAsync(
+                tutorId,
+                MapSubjectGradePriceRequests(tutorId, request.SubjectGradePrices));
 
             await _unitOfWork.SaveChangesAsync();
             await TryAutoActivateProfileAsync(tutorId);
             return true;
+        }
+
+        public async Task<TutorSubjectGradePriceResponse> AddSubjectGradePriceAsync(string tutorId, TutorSubjectGradePriceRequest request)
+        {
+            var profile = await _unitOfWork.TutorRepository.GetTutorProfileByIdAsync(tutorId);
+            if (profile == null)
+            {
+                throw new ArgumentException("Không tìm thấy hồ sơ gia sư");
+            }
+
+            // Validate single price entry
+            await ValidateSubjectGradePricesAsync(new List<TutorSubjectGradePriceRequest> { request });
+
+            // Check if already exists
+            var existing = await _unitOfWork.TutorRepository.GetTutorSubjectGradePriceAsync(
+                tutorId, request.SubjectId, request.GradeLevelId);
+            
+            if (existing != null)
+            {
+                throw new ArgumentException($"Đã tồn tại giá cho môn {request.SubjectId} và khối {request.GradeLevelId}. Vui lòng dùng PUT để cập nhật.");
+            }
+
+            // Create new price entry
+            var newPrice = new Tutorsubjectgradeprice
+            {
+                Tutorid = tutorId,
+                Subjectid = request.SubjectId,
+                Gradelevelid = request.GradeLevelId,
+                Priceperhour = request.PricePerHour,
+                Durationminutespersession = request.DurationMinutesPerSession,
+                Sessionsperweek = request.SessionsPerWeek,
+                Currency = string.IsNullOrWhiteSpace(request.Currency) ? "VND" : request.Currency!,
+                Isactive = request.IsActive
+            };
+
+            await _unitOfWork.TutorRepository.AddTutorSubjectGradePriceAsync(newPrice);
+            profile.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
+            
+            await _unitOfWork.SaveChangesAsync();
+            await TryAutoActivateProfileAsync(tutorId);
+
+            // Reload to get navigation properties
+            var created = await _unitOfWork.TutorRepository.GetTutorSubjectGradePriceAsync(
+                tutorId, request.SubjectId, request.GradeLevelId);
+
+            return MapSubjectGradePriceResponse(created!);
         }
 
         // ─── Packages ────────────────────────────────────────────────────────
@@ -278,14 +254,12 @@ namespace MV.ApplicationLayer.Services
 
             ValidateTutorPackageRequest(request);
 
-            var now = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+            var now = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
             var package = new Tutorpackage
             {
                 Tutorid = tutorId,
                 Name = request.Name.Trim(),
                 Packagetype = request.PackageType,
-                Durationminutespersession = request.DurationMinutesPerSession,
-                Description = request.Description,
                 Isactive = true,
                 Createdat = now,
                 Updatedat = now,
@@ -310,7 +284,7 @@ namespace MV.ApplicationLayer.Services
             if (package == null) return false;
 
             package.Isactive = false;
-            package.Updatedat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+            package.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
             await _unitOfWork.SaveChangesAsync();
             return true;
         }
@@ -331,7 +305,7 @@ namespace MV.ApplicationLayer.Services
             }
 
             profile.Profilestatus = TutorProfileStatus.PendingApproval;
-            profile.Updatedat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+            profile.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 
             await _unitOfWork.SaveChangesAsync();
             _logger.LogInformation("Profile {TutorId} submitted for admin review", tutorId);
@@ -362,7 +336,7 @@ namespace MV.ApplicationLayer.Services
             {
                 profile.Profilestatus = TutorProfileStatus.Active;
                 profile.Ispublic = true;
-                profile.Updatedat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+                profile.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
                 await _unitOfWork.SaveChangesAsync();
 
                 _logger.LogInformation("Profile {TutorId} auto-activated", tutorId);
@@ -437,6 +411,8 @@ namespace MV.ApplicationLayer.Services
                 Subjectid = p.SubjectId,
                 Gradelevelid = p.GradeLevelId,
                 Priceperhour = p.PricePerHour,
+                Durationminutespersession = p.DurationMinutesPerSession,
+                Sessionsperweek = p.SessionsPerWeek,
                 Currency = string.IsNullOrWhiteSpace(p.Currency) ? "VND" : p.Currency!,
                 Isactive = p.IsActive
             });
@@ -452,6 +428,8 @@ namespace MV.ApplicationLayer.Services
                 GradeLevelId = price.Gradelevelid,
                 GradeLevelName = price.Gradelevel?.Gradename,
                 PricePerHour = price.Priceperhour,
+                DurationMinutesPerSession = price.Durationminutespersession,
+                SessionsPerWeek = price.Sessionsperweek,
                 Currency = price.Currency,
                 IsActive = price.Isactive
             };
@@ -469,11 +447,6 @@ namespace MV.ApplicationLayer.Services
                 throw new ArgumentException("PackageType phải là 1 (flexible) hoặc 2 (fixed)");
             }
 
-            if (request.DurationMinutesPerSession <= 0)
-            {
-                throw new ArgumentException("Thời lượng mỗi buổi phải lớn hơn 0 phút");
-            }
-
             if (request.PackageType == Tutorpackage.FixedPackageType && !request.FixedSlots.Any())
             {
                 throw new ArgumentException("Package fixed phải có ít nhất một fixed slot");
@@ -486,9 +459,9 @@ namespace MV.ApplicationLayer.Services
 
             foreach (var slot in request.FixedSlots)
             {
-                if (slot.DayOfWeek < 0 || slot.DayOfWeek > 6)
+                if (slot.DayOfWeek < 1 || slot.DayOfWeek > 7)
                 {
-                    throw new ArgumentException("DayOfWeek phải nằm trong khoảng 0-6");
+                    throw new ArgumentException("DayOfWeek phải nằm trong khoảng 1-7 (1=Monday, 7=Sunday)");
                 }
 
                 if (!TimeOnly.TryParse(slot.StartTime, out var start) || !TimeOnly.TryParse(slot.EndTime, out var end))
@@ -499,11 +472,6 @@ namespace MV.ApplicationLayer.Services
                 if (start >= end)
                 {
                     throw new ArgumentException("StartTime phải trước EndTime");
-                }
-
-                if ((int)(end - start).TotalMinutes != request.DurationMinutesPerSession)
-                {
-                    throw new ArgumentException("Thời lượng fixed slot phải bằng DurationMinutesPerSession");
                 }
             }
         }
@@ -516,8 +484,6 @@ namespace MV.ApplicationLayer.Services
                 TutorId = package.Tutorid,
                 Name = package.Name,
                 PackageType = package.Packagetype,
-                DurationMinutesPerSession = package.Durationminutespersession,
-                Description = package.Description,
                 IsActive = package.Isactive,
                 FixedSlots = package.Tutorpackagefixedslots
                     .OrderBy(s => s.Dayofweek)

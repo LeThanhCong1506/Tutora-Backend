@@ -1,4 +1,4 @@
-using Hangfire;
+﻿using Hangfire;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using MV.ApplicationLayer.JobHandlers;
@@ -26,8 +26,8 @@ public class AdminPayoutService(
 {
     public async Task<PayoutOverviewResponse> GetOverviewAsync(CancellationToken ct = default)
     {
-        var today = MV.DomainLayer.Helpers.VietnamTimeHelper.Now.Date;
-        var thisMonth = new DateTime(MV.DomainLayer.Helpers.VietnamTimeHelper.Now.Year, MV.DomainLayer.Helpers.VietnamTimeHelper.Now.Month, 1);
+        var today = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow.Date;
+        var thisMonth = new DateTime(MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow.Year, MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow.Month, 1);
 
         // Complex analytics query: stays on context
         var monthStats = await context.Withdrawalrequests
@@ -133,7 +133,7 @@ public class AdminPayoutService(
             Amount = i.Amount ?? 0,
             TrustScore = scores.GetValueOrDefault(i.Withdrawalid),
             TopFraudFlags = fraudFlags.GetValueOrDefault(i.Withdrawalid, []),
-            RequestedAt = VietnamTimeHelper.ToVietnamTime(i.Requestedat ?? MV.DomainLayer.Helpers.VietnamTimeHelper.Now)
+            RequestedAt = TimeZoneHelper.ToUserTime(i.Requestedat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow)
         }).ToList();
 
         return new PendingReviewResponse
@@ -179,8 +179,8 @@ public class AdminPayoutService(
             WithdrawalId = w.Withdrawalid,
             Amount = w.Amount ?? 0,
             Status = w.Status ?? "",
-            RequestedAt = VietnamTimeHelper.ToVietnamTime(w.Requestedat ?? MV.DomainLayer.Helpers.VietnamTimeHelper.Now),
-            ProcessedAt = w.Processedat.HasValue ? VietnamTimeHelper.ToVietnamTime(w.Processedat.Value) : (DateTime?)null
+            RequestedAt = TimeZoneHelper.ToUserTime(w.Requestedat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow),
+            ProcessedAt = w.Processedat.HasValue ? TimeZoneHelper.ToUserTime(w.Processedat.Value) : (DateTime?)null
         }).ToList();
 
         return new WithdrawalListResponse
@@ -222,7 +222,7 @@ public class AdminPayoutService(
             WithdrawalId = w.Withdrawalid,
             Amount = w.Amount ?? 0,
             Status = w.Status ?? "",
-            RequestedAt = VietnamTimeHelper.ToVietnamTime(w.Requestedat ?? MV.DomainLayer.Helpers.VietnamTimeHelper.Now)
+            RequestedAt = TimeZoneHelper.ToUserTime(w.Requestedat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow)
         }).ToList();
 
         var wallet = await walletRepo.GetByUserIdAsNoTrackingAsync(tutorId, ct);
@@ -257,10 +257,10 @@ public class AdminPayoutService(
             Name = user.Fullname ?? user.Username ?? "",
             Email = user.Email,
             Phone = user.Phone,
-            AccountAgeDays = (MV.DomainLayer.Helpers.VietnamTimeHelper.Now - (user.Createdat ?? MV.DomainLayer.Helpers.VietnamTimeHelper.Now)).Days,
+            AccountAgeDays = (MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow - (user.Createdat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow)).Days,
             CompletedLessons = completedLessons,
             TotalEarnings = totalEarnings,
-            JoinedAt = VietnamTimeHelper.ToVietnamTime(user.Createdat ?? MV.DomainLayer.Helpers.VietnamTimeHelper.Now)
+            JoinedAt = TimeZoneHelper.ToUserTime(user.Createdat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow)
         };
 
         var timeline = BuildTimeline(withdrawal);
@@ -276,8 +276,8 @@ public class AdminPayoutService(
                 BankName = withdrawal.Bankname,
                 AccountNumber = withdrawal.Accountnumber,
                 AccountHolderName = withdrawal.Accountholdername,
-                CreatedAt = VietnamTimeHelper.ToVietnamTime(withdrawal.Requestedat ?? MV.DomainLayer.Helpers.VietnamTimeHelper.Now),
-                ProcessedAt = withdrawal.Processedat.HasValue ? VietnamTimeHelper.ToVietnamTime(withdrawal.Processedat.Value) : (DateTime?)null,
+                CreatedAt = TimeZoneHelper.ToUserTime(withdrawal.Requestedat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow),
+                ProcessedAt = withdrawal.Processedat.HasValue ? TimeZoneHelper.ToUserTime(withdrawal.Processedat.Value) : (DateTime?)null,
                 ProcessedBy = withdrawal.Processedby,
                 PayosTransactionId = withdrawal.Payostransactionid,
                 PayosStatus = withdrawal.Payosstatus
@@ -320,14 +320,14 @@ public class AdminPayoutService(
     {
         var timeline = new List<TimelineEventResponse>
         {
-            new() { Timestamp = VietnamTimeHelper.ToVietnamTime(withdrawal.Requestedat ?? MV.DomainLayer.Helpers.VietnamTimeHelper.Now), Event = "Withdrawal requested", Details = $"Amount: {withdrawal.Amount:N0} VND" }
+            new() { Timestamp = TimeZoneHelper.ToUserTime(withdrawal.Requestedat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow), Event = "Withdrawal requested", Details = $"Amount: {withdrawal.Amount:N0} VND" }
         };
 
         if (!string.IsNullOrEmpty(withdrawal.Decision))
-            timeline.Add(new() { Timestamp = VietnamTimeHelper.ToVietnamTime(withdrawal.Requestedat ?? MV.DomainLayer.Helpers.VietnamTimeHelper.Now), Event = "Decision made", Details = withdrawal.Decision });
+            timeline.Add(new() { Timestamp = TimeZoneHelper.ToUserTime(withdrawal.Requestedat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow), Event = "Decision made", Details = withdrawal.Decision });
 
         if (withdrawal.Processedat.HasValue)
-            timeline.Add(new() { Timestamp = VietnamTimeHelper.ToVietnamTime(withdrawal.Processedat.Value), Event = "Processed", Details = $"Status: {withdrawal.Status}" });
+            timeline.Add(new() { Timestamp = TimeZoneHelper.ToUserTime(withdrawal.Processedat.Value), Event = "Processed", Details = $"Status: {withdrawal.Status}" });
 
         return timeline;
     }
@@ -349,7 +349,7 @@ public class AdminPayoutService(
 
         withdrawal.Status     = WithdrawalStatus.Approved;
         withdrawal.Processedby = actorUserId;
-        withdrawal.Processedat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+        withdrawal.Processedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
         withdrawal.Decision    = decision;
 
         await withdrawalRepo.SaveChangesAsync(ct);
@@ -392,7 +392,7 @@ public class AdminPayoutService(
 
             withdrawal.Status     = WithdrawalStatus.Rejected;
             withdrawal.Processedby = actorUserId;
-            withdrawal.Processedat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+            withdrawal.Processedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 
             // Refund wallet
             var wallet = await walletRepo.GetByUserIdAsync(tutorId, ct);
@@ -403,14 +403,14 @@ public class AdminPayoutService(
                     Userid = tutorId,
                     Balance = 0,
                     Frozenbalance = 0,
-                    Lastupdated = MV.DomainLayer.Helpers.VietnamTimeHelper.Now
+                    Lastupdated = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
                 };
                 walletRepo.Add(wallet);
                 await walletRepo.SaveChangesAsync(ct);
             }
 
             wallet.Balance = (wallet.Balance ?? 0) + amount;
-            wallet.Lastupdated = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+            wallet.Lastupdated = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 
             walletRepo.AddTransaction(new Wallettransaction
             {
@@ -420,7 +420,7 @@ public class AdminPayoutService(
                 Referencetable = ReferenceTable.Withdrawal,
                 Referenceid = withdrawalId,
                 Description = $"Refund for rejected withdrawal #{withdrawalId}: {reason}",
-                Createdat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now
+                Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
             });
 
             await walletRepo.SaveChangesAsync(ct);
@@ -499,7 +499,7 @@ public class AdminPayoutService(
             Passed = f.Passed,
             IsFlagged = f.Isflagged,
             Message = f.Message,
-            CheckedAt = VietnamTimeHelper.ToVietnamTime(f.Checkedat)
+            CheckedAt = TimeZoneHelper.ToUserTime(f.Checkedat)
         }).ToList();
 
         return new FraudLogResponse

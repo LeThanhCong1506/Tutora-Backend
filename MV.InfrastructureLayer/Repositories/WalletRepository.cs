@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using MV.DomainLayer.Constants;
 using MV.DomainLayer.Entities;
 using MV.InfrastructureLayer.DBContext;
@@ -32,7 +32,7 @@ public class WalletRepository(AgoraDbContext context) : IWalletRepository
             Userid = userId,
             Balance = 0,
             Frozenbalance = 0,
-            Lastupdated = MV.DomainLayer.Helpers.VietnamTimeHelper.Now
+            Lastupdated = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
         };
         context.Wallets.Add(wallet);
         return wallet;

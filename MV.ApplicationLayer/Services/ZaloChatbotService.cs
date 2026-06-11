@@ -1,4 +1,4 @@
-using Microsoft.Extensions.Configuration;
+﻿using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.Constants;
@@ -133,8 +133,10 @@ public class ZaloChatbotService : IZaloChatbotService
             {
                 var t = results.Items[i];
                 var rating = t.AverageRating.HasValue ? $"{t.AverageRating:F1}" : "Mới";
-                var price = t.HourlyRate.HasValue ? $"{t.HourlyRate:N0}đ/h" : "Liên hệ";
-                sb.AppendLine($"{i + 1}. {t.FullName} - {rating} sao — {price}");
+                var subjects = t.Subjects != null && t.Subjects.Any()
+                    ? string.Join(", ", t.Subjects.Select(s => s.SubjectName).Distinct().Take(2))
+                    : "Nhiều môn";
+                sb.AppendLine($"{i + 1}. {t.FullName} - {rating} sao — {subjects}");
             }
             sb.AppendLine($"\nXem chi tiết: https://zalo.me/app/link/{_miniAppId}?path=/tutor-search");
 
@@ -153,7 +155,7 @@ public class ZaloChatbotService : IZaloChatbotService
 
     private static async Task SaveSession(IDatabase db, string key, ChatSession session)
     {
-        session.UpdatedAt = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+        session.UpdatedAt = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
         await db.StringSetAsync(key, JsonSerializer.Serialize(session), TimeSpan.FromMinutes(10));
     }
 }
@@ -164,5 +166,5 @@ public class ChatSession
     public string? Subject { get; set; }
     public string? Grade { get; set; }
     public string? Area { get; set; }
-    public DateTime UpdatedAt { get; set; } = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+    public DateTime UpdatedAt { get; set; } = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 }

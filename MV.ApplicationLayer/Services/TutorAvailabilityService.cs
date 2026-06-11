@@ -13,12 +13,10 @@ namespace MV.ApplicationLayer.Services
     public class TutorAvailabilityService : ITutorAvailabilityService
     {
         private readonly IAppDbContext _context;
+        private const string DefaultFlexiblePackageName = "Gói lịch rảnh linh hoạt";
+        private const string AvailabilityTimeZone = "Asia/Ho_Chi_Minh";
 
-        /// <summary>
-        /// Number of days a slot remains valid after creation.
-        /// After expiry the tutor must re-register the slot.
-        /// </summary>
-        private const int AvailabilityValidDays = 30;
+
 
         public TutorAvailabilityService(IAppDbContext context)
         {
@@ -26,151 +24,262 @@ namespace MV.ApplicationLayer.Services
         }
 
         /// <summary>
-        /// Add a new availability slot with overlap validation
+        /// Add a new availability slot with overlap validation.
+        /// Converts user timezone to UTC before saving to database.
         /// </summary>
         public async Task<TutorAvailabilityResponse> AddAvailabilityAsync(string tutorId, CreateAvailabilityRequest request)
         {
             // Parse time strings to TimeOnly — ParseTimeOnly handles "24:00" → 23:59
-            var startTime = ParseTimeOnly(request.Starttime);
-            var endTime = ParseTimeOnly(request.Endtime);
+            var localStartTime = ParseTimeOnly(request.Starttime);
+            var localEndTime = ParseTimeOnly(request.Endtime);
 
-            // Business validation: starttime must be before endtime
-            if (startTime >= endTime)
+            // Business validation: starttime must be before endtime (in local time)
+            if (localStartTime >= localEndTime)
             {
                 throw new ArgumentException("Giờ bắt đầu phải trước giờ kết thúc.");
             }
 
-            // Check for overlapping slots on the same day
+            // Convert user timezone (+7) to UTC for storage
+            var (utcStartDay, utcStartTime) = TimeZoneHelper.ShiftToUtc(request.Dayofweek, localStartTime, AvailabilityTimeZone);
+            var (utcEndDay, utcEndTime) = TimeZoneHelper.ShiftToUtc(request.Dayofweek, localEndTime, AvailabilityTimeZone);
+
+            // Check for overlapping slots on the same day (in UTC)
             var existingSlots = await _context.Tutoravailabilities
-                .Where(a => a.Tutorid == tutorId && a.Dayofweek == request.Dayofweek && a.Isactive)
+                .Where(a => a.Tutorid == tutorId && a.Dayofweek == utcStartDay)
                 .ToListAsync();
 
             foreach (var slot in existingSlots)
             {
                 if (slot.Starttime.HasValue && slot.Endtime.HasValue)
                 {
-                    // Check if new slot overlaps with existing slot
+                    // Check if new slot overlaps with existing slot (both in UTC)
                     // Overlap occurs if: newStart < existingEnd AND newEnd > existingStart
-                    if (startTime < slot.Endtime.Value && endTime > slot.Starttime.Value)
+                    if (utcStartTime < slot.Endtime.Value && utcEndTime > slot.Starttime.Value)
                     {
+                        // Convert existing slot back to user timezone (+7) for error message
+                        var (_, existingLocalStart) = TimeZoneHelper.ShiftToUserTime(slot.Dayofweek ?? 1, slot.Starttime.Value, AvailabilityTimeZone);
+                        var (_, existingLocalEnd) = TimeZoneHelper.ShiftToUserTime(slot.Dayofweek ?? 1, slot.Endtime.Value, AvailabilityTimeZone);
+                        
                         throw new InvalidOperationException(
-                            $"Time slot overlaps with existing slot: {slot.Starttime.Value:HH:mm} - {slot.Endtime.Value:HH:mm}");
+                            $"Time slot overlaps with existing slot: {existingLocalStart:HH:mm} - {existingLocalEnd:HH:mm}");
                     }
                 }
             }
 
-            // Create new availability entity
+            // Create new availability entity with UTC time
             var availability = new Tutoravailability
             {
                 Tutorid = tutorId,
-                Dayofweek = request.Dayofweek,
-                Starttime = startTime,
-                Endtime = endTime,
-                Createdat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now
+                Dayofweek = utcStartDay,
+                Starttime = utcStartTime,
+                Endtime = utcEndTime,
+                Createdat = TimeZoneHelper.UtcNow
             };
 
             _context.Tutoravailabilities.Add(availability);
+            await EnsureFlexiblePackageAsync(tutorId);
             await _context.SaveChangesAsync();
 
             return MapToResponse(availability);
         }
 
         /// <summary>
-        /// Get availability slots for a tutor that are currently active (within 30-day validity window).
-        /// Slots created more than 30 days ago are excluded — tutor must re-register them.
-        /// Past slots (before creation date) are never shown.
+        /// Add multiple availability slots at once with overlap validation.
+        /// Converts user timezone to UTC before saving to database.
+        /// </summary>
+        public async Task<List<TutorAvailabilityResponse>> BulkAddAvailabilitiesAsync(string tutorId, BulkCreateAvailabilityRequest request)
+        {
+            var results = new List<TutorAvailabilityResponse>();
+            var newSlots = new List<Tutoravailability>();
+
+            // Get all existing slots for this tutor (in UTC)
+            var existingSlots = await _context.Tutoravailabilities
+                .Where(a => a.Tutorid == tutorId)
+                .ToListAsync();
+
+            // Parse and validate all new slots
+            foreach (var req in request.Availabilities)
+            {
+                var localStartTime = ParseTimeOnly(req.Starttime);
+                var localEndTime = ParseTimeOnly(req.Endtime);
+
+                // Business validation: starttime must be before endtime (in local time)
+                if (localStartTime >= localEndTime)
+                {
+                    throw new ArgumentException($"Giờ bắt đầu phải trước giờ kết thúc (slot: {req.Starttime} - {req.Endtime}).");
+                }
+
+                // Convert user timezone (+7) to UTC
+                var (utcStartDay, utcStartTime) = TimeZoneHelper.ShiftToUtc(req.Dayofweek, localStartTime, AvailabilityTimeZone);
+                var (utcEndDay, utcEndTime) = TimeZoneHelper.ShiftToUtc(req.Dayofweek, localEndTime, AvailabilityTimeZone);
+
+                // Check overlap with existing slots on the same day (in UTC)
+                var daySlots = existingSlots.Where(a => a.Dayofweek == utcStartDay).ToList();
+                foreach (var slot in daySlots)
+                {
+                    if (slot.Starttime.HasValue && slot.Endtime.HasValue)
+                    {
+                        if (utcStartTime < slot.Endtime.Value && utcEndTime > slot.Starttime.Value)
+                        {
+                            // Convert to user timezone (+7) for error message
+                            var (_, existingLocalStart) = TimeZoneHelper.ShiftToUserTime(slot.Dayofweek ?? 1, slot.Starttime.Value, AvailabilityTimeZone);
+                            var (_, existingLocalEnd) = TimeZoneHelper.ShiftToUserTime(slot.Dayofweek ?? 1, slot.Endtime.Value, AvailabilityTimeZone);
+                            
+                            throw new InvalidOperationException(
+                                $"Time slot {req.Starttime}-{req.Endtime} overlaps with existing slot: {existingLocalStart:HH:mm} - {existingLocalEnd:HH:mm}");
+                        }
+                    }
+                }
+
+                // Check overlap with other new slots in this batch (in UTC)
+                var conflictingNewSlot = newSlots.FirstOrDefault(ns =>
+                    ns.Dayofweek == utcStartDay &&
+                    ns.Starttime.HasValue && ns.Endtime.HasValue &&
+                    utcStartTime < ns.Endtime.Value && utcEndTime > ns.Starttime.Value);
+
+                if (conflictingNewSlot != null)
+                {
+                    throw new InvalidOperationException(
+                        $"Time slot {req.Starttime}-{req.Endtime} overlaps with another slot in the request: {conflictingNewSlot.Starttime.Value:HH:mm} - {conflictingNewSlot.Endtime.Value:HH:mm}");
+                }
+
+                // Create new availability entity with UTC time
+                var availability = new Tutoravailability
+                {
+                    Tutorid = tutorId,
+                    Dayofweek = utcStartDay,
+                    Starttime = utcStartTime,
+                    Endtime = utcEndTime,
+                    Createdat = TimeZoneHelper.UtcNow
+                };
+
+                newSlots.Add(availability);
+            }
+
+            // All validations passed, add all slots to database
+            _context.Tutoravailabilities.AddRange(newSlots);
+            await EnsureFlexiblePackageAsync(tutorId);
+            await _context.SaveChangesAsync();
+
+            // Map to response
+            results = newSlots.Select(MapToResponse).ToList();
+
+            return results;
+        }
+
+        /// <summary>
+        /// Update multiple availability slots at once.
+        /// Converts user timezone (+7) to UTC before saving. Blocks if a future booking exists in the old slot.
+        /// </summary>
+        public async Task<List<TutorAvailabilityResponse>> BulkUpdateAvailabilitiesAsync(string tutorId, BulkUpdateAvailabilityRequest request)
+        {
+            var updateIds = request.Availabilities.Select(a => a.Availabilityid).ToList();
+
+            var availabilities = await _context.Tutoravailabilities
+                .Where(a => updateIds.Contains(a.Availabilityid))
+                .ToListAsync();
+
+            if (availabilities.Count == 0)
+                throw new ArgumentException("Không tìm thấy khung giờ nào để cập nhật.");
+
+            var notFound = updateIds.Except(availabilities.Select(a => a.Availabilityid)).ToList();
+            if (notFound.Any())
+                throw new ArgumentException($"Không tìm thấy các khung giờ với ID: {string.Join(", ", notFound)}.");
+
+            // Ownership check
+            var unauthorizedSlots = availabilities.Where(a => a.Tutorid != tutorId).ToList();
+            if (unauthorizedSlots.Any())
+                throw new UnauthorizedAccessException(
+                    $"Bạn không có quyền cập nhật {unauthorizedSlots.Count} slot(s) lịch học này.");
+
+            // Future-lesson guard: block if any old slot has an upcoming booking
+            foreach (var availability in availabilities)
+            {
+                var slotDayOfWeek = availability.Dayofweek!.Value;
+                var slotStartTime = availability.Starttime!.Value.ToTimeSpan();
+                var slotEndTime = availability.Endtime!.Value.ToTimeSpan();
+
+                var hasUpcomingLessons = await HasFutureLessonInSlotAsync(tutorId, slotDayOfWeek, slotStartTime, slotEndTime);
+                if (hasUpcomingLessons)
+                    throw new InvalidOperationException(
+                        $"Không thể cập nhật khung giờ {availability.Starttime:HH:mm}-{availability.Endtime:HH:mm} (ngày {availability.Dayofweek}) vì đang có buổi học được đặt lịch. Vui lòng hủy booking trước khi cập nhật.");
+            }
+
+            // Get all existing slots for this tutor excluding the ones being updated (for overlap check)
+            var otherExistingSlots = await _context.Tutoravailabilities
+                .Where(a => a.Tutorid == tutorId && !updateIds.Contains(a.Availabilityid))
+                .ToListAsync();
+
+            var processedNewSlots = new List<(int utcDay, TimeOnly utcStart, TimeOnly utcEnd, int itemId)>();
+
+            foreach (var item in request.Availabilities)
+            {
+                var localStartTime = ParseTimeOnly(item.Starttime);
+                var localEndTime = ParseTimeOnly(item.Endtime);
+
+                if (localStartTime >= localEndTime)
+                    throw new ArgumentException($"Giờ bắt đầu phải trước giờ kết thúc (slot ID: {item.Availabilityid}).");
+
+                var (utcStartDay, utcStartTime) = TimeZoneHelper.ShiftToUtc(item.Dayofweek, localStartTime, AvailabilityTimeZone);
+                var (_, utcEndTime) = TimeZoneHelper.ShiftToUtc(item.Dayofweek, localEndTime, AvailabilityTimeZone);
+
+                // Check overlap with other existing slots (not in update set)
+                var dayOtherSlots = otherExistingSlots.Where(a => a.Dayofweek == utcStartDay).ToList();
+                foreach (var slot in dayOtherSlots)
+                {
+                    if (slot.Starttime.HasValue && slot.Endtime.HasValue &&
+                        utcStartTime < slot.Endtime.Value && utcEndTime > slot.Starttime.Value)
+                    {
+                        var (_, existingLocalStart) = TimeZoneHelper.ShiftToUserTime(slot.Dayofweek ?? 1, slot.Starttime.Value, AvailabilityTimeZone);
+                        var (_, existingLocalEnd) = TimeZoneHelper.ShiftToUserTime(slot.Dayofweek ?? 1, slot.Endtime.Value, AvailabilityTimeZone);
+                        throw new InvalidOperationException(
+                            $"Slot {item.Starttime}-{item.Endtime} bị trùng với slot hiện tại: {existingLocalStart:HH:mm} - {existingLocalEnd:HH:mm}");
+                    }
+                }
+
+                // Check overlap with other items in this batch
+                var conflicting = processedNewSlots.FirstOrDefault(ns =>
+                    ns.utcDay == utcStartDay &&
+                    utcStartTime < ns.utcEnd && utcEndTime > ns.utcStart);
+
+                if (conflicting != default)
+                    throw new InvalidOperationException(
+                        $"Slot {item.Starttime}-{item.Endtime} bị trùng với slot khác trong cùng request (ID: {conflicting.itemId}).");
+
+                processedNewSlots.Add((utcStartDay, utcStartTime, utcEndTime, item.Availabilityid));
+            }
+
+            // Apply updates to tracked entities
+            foreach (var item in request.Availabilities)
+            {
+                var entity = availabilities.First(a => a.Availabilityid == item.Availabilityid);
+                var processed = processedNewSlots.First(p => p.itemId == item.Availabilityid);
+
+                entity.Dayofweek = processed.utcDay;
+                entity.Starttime = processed.utcStart;
+                entity.Endtime = processed.utcEnd;
+            }
+
+            await _context.SaveChangesAsync();
+
+            return availabilities.Select(MapToResponse).ToList();
+        }
+
+        /// <summary>
+        /// Get all availability slots for a tutor.
+        /// Returns all slots in user timezone (+7), ordered by day and start time.
         /// </summary>
         public async Task<List<TutorAvailabilityResponse>> GetAvailabilitiesAsync(string tutorId)
         {
             var allSlots = await _context.Tutoravailabilities
-                .Where(a => a.Tutorid == tutorId && a.Isactive)
+                .Where(a => a.Tutorid == tutorId)
                 .OrderBy(a => a.Dayofweek)
                 .ThenBy(a => a.Starttime)
                 .ToListAsync();
 
-            var today = DateOnly.FromDateTime(VietnamTimeHelper.Now);
-
-            // Chỉ trả về slot còn trong cửa sổ hiệu lực: [Createdat, Createdat + 30 ngày]
             return allSlots
-                .Where(a =>
-                {
-                    var validFrom = DateOnly.FromDateTime(
-                        VietnamTimeHelper.ToVietnamTime(a.Createdat ?? MV.DomainLayer.Helpers.VietnamTimeHelper.Now));
-                    var validTo = validFrom.AddDays(AvailabilityValidDays);
-                    return today >= validFrom && today <= validTo;
-                })
                 .Select(MapToResponse)
                 .ToList();
-        }
-
-        /// <summary>
-        /// Update an existing availability slot with overlap validation
-        /// </summary>
-        public async Task<TutorAvailabilityResponse> UpdateAvailabilityAsync(string tutorId, int availabilityId, UpdateAvailabilityRequest request)
-        {
-            // Parse time strings to TimeOnly — ParseTimeOnly handles "24:00" → 23:59
-            var startTime = ParseTimeOnly(request.Starttime);
-            var endTime = ParseTimeOnly(request.Endtime);
-
-            // Business validation: starttime must be before endtime
-            if (startTime >= endTime)
-            {
-                throw new ArgumentException("Giờ bắt đầu phải trước giờ kết thúc.");
-            }
-
-            var availability = await _context.Tutoravailabilities
-                .FirstOrDefaultAsync(a => a.Availabilityid == availabilityId);
-
-            if (availability == null)
-            {
-                throw new KeyNotFoundException("Không tìm thấy slot lịch học.");
-            }
-
-            // Security check: only owner can update
-            if (availability.Tutorid != tutorId)
-            {
-                throw new UnauthorizedAccessException("Bạn không có quyền cập nhật slot lịch học này.");
-            }
-
-            // ── Kiểm tra conflict: có lesson/reservation đang dùng slot hiện tại không ──
-            var oldDayOfWeek = availability.Dayofweek!.Value;
-            var oldSlotStart = availability.Starttime!.Value.ToTimeSpan();
-            var oldSlotEnd   = availability.Endtime!.Value.ToTimeSpan();
-
-            var hasUpcomingLessons = await HasFutureLessonInSlotAsync(tutorId, oldDayOfWeek, oldSlotStart, oldSlotEnd);
-
-            if (hasUpcomingLessons)
-                throw new InvalidOperationException(
-                    "Không thể chỉnh sửa khung giờ này vì đang có buổi học được đặt lịch. Vui lòng hủy booking trước khi thay đổi.");
-
-            // Check for overlapping slots on the same day (excluding the current one)
-            var existingSlots = await _context.Tutoravailabilities
-                .Where(a => a.Tutorid == tutorId && a.Dayofweek == request.Dayofweek && a.Availabilityid != availabilityId && a.Isactive)
-                .ToListAsync();
-
-            foreach (var slot in existingSlots)
-            {
-                if (slot.Starttime.HasValue && slot.Endtime.HasValue)
-                {
-                    // Check if new slot overlaps with existing slot
-                    if (startTime < slot.Endtime.Value && endTime > slot.Starttime.Value)
-                    {
-                        throw new InvalidOperationException(
-                            $"Time slot overlaps with existing slot: {slot.Starttime.Value:HH:mm} - {slot.Endtime.Value:HH:mm}");
-                    }
-                }
-            }
-
-            // Update availability entity
-            availability.Dayofweek = request.Dayofweek;
-            availability.Starttime = startTime;
-            availability.Endtime = endTime;
-            // CreatedAt remains unchanged
-
-            _context.Tutoravailabilities.Update(availability);
-            await _context.SaveChangesAsync();
-
-            return MapToResponse(availability);
         }
 
         /// <summary>
@@ -202,10 +311,55 @@ namespace MV.ApplicationLayer.Services
                 throw new InvalidOperationException(
                     "Không thể xóa khung giờ này vì đang có buổi học được đặt lịch. Vui lòng hủy booking trước khi xóa.");
 
-            availability.Isactive = false;
+            _context.Tutoravailabilities.Remove(availability);
             await _context.SaveChangesAsync();
 
             return true;
+        }
+
+        /// <summary>
+        /// Delete multiple availability slots at once (only owner can delete)
+        /// </summary>
+        public async Task<int> BulkDeleteAvailabilitiesAsync(string tutorId, BulkDeleteAvailabilityRequest request)
+        {
+            var availabilities = await _context.Tutoravailabilities
+                .Where(a => request.AvailabilityIds.Contains(a.Availabilityid))
+                .ToListAsync();
+
+            if (availabilities.Count == 0)
+            {
+                return 0; // No records found
+            }
+
+            // Security check: all slots must belong to the owner
+            var unauthorizedSlots = availabilities.Where(a => a.Tutorid != tutorId).ToList();
+            if (unauthorizedSlots.Any())
+            {
+                throw new UnauthorizedAccessException(
+                    $"Bạn không có quyền xóa {unauthorizedSlots.Count} slot(s) lịch học này.");
+            }
+
+            // Check for upcoming lessons in any of the slots
+            foreach (var availability in availabilities)
+            {
+                var slotDayOfWeek = availability.Dayofweek!.Value;
+                var slotStartTime = availability.Starttime!.Value.ToTimeSpan();
+                var slotEndTime = availability.Endtime!.Value.ToTimeSpan();
+
+                var hasUpcomingLessons = await HasFutureLessonInSlotAsync(tutorId, slotDayOfWeek, slotStartTime, slotEndTime);
+
+                if (hasUpcomingLessons)
+                {
+                    throw new InvalidOperationException(
+                        $"Không thể xóa khung giờ {availability.Starttime:HH:mm}-{availability.Endtime:HH:mm} (ngày {availability.Dayofweek}) vì đang có buổi học được đặt lịch. Vui lòng hủy booking trước khi xóa.");
+                }
+            }
+
+            // All validations passed, delete all slots
+            _context.Tutoravailabilities.RemoveRange(availabilities);
+            await _context.SaveChangesAsync();
+
+            return availabilities.Count;
         }
 
         /// <summary>
@@ -220,11 +374,35 @@ namespace MV.ApplicationLayer.Services
             return TimeOnly.Parse(timeStr);
         }
 
-        private async Task<bool> HasFutureLessonInSlotAsync(string tutorId, int dayOfWeek, TimeSpan slotStart, TimeSpan slotEnd)
+        private async Task EnsureFlexiblePackageAsync(string tutorId)
+        {
+            var hasFlexiblePackage = await _context.Tutorpackages
+                .AnyAsync(p => p.Tutorid == tutorId
+                    && p.Packagetype == Tutorpackage.FlexiblePackageType
+                    && p.Isactive);
+
+            if (hasFlexiblePackage)
+            {
+                return;
+            }
+
+            var now = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
+            _context.Tutorpackages.Add(new Tutorpackage
+            {
+                Tutorid = tutorId,
+                Name = DefaultFlexiblePackageName,
+                Packagetype = Tutorpackage.FlexiblePackageType,
+                Isactive = true,
+                Createdat = now,
+                Updatedat = now
+            });
+        }
+
+        private async Task<bool> HasFutureLessonInSlotAsync(string tutorId, int utcDayOfWeek, TimeSpan utcSlotStart, TimeSpan utcSlotEnd)
         {
             var lessons = await _context.Lessons
                 .Where(l => l.Tutorid == tutorId
-                    && l.Scheduledstart > MV.DomainLayer.Helpers.VietnamTimeHelper.Now
+                    && l.Scheduledstart > TimeZoneHelper.UtcNow
                     && l.Status != LessonStatus.Cancelled
                     && l.Status != LessonStatus.CancelledNoshow
                     && l.Status != LessonStatus.Completed
@@ -234,37 +412,37 @@ namespace MV.ApplicationLayer.Services
 
             return lessons.Any(l =>
             {
-                var startVn = VietnamTimeHelper.ToVietnamTime(l.Scheduledstart);
-                var endVn = VietnamTimeHelper.ToVietnamTime(l.Scheduledend);
-                return (int)startVn.DayOfWeek == dayOfWeek
-                    && startVn.TimeOfDay < slotEnd
-                    && endVn.TimeOfDay > slotStart;
+                // Lessons are stored in UTC, availability slots are now stored in UTC too
+                // Convert C# DayOfWeek (0=Sunday, 1=Monday...) to ISO format (1=Monday, 7=Sunday)
+                var lessonIsoDayOfWeek = l.Scheduledstart.DayOfWeek == DayOfWeek.Sunday ? 7 : (int)l.Scheduledstart.DayOfWeek;
+
+                return lessonIsoDayOfWeek == utcDayOfWeek
+                    && l.Scheduledstart.TimeOfDay < utcSlotEnd
+                    && l.Scheduledend.TimeOfDay > utcSlotStart;
             });
         }
 
         /// <summary>
         /// Map entity to response DTO.
-        /// Computes ValidFrom / ValidTo / IsActive from Createdat (converted to Vietnam time).
-        /// No extra DB columns needed.
+        /// Converts UTC time back to +7 (Asia/Ho_Chi_Minh) for display.
         /// </summary>
         private static TutorAvailabilityResponse MapToResponse(Tutoravailability entity)
         {
-            var createdVn = VietnamTimeHelper.ToVietnamTime(entity.Createdat ?? MV.DomainLayer.Helpers.VietnamTimeHelper.Now);
-            var validFrom = DateOnly.FromDateTime(createdVn);
-            var validTo = validFrom.AddDays(AvailabilityValidDays);
-            var today = DateOnly.FromDateTime(VietnamTimeHelper.Now);
+            var utcDay = entity.Dayofweek ?? 1;
+            var utcStartTime = entity.Starttime ?? TimeOnly.MinValue;
+            var utcEndTime = entity.Endtime ?? TimeOnly.MinValue;
+
+            var (localDay, localStartTime) = TimeZoneHelper.ShiftToUserTime(utcDay, utcStartTime, AvailabilityTimeZone);
+            var (_, localEndTime) = TimeZoneHelper.ShiftToUserTime(utcDay, utcEndTime, AvailabilityTimeZone);
 
             return new TutorAvailabilityResponse
             {
                 Availabilityid = entity.Availabilityid,
                 Tutorid = entity.Tutorid ?? string.Empty,
-                Dayofweek = entity.Dayofweek ?? 0,
-                Starttime = entity.Starttime?.ToString("HH:mm") ?? string.Empty,
-                Endtime = entity.Endtime?.ToString("HH:mm") ?? string.Empty,
-                Createdat = VietnamTimeHelper.ToVietnamTime(entity.Createdat ?? MV.DomainLayer.Helpers.VietnamTimeHelper.Now),
-                ValidFrom = validFrom,
-                ValidTo = validTo,
-                IsActive = today >= validFrom && today <= validTo
+                Dayofweek = localDay,
+                Starttime = localStartTime.ToString("HH:mm"),
+                Endtime = localEndTime.ToString("HH:mm"),
+                Createdat = TimeZoneHelper.ToUserTime(entity.Createdat ?? TimeZoneHelper.UtcNow)
             };
         }
     }

@@ -1,4 +1,4 @@
-using MV.DomainLayer.Constants;
+﻿using MV.DomainLayer.Constants;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using MV.ApplicationLayer.ServiceInterfaces;
@@ -62,7 +62,7 @@ namespace MV.PresentationLayer.Controllers
         public async Task<IActionResult> ExportStudentsToExcel()
         {
             var fileBytes = await _exportService.GetStudentsForExportExcelAsync();
-            string fileName = $"Export_Students_{MV.DomainLayer.Helpers.VietnamTimeHelper.Now:yyyyMMdd_HHmmss}.xlsx";
+            string fileName = $"Export_Students_{MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow:yyyyMMdd_HHmmss}.xlsx";
             return File(fileBytes, ExcelMimeType, fileName);
         }
 
@@ -70,7 +70,7 @@ namespace MV.PresentationLayer.Controllers
         public async Task<IActionResult> ExportParentsToExcel()
         {
             var fileBytes = await _exportService.GetParentsForExportExcelAsync();
-            string fileName = $"Export_Parents_{MV.DomainLayer.Helpers.VietnamTimeHelper.Now:yyyyMMdd_HHmmss}.xlsx";
+            string fileName = $"Export_Parents_{MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow:yyyyMMdd_HHmmss}.xlsx";
             return File(fileBytes, ExcelMimeType, fileName);
         }
 
@@ -80,7 +80,7 @@ namespace MV.PresentationLayer.Controllers
             try
             {
                 var fileBytes = await _exportService.GetMockTestForExportExcelAsync(id);
-                string fileName = $"Export_MockTest_{id}_{MV.DomainLayer.Helpers.VietnamTimeHelper.Now:yyyyMMdd_HHmmss}.xlsx";
+                string fileName = $"Export_MockTest_{id}_{MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow:yyyyMMdd_HHmmss}.xlsx";
                 return File(fileBytes, ExcelMimeType, fileName);
             }
             catch (KeyNotFoundException ex)
@@ -108,7 +108,7 @@ namespace MV.PresentationLayer.Controllers
         {
             var tutorId = GetCurrentUserId();
             var fileBytes = await _exportService.ExportTutorLessonReportsAsync(tutorId, fromDate, toDate);
-            string fileName = $"LessonReports_{MV.DomainLayer.Helpers.VietnamTimeHelper.Now:yyyyMMdd_HHmmss}.xlsx";
+            string fileName = $"LessonReports_{MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow:yyyyMMdd_HHmmss}.xlsx";
             return File(fileBytes, ExcelMimeType, fileName);
         }
 
@@ -123,7 +123,7 @@ namespace MV.PresentationLayer.Controllers
         {
             var tutorId = GetCurrentUserId();
             var fileBytes = await _exportService.ExportTutorEarningsAsync(tutorId, fromDate, toDate);
-            string fileName = $"Earnings_{MV.DomainLayer.Helpers.VietnamTimeHelper.Now:yyyyMMdd_HHmmss}.xlsx";
+            string fileName = $"Earnings_{MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow:yyyyMMdd_HHmmss}.xlsx";
             return File(fileBytes, ExcelMimeType, fileName);
         }
 
@@ -138,7 +138,7 @@ namespace MV.PresentationLayer.Controllers
         {
             var tutorId = GetCurrentUserId();
             var fileBytes = await _exportService.ExportTutorFeedbacksAsync(tutorId, fromDate, toDate);
-            string fileName = $"Feedbacks_{MV.DomainLayer.Helpers.VietnamTimeHelper.Now:yyyyMMdd_HHmmss}.xlsx";
+            string fileName = $"Feedbacks_{MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow:yyyyMMdd_HHmmss}.xlsx";
             return File(fileBytes, ExcelMimeType, fileName);
         }
 
@@ -164,7 +164,7 @@ namespace MV.PresentationLayer.Controllers
             string xmlData = stringWriter.ToString();
             byte[] fileBytes = Encoding.UTF8.GetBytes(xmlData);
 
-            string fileName = $"Export_{fileNamePrefix}_{MV.DomainLayer.Helpers.VietnamTimeHelper.Now:yyyyMMdd_HHmmss}.xml";
+            string fileName = $"Export_{fileNamePrefix}_{MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow:yyyyMMdd_HHmmss}.xml";
             return File(fileBytes, "application/xml", fileName);
         }
 

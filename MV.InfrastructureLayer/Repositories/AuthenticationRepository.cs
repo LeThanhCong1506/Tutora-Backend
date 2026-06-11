@@ -1,4 +1,4 @@
-using Microsoft.Extensions.Configuration;
+﻿using Microsoft.Extensions.Configuration;
 using Microsoft.IdentityModel.Tokens;
 using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO.ResponseModel;
@@ -50,7 +50,7 @@ namespace MV.InfrastructureLayer.Repositories
                 issuer: _jwtIssuer,
                 audience: _jwtAudience,
                 claims: claims,
-                expires: MV.DomainLayer.Helpers.VietnamTimeHelper.Now.AddHours(1),
+                expires: MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow.AddHours(1),
                 signingCredentials: credentials);
 
             return new JwtSecurityTokenHandler().WriteToken(token);

@@ -21,23 +21,5 @@ namespace MV.DomainLayer.DTO.RequestModel
         [Required(ErrorMessage = "Teaching mode is required")]
         public string TeachingMode { get; set; } = string.Empty;
 
-        [Required(ErrorMessage = "At least 1 subject is required")]
-        [MaxLength(5, ErrorMessage = "Maximum 5 subjects allowed")]
-        public List<SubjectWithGradeLevelsRequest> Subjects { get; set; } = new();
-    }
-
-    public class SubjectWithGradeLevelsRequest
-    {
-        [Required]
-        public int SubjectId { get; set; }
-
-        [Required]
-        [MinLength(1, ErrorMessage = "At least 1 grade level is required")]
-        public List<string> GradeLevels { get; set; } = new();
-
-        [Required]
-        [MinLength(1, ErrorMessage = "At least 1 tag is required")]
-        [MaxLength(5, ErrorMessage = "Maximum 5 tags allowed")]
-        public List<string> Tags { get; set; } = new();
     }
 }

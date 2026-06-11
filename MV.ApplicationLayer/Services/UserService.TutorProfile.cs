@@ -1,4 +1,4 @@
-using MV.DomainLayer.Constants;
+﻿using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO.RequestModel;
 using MV.DomainLayer.DTO.ResponseModel;
 using MV.DomainLayer.Entities;
@@ -26,18 +26,6 @@ namespace MV.ApplicationLayer.Services
             if (!string.IsNullOrEmpty(request.VideoIntroUrl) && profile.Videointrourl != request.VideoIntroUrl)
             { profile.Videointrourl = request.VideoIntroUrl; hasCriticalChange = true; }
 
-            if (request.HourlyRate.HasValue && profile.Hourlyrate != request.HourlyRate.Value)
-            {
-                var prices = await _unitOfWork.TutorRepository.GetTutorSubjectGradePricesAsync(userId);
-                foreach (var price in prices)
-                {
-                    price.Priceperhour = request.HourlyRate.Value;
-                    price.Isactive = request.HourlyRate.Value > 0;
-                    price.Updatedat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
-                }
-                hasCriticalChange = true;
-            }
-
             if (!string.IsNullOrEmpty(request.Education) && profile.Education != request.Education)
             { profile.Education = request.Education; hasCriticalChange = true; }
 
@@ -62,7 +50,7 @@ namespace MV.ApplicationLayer.Services
                 profile.Profilestatus = TutorProfileStatus.PendingApproval;
             }
 
-            profile.Updatedat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+            profile.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
             await _unitOfWork.UserRepository.UpdateTutorProfileAsync(profile);
             await _unitOfWork.SaveChangesAsync();
         }
@@ -92,7 +80,7 @@ namespace MV.ApplicationLayer.Services
                     Dayofweek = slot.DayOfWeek,
                     Starttime = startTime,
                     Endtime = endTime,
-                    Createdat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now
+                    Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
                 });
             }
 
@@ -139,7 +127,7 @@ namespace MV.ApplicationLayer.Services
             {
                 profile.Rejectionnote = null;
                 profile.Reviewedby = ApprovalStatusText.AdminReviewer;
-                profile.Reviewedat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+                profile.Reviewedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 
                 // Approve all pending certificates
                 var certificates = await _unitOfWork.TutorRepository.GetCertificatesByTutorIdAsync(tutorId);
@@ -150,7 +138,7 @@ namespace MV.ApplicationLayer.Services
                     {
                         cert.Verificationstatus = CertificateStatus.Verified;
                         cert.Verificationnote = ApprovalStatusText.NoteApprovedByAdmin;
-                        cert.Updatedat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+                        cert.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
                     }
                 }
 
@@ -180,7 +168,7 @@ namespace MV.ApplicationLayer.Services
                 statusText = ApprovalStatusText.Rejected;
             }
 
-            profile.Updatedat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+            profile.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
             await _unitOfWork.UserRepository.UpdateTutorProfileAsync(profile);
             await _unitOfWork.SaveChangesAsync();
 
@@ -262,7 +250,6 @@ namespace MV.ApplicationLayer.Services
         private static bool IsProfileReadyForReview(Tutorprofile p) =>
             !string.IsNullOrWhiteSpace(p.Headline) &&
             !string.IsNullOrWhiteSpace(p.Bio) &&
-            p.Hourlyrate > 0 &&
             !string.IsNullOrWhiteSpace(p.Teachingareacity) &&
             true;
     }

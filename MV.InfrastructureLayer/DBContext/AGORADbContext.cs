@@ -279,11 +279,12 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
                 .HasColumnType("timestamp without time zone")
                 .HasColumnName("depositpaidat");
             entity.Property(e => e.Discountapplied)
-                .HasPrecision(12, 2)
-                .HasDefaultValueSql("0")
+                .HasPrecision(18, 2)
                 .HasColumnName("discountapplied");
+
             entity.Property(e => e.Escrowstatus)
-                .HasMaxLength(30)
+                .HasMaxLength(20)
+                .HasDefaultValueSql("'held'::character varying")
                 .HasColumnName("escrowstatus");
             entity.Property(e => e.Finalprice)
                 .HasPrecision(12, 2)
@@ -305,7 +306,7 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
                 .HasColumnName("locationward");
             entity.Property(e => e.Packageid).HasColumnName("packageid");
             entity.Property(e => e.Totalsessions).HasColumnName("totalsessions");
-            entity.Property(e => e.Durationminutespersession).HasColumnName("durationminutespersession");
+
             entity.Property(e => e.Priceperhour)
                 .HasPrecision(12, 2)
                 .HasColumnName("priceperhour");
@@ -1236,9 +1237,6 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
                 .HasColumnName("createdat");
             entity.Property(e => e.Dayofweek).HasColumnName("dayofweek");
             entity.Property(e => e.Endtime).HasColumnName("endtime");
-            entity.Property(e => e.Isactive)
-                .HasDefaultValue(true)
-                .HasColumnName("isactive");
             entity.Property(e => e.Starttime).HasColumnName("starttime");
             entity.Property(e => e.Tutorid)
                 .HasMaxLength(50)
@@ -1346,12 +1344,7 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
             entity.Property(e => e.Headline)
                 .HasMaxLength(200)
                 .HasColumnName("headline");
-            entity.Property(e => e.Triallessonprice)
-                .HasPrecision(12, 2)
-                .HasColumnName("triallessonprice");
-            entity.Property(e => e.Allowpricenegotiation)
-                .HasDefaultValue(false)
-                .HasColumnName("allowpricenegotiation");
+
             entity.Property(e => e.Ispublic)
                 .HasDefaultValue(false)
                 .HasColumnName("ispublic");
@@ -1471,6 +1464,12 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnType("timestamp without time zone")
                 .HasColumnName("updatedat");
+            entity.Property(e => e.Durationminutespersession)
+                .HasDefaultValue(60)
+                .HasColumnName("durationminutespersession");
+            entity.Property(e => e.Sessionsperweek)
+                .HasDefaultValue(1)
+                .HasColumnName("sessionsperweek");
 
             entity.HasOne(d => d.Gradelevel).WithMany(p => p.Tutorsubjectgradeprices)
                 .HasForeignKey(d => d.Gradelevelid)
@@ -1499,8 +1498,6 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnType("timestamp without time zone")
                 .HasColumnName("createdat");
-            entity.Property(e => e.Description).HasColumnName("description");
-            entity.Property(e => e.Durationminutespersession).HasColumnName("durationminutespersession");
             entity.Property(e => e.Isactive)
                 .HasDefaultValue(true)
                 .HasColumnName("isactive");
@@ -1970,6 +1967,34 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
         });
 
         OnModelCreatingPartial(modelBuilder);
+
+        // ── UTC DateTime Convention ───────────────────────────────────────────
+        // Vì DB dùng `timestamp without time zone` + EnableLegacyTimestampBehavior,
+        // EF Core đọc DateTime ra với Kind = Unspecified.
+        // Convention này đảm bảo tất cả DateTime/DateTime? từ DB đều có Kind = Utc
+        // để TimeZoneHelper.ToUserTime() hoạt động đúng.
+        foreach (var entityType in modelBuilder.Model.GetEntityTypes())
+        {
+            foreach (var property in entityType.GetProperties())
+            {
+                if (property.ClrType == typeof(DateTime))
+                {
+                    property.SetValueConverter(new Microsoft.EntityFrameworkCore.Storage.ValueConversion.ValueConverter<DateTime, DateTime>(
+                        v => v.Kind == DateTimeKind.Utc ? v : DateTime.SpecifyKind(v, DateTimeKind.Utc),
+                        v => DateTime.SpecifyKind(v, DateTimeKind.Utc)
+                    ));
+                }
+                else if (property.ClrType == typeof(DateTime?))
+                {
+                    property.SetValueConverter(new Microsoft.EntityFrameworkCore.Storage.ValueConversion.ValueConverter<DateTime?, DateTime?>(
+                        v => v.HasValue
+                            ? (v.Value.Kind == DateTimeKind.Utc ? v : DateTime.SpecifyKind(v.Value, DateTimeKind.Utc))
+                            : v,
+                        v => v.HasValue ? DateTime.SpecifyKind(v.Value, DateTimeKind.Utc) : v
+                    ));
+                }
+            }
+        }
     }
 
     partial void OnModelCreatingPartial(ModelBuilder modelBuilder);

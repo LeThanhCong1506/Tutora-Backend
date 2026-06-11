@@ -11,6 +11,8 @@ namespace MV.ApplicationLayer.RepositoryInterfaces
         void DeleteTutorSubjects(IEnumerable<Tutorsubject> subjects);
         Task CreateTutorSubjectsAsync(IEnumerable<Tutorsubject> subjects);
         Task ReplaceTutorSubjectGradePricesAsync(string tutorId, IEnumerable<Tutorsubjectgradeprice> prices);
+        Task<Tutorsubjectgradeprice?> GetTutorSubjectGradePriceAsync(string tutorId, int subjectId, int gradeLevelId);
+        Task AddTutorSubjectGradePriceAsync(Tutorsubjectgradeprice price);
         Task UpdateTutorProfileStatusAsync(Tutorprofile profile);
         Task UpdateTutorProfileAsync(Tutorprofile profile);
         Task<List<Tutorpackage>> GetTutorPackagesAsync(string tutorId, bool includeInactive = false);

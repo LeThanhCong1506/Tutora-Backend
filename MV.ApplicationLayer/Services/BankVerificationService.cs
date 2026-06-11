@@ -124,7 +124,7 @@ public partial class BankVerificationService(
         var oldBankName = tutor.Bankname;
         var oldAccountNumber = tutor.Bankaccountnumber;
 
-        var now = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+        var now = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
         tutor.Bankname = request.BankCode;
         tutor.Bankaccountnumber = request.AccountNumber;
         tutor.Bankverifycode = verificationCode;
@@ -182,7 +182,7 @@ public partial class BankVerificationService(
         if (tutor.Bankverifyrequested.HasValue)
         {
             var expiryTime = tutor.Bankverifyrequested.Value.AddHours(_settings.VerificationCodeExpiryHours);
-            if (MV.DomainLayer.Helpers.VietnamTimeHelper.Now > expiryTime)
+            if (MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow > expiryTime)
             {
                 tutor.Bankverifystatus = BankVerificationConstants.Statuses.Failed;
                 await unitOfWork.SaveChangesAsync();
@@ -226,7 +226,7 @@ public partial class BankVerificationService(
             };
         }
 
-        var now = MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+        var now = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
         tutor.Isbankverified = true;
         tutor.Bankverifiedat = now;
         tutor.Bankverifystatus = BankVerificationConstants.Statuses.Verified;
@@ -239,7 +239,7 @@ public partial class BankVerificationService(
         return new ConfirmVerifyResponse
         {
             IsVerified = true,
-            VerifiedAt = VietnamTimeHelper.ToVietnamTime(now),
+            VerifiedAt = TimeZoneHelper.ToUserTime(now),
             AttemptsLeft = _settings.MaxVerificationAttempts,
             Message = "Xác minh tài khoản ngân hàng thành công!"
         };
@@ -261,7 +261,7 @@ public partial class BankVerificationService(
             IsPending = tutor.Bankverifystatus == BankVerificationConstants.Statuses.PendingDeposit,
             IsReadyToConfirm = tutor.Bankverifystatus == BankVerificationConstants.Statuses.ReadyToConfirm,
             AttemptsLeft = attemptsLeft,
-            ExpiresAt = expiresAt.HasValue ? VietnamTimeHelper.ToVietnamTime(expiresAt.Value) : (DateTime?)null,
+            ExpiresAt = expiresAt.HasValue ? TimeZoneHelper.ToUserTime(expiresAt.Value) : (DateTime?)null,
             Status = tutor.Bankverifystatus ?? BankVerificationConstants.Statuses.None,
             BankName = tutor.Bankname,
             MaskedAccountNumber = MaskAccountNumber(tutor.Bankaccountnumber)
@@ -336,7 +336,7 @@ public partial class BankVerificationService(
 
     private async Task TryBackgroundRefreshAsync(CancellationToken cancellationToken)
     {
-        var lockKey = $"{REFRESH_LOCK_KEY}:{MV.DomainLayer.Helpers.VietnamTimeHelper.Now:yyyyMMddHH}";
+        var lockKey = $"{REFRESH_LOCK_KEY}:{MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow:yyyyMMddHH}";
         var lockValue = await cache.GetStringAsync(lockKey, cancellationToken);
 
         if (!string.IsNullOrEmpty(lockValue))
@@ -393,7 +393,7 @@ public partial class BankVerificationService(
 
     private async Task CheckVerificationRequestRateLimitAsync(string userId, CancellationToken cancellationToken)
     {
-        var key = $"bank-verify-request:{userId}:{MV.DomainLayer.Helpers.VietnamTimeHelper.Now:yyyyMMdd}";
+        var key = $"bank-verify-request:{userId}:{MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow:yyyyMMdd}";
         var countStr = await cache.GetStringAsync(key, cancellationToken);
         var count = int.TryParse(countStr, out var c) ? c : 0;
 
@@ -403,7 +403,7 @@ public partial class BankVerificationService(
 
     private async Task IncrementVerificationRequestRateLimitAsync(string userId, CancellationToken cancellationToken)
     {
-        var key = $"bank-verify-request:{userId}:{MV.DomainLayer.Helpers.VietnamTimeHelper.Now:yyyyMMdd}";
+        var key = $"bank-verify-request:{userId}:{MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow:yyyyMMdd}";
         var countStr = await cache.GetStringAsync(key, cancellationToken);
         var count = int.TryParse(countStr, out var c) ? c : 0;
 

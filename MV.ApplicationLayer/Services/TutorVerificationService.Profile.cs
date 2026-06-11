@@ -39,10 +39,6 @@ namespace MV.ApplicationLayer.Services
             var subjects = await _unitOfWork.TutorRepository.GetTutorSubjectsByTutorIdAsync(tutorId);
             var certificates = await _unitOfWork.TutorRepository.GetCertificatesByTutorIdAsync(tutorId);
             var prices = await _unitOfWork.TutorRepository.GetTutorSubjectGradePricesAsync(tutorId);
-            var hourlyRate = prices.Where(p => p.Isactive)
-                .OrderBy(p => p.Priceperhour)
-                .Select(p => (decimal?)p.Priceperhour)
-                .FirstOrDefault();
 
             var response = new TutorProfilePreviewResponse
             {
@@ -84,15 +80,12 @@ namespace MV.ApplicationLayer.Services
                     CredentialId = c.Credentialid,
                     CredentialUrl = c.Credentialurl,
                     CertificateFileUrl = c.Certificatefileurl,
-                    CreatedAt = VietnamTimeHelper.ToVietnamTime(c.Createdat ?? MV.DomainLayer.Helpers.VietnamTimeHelper.Now),
+                    CreatedAt = TimeZoneHelper.ToUserTime(c.Createdat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow),
                     VerificationStatus = c.Verificationstatus,
                     VerificationNote = c.Verificationnote
                 }).ToList(),
 
-                // Pricing
-                HourlyRate = hourlyRate,
-                TrialLessonPrice = profile.Triallessonprice,
-                AllowPriceNegotiation = profile.Allowpricenegotiation
+                // Pricing — removed (see SubjectGradePrices per subject)
             };
 
             // Cache the result
@@ -150,10 +143,6 @@ namespace MV.ApplicationLayer.Services
                 .Include(ts => ts.Gradelevel)
                 .Where(ts => ts.Tutorid == tutorId)
                 .ToListAsync();
-            var hourlyRate = subjects.Where(p => p.Isactive)
-                .OrderBy(p => p.Priceperhour)
-                .Select(p => (decimal?)p.Priceperhour)
-                .FirstOrDefault();
 
             // Fetch certificates
             var certificates = await _dbContext.Tutorcertificates
@@ -162,10 +151,7 @@ namespace MV.ApplicationLayer.Services
                 .OrderByDescending(c => c.Createdat)
                 .ToListAsync();
 
-            // Get availabilities — only slots within 30-day validity window (sorted by day and time)
-            const int availabilityValidDays = 30;
-            var today = DateOnly.FromDateTime(VietnamTimeHelper.Now);
-
+            // Get availabilities — all slots (sorted by day and time)
             var rawAvailabilities = await _dbContext.Tutoravailabilities
                 .AsNoTracking()
                 .Where(a => a.Tutorid == tutorId)
@@ -174,26 +160,40 @@ namespace MV.ApplicationLayer.Services
                 .ToListAsync();
 
             var availabilities = rawAvailabilities
-                .Select(a =>
+                .Select(a => new TutorAvailabilityResponse
                 {
-                    var createdVn = VietnamTimeHelper.ToVietnamTime(a.Createdat ?? MV.DomainLayer.Helpers.VietnamTimeHelper.Now);
-                    var validFrom = DateOnly.FromDateTime(createdVn);
-                    var validTo   = validFrom.AddDays(availabilityValidDays);
-                    return new TutorAvailabilityResponse
-                    {
-                        Availabilityid = a.Availabilityid,
-                        Tutorid        = a.Tutorid ?? string.Empty,
-                        Dayofweek      = a.Dayofweek ?? 0,
-                        Starttime      = a.Starttime?.ToString("HH:mm") ?? string.Empty,
-                        Endtime        = a.Endtime?.ToString("HH:mm") ?? string.Empty,
-                        Createdat      = VietnamTimeHelper.ToVietnamTime(a.Createdat ?? MV.DomainLayer.Helpers.VietnamTimeHelper.Now),
-                        ValidFrom      = validFrom,
-                        ValidTo        = validTo,
-                        IsActive       = today >= validFrom && today <= validTo
-                    };
+                    Availabilityid = a.Availabilityid,
+                    Tutorid        = a.Tutorid ?? string.Empty,
+                    Dayofweek      = a.Dayofweek ?? 1,  // Default to Monday (1) instead of Sunday (0)
+                    Starttime      = a.Starttime?.ToString("HH:mm") ?? string.Empty,
+                    Endtime        = a.Endtime?.ToString("HH:mm") ?? string.Empty,
+                    Createdat      = TimeZoneHelper.ToUserTime(a.Createdat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow)
                 })
-                .Where(r => r.IsActive)  // chỉ trả về slot còn trong cửa sổ hiệu lực trong vòng 30 ngày
                 .ToList();
+
+            // Get packages with fixed slots (only active packages)
+            var packages = await _dbContext.Tutorpackages
+                .AsNoTracking()
+                .Include(p => p.Tutorpackagefixedslots)
+                .Where(p => p.Tutorid == tutorId && p.Isactive)
+                .OrderBy(p => p.Createdat)
+                .ToListAsync();
+
+            var packageResponses = packages.Select(p => new TutorPackageResponse
+            {
+                PackageId = p.Packageid,
+                TutorId = p.Tutorid,
+                Name = p.Name,
+                PackageType = p.Packagetype,
+                IsActive = p.Isactive,
+                FixedSlots = p.Tutorpackagefixedslots.Select(fs => new TutorPackageFixedSlotResponse
+                {
+                    FixedSlotId = fs.Fixedslotid,
+                    DayOfWeek = fs.Dayofweek,
+                    StartTime = fs.Starttime.ToString("HH:mm"),
+                    EndTime = fs.Endtime.ToString("HH:mm")
+                }).ToList()
+            }).ToList();
 
             // Get feedbacks sent To this tutor (with reviewer info)
             var rawFeedbacksQuery = await _dbContext.Feedbacks
@@ -230,8 +230,8 @@ namespace MV.ApplicationLayer.Services
                 Rating = f.Rating,
                 Comment = f.Comment,
                 ReplyComment = f.ReplyComment,
-                RepliedAt = f.RepliedAt.HasValue ? VietnamTimeHelper.ToVietnamTime(f.RepliedAt.Value) : (DateTime?)null,
-                CreatedAt = f.CreatedAt.HasValue ? VietnamTimeHelper.ToVietnamTime(f.CreatedAt.Value) : (DateTime?)null,
+                RepliedAt = f.RepliedAt.HasValue ? TimeZoneHelper.ToUserTime(f.RepliedAt.Value) : (DateTime?)null,
+                CreatedAt = f.CreatedAt.HasValue ? TimeZoneHelper.ToUserTime(f.CreatedAt.Value) : (DateTime?)null,
                 InitialGoal = f.InitialGoal,
                 ActualResult = f.ActualResult,
                 CourseDuration = f.CourseDuration
@@ -280,6 +280,19 @@ namespace MV.ApplicationLayer.Services
                     GradeLevels = s.Gradelevel?.Gradename,
                     Tags = null
                 }).ToList(),
+                SubjectGradePrices = subjects?.Where(s => s.Isactive).Select(s => new TutorSubjectGradePriceResponse
+                {
+                    Id = s.Id,
+                    SubjectId = s.Subjectid,
+                    SubjectName = s.Subject?.Subjectname,
+                    GradeLevelId = s.Gradelevelid,
+                    GradeLevelName = s.Gradelevel?.Gradename,
+                    PricePerHour = s.Priceperhour,
+                    DurationMinutesPerSession = s.Durationminutespersession,
+                    SessionsPerWeek = s.Sessionsperweek,
+                    Currency = s.Currency,
+                    IsActive = s.Isactive
+                }).ToList(),
 
                 // Introduction
                 Bio = profile.Bio,
@@ -299,18 +312,18 @@ namespace MV.ApplicationLayer.Services
                     CredentialId = c.Credentialid,
                     CredentialUrl = c.Credentialurl,
                     CertificateFileUrl = c.Certificatefileurl,
-                    CreatedAt = VietnamTimeHelper.ToVietnamTime(c.Createdat ?? MV.DomainLayer.Helpers.VietnamTimeHelper.Now),
+                    CreatedAt = TimeZoneHelper.ToUserTime(c.Createdat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow),
                     VerificationStatus = c.Verificationstatus,
                     VerificationNote = c.Verificationnote
                 }).ToList(),
 
-                // Pricing
-                HourlyRate = hourlyRate,
-                TrialLessonPrice = profile.Triallessonprice,
-                AllowPriceNegotiation = profile.Allowpricenegotiation,
+                // Pricing — removed (see SubjectGradePrices per subject)
 
                 // Schedule
                 Availabilities = availabilities,
+
+                // Packages
+                Packages = packageResponses,
 
                 // Feedback Statistics
                 TotalFeedbacks = totalFeedbacks,
@@ -329,7 +342,7 @@ namespace MV.ApplicationLayer.Services
                     TotalLessons = b.Lessons?.Count ?? 0,
                     CompletedLessons = b.Lessons?.Count(l => l.Status == Completed || l.Status == PendingConfirmation) ?? 0,
                     Status = b.Status,
-                    StartDate = b.Startdate.HasValue ? VietnamTimeHelper.ToVietnamTime(b.Startdate.Value) : (DateTime?)null
+                    StartDate = b.Startdate.HasValue ? TimeZoneHelper.ToUserTime(b.Startdate.Value) : (DateTime?)null
                 }).ToList()
             };
 

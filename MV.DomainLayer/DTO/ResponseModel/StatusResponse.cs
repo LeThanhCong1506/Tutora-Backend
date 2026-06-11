@@ -1,4 +1,4 @@
-namespace MV.DomainLayer.DTO.ResponseModel
+﻿namespace MV.DomainLayer.DTO.ResponseModel
 {
     public class StatusResponse
     {
@@ -8,7 +8,7 @@ namespace MV.DomainLayer.DTO.ResponseModel
 
         public StatusResponse()
         {
-            Timestamp = MV.DomainLayer.Helpers.VietnamTimeHelper.UtcNow;
+            Timestamp = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
         }
     }
 }

@@ -54,8 +54,6 @@ namespace MV.PresentationLayer.Controllers
         /// - MinHourlyRate/MaxHourlyRate: Khoảng giá tùy chỉnh
         /// - MinRating: Đánh giá tối thiểu (1-5)
         /// - MinYearsExperience: Kinh nghiệm tối thiểu (năm)
-        /// - HasTrialLesson: Chỉ hiển thị tutor có buổi học thử
-        /// - AllowPriceNegotiation: Chỉ hiển thị tutor cho phép thương lượng giá
         ///
         /// **Ví dụ sử dụng:**
         /// - Tìm theo quận: /api/tutors/search?TeachingAreaDistrict=Quận 3

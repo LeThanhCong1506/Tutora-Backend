@@ -1,4 +1,4 @@
-﻿namespace MV.DomainLayer.DTO.ResponseModel
+namespace MV.DomainLayer.DTO.ResponseModel
 {
     /// <summary>
     /// Minimal tutor identity snapshot — 4 fields for quick embedding in search results or listings.
@@ -11,6 +11,5 @@
         public string TutorId { get; set; } = null!;
         public string? Headline { get; set; }
         public string? Bio { get; set; }
-        public decimal? HourlyRate { get; set; }
     }
 }

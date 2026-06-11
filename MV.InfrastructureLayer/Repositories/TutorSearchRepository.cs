@@ -151,19 +151,6 @@ namespace MV.InfrastructureLayer.Repositories
                 var district = parameters.TeachingAreaDistrict.Trim();
                 query = query.Where(u => u.Tutorprofile!.Teachingareadistrict == district);
             }
-            // 12. Filter by Trial Lesson Available
-            if (parameters.HasTrialLesson == true)
-            {
-                query = query.Where(u =>
-                    u.Tutorprofile!.Triallessonprice.HasValue &&
-                    u.Tutorprofile.Triallessonprice > 0);
-            }
-
-            // 13. Filter by Allow Price Negotiation
-            if (parameters.AllowPriceNegotiation == true)
-            {
-                query = query.Where(u => u.Tutorprofile!.Allowpricenegotiation == true);
-            }
 
             // 14. Filter by Grade Level - Search in JSONB gradelevels column
             if (!string.IsNullOrWhiteSpace(parameters.GradeLevel))
@@ -555,9 +542,6 @@ namespace MV.InfrastructureLayer.Repositories
                 TotalReviews = profile.Totalreviews,
                 YearsOfExperience = yearsExperience,
                 CompletedHours = profile.Completedhours,
-                HourlyRate = profile.Hourlyrate,
-                TrialLessonPrice = profile.Triallessonprice,
-                AllowPriceNegotiation = profile.Allowpricenegotiation,
                 TeachingAreaCity = profile.Teachingareacity,
                 TeachingAreaDistrict = profile.Teachingareadistrict,
                 TeachingMode = TeachingMode.Online,
@@ -640,12 +624,6 @@ namespace MV.InfrastructureLayer.Repositories
         private static List<string>? GenerateHighlights(Tutorprofile profile)
         {
             var highlights = new List<string>();
-
-            if (profile.Triallessonprice.HasValue && profile.Triallessonprice > 0)
-                highlights.Add("Dạy thử đánh giá năng lực 30'");
-
-            if (profile.Allowpricenegotiation == true)
-                highlights.Add("Hỗ trợ thương lượng giá");
 
             var years = profile.Completedhours.HasValue ? (int)Math.Ceiling(profile.Completedhours.Value / 500.0) : 0;
             if (years >= 5)

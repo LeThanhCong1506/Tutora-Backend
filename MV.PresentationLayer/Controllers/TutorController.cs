@@ -5,6 +5,7 @@ using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.DTO;
 using MV.DomainLayer.DTO.RequestModel;
 using MV.DomainLayer.DTO.ResponseModel;
+using System.Security.Claims;
 
 namespace MV.PresentationLayer.Controllers
 {
@@ -43,19 +44,6 @@ namespace MV.PresentationLayer.Controllers
             return Ok(APIResponse<TutorFullProfileResponse>.Success(result, "Lấy thông tin đầy đủ hồ sơ gia sư thành công."));
         }
 
-        [HttpGet("{id}")]
-        public async Task<IActionResult> GetTutorProfile(string id)
-        {
-            var result = await _tutorService.GetTutorProfileAsync(id);
-
-            if (result == null)
-            {
-                return NotFound(APIResponse<TutorProfileResponse>.Fail(ApiMessages.TutorProfileNotFound + ".", 404));
-            }
-
-            return Ok(APIResponse<TutorProfileResponse>.Success(result, "Lấy thông tin hồ sơ gia sư thành công."));
-        }
-
 
         [HttpGet("subjects/{id}")]
         public async Task<IActionResult> GetTutorsBySubject(int id, [FromQuery] UserParameters parameters)
@@ -65,12 +53,16 @@ namespace MV.PresentationLayer.Controllers
         }
 
 
-        [HttpGet("{id}/profile")]
-        public async Task<IActionResult> GetTutorProfileInfo(string id)
+        [HttpGet("profile")]
+        public async Task<IActionResult> GetTutorProfileInfo()
         {
+            var currentUserId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (string.IsNullOrEmpty(currentUserId))
+                return Unauthorized(APIResponse<object>.Fail(ApiMessages.Unauthorized, 401));
+
             try
             {
-                var result = await _userService.GetTutorProfileShortAsync(id);
+                var result = await _userService.GetTutorProfileShortAsync(currentUserId);
                 return Ok(APIResponse<TutorProfileShortResponse>.Success(result, "Lấy thông tin hồ sơ gia sư thành công."));
             }
             catch (KeyNotFoundException ex)

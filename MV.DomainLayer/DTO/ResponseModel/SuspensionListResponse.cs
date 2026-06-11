@@ -1,4 +1,4 @@
-namespace MV.DomainLayer.DTO.ResponseModel;
+﻿namespace MV.DomainLayer.DTO.ResponseModel;
 
 /// <summary>
 /// Suspension list item for admin
@@ -27,9 +27,9 @@ public class SuspensionListResponse
         get
         {
             if (!EndDate.HasValue || !IsActive.GetValueOrDefault()) return null;
-            if (EndDate <= MV.DomainLayer.Helpers.VietnamTimeHelper.Now) return "Sắp gỡ";
+            if (EndDate <= MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow) return "Sắp gỡ";
             
-            var remaining = EndDate.Value - MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+            var remaining = EndDate.Value - MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
             if (remaining.TotalDays >= 1)
                 return $"{(int)remaining.TotalDays} ngày {remaining.Hours}h";
             if (remaining.TotalHours >= 1)

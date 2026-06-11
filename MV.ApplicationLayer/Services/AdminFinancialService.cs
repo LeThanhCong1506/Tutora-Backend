@@ -55,7 +55,7 @@ public class AdminFinancialService(
             _ => "month"
         };
 
-        var toUtc = to ?? MV.DomainLayer.Helpers.VietnamTimeHelper.Now;
+        var toUtc = to ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
         var fromUtc = from ?? period switch
         {
             "week" => toUtc.AddDays(-7 * 12),
@@ -67,12 +67,14 @@ public class AdminFinancialService(
             "AdminFinancialService.GetMetricsAsync period={Period} from={From} to={To}",
             period, fromUtc, toUtc);
 
-        // Current-month boundaries in UTC (derived from Vietnam local time)
-        var vnNow = VietnamTimeHelper.Now;
-        var currentMonthStartUtc = new DateTime(vnNow.Year, vnNow.Month, 1, 0, 0, 0, DateTimeKind.Unspecified)
-            .AddHours(-7); // VN midnight → UTC
+        // Current-month boundaries in UTC (derived from user local time)
+        var nowUtc = TimeZoneHelper.UtcNow;
+        var userNow = TimeZoneHelper.ToUserTime(nowUtc);
+        var currentMonthStartUser = new DateTime(userNow.Year, userNow.Month, 1, 0, 0, 0, DateTimeKind.Unspecified);
+        var currentMonthStartUtc = TimeZoneHelper.ToUtc(currentMonthStartUser);
         var previousMonthStartUtc = currentMonthStartUtc.AddMonths(-1);
-        var currentYearStartUtc = new DateTime(vnNow.Year, 1, 1, 0, 0, 0, DateTimeKind.Unspecified).AddHours(-7);
+        var currentYearStartUser = new DateTime(userNow.Year, 1, 1, 0, 0, 0, DateTimeKind.Unspecified);
+        var currentYearStartUtc = TimeZoneHelper.ToUtc(currentYearStartUser);
 
         // ─── Fetch raw projections in parallel ──────────────────────────────
         var bookingsRawTask = context.Bookings
@@ -284,8 +286,8 @@ public class AdminFinancialService(
         // ─── Assemble ────────────────────────────────────────────────────────
         return new AdminFinancialMetricsResponse
         {
-            FilterFrom = from.HasValue ? VietnamTimeHelper.ToVietnamTime(from.Value) : null,
-            FilterTo = to.HasValue ? VietnamTimeHelper.ToVietnamTime(to.Value) : null,
+            FilterFrom = from.HasValue ? TimeZoneHelper.ToUserTime(from.Value) : null,
+            FilterTo = to.HasValue ? TimeZoneHelper.ToUserTime(to.Value) : null,
             Period = period,
 
             Revenue = new RevenueOverviewMetrics
@@ -447,7 +449,7 @@ public class AdminFinancialService(
             ReferenceTable = x.Referencetable,
             OrderCode     = x.Ordercode,
             CreatedAt     = x.Createdat.HasValue
-                ? VietnamTimeHelper.ToVietnamTime(x.Createdat.Value)
+                ? TimeZoneHelper.ToUserTime(x.Createdat.Value)
                 : (DateTime?)null
         }).ToList();
 
@@ -496,7 +498,7 @@ public class AdminFinancialService(
     private static string GetBucket(DateTime utcDate, string period)
     {
         if (utcDate == DateTime.MinValue) return "unknown";
-        var vn = VietnamTimeHelper.ToVietnamTime(utcDate);
+        var vn = TimeZoneHelper.ToUserTime(utcDate);
         return period switch
         {
             "week" => $"{ISOWeek.GetYear(vn)}-W{ISOWeek.GetWeekOfYear(vn):D2}",
@@ -508,8 +510,8 @@ public class AdminFinancialService(
     private static List<string> GenerateBuckets(DateTime fromUtc, DateTime toUtc, string period)
     {
         var buckets = new List<string>();
-        var vnFrom = VietnamTimeHelper.ToVietnamTime(fromUtc);
-        var vnTo = VietnamTimeHelper.ToVietnamTime(toUtc);
+        var vnFrom = TimeZoneHelper.ToUserTime(fromUtc);
+        var vnTo = TimeZoneHelper.ToUserTime(toUtc);
 
         if (period == "year")
         {

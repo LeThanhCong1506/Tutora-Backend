@@ -15,6 +15,10 @@ public partial class Tutorsubjectgradeprice
 
     public decimal Priceperhour { get; set; }
 
+    public int Durationminutespersession { get; set; } = 60;
+
+    public int Sessionsperweek { get; set; } = 1;
+
     public string Currency { get; set; } = "VND";
 
     public bool Isactive { get; set; } = true;

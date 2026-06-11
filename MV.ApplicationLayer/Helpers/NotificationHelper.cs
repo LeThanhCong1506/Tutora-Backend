@@ -1,4 +1,4 @@
-using MV.DomainLayer.Entities;
+﻿using MV.DomainLayer.Entities;
 using MV.DomainLayer.Constants;
 using MV.DomainLayer.Helpers;
 
@@ -16,7 +16,7 @@ public static class NotificationHelper
             Type = NotificationType.BookingNew,
             Referenceid = bookingId.ToString(),
             Isread = false,
-            Createdat = VietnamTimeHelper.UtcNow
+            Createdat = TimeZoneHelper.UtcNow
         };
     }
 
@@ -30,7 +30,7 @@ public static class NotificationHelper
             Type = NotificationType.PaymentSuccess,
             Referenceid = bookingId.ToString(),
             Isread = false,
-            Createdat = VietnamTimeHelper.UtcNow
+            Createdat = TimeZoneHelper.UtcNow
         };
     }
 }

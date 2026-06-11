@@ -20,6 +20,7 @@ namespace MV.DomainLayer.DTO.ResponseModel
         public string? TeachingAreaDistrict { get; set; }
         public string? TeachingMode { get; set; }
         public List<SubjectInfo>? Subjects { get; set; }
+        public List<TutorSubjectGradePriceResponse>? SubjectGradePrices { get; set; }
 
         // --- Introduction ---
         public string? Bio { get; set; }
@@ -31,13 +32,11 @@ namespace MV.DomainLayer.DTO.ResponseModel
         // --- Certificates ---
         public List<CertificateResponse>? Certificates { get; set; }
 
-        // --- Pricing ---
-        public decimal? HourlyRate { get; set; }
-        public decimal? TrialLessonPrice { get; set; }
-        public bool? AllowPriceNegotiation { get; set; }
-
         // --- Schedule (Tutor Availability) ---
         public List<TutorAvailabilityResponse>? Availabilities { get; set; }
+
+        // --- Packages ---
+        public List<TutorPackageResponse>? Packages { get; set; }
 
         // --- Feedback Statistics ---
         public int TotalFeedbacks { get; set; }

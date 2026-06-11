@@ -38,6 +38,7 @@ public class ParentController : ControllerBase
 
     private string GetParentId() => User.FindFirstValue(ClaimTypes.NameIdentifier)!;
 
+
     // =====================================================================
     // LESSON MANAGEMENT
     // =====================================================================
@@ -105,7 +106,7 @@ public class ParentController : ControllerBase
     {
         var userId = UserHelper.GetUserId(User);
         var role = User.FindFirstValue(ClaimTypes.Role) ?? "";
-        var start = startDate ?? MV.DomainLayer.Helpers.VietnamTimeHelper.Now.Date;
+        var start = startDate ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow.Date;
         var end = endDate ?? start.AddDays(30);
 
         var result = await _parentService.GetParentCalendarAsync(userId, role, start, end);

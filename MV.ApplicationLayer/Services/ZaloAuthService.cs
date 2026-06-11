@@ -1,4 +1,4 @@
-using Microsoft.Extensions.Configuration;
+﻿using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.Constants;
@@ -66,7 +66,7 @@ namespace MV.ApplicationLayer.Services
                             Linkeduserid = user.Userid,
                             Fullname = user.Fullname,
                             Avatarurl = user.Avatarurl,
-                            Createdat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now,
+                            Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow,
                         };
                         await _unitOfWork.StudentRepository.CreateAsync(studentProfile);
                         await _unitOfWork.SaveChangesAsync();
@@ -173,14 +173,14 @@ namespace MV.ApplicationLayer.Services
                 Zabornotifyenabled = true,
                 Status = 1,
                 Primaryrole = request.Role is UserRole.Parent or UserRole.Student or UserRole.Tutor ? request.Role : UserRole.Parent,
-                Createdat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now,
+                Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow,
                 // Random password — user will only login via Zalo
                 Password = Guid.NewGuid().ToString("N"),
                 Wallet = new Wallet
                 {
                     Userid = userId,
                     Balance = 0,
-                    Lastupdated = MV.DomainLayer.Helpers.VietnamTimeHelper.Now
+                    Lastupdated = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
                 }
             };
 
@@ -195,7 +195,7 @@ namespace MV.ApplicationLayer.Services
                     Linkeduserid = userId,
                     Fullname = newUser.Fullname,
                     Avatarurl = newUser.Avatarurl,
-                    Createdat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now,
+                    Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow,
                 };
                 await _unitOfWork.StudentRepository.CreateAsync(studentProfile);
             }
@@ -216,8 +216,8 @@ namespace MV.ApplicationLayer.Services
                 Tokenhash = tokenHash,
                 Userid = userId,
                 Tokenfamily = Guid.NewGuid().ToString(),
-                Expiresat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now.AddDays(expiryDays),
-                Createdat = MV.DomainLayer.Helpers.VietnamTimeHelper.Now
+                Expiresat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow.AddDays(expiryDays),
+                Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
             };
 
             await _unitOfWork.RefreshTokenRepository.CreateAsync(refreshToken);
