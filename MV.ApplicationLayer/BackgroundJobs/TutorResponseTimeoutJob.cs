@@ -60,6 +60,7 @@ public class TutorResponseTimeoutJob(IServiceProvider sp, ILogger<TutorResponseT
         foreach (var b in expired)
         {
             await using var tx = await db.Database.BeginTransactionAsync(ct);
+            List<NotificationRequest> notifications = new();
             try
             {
                 // Cancel the booking
@@ -76,14 +77,15 @@ public class TutorResponseTimeoutJob(IServiceProvider sp, ILogger<TutorResponseT
                 await db.SaveChangesAsync(ct);
 
                 // Notify parent/student
-                var notifications = new List<NotificationRequest>();
                 if (!string.IsNullOrEmpty(b.Parentid))
                 {
                     notifications.Add(new NotificationRequest
                     {
                         Userid = b.Parentid,
                         Title = "Booking đã tự động hủy",
-                        Message = $"Booking #{b.Bookingid} đã bị hủy do gia sư không phản hồi trong 24 giờ. Bạn có thể tìm gia sư khác."
+                        Message = $"Booking #{b.Bookingid} đã bị hủy do gia sư không phản hồi trong 24 giờ. Bạn có thể tìm gia sư khác.",
+                        Type = NotificationType.BookingTimeout,
+                        Referenceid = b.Bookingid.ToString()
                     });
                 }
 
@@ -94,12 +96,11 @@ public class TutorResponseTimeoutJob(IServiceProvider sp, ILogger<TutorResponseT
                     {
                         Userid = b.Tutorid,
                         Title = "Booking đã bị hủy",
-                        Message = $"Booking #{b.Bookingid} đã bị hủy do bạn không phản hồi trong 24 giờ."
+                        Message = $"Booking #{b.Bookingid} đã bị hủy do bạn không phản hồi trong 24 giờ.",
+                        Type = NotificationType.BookingTimeout,
+                        Referenceid = b.Bookingid.ToString()
                     });
                 }
-
-                if (notifications.Count > 0)
-                    await notify.CreateNotificationsAsync(notifications);
 
                 await tx.CommitAsync(ct);
                 logger.LogInformation("Booking {BookingId} đã tự động hủy do gia sư không phản hồi trong 24 giờ.", b.Bookingid);
@@ -108,6 +109,19 @@ public class TutorResponseTimeoutJob(IServiceProvider sp, ILogger<TutorResponseT
             {
                 await tx.RollbackAsync(ct);
                 logger.LogError(ex, "Không thể tự động hủy booking {BookingId}.", b.Bookingid);
+                continue;
+            }
+
+            if (notifications.Count > 0)
+            {
+                try
+                {
+                    await notify.CreateNotificationsAsync(notifications);
+                }
+                catch (Exception ex)
+                {
+                    logger.LogError(ex, "Không thể gửi thông báo timeout cho booking {BookingId}.", b.Bookingid);
+                }
             }
         }
     }

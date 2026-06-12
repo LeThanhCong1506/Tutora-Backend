@@ -159,6 +159,12 @@ public class ChatService(
 
         try
         {
+            var senderName = sender?.Fullname ?? sender?.Username ?? "Tin nhắn mới";
+            var preview = string.IsNullOrWhiteSpace(message.Content)
+                ? "Bạn có tin nhắn mới trong cuộc trò chuyện"
+                : message.Content.Length > 120
+                    ? $"{message.Content[..120]}..."
+                    : message.Content;
             var recipientIds = new[] { channel.Parentid, channel.Tutorid, channel.Studentid }
                 .Where(id => !string.IsNullOrEmpty(id) && id != userId)
                 .ToList();
@@ -169,7 +175,9 @@ public class ChatService(
                 {
                     Userid = recipientId!,
                     Title = "Tin nhắn mới",
-                    Message = "Bạn có tin nhắn mới trong cuộc trò chuyện"
+                    Message = $"{senderName}: {preview}",
+                    Type = NotificationType.Message,
+                    Referenceid = channelId.ToString()
                 });
             }
         }

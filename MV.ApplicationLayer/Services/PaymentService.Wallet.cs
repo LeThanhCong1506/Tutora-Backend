@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using MV.ApplicationLayer.Helpers;
 using System.Data;
 using MV.DomainLayer.Constants;
+using MV.DomainLayer.DTO.RequestModel;
 using MV.DomainLayer.DTO.ResponseModel;
 using MV.DomainLayer.Entities;
 using MV.DomainLayer.Exceptions;
@@ -109,15 +110,6 @@ public partial class PaymentService
                     });
                 }
 
-                context.Notifications.Add(NotificationHelper.CreatePaymentNotification(
-                    booking.Parentid!, "Cọc thành công",
-                    $"Đã thanh toán cọc 50% ({booking.Depositamount:N0}đ) cho booking #{bookingId}. Gia sư sẽ bắt đầu dạy buổi đầu tiên.",
-                    bookingId));
-                if (!string.IsNullOrWhiteSpace(booking.Tutorid))
-                    context.Notifications.Add(NotificationHelper.CreatePaymentNotification(
-                        booking.Tutorid, "Booking đã được cọc",
-                        $"Phụ huynh đã cọc 50% cho booking #{bookingId}. Bạn có thể bắt đầu dạy.",
-                        bookingId));
             }
             else
             {
@@ -148,19 +140,12 @@ public partial class PaymentService
                     });
                 }
 
-                context.Notifications.Add(NotificationHelper.CreatePaymentNotification(
-                    booking.Parentid!, "Thanh toán hoàn tất",
-                    $"Đã thanh toán 50% còn lại ({booking.Remainingamount:N0}đ) cho booking #{bookingId}. Booking đã được thanh toán đầy đủ.",
-                    bookingId));
-                if (!string.IsNullOrWhiteSpace(booking.Tutorid))
-                    context.Notifications.Add(NotificationHelper.CreatePaymentNotification(
-                        booking.Tutorid, "Booking đã thanh toán đầy đủ",
-                        $"Booking #{bookingId} đã được thanh toán đầy đủ.",
-                        bookingId));
             }
 
             await context.SaveChangesAsync(ct);
             await tx.CommitAsync(ct);
+
+            await SendPaymentPhaseNotificationsAsync(booking, isDepositPhase);
 
             logger.LogInformation("Parent {ParentId} paid {Phase} for booking {BookingId} with wallet",
                 userId, isDepositPhase ? PaymentPhase.Deposit : PaymentPhase.Remaining, bookingId);
@@ -194,5 +179,43 @@ public partial class PaymentService
             FrozenBalance = wallet?.Frozenbalance ?? 0,
             LastUpdated = wallet != null && wallet.Lastupdated.HasValue ? TimeZoneHelper.ToUserTime(wallet.Lastupdated.Value) : (DateTime?)null
         };
+    }
+
+    private async Task SendPaymentPhaseNotificationsAsync(Booking booking, bool isDepositPhase)
+    {
+        try
+        {
+            if (!string.IsNullOrWhiteSpace(booking.Parentid))
+            {
+                await notificationService.CreateNotificationAsync(new NotificationRequest
+                {
+                    Userid = booking.Parentid,
+                    Title = isDepositPhase ? "Cọc thành công" : "Thanh toán hoàn tất",
+                    Message = isDepositPhase
+                        ? $"Đã thanh toán cọc 50% ({booking.Depositamount:N0}đ) cho booking #{booking.Bookingid}. Gia sư sẽ bắt đầu dạy buổi đầu tiên."
+                        : $"Đã thanh toán 50% còn lại ({booking.Remainingamount:N0}đ) cho booking #{booking.Bookingid}. Booking đã được thanh toán đầy đủ.",
+                    Type = NotificationType.PaymentSuccess,
+                    Referenceid = booking.Bookingid.ToString()
+                });
+            }
+
+            if (!string.IsNullOrWhiteSpace(booking.Tutorid))
+            {
+                await notificationService.CreateNotificationAsync(new NotificationRequest
+                {
+                    Userid = booking.Tutorid,
+                    Title = isDepositPhase ? "Booking đã được cọc" : "Booking đã thanh toán đầy đủ",
+                    Message = isDepositPhase
+                        ? $"Phụ huynh đã cọc 50% cho booking #{booking.Bookingid}. Bạn có thể bắt đầu dạy."
+                        : $"Booking #{booking.Bookingid} đã được thanh toán đầy đủ.",
+                    Type = NotificationType.PaymentSuccess,
+                    Referenceid = booking.Bookingid.ToString()
+                });
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Không thể gửi thông báo thanh toán cho booking {BookingId}", booking.Bookingid);
+        }
     }
 }

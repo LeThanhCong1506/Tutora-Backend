@@ -63,7 +63,9 @@ public class WarningService : IWarningService
         {
             Userid = userId,
             Title = "Cảnh báo vi phạm",
-            Message = $"Bạn đã nhận cảnh báo cấp {warning.Warninglevel}. Lý do: {warning.Reason}. Vui lòng chú ý tuân thủ quy định."
+            Message = $"Bạn đã nhận cảnh báo cấp {warning.Warninglevel}. Lý do: {warning.Reason}. Vui lòng chú ý tuân thủ quy định.",
+            Type = NotificationType.Warning,
+            Referenceid = warning.Warningid.ToString()
         });
 
         await CheckAndApplySuspensionAsync(userId);
@@ -207,7 +209,8 @@ public class WarningService : IWarningService
             {
                 Userid = userId,
                 Title = suspensionType == SuspensionType.Temporary ? "Tài khoản bị tạm ẩn" : "Tài khoản bị khóa",
-                Message = suspensionMessage
+                Message = suspensionMessage,
+                Type = NotificationType.Warning
             });
 
             var creatorName = createdBy == SystemActors.SystemUpper
