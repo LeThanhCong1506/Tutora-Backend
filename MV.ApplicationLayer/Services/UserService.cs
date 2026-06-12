@@ -37,34 +37,6 @@ namespace MV.ApplicationLayer.Services
 
         // ─── Queries ──────────────────────────────────────────────────────────
 
-        public async Task<PagedList<UserResponse>> GetAllUsersAsync(UserParameters userParameters)
-        {
-            var users = await _unitOfWork.UserRepository.GetUsersAsync(userParameters);
-
-            var userResponses = users.Select(u => new UserResponse
-            {
-                Userid = u.Userid,
-                Username = u.Username,
-                Email = u.Email,
-                Fullname = u.Fullname,
-                Phone = u.Phone,
-                Address = u.Address,
-                Birthdate = u.Birthdate,
-                Gender = u.Gender,
-                Avatarurl = u.Avatarurl,
-                Status = u.Status,
-                Createdat = u.Createdat.HasValue ? TimeZoneHelper.ToUserTime(u.Createdat.Value) : (DateTime?)null,
-                LastLoginAt = u.Lastloginat.HasValue ? TimeZoneHelper.ToUserTime(u.Lastloginat.Value) : (DateTime?)null,
-                Role = u.Primaryrole ?? UserRole.User
-            }).ToList();
-
-            return new PagedList<UserResponse>(
-                userResponses,
-                users.TotalCount,
-                users.CurrentPage,
-                users.PageSize);
-        }
-
         public async Task<UserResponse> GetUserByIdAsync(string userId)
         {
             var user = await _unitOfWork.UserRepository.GetUserByIdAsync(userId)

@@ -26,27 +26,6 @@ namespace MV.PresentationLayer.Controllers
             _unitOfWork = unitOfWork;
         }
 
-        [HttpGet]
-        [Authorize(Roles = UserRole.Admin)]
-        public async Task<IActionResult> GetUsers([FromQuery] UserParameters userParameters)
-        {
-            var users = await _userService.GetAllUsersAsync(userParameters);
-
-            var metadata = new
-            {
-                users.TotalCount,
-                users.PageSize,
-                users.CurrentPage,
-                users.TotalPages,
-                users.HasNext,
-                users.HasPrevious
-            };
-
-            Response.Headers.Add("X-Pagination", JsonSerializer.Serialize(metadata));
-
-            return Ok(APIResponse<PagedList<UserResponse>>.Success(users, "Lấy danh sách người dùng thành công."));
-        }
-
         [HttpGet("profile")]
         [Authorize]
         public async Task<IActionResult> GetUserProfile()
