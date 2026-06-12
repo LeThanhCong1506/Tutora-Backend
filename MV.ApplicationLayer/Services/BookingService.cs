@@ -150,7 +150,6 @@ public partial class BookingService(
                 });
             }
 
-            context.Notifications.Add(NotificationHelper.CreateBookingNotification(dto.TutorId, "Yêu cầu đặt lịch mới", $"Bạn có yêu cầu đặt lịch mới. Mã thanh toán: {paymentCode}", booking.Bookingid));
             await context.SaveChangesAsync();
             await tx.CommitAsync();
         }
@@ -164,6 +163,23 @@ public partial class BookingService(
         booking.Student = student;
         booking.Tutorsubjectgradeprice = price;
         booking.Package = package;
+
+        try
+        {
+            await notificationService.CreateNotificationAsync(new NotificationRequest
+            {
+                Userid = dto.TutorId,
+                Title = "Yêu cầu đặt lịch mới",
+                Message = $"Bạn có yêu cầu đặt lịch mới. Mã thanh toán: {paymentCode}",
+                Type = NotificationType.BookingNew,
+                Referenceid = booking.Bookingid.ToString()
+            });
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Không thể gửi thông báo booking mới cho tutor {TutorId}", dto.TutorId);
+        }
+
         return MapToResponse(booking, student, tutor, price.Subject);
     }
 
@@ -322,7 +338,9 @@ public partial class BookingService(
                     {
                         Userid = booking.Parentid,
                         Title = "Hoàn tiền thành công",
-                        Message = $"Booking #{bookingId} đã được hủy. Số tiền {refundAmount:N0}đ đã được hoàn vào ví của bạn."
+                        Message = $"Booking #{bookingId} đã được hủy. Số tiền {refundAmount:N0}đ đã được hoàn vào ví của bạn.",
+                        Type = NotificationType.PaymentRefundSuccess,
+                        Referenceid = bookingId.ToString()
                     });
                 }
             }

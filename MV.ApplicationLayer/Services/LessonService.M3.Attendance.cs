@@ -296,7 +296,9 @@ public partial class LessonService
                         Userid = parentId,
                         Title = "Sắp cần thanh toán 50% còn lại",
                         Message = $"Buổi học đầu tiên của booking #{lesson.Bookingid} đã hoàn thành. " +
-                            $"Sau 24h xác nhận, bạn sẽ cần thanh toán 50% còn lại ({lesson.Booking.Remainingamount:N0}đ) để tiếp tục các buổi học sau."
+                            $"Sau 24h xác nhận, bạn sẽ cần thanh toán 50% còn lại ({lesson.Booking.Remainingamount:N0}đ) để tiếp tục các buổi học sau.",
+                        Type = NotificationType.PaymentRemainingRequired,
+                        Referenceid = lesson.Bookingid.ToString()
                     });
                 }
             }

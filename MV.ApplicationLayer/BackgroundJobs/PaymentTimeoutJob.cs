@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using MV.ApplicationLayer.ServiceInterfaces;
+using MV.ApplicationLayer.RepositoryInterfaces;
 using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO.RequestModel;
 using MV.ApplicationLayer.Interfaces;
@@ -12,7 +13,7 @@ namespace MV.ApplicationLayer.BackgroundJobs;
 
 public class PaymentTimeoutJob(IServiceProvider sp, ILogger<PaymentTimeoutJob> logger) : BackgroundService
 {
-    private readonly TimeSpan _interval = TimeSpan.FromHours(12);
+    private readonly TimeSpan _interval = TimeSpan.FromMinutes(30);
 
     protected override async Task ExecuteAsync(CancellationToken ct)
     {
@@ -20,6 +21,9 @@ public class PaymentTimeoutJob(IServiceProvider sp, ILogger<PaymentTimeoutJob> l
 
         while (!ct.IsCancellationRequested)
         {
+            try { await ProcessUpcomingDepositDeadlinesAsync(ct); }
+            catch (Exception ex) { logger.LogError(ex, "Lỗi khi xử lý các đặt chỗ sắp hết hạn thanh toán."); }
+
             try { await ProcessExpiredBookingsAsync(ct); }
             catch (Exception ex) { logger.LogError(ex, "Lỗi khi xử lý các đặt chỗ hết hạn."); }
 
@@ -27,6 +31,53 @@ public class PaymentTimeoutJob(IServiceProvider sp, ILogger<PaymentTimeoutJob> l
             catch (Exception ex) { logger.LogError(ex, "Lỗi khi xử lý các khoản thanh toán còn lại hết hạn."); }
 
             await Task.Delay(_interval, ct);
+        }
+    }
+
+    private async Task ProcessUpcomingDepositDeadlinesAsync(CancellationToken ct)
+    {
+        using var scope = sp.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<IAppDbContext>();
+        var notify = scope.ServiceProvider.GetRequiredService<INotificationService>();
+        var notificationRepo = scope.ServiceProvider.GetRequiredService<INotificationRepository>();
+        var now = TimeZoneHelper.UtcNow;
+        var dueSoon = now.AddHours(2);
+
+        var bookingsDueSoon = await db.Bookings
+            .Where(b => (b.Status == BookingStatus.PendingPayment || b.Status == BookingStatus.Accepted)
+                        && b.Paymentdueat != null
+                        && b.Paymentdueat > now
+                        && b.Paymentdueat <= dueSoon)
+            .ToListAsync(ct);
+
+        foreach (var booking in bookingsDueSoon)
+        {
+            if (string.IsNullOrWhiteSpace(booking.Parentid))
+                continue;
+
+            var alreadySent = await notificationRepo.ExistsByUserAndTypeAndReferenceAsync(
+                booking.Parentid,
+                NotificationType.BookingPaymentDueSoon,
+                booking.Bookingid.ToString());
+
+            if (alreadySent)
+                continue;
+
+            try
+            {
+                await notify.CreateNotificationAsync(new NotificationRequest
+                {
+                    Userid = booking.Parentid,
+                    Title = "Sắp hết hạn thanh toán đặt cọc",
+                    Message = $"Booking #{booking.Bookingid} sắp hết hạn thanh toán đặt cọc. Vui lòng hoàn tất thanh toán để giữ lịch học.",
+                    Type = NotificationType.BookingPaymentDueSoon,
+                    Referenceid = booking.Bookingid.ToString()
+                });
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Không thể gửi cảnh báo sắp hết hạn thanh toán cho booking {BookingId}.", booking.Bookingid);
+            }
         }
     }
 
@@ -51,6 +102,7 @@ public class PaymentTimeoutJob(IServiceProvider sp, ILogger<PaymentTimeoutJob> l
         foreach (var b in expired)
         {
             await using var tx = await db.Database.BeginTransactionAsync(ct);
+            List<NotificationRequest> notifications = new();
             try
             {
                 b.Status = BookingStatus.PaymentTimeout;
@@ -59,13 +111,24 @@ public class PaymentTimeoutJob(IServiceProvider sp, ILogger<PaymentTimeoutJob> l
 
                 await db.SaveChangesAsync(ct);
 
-                var notifications = new List<NotificationRequest>();
                 if (!string.IsNullOrEmpty(b.Parentid))
-                    notifications.Add(new NotificationRequest { Userid = b.Parentid, Title = "Booking đã hết hạn thanh toán", Message = $"Booking #{b.Bookingid} đã bị hủy do quá hạn thanh toán 24h." });
+                    notifications.Add(new NotificationRequest
+                    {
+                        Userid = b.Parentid,
+                        Title = "Booking đã hết hạn thanh toán",
+                        Message = $"Booking #{b.Bookingid} đã bị hủy do quá hạn thanh toán 24h.",
+                        Type = NotificationType.BookingTimeout,
+                        Referenceid = b.Bookingid.ToString()
+                    });
                 if (!string.IsNullOrEmpty(b.Tutorid))
-                    notifications.Add(new NotificationRequest { Userid = b.Tutorid, Title = "Booking đã hết hạn thanh toán", Message = $"Booking #{b.Bookingid} đã bị hủy do phụ huynh không thanh toán trong 24h." });
-
-                if (notifications.Count > 0) await notify.CreateNotificationsAsync(notifications);
+                    notifications.Add(new NotificationRequest
+                    {
+                        Userid = b.Tutorid,
+                        Title = "Booking đã hết hạn thanh toán",
+                        Message = $"Booking #{b.Bookingid} đã bị hủy do phụ huynh không thanh toán trong 24h.",
+                        Type = NotificationType.BookingTimeout,
+                        Referenceid = b.Bookingid.ToString()
+                    });
 
                 await tx.CommitAsync(ct);
                 logger.LogInformation("Đã xử lý đặt chỗ hết hạn {BookingId}.", b.Bookingid);
@@ -74,6 +137,19 @@ public class PaymentTimeoutJob(IServiceProvider sp, ILogger<PaymentTimeoutJob> l
             {
                 await tx.RollbackAsync(ct);
                 logger.LogError(ex, "Không thể xử lý đặt chỗ hết hạn {BookingId}.", b.Bookingid);
+                continue;
+            }
+
+            if (notifications.Count > 0)
+            {
+                try
+                {
+                    await notify.CreateNotificationsAsync(notifications);
+                }
+                catch (Exception ex)
+                {
+                    logger.LogError(ex, "Không thể gửi thông báo hết hạn cho booking {BookingId}.", b.Bookingid);
+                }
             }
         }
     }
@@ -119,14 +195,18 @@ public class PaymentTimeoutJob(IServiceProvider sp, ILogger<PaymentTimeoutJob> l
                         Userid = parentId,
                         Title = "Nhắc nhở thanh toán 50% còn lại",
                         Message = $"Booking #{b.Bookingid} chưa được thanh toán đầy đủ. " +
-                            $"Vui lòng thanh toán {b.Remainingamount:N0}đ còn lại để tiếp tục các buổi học."
+                            $"Vui lòng thanh toán {b.Remainingamount:N0}đ còn lại để tiếp tục các buổi học.",
+                        Type = NotificationType.PaymentRemainingRequired,
+                        Referenceid = b.Bookingid.ToString()
                     });
                 if (!string.IsNullOrEmpty(b.Tutorid))
                     notifications.Add(new NotificationRequest
                     {
                         Userid = b.Tutorid,
                         Title = "Phụ huynh chưa thanh toán phần còn lại",
-                        Message = $"Booking #{b.Bookingid}: Phụ huynh chưa thanh toán 50% còn lại. Các buổi học tiếp theo đã bị tạm dừng."
+                        Message = $"Booking #{b.Bookingid}: Phụ huynh chưa thanh toán 50% còn lại. Các buổi học tiếp theo đã bị tạm dừng.",
+                        Type = NotificationType.PaymentRemainingRequired,
+                        Referenceid = b.Bookingid.ToString()
                     });
 
                 if (notifications.Count > 0) await notify.CreateNotificationsAsync(notifications);
