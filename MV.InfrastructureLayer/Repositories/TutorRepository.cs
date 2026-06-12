@@ -216,6 +216,13 @@ namespace MV.InfrastructureLayer.Repositories
                 .ToListAsync();
         }
 
+        public async Task<List<Tutoravailability>> GetAvailabilitiesByTutorIdAsync(string tutorId)
+        {
+            return await _context.Tutoravailabilities
+                .Where(a => a.Tutorid == tutorId)
+                .ToListAsync();
+        }
+
         #region Certificate Methods
 
         public async Task<List<Tutorcertificate>> GetCertificatesByTutorIdAsync(string tutorId)

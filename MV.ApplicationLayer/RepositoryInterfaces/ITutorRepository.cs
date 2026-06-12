@@ -29,6 +29,9 @@ namespace MV.ApplicationLayer.RepositoryInterfaces
         Task<int> CountBankChangesInLastMonthAsync(string tutorId, CancellationToken cancellationToken = default);
         Task<Tutorprofile?> GetTutorByVerificationCodeAsync(string? verificationCode, CancellationToken cancellationToken = default);
 
+        // Availability
+        Task<List<Tutoravailability>> GetAvailabilitiesByTutorIdAsync(string tutorId);
+
         // Certificate methods
         Task<List<Tutorcertificate>> GetCertificatesByTutorIdAsync(string tutorId);
         Task<Tutorcertificate?> GetCertificateByIdAsync(string certificateId);
