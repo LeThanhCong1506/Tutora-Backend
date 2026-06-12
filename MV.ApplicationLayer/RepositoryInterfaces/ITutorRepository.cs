@@ -13,6 +13,7 @@ namespace MV.ApplicationLayer.RepositoryInterfaces
         Task ReplaceTutorSubjectGradePricesAsync(string tutorId, IEnumerable<Tutorsubjectgradeprice> prices);
         Task<Tutorsubjectgradeprice?> GetTutorSubjectGradePriceAsync(string tutorId, int subjectId, int gradeLevelId);
         Task AddTutorSubjectGradePriceAsync(Tutorsubjectgradeprice price);
+        Task<bool> DeleteTutorSubjectGradePriceAsync(string tutorId, int subjectId, int gradeLevelId);
         Task UpdateTutorProfileStatusAsync(Tutorprofile profile);
         Task UpdateTutorProfileAsync(Tutorprofile profile);
         Task<List<Tutorpackage>> GetTutorPackagesAsync(string tutorId, bool includeInactive = false);

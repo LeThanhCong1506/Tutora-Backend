@@ -236,6 +236,21 @@ namespace MV.ApplicationLayer.Services
             return MapSubjectGradePriceResponse(created!);
         }
 
+        public async Task<bool> DeleteSubjectGradePriceAsync(string tutorId, int subjectId, int gradeLevelId)
+        {
+            var profile = await _unitOfWork.TutorRepository.GetTutorProfileByIdAsync(tutorId);
+            if (profile == null)
+                throw new ArgumentException("Không tìm thấy hồ sơ gia sư.");
+
+            var deleted = await _unitOfWork.TutorRepository.DeleteTutorSubjectGradePriceAsync(tutorId, subjectId, gradeLevelId);
+            if (!deleted)
+                return false;
+
+            profile.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
+            await _unitOfWork.SaveChangesAsync();
+            return true;
+        }
+
         // ─── Packages ────────────────────────────────────────────────────────
 
         public async Task<List<TutorPackageResponse>> GetTutorPackagesAsync(string tutorId, bool includeInactive = false)

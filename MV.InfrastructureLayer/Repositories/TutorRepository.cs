@@ -190,6 +190,30 @@ namespace MV.InfrastructureLayer.Repositories
                     && p.Gradelevelid == gradeLevelId);
         }
 
+        public async Task<bool> DeleteTutorSubjectGradePriceAsync(string tutorId, int subjectId, int gradeLevelId)
+        {
+            var price = await _context.Tutorsubjectgradeprices
+                .FirstOrDefaultAsync(p => p.Tutorid == tutorId && p.Subjectid == subjectId && p.Gradelevelid == gradeLevelId);
+
+            if (price == null)
+                return false;
+
+            var isReferenced = await _context.Bookings
+                .AnyAsync(b => b.Tutorsubjectgradepriceid == price.Id);
+
+            if (isReferenced)
+            {
+                price.Isactive = false;
+                price.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
+            }
+            else
+            {
+                _context.Tutorsubjectgradeprices.Remove(price);
+            }
+
+            return true;
+        }
+
         public async Task AddTutorSubjectGradePriceAsync(Tutorsubjectgradeprice price)
         {
             var now = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
