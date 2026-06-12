@@ -13,6 +13,7 @@ namespace MV.ApplicationLayer.RepositoryInterfaces
         Task ReplaceTutorSubjectGradePricesAsync(string tutorId, IEnumerable<Tutorsubjectgradeprice> prices);
         Task<Tutorsubjectgradeprice?> GetTutorSubjectGradePriceAsync(string tutorId, int subjectId, int gradeLevelId);
         Task AddTutorSubjectGradePriceAsync(Tutorsubjectgradeprice price);
+        Task<bool> DeleteTutorSubjectGradePriceAsync(string tutorId, int subjectId, int gradeLevelId);
         Task UpdateTutorProfileStatusAsync(Tutorprofile profile);
         Task UpdateTutorProfileAsync(Tutorprofile profile);
         Task<List<Tutorpackage>> GetTutorPackagesAsync(string tutorId, bool includeInactive = false);
@@ -28,6 +29,9 @@ namespace MV.ApplicationLayer.RepositoryInterfaces
         Task AddBankChangeLogAsync(BankChangeLog log, CancellationToken cancellationToken = default);
         Task<int> CountBankChangesInLastMonthAsync(string tutorId, CancellationToken cancellationToken = default);
         Task<Tutorprofile?> GetTutorByVerificationCodeAsync(string? verificationCode, CancellationToken cancellationToken = default);
+
+        // Availability
+        Task<List<Tutoravailability>> GetAvailabilitiesByTutorIdAsync(string tutorId);
 
         // Certificate methods
         Task<List<Tutorcertificate>> GetCertificatesByTutorIdAsync(string tutorId);
