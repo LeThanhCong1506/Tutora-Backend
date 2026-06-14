@@ -10,6 +10,7 @@ namespace MV.ApplicationLayer.BackgroundJobs;
 public class GhostUserCleanupJob(IServiceProvider sp, ILogger<GhostUserCleanupJob> logger) : BackgroundService
 {
     private readonly TimeSpan _interval = TimeSpan.FromHours(12);
+    private const string InternalStudentEmailDomain = "@noemail.agora.local";
 
     protected override async Task ExecuteAsync(CancellationToken ct)
     {
@@ -43,9 +44,14 @@ public class GhostUserCleanupJob(IServiceProvider sp, ILogger<GhostUserCleanupJo
             .Include(u => u.Wallet)
             .Include(u => u.Tutorprofile)
             .Include(u => u.StudentprofileLinkedusers)
-            .Where(u => u.Isemailverified == false 
-                     && u.Createdat != null 
+            .Where(u => u.Isemailverified == false
+                     && u.Createdat != null
                      && u.Createdat < thresholdTime
+                     // Parent-created child accounts use an internal placeholder email and should not be
+                     // treated as abandoned registrations awaiting email verification.
+                     && !u.StudentprofileLinkedusers.Any(s =>
+                         s.Parentid != null &&
+                         u.Email.EndsWith(InternalStudentEmailDomain))
                      && !u.StudentprofileLinkedusers.Any(s => s.Bookings.Any()) // Không xóa nếu học viên đã có Booking
                      && (u.Tutorprofile == null || !u.Tutorprofile.Bookings.Any())) // Không xóa nếu gia sư đã có Booking
             .ToListAsync(ct);
