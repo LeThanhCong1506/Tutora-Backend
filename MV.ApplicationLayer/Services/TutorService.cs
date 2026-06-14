@@ -27,9 +27,6 @@ namespace MV.ApplicationLayer.Services
         private static readonly string[] AllowedCertificateExtensions = { ".jpg", ".jpeg", ".png", ".pdf" };
         private const long MaxCertificateFileSize = 10 * 1024 * 1024; // 10 MB
 
-        // Liveness threshold
-        private const double LIVENESS_THRESHOLD = 85.0;
-
         public TutorService(
             IUnitOfWork unitOfWork,
             IFileStorageService storageService,
@@ -144,7 +141,7 @@ namespace MV.ApplicationLayer.Services
             var profile = await _unitOfWork.TutorRepository.GetTutorProfileByIdAsync(userId);
             if (profile == null) return false;
 
-            await ValidateSubjectGradePricesAsync(request.SubjectGradePrices);
+            await ValidateSubjectGradePricesAsync(userId, request.SubjectGradePrices);
 
             profile.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 
@@ -180,7 +177,7 @@ namespace MV.ApplicationLayer.Services
                 throw new ArgumentException("Cần ít nhất một giá theo môn và lớp");
             }
 
-            await ValidateSubjectGradePricesAsync(request.SubjectGradePrices);
+            await ValidateSubjectGradePricesAsync(tutorId, request.SubjectGradePrices);
 
             profile.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 
@@ -202,7 +199,7 @@ namespace MV.ApplicationLayer.Services
             }
 
             // Validate single price entry
-            await ValidateSubjectGradePricesAsync(new List<TutorSubjectGradePriceRequest> { request });
+            await ValidateSubjectGradePricesAsync(tutorId, new List<TutorSubjectGradePriceRequest> { request });
 
             // Check if already exists
             var existing = await _unitOfWork.TutorRepository.GetTutorSubjectGradePriceAsync(
@@ -237,6 +234,21 @@ namespace MV.ApplicationLayer.Services
                 tutorId, request.SubjectId, request.GradeLevelId);
 
             return MapSubjectGradePriceResponse(created!);
+        }
+
+        public async Task<bool> DeleteSubjectGradePriceAsync(string tutorId, int subjectId, int gradeLevelId)
+        {
+            var profile = await _unitOfWork.TutorRepository.GetTutorProfileByIdAsync(tutorId);
+            if (profile == null)
+                throw new ArgumentException("Không tìm thấy hồ sơ gia sư.");
+
+            var deleted = await _unitOfWork.TutorRepository.DeleteTutorSubjectGradePriceAsync(tutorId, subjectId, gradeLevelId);
+            if (!deleted)
+                return false;
+
+            profile.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
+            await _unitOfWork.SaveChangesAsync();
+            return true;
         }
 
         // ─── Packages ────────────────────────────────────────────────────────
@@ -363,7 +375,7 @@ namespace MV.ApplicationLayer.Services
                    !string.IsNullOrWhiteSpace(user.Avatarurl);
         }
 
-        private async Task ValidateSubjectGradePricesAsync(List<TutorSubjectGradePriceRequest> prices)
+        private async Task ValidateSubjectGradePricesAsync(string tutorId, List<TutorSubjectGradePriceRequest> prices)
         {
             if (!prices.Any())
             {
@@ -399,6 +411,104 @@ namespace MV.ApplicationLayer.Services
             {
                 throw new ArgumentException($"GradeLevel IDs không tồn tại: {string.Join(", ", invalidGradeLevelIds)}");
             }
+
+            // Rule 1 & 2: validate session duration and sessions/week against tutor availability
+            var availabilities = await _unitOfWork.TutorRepository.GetAvailabilitiesByTutorIdAsync(tutorId);
+            if (!availabilities.Any())
+            {
+                throw new ArgumentException("Vui lòng thiết lập lịch rảnh trước khi cấu hình môn/giá dạy.");
+            }
+
+            var blockMinutes = BuildContiguousBlocksInMinutes(availabilities);
+            var maxBlockMinutes = blockMinutes.Max();
+            var totalCapacityBase = blockMinutes; // reused per entry
+
+            foreach (var p in prices)
+            {
+                // Rule 1: duration must be positive multiple of 30 min and fit in longest block
+                if (p.DurationMinutesPerSession <= 0 || p.DurationMinutesPerSession % 30 != 0)
+                {
+                    throw new ArgumentException(
+                        $"Số phút mỗi buổi (subjectId={p.SubjectId}, gradeId={p.GradeLevelId}) phải lớn hơn 0 và là bội số của 30.");
+                }
+
+                if (p.DurationMinutesPerSession > maxBlockMinutes)
+                {
+                    var maxHours = maxBlockMinutes / 60.0;
+                    var maxHoursDisplay = maxHours % 1 == 0 ? $"{(int)maxHours}" : $"{maxHours:0.#}";
+                    throw new ArgumentException(
+                        $"Số giờ mỗi buổi vượt quá khoảng rảnh liên tục dài nhất ({maxHoursDisplay} giờ) theo lịch rảnh của bạn.");
+                }
+
+                // Rule 2: sessions/week must not exceed total slots available across all blocks
+                var maxSessions = totalCapacityBase.Sum(b => b / p.DurationMinutesPerSession);
+                if (p.SessionsPerWeek < 1)
+                {
+                    throw new ArgumentException(
+                        $"Số buổi mỗi tuần (subjectId={p.SubjectId}, gradeId={p.GradeLevelId}) phải ít nhất là 1.");
+                }
+
+                if (p.SessionsPerWeek > maxSessions)
+                {
+                    throw new ArgumentException(
+                        $"Số buổi mỗi tuần vượt quá số buổi tối đa ({maxSessions}) có thể xếp với lịch rảnh hiện tại.");
+                }
+            }
+        }
+
+        /// <summary>
+        /// Groups availability slots (stored in UTC) by local day, merges contiguous 30-min slots,
+        /// and returns the duration in minutes of each resulting contiguous block.
+        /// </summary>
+        private static List<int> BuildContiguousBlocksInMinutes(List<MV.DomainLayer.Entities.Tutoravailability> slots)
+        {
+            const string tz = "Asia/Ho_Chi_Minh";
+
+            // Convert each slot to local (day, start, end)
+            var localSlots = slots
+                .Where(s => s.Starttime.HasValue && s.Endtime.HasValue && s.Dayofweek.HasValue)
+                .Select(s =>
+                {
+                    var (localDay, localStart) = MV.DomainLayer.Helpers.TimeZoneHelper.ShiftToUserTime(
+                        s.Dayofweek!.Value, s.Starttime!.Value, tz);
+                    var (_, localEnd) = MV.DomainLayer.Helpers.TimeZoneHelper.ShiftToUserTime(
+                        s.Dayofweek!.Value, s.Endtime!.Value, tz);
+                    return (localDay, localStart, localEnd);
+                })
+                .GroupBy(s => s.localDay)
+                .ToList();
+
+            var blocks = new List<int>();
+
+            foreach (var dayGroup in localSlots)
+            {
+                // Sort by start time within the day
+                var sorted = dayGroup.OrderBy(s => s.localStart).ToList();
+
+                var blockStart = sorted[0].localStart;
+                var blockEnd = sorted[0].localEnd;
+
+                for (int i = 1; i < sorted.Count; i++)
+                {
+                    if (sorted[i].localStart <= blockEnd)
+                    {
+                        // Contiguous or overlapping — extend the block
+                        if (sorted[i].localEnd > blockEnd)
+                            blockEnd = sorted[i].localEnd;
+                    }
+                    else
+                    {
+                        // Gap — close current block, start new one
+                        blocks.Add((int)(blockEnd - blockStart).TotalMinutes);
+                        blockStart = sorted[i].localStart;
+                        blockEnd = sorted[i].localEnd;
+                    }
+                }
+
+                blocks.Add((int)(blockEnd - blockStart).TotalMinutes);
+            }
+
+            return blocks;
         }
 
         private static IEnumerable<Tutorsubjectgradeprice> MapSubjectGradePriceRequests(

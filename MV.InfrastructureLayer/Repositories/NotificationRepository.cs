@@ -53,6 +53,12 @@ namespace MV.InfrastructureLayer.Repositories
                 .GroupBy(n => n.Type!)
                 .ToDictionaryAsync(g => g.Key, g => g.Count());
 
+        public Task<bool> ExistsByUserAndTypeAndReferenceAsync(string userId, string type, string? referenceId)
+            => _context.Notifications.AnyAsync(n =>
+                n.Userid == userId &&
+                n.Type == type &&
+                n.Referenceid == referenceId);
+
         public async Task<IEnumerable<Notification>> GetAllNotificationsAsync()
             => await _context.Notifications
                 .Include(n => n.User)

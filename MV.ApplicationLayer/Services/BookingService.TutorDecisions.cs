@@ -67,7 +67,9 @@ public partial class BookingService
             {
                 Userid = booking.Parentid!,
                 Title = "Gia sư đã chấp nhận lịch học",
-                Message = $"Gia sư đã chấp nhận yêu cầu đặt lịch #{bookingId}"
+                Message = $"Gia sư đã chấp nhận yêu cầu đặt lịch #{bookingId}. Hãy thanh toán đặt cọc để giữ lịch học.",
+                Type = NotificationType.BookingAccepted,
+                Referenceid = bookingId.ToString()
             });
         }
         catch (Exception ex)
@@ -112,7 +114,9 @@ public partial class BookingService
             {
                 Userid = booking.Parentid!,
                 Title = "Gia sư đã từ chối lịch học",
-                Message = $"Gia sư đã từ chối yêu cầu đặt lịch #{bookingId}"
+                Message = $"Gia sư đã từ chối yêu cầu đặt lịch #{bookingId}. Hãy tìm gia sư khác.",
+                Type = NotificationType.BookingDeclined,
+                Referenceid = bookingId.ToString()
             });
         }
         catch (Exception ex)

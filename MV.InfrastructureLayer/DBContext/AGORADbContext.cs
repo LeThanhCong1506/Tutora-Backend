@@ -1658,8 +1658,8 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
                 .HasMaxLength(100)
                 .HasColumnName("fullname");
             entity.Property(e => e.Gender)
-                .HasMaxLength(10)
-                .HasColumnName("gender");
+                .HasColumnName("gender")
+                .HasConversion<short>();
             entity.Property(e => e.Googlecalendartoken).HasColumnName("googlecalendartoken");
             entity.Property(e => e.Fcmtoken)
                 .HasMaxLength(500)

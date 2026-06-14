@@ -47,17 +47,17 @@ namespace MV.PresentationLayer.Controllers
             return Ok(APIResponse<PagedList<UserResponse>>.Success(users, "Lấy danh sách người dùng thành công."));
         }
 
-        [HttpGet("{id}")]
+        [HttpGet("profile")]
         [Authorize]
-        public async Task<IActionResult> GetUser(string id)
+        public async Task<IActionResult> GetUserProfile()
         {
             var currentUserId = User.FindFirstValue(ClaimTypes.NameIdentifier);
-            if (currentUserId != id && !User.IsInRole(UserRole.Admin))
-                return StatusCode(403, APIResponse<object>.Fail(ApiMessages.Forbidden, 403));
+            if (string.IsNullOrEmpty(currentUserId))
+                return Unauthorized(APIResponse<object>.Fail(ApiMessages.Unauthorized, 401));
 
             try
             {
-                var user = await _userService.GetUserByIdAsync(id);
+                var user = await _userService.GetUserByIdAsync(currentUserId);
                 return Ok(APIResponse<UserResponse>.Success(user, "Lấy thông tin người dùng thành công."));
             }
             catch (UserNotFoundException)
@@ -92,7 +92,7 @@ namespace MV.PresentationLayer.Controllers
 
             var response = APIResponse<UserResponse>.Success(createdUser, "Tạo tài khoản thành công.", 201);
 
-            return CreatedAtAction(nameof(GetUser), new { id = createdUser.Userid }, response);
+            return StatusCode(201, response);
         }
 
         [HttpPut("{id}")]

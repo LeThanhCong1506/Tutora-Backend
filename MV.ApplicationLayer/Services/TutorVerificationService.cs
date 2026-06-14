@@ -6,6 +6,8 @@ using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO;
 using MV.DomainLayer.DTO.ResponseModel;
 using MV.DomainLayer.Entities;
+using MV.DomainLayer.Helpers;
+using MV.DomainLayer.Utilities;
 using MV.ApplicationLayer.Interfaces;
 using MV.ApplicationLayer.Interfaces;
 
@@ -29,9 +31,15 @@ namespace MV.ApplicationLayer.Services
 
         private const string FullProfileCacheKeyPrefix = "tutor_full_profile:";
         private static readonly TimeSpan FullProfileCacheDuration = TimeSpan.FromMinutes(20);
+        private const string ProfileInfoCacheKeyPrefix = "tutor_profile_info:";
+        private static readonly TimeSpan ProfileInfoCacheDuration = TimeSpan.FromMinutes(20);
+        private const string ScheduleCacheKeyPrefix = "tutor_schedule:";
+        private static readonly TimeSpan ScheduleCacheDuration = TimeSpan.FromMinutes(10);
+        private static readonly TimeSpan CacheOperationTimeout = TimeSpan.FromMilliseconds(200);
 
         // Phase 1: Identity Verification Thresholds
         private const double OCR_PROBABILITY_THRESHOLD = 90.0;
+        private const double CCCD_NAME_MATCH_THRESHOLD = 0.8;
 
         public TutorVerificationService(
             IUnitOfWork unitOfWork,
@@ -117,6 +125,30 @@ namespace MV.ApplicationLayer.Services
                     }
                 }
 
+                // 5.7. So sánh tên tài khoản với tên trên CCCD
+                var ocrName = resultData.Name?.Trim();
+                if (string.IsNullOrWhiteSpace(ocrName))
+                {
+                    _logger.LogWarning("OCR did not extract name for user {UserId}", userId);
+                    return APIResponse<FptAiResult>.Fail(
+                        "Không đọc được tên trên CCCD. Vui lòng chụp lại ảnh rõ nét hơn.", 400);
+                }
+
+                if (!string.IsNullOrWhiteSpace(user.Fullname))
+                {
+                    var (isMatch, similarity) = StringSimilarity.CompareNames(ocrName, user.Fullname, CCCD_NAME_MATCH_THRESHOLD);
+                    _logger.LogInformation(
+                        "Name match for user {UserId}: OCR='{OcrName}' Account='{AccountName}' Similarity={Similarity:F2} Match={IsMatch}",
+                        userId, ocrName, user.Fullname, similarity, isMatch);
+
+                    if (!isMatch)
+                    {
+                        return APIResponse<FptAiResult>.Fail(
+                            $"Tên trên CCCD ('{ocrName}') không khớp với tên tài khoản ('{user.Fullname}'). " +
+                            "Vui lòng kiểm tra lại thông tin hoặc chụp lại CCCD.", 400);
+                    }
+                }
+
                 // 6. Cập nhật thông tin vào User Entity
                 user.Identitynumber = resultData.Id;       // Số CCCD
                 user.Idcardfronturl = frontImgPath;        // Link ảnh trước
@@ -138,8 +170,8 @@ namespace MV.ApplicationLayer.Services
                 if (string.IsNullOrEmpty(user.Address))
                     user.Address = resultData.Address;
 
-                if (string.IsNullOrEmpty(user.Gender))
-                    user.Gender = resultData.Sex;
+                if (user.Gender == null)
+                    user.Gender = GenderHelper.FromEkycSex(resultData.Sex);
 
                 if (user.Birthdate == null && !string.IsNullOrEmpty(resultData.Dob))
                 {

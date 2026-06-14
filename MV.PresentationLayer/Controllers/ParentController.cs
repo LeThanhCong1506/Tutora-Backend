@@ -1,4 +1,4 @@
-﻿using MV.DomainLayer.Constants;
+using MV.DomainLayer.Constants;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using MV.ApplicationLayer.ServiceInterfaces;
@@ -37,6 +37,7 @@ public class ParentController : ControllerBase
     }
 
     private string GetParentId() => User.FindFirstValue(ClaimTypes.NameIdentifier)!;
+
 
     // =====================================================================
     // LESSON MANAGEMENT

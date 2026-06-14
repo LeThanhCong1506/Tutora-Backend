@@ -116,6 +116,45 @@ namespace MV.PresentationLayer.Controllers
         }
 
         /// <summary>
+        /// Update multiple availability slots at once
+        /// PATCH /api/tutor/availabilities/bulk
+        /// </summary>
+        [HttpPatch("bulk")]
+        public async Task<IActionResult> BulkUpdateAvailabilities([FromBody] BulkUpdateAvailabilityRequest request)
+        {
+            try
+            {
+                if (!ModelState.IsValid)
+                {
+                    return BadRequest(APIResponse<object>.Fail(ApiMessages.InvalidRequestData, 400, ModelState));
+                }
+
+                var tutorId = GetCurrentUserId();
+                var result = await _availabilityService.BulkUpdateAvailabilitiesAsync(tutorId, request);
+
+                return Ok(APIResponse<List<TutorAvailabilityResponse>>.Success(
+                    result,
+                    $"Cập nhật thành công {result.Count} khung giờ dạy học."));
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(APIResponse<object>.Fail(ex.Message, 400));
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(APIResponse<object>.Fail(ex.Message, 400));
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return StatusCode(403, APIResponse<object>.Fail(ex.Message, 403));
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, APIResponse<object>.Fail(ApiMessages.GenericErrorPrefix + ex.Message, 500));
+            }
+        }
+
+        /// <summary>
         /// Delete multiple availability slots at once
         /// DELETE /api/tutor/availabilities/bulk
         /// </summary>
