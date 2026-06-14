@@ -2,8 +2,10 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using MV.ApplicationLayer.RepositoryInterfaces;
 using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.Constants;
+using MV.DomainLayer.DTO.RequestModel;
 using MV.DomainLayer.Helpers;
 using static MV.DomainLayer.Constants.LessonStatus;
 
@@ -35,6 +37,7 @@ public class AutoConfirmLessonJob : BackgroundService
         {
             try
             {
+                await ProcessUpcomingConfirmDeadlineRemindersAsync(stoppingToken);
                 await ProcessAutoConfirmAsync(stoppingToken);
             }
             catch (Exception ex)
@@ -46,6 +49,66 @@ public class AutoConfirmLessonJob : BackgroundService
         }
 
         _logger.LogInformation("AutoConfirmLessonJob đã dừng.");
+    }
+
+    private async Task ProcessUpcomingConfirmDeadlineRemindersAsync(CancellationToken ct)
+    {
+        using var scope = _serviceProvider.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<MV.ApplicationLayer.Interfaces.IAppDbContext>();
+        var notificationService = scope.ServiceProvider.GetRequiredService<INotificationService>();
+        var notificationRepo = scope.ServiceProvider.GetRequiredService<INotificationRepository>();
+        var now = TimeZoneHelper.UtcNow;
+        var deadlineWindow = now.AddHours(2);
+
+        var lessonsToRemind = await context.Lessons
+            .Include(l => l.Booking)
+                .ThenInclude(b => b!.Student)
+            .Where(l => l.Status == PendingConfirmation &&
+                        l.Confirmdeadline.HasValue &&
+                        l.Confirmdeadline > now &&
+                        l.Confirmdeadline <= deadlineWindow &&
+                        l.Issettled != true)
+            .ToListAsync(ct);
+
+        foreach (var lesson in lessonsToRemind)
+        {
+            var parentId = lesson.Booking?.Student?.Parentid ?? lesson.Booking?.Parentid;
+            if (string.IsNullOrWhiteSpace(parentId))
+                continue;
+
+            var hasOpenDispute = await context.Disputes.AnyAsync(
+                d => d.Lessonid == lesson.Lessonid &&
+                     d.Status != DisputeStatus.Resolved &&
+                     d.Status != DisputeStatus.Closed,
+                ct);
+
+            if (hasOpenDispute)
+                continue;
+
+            var alreadySent = await notificationRepo.ExistsByUserAndTypeAndReferenceAsync(
+                parentId,
+                NotificationType.LessonConfirmDeadline,
+                lesson.Lessonid.ToString());
+
+            if (alreadySent)
+                continue;
+
+            try
+            {
+                await notificationService.CreateNotificationAsync(new NotificationRequest
+                {
+                    Userid = parentId,
+                    Title = "Sắp hết hạn xác nhận buổi học",
+                    Message = $"Con 2 giờ để xác nhận buổi học #{lesson.Lessonid}, nếu không hệ thống sẽ tự xác nhận.",
+                    Type = NotificationType.LessonConfirmDeadline,
+                    Referenceid = lesson.Lessonid.ToString()
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Không thể gửi nhắc hạn xác nhận cho lesson {LessonId}.", lesson.Lessonid);
+            }
+        }
     }
 
     private async Task ProcessAutoConfirmAsync(CancellationToken ct)
@@ -195,7 +258,9 @@ public class LessonReminderJob : BackgroundService
                     {
                         Userid = lesson.Tutorid,
                         Title = "Nhắc nhở buổi học",
-                        Message = $"Buổi học môn {subjectName} sẽ bắt đầu trong {minutesUntil} phút. Hãy chuẩn bị sẵn sàng!"
+                        Message = $"Buổi học môn {subjectName} sẽ bắt đầu trong {minutesUntil} phút. Hãy chuẩn bị sẵn sàng!",
+                        Type = NotificationType.LessonReminder,
+                        Referenceid = lesson.Lessonid.ToString()
                     });
                 }
 
@@ -207,7 +272,9 @@ public class LessonReminderJob : BackgroundService
                     {
                         Userid = parentId,
                         Title = "Nhắc nhở buổi học",
-                        Message = $"Buổi học môn {subjectName} của con bạn sẽ bắt đầu trong {minutesUntil} phút."
+                        Message = $"Buổi học môn {subjectName} của con bạn sẽ bắt đầu trong {minutesUntil} phút.",
+                        Type = NotificationType.LessonReminder,
+                        Referenceid = lesson.Lessonid.ToString()
                     });
 
                     // Zalo ZNS reminder (only if user has Zalo linked + notifications enabled)
@@ -330,27 +397,6 @@ public class RemainingPaymentTriggerJob : BackgroundService
             booking.Updatedat = now;
 
             var parentId = booking.Student?.Parentid ?? booking.Parentid;
-            if (!string.IsNullOrEmpty(parentId))
-            {
-                await notificationService.CreateNotificationAsync(new MV.DomainLayer.DTO.RequestModel.NotificationRequest
-                {
-                    Userid = parentId,
-                    Title = "Thanh toán 50% còn lại",
-                    Message = $"Buổi học đầu tiên của booking #{booking.Bookingid} đã được xác nhận thành công. " +
-                        $"Vui lòng thanh toán {booking.Remainingamount:N0}đ còn lại trong vòng 48h để tiếp tục các buổi học."
-                });
-            }
-
-            if (!string.IsNullOrEmpty(booking.Tutorid))
-            {
-                await notificationService.CreateNotificationAsync(new MV.DomainLayer.DTO.RequestModel.NotificationRequest
-                {
-                    Userid = booking.Tutorid,
-                    Title = "Đang chờ thanh toán phần còn lại",
-                    Message = $"Hệ thống đã yêu cầu phụ huynh thanh toán 50% còn lại cho booking #{booking.Bookingid}."
-                });
-            }
-
             try
             {
                 await context.SaveChangesAsync(ct);
@@ -360,6 +406,39 @@ public class RemainingPaymentTriggerJob : BackgroundService
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Không thể lưu thông báo thanh toán còn lại cho đặt chỗ {BookingId}.", booking.Bookingid);
+                continue;
+            }
+
+            try
+            {
+                if (!string.IsNullOrEmpty(parentId))
+                {
+                    await notificationService.CreateNotificationAsync(new NotificationRequest
+                    {
+                        Userid = parentId,
+                        Title = "Thanh toán 50% còn lại",
+                        Message = $"Buổi học đầu tiên của booking #{booking.Bookingid} đã được xác nhận thành công. " +
+                            $"Vui lòng thanh toán {booking.Remainingamount:N0}đ còn lại trong vòng 48h để tiếp tục các buổi học.",
+                        Type = NotificationType.PaymentRemainingRequired,
+                        Referenceid = booking.Bookingid.ToString()
+                    });
+                }
+
+                if (!string.IsNullOrEmpty(booking.Tutorid))
+                {
+                    await notificationService.CreateNotificationAsync(new NotificationRequest
+                    {
+                        Userid = booking.Tutorid,
+                        Title = "Đang chờ thanh toán phần còn lại",
+                        Message = $"Hệ thống đã yêu cầu phụ huynh thanh toán 50% còn lại cho booking #{booking.Bookingid}.",
+                        Type = NotificationType.PaymentRemainingRequired,
+                        Referenceid = booking.Bookingid.ToString()
+                    });
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Không thể gửi thông báo thanh toán còn lại cho booking {BookingId}.", booking.Bookingid);
             }
         }
 

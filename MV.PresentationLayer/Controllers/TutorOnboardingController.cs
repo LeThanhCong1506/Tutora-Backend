@@ -392,7 +392,7 @@ namespace MV.PresentationLayer.Controllers
         /// <summary>
         /// Add a single subject-grade-price entry for tutor
         /// </summary>
-        [HttpPost("{id}/profile/pricing/subject-grade")]
+        [HttpPost("{id}/profile/pricing")]
         public async Task<IActionResult> AddSubjectGradePrice([FromRoute] string id, [FromBody] TutorSubjectGradePriceRequest request)
         {
             var currentUserId = User.FindFirstValue(ClaimTypes.NameIdentifier);
@@ -404,8 +404,40 @@ namespace MV.PresentationLayer.Controllers
             try
             {
                 var result = await _tutorService.AddSubjectGradePriceAsync(id, request);
-                return CreatedAtAction(nameof(GetPricing), new { id }, 
+                return CreatedAtAction(nameof(GetPricing), new { id },
                     APIResponse<TutorSubjectGradePriceResponse>.Success(result, "Thêm giá môn học thành công.", 201));
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(APIResponse.Fail(ex.Message, 400));
+            }
+        }
+
+        /// <summary>
+        /// Delete a single subject-grade-price entry for tutor.
+        /// Soft-deletes if the entry is referenced by existing bookings; otherwise hard-deletes.
+        /// </summary>
+        [HttpDelete("{id}/profile/pricing/{subjectId:int}/{gradeLevelId:int}")]
+        public async Task<IActionResult> DeleteSubjectGradePrice(
+            [FromRoute] string id,
+            [FromRoute] int subjectId,
+            [FromRoute] int gradeLevelId)
+        {
+            var currentUserId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (currentUserId != id)
+            {
+                return StatusCode(403, APIResponse.Fail("Bạn chỉ có thể xóa giá của chính mình.", 403));
+            }
+
+            try
+            {
+                var result = await _tutorService.DeleteSubjectGradePriceAsync(id, subjectId, gradeLevelId);
+                if (!result)
+                {
+                    return NotFound(APIResponse.Fail("Không tìm thấy giá môn học tương ứng.", 404));
+                }
+
+                return Ok(APIResponse.Success("Xóa giá môn học thành công."));
             }
             catch (ArgumentException ex)
             {
