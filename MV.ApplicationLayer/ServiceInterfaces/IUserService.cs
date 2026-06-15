@@ -7,11 +7,6 @@ namespace MV.ApplicationLayer.ServiceInterfaces
     public interface IUserService
     {
         /// <summary>
-        /// Paged list of all users with filter/sort parameters.
-        /// </summary>
-        Task<PagedList<UserResponse>> GetAllUsersAsync(UserParameters userParameters);
-
-        /// <summary>
         /// Single user by id.
         /// </summary>
         Task<UserResponse> GetUserByIdAsync(string userId);
