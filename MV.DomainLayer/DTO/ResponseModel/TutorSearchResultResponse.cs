@@ -17,6 +17,9 @@ namespace MV.DomainLayer.DTO.ResponseModel
         /// </summary>
         public string? Headline { get; set; }
 
+        public string? Bio { get; set; }
+        public string? VideoUrl { get; set; }
+
         /// <summary>
         /// Education institution (e.g., "Stanford University", "ĐH Khoa học Tự nhiên")
         /// Displayed with university icon in Figma

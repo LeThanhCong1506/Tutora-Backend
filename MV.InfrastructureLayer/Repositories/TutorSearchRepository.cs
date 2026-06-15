@@ -536,6 +536,8 @@ namespace MV.InfrastructureLayer.Repositories
                 FullName = user.Fullname,
                 AvatarUrl = user.Avatarurl,
                 Headline = profile.Headline,
+                Bio = profile.Bio,
+                VideoUrl = profile.Videointrourl,
                 Education = profile.Education,
                 DegreeLevel = degreeLevel,
                 AverageRating = profile.Averagerating,
