@@ -17,6 +17,12 @@ namespace MV.ApplicationLayer.ServiceInterfaces
         Task<bool> UpdateTutorAvatarAsync(string userId, IFormFile avatarFile);
 
         /// <summary>
+        /// Upload CCCD (citizen ID card) front and back images to Cloudinary.
+        /// Saves the resulting URLs to user.Idcardfronturl and user.Idcardbackurl.
+        /// </summary>
+        Task<CccdUploadResponse> UploadCccdImagesAsync(string userId, UploadCccdRequest request);
+
+        /// <summary>
         /// Update basic tutor info: headline, teaching area, teaching mode.
         /// </summary>
         Task<bool> UpdateTutorBasicInfoAsync(string userId, UpdateTutorBasicInfoRequest request);

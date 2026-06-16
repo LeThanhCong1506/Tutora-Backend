@@ -22,6 +22,7 @@ namespace MV.ApplicationLayer.Services
         private const string CertificateBucket = StorageBucket.CertificateFiles;
         private const string VideoBucket = StorageBucket.VideoIntroduction;
         private const string AvatarBucket = StorageBucket.TutorAvatars;
+        private const string CccdBucket = StorageBucket.CccdFiles;
 
         // Certificate validation
         private static readonly string[] AllowedCertificateExtensions = { ".jpg", ".jpeg", ".png", ".pdf" };
