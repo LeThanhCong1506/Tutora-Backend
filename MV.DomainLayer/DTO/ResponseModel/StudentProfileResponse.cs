@@ -31,7 +31,7 @@ namespace MV.DomainLayer.DTO.ResponseModel
         public string? Username { get; set; }
 
         public int? Age => BirthDate.HasValue && BirthDate.Value.Year > 1
-            ? DateTime.Now.Year - BirthDate.Value.Year
+            ? DateTime.UtcNow.Year - BirthDate.Value.Year
             : null;
     }
 }

@@ -433,7 +433,7 @@ namespace MV.ApplicationLayer.Services
 
         private static void ValidateBirthdate(DateOnly? birthdate)
         {
-            if (birthdate.HasValue && birthdate.Value > DateOnly.FromDateTime(DateTime.Today))
+            if (birthdate.HasValue && birthdate.Value > DateOnly.FromDateTime(DateTime.UtcNow))
                 throw new InvalidBirthdateException();
         }
 
