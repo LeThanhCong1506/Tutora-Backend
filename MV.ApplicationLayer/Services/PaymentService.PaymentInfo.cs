@@ -83,7 +83,7 @@ public partial class PaymentService
 
         var wallet = await walletRepo.GetByUserIdAsNoTrackingAsync(userId);
         var expiredAt = booking.Paymentdueat.HasValue
-            ? (int)((DateTimeOffset)booking.Paymentdueat.Value).ToUnixTimeSeconds()
+            ? (int)new DateTimeOffset(booking.Paymentdueat.Value, TimeSpan.Zero).ToUnixTimeSeconds()
             : (int)DateTimeOffset.UtcNow.AddHours(24).ToUnixTimeSeconds();
 
         try
@@ -113,7 +113,7 @@ public partial class PaymentService
         var remainingAmount = (int)(booking.Remainingamount ?? 0);
         var wallet = await walletRepo.GetByUserIdAsNoTrackingAsync(userId);
         var expiredAt = booking.Paymentdueat.HasValue
-            ? (int)((DateTimeOffset)booking.Paymentdueat.Value).ToUnixTimeSeconds()
+            ? (int)new DateTimeOffset(booking.Paymentdueat.Value, TimeSpan.Zero).ToUnixTimeSeconds()
             : (int)DateTimeOffset.UtcNow.AddHours(48).ToUnixTimeSeconds();
 
         // Reuse existing link if still active

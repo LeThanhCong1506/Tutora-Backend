@@ -20,4 +20,7 @@ public static class StorageBucket
 
     /// <summary>Bucket for lesson attachment files.</summary>
     public const string LessonAttachments  = "lesson-attachments";
+
+    /// <summary>Bucket for tutor CCCD (citizen ID card) front and back images.</summary>
+    public const string CccdFiles          = "cccd-documents";
 }

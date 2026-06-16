@@ -58,6 +58,31 @@ namespace MV.PresentationLayer.Controllers
         }
 
         /// <summary>
+        /// Upload CCCD (citizen ID card) 2 mặt — mặt trước và mặt sau.
+        /// Chấp nhận JPG, JPEG, PNG — tối đa 5MB mỗi ảnh.
+        /// Lưu URL vào user.Idcardfronturl và user.Idcardbackurl.
+        /// </summary>
+        [HttpPut("{id}/profile/cccd")]
+        [RequestSizeLimit(10_485_760)]
+        [RequestFormLimits(MultipartBodyLengthLimit = 10_485_760)]
+        public async Task<IActionResult> UploadCccd([FromRoute] string id, [FromForm] UploadCccdRequest request)
+        {
+            var currentUserId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (currentUserId != id)
+                return StatusCode(403, APIResponse.Fail("Bạn chỉ có thể cập nhật hồ sơ của chính mình.", 403));
+
+            try
+            {
+                var result = await _tutorService.UploadCccdImagesAsync(id, request);
+                return Ok(APIResponse<CccdUploadResponse>.Success(result, "Upload ảnh CCCD thành công."));
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(APIResponse.Fail(ex.Message, 400));
+            }
+        }
+
+        /// <summary>
         /// Upload/Update tutor avatar (supports JPG, PNG up to 5MB)
         /// </summary>
         [HttpPut("{id}/profile/avatar")]

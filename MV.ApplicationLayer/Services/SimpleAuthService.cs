@@ -227,6 +227,7 @@ namespace MV.ApplicationLayer.Services
                         {
                             Studentid = userId,
                             Parentid = null,
+                            Fullname = request.FullName,
                             Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
                         });
                     }
@@ -644,6 +645,7 @@ namespace MV.ApplicationLayer.Services
                 {
                     Studentid = userId,
                     Parentid = null,
+                    Fullname = request.FullName,
                     Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
                 });
             }

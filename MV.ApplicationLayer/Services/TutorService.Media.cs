@@ -59,6 +59,35 @@ namespace MV.ApplicationLayer.Services
                 System.Text.RegularExpressions.RegexOptions.IgnoreCase);
         }
 
+        // ─── CCCD Upload ─────────────────────────────────────────────────────
+
+        /// <summary>Upload CCCD front and back images, save URLs to user profile.</summary>
+        public async Task<CccdUploadResponse> UploadCccdImagesAsync(string userId, UploadCccdRequest request)
+        {
+            ValidateCccdImageFile(request.FrontImage, "mặt trước");
+            ValidateCccdImageFile(request.BackImage, "mặt sau");
+
+            var user = await _unitOfWork.UserRepository.GetUserByIdAsync(userId)
+                ?? throw new ArgumentException("Không tìm thấy người dùng.");
+
+            var frontUrl = await _storageService.UploadFileAsync(CccdBucket, userId + "/front", request.FrontImage);
+            var backUrl  = await _storageService.UploadFileAsync(CccdBucket, userId + "/back",  request.BackImage);
+
+            user.Idcardfronturl = frontUrl;
+            user.Idcardbackurl  = backUrl;
+
+            await _unitOfWork.UserRepository.UpdateUserAsync(user);
+            await _unitOfWork.SaveChangesAsync();
+
+            _logger.LogInformation("CCCD uploaded for user {UserId}: front={Front}, back={Back}", userId, frontUrl, backUrl);
+
+            return new CccdUploadResponse
+            {
+                FrontImageUrl = frontUrl,
+                BackImageUrl  = backUrl
+            };
+        }
+
         // ─── Private helpers ─────────────────────────────────────────────────
 
         private static void ValidateImageFile(IFormFile file)
@@ -67,15 +96,25 @@ namespace MV.ApplicationLayer.Services
             var extension = Path.GetExtension(file.FileName).ToLowerInvariant();
 
             if (!allowedExtensions.Contains(extension))
-            {
                 throw new ArgumentException("Chỉ chấp nhận ảnh JPG và PNG cho ảnh đại diện");
-            }
 
-            // 5MB limit
             if (file.Length > 5 * 1024 * 1024)
-            {
                 throw new ArgumentException("Ảnh đại diện phải nhỏ hơn 5MB");
-            }
+        }
+
+        private static void ValidateCccdImageFile(IFormFile file, string side)
+        {
+            if (file == null || file.Length == 0)
+                throw new ArgumentException($"Ảnh CCCD {side} không được để trống.");
+
+            var allowedExtensions = new[] { ".jpg", ".jpeg", ".png" };
+            var extension = Path.GetExtension(file.FileName).ToLowerInvariant();
+
+            if (!allowedExtensions.Contains(extension))
+                throw new ArgumentException($"Ảnh CCCD {side} chỉ chấp nhận định dạng JPG, JPEG hoặc PNG.");
+
+            if (file.Length > 5 * 1024 * 1024)
+                throw new ArgumentException($"Ảnh CCCD {side} phải nhỏ hơn 5MB.");
         }
     }
 }
