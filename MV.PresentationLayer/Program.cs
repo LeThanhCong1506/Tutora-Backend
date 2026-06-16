@@ -1,6 +1,7 @@
 using FirebaseAdmin;
 using Google.Apis.Auth.OAuth2;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
@@ -18,6 +19,7 @@ using Hangfire.PostgreSql;
 using MV.DomainLayer.Configuration;
 using MV.DomainLayer.Interfaces;
 using MV.DomainLayer.Settings;
+using MV.DomainLayer.DTO;
 using MV.InfrastructureLayer;
 using MV.InfrastructureLayer.DBContext;
 using MV.InfrastructureLayer.ExternalServices;
@@ -111,6 +113,68 @@ builder.Services.AddControllers()
         // thì sẽ được convert đúng. Nếu không có timezone thì coi như UTC.
         // Note: Nếu muốn frontend gửi local time (VN) thì cần gửi với offset: "2026-06-10T14:00:00+07:00"
     });
+
+builder.Services.Configure<ApiBehaviorOptions>(options =>
+{
+    options.InvalidModelStateResponseFactory = context =>
+    {
+        var hasPayloadErrors = context.ModelState.Keys
+            .Any(key => key == "$" || key.StartsWith("$."));
+
+        var errors = context.ModelState
+            .Where(entry => entry.Value?.Errors.Count > 0)
+            .Where(entry => !hasPayloadErrors || !entry.Key.Equals("request", StringComparison.OrdinalIgnoreCase))
+            .Select(entry => new
+            {
+                Key = NormalizeModelStateKey(entry.Key),
+                Errors = entry.Value!.Errors
+                    .Select(error => NormalizeValidationError(entry.Key, error.ErrorMessage))
+            })
+            .GroupBy(entry => entry.Key)
+            .ToDictionary(
+                group => group.Key,
+                group => group.SelectMany(entry => entry.Errors).Distinct().ToArray());
+
+        return new BadRequestObjectResult(
+            APIResponse<object>.Fail("Dữ liệu đầu vào không hợp lệ.", 400, errors));
+    };
+});
+
+static string NormalizeModelStateKey(string key)
+{
+    if (string.IsNullOrWhiteSpace(key))
+        return "body";
+
+    if (key == "$")
+        return "body";
+
+    return key.Length > 2 && key.StartsWith("$.")
+        ? char.ToLowerInvariant(key[2]) + key[3..]
+        : char.ToLowerInvariant(key[0]) + key[1..];
+}
+
+static string NormalizeValidationError(string key, string message)
+{
+    if (key.Equals("$.birthdate", StringComparison.OrdinalIgnoreCase) ||
+        key.Equals("Birthdate", StringComparison.OrdinalIgnoreCase))
+    {
+        return "Birthdate must be a valid date in yyyy-MM-dd format.";
+    }
+
+    if (key.Equals("$.gender", StringComparison.OrdinalIgnoreCase) ||
+        key.Equals("Gender", StringComparison.OrdinalIgnoreCase))
+    {
+        return "Gender must be a valid value.";
+    }
+
+    if (message.Contains("The request field is required.", StringComparison.OrdinalIgnoreCase))
+        return "Request body is required.";
+
+    if (message.Contains("could not be converted", StringComparison.OrdinalIgnoreCase))
+        return "Invalid value format.";
+
+    return message;
+}
 
 var signalRBuilder = builder.Services.AddSignalR(options =>
 {
