@@ -276,12 +276,19 @@ namespace MV.ApplicationLayer.Services
                 Isactive = true,
                 Createdat = now,
                 Updatedat = now,
-                Tutorpackagefixedslots = request.FixedSlots.Select(s => new Tutorpackagefixedslot
+                Tutorpackagefixedslots = request.FixedSlots.Select(s =>
                 {
-                    Dayofweek = s.DayOfWeek,
-                    Starttime = TimeOnly.Parse(s.StartTime),
-                    Endtime = TimeOnly.Parse(s.EndTime),
-                    Createdat = now
+                    var localStart = TimeOnly.Parse(s.StartTime);
+                    var localEnd   = TimeOnly.Parse(s.EndTime);
+                    var (utcDay, utcStart) = MV.DomainLayer.Helpers.TimeZoneHelper.ShiftToUtc(s.DayOfWeek, localStart, "Asia/Ho_Chi_Minh");
+                    var (_, utcEnd)        = MV.DomainLayer.Helpers.TimeZoneHelper.ShiftToUtc(s.DayOfWeek, localEnd, "Asia/Ho_Chi_Minh");
+                    return new Tutorpackagefixedslot
+                    {
+                        Dayofweek = utcDay,
+                        Starttime = utcStart,
+                        Endtime   = utcEnd,
+                        Createdat = now
+                    };
                 }).ToList()
             };
 
@@ -597,15 +604,20 @@ namespace MV.ApplicationLayer.Services
                 PackageType = package.Packagetype,
                 IsActive = package.Isactive,
                 FixedSlots = package.Tutorpackagefixedslots
-                    .OrderBy(s => s.Dayofweek)
-                    .ThenBy(s => s.Starttime)
-                    .Select(s => new TutorPackageFixedSlotResponse
+                    .Select(s =>
                     {
-                        FixedSlotId = s.Fixedslotid,
-                        DayOfWeek = s.Dayofweek,
-                        StartTime = s.Starttime.ToString("HH:mm"),
-                        EndTime = s.Endtime.ToString("HH:mm")
+                        var (vnDay, vnStart) = MV.DomainLayer.Helpers.TimeZoneHelper.ShiftToUserTime(s.Dayofweek, s.Starttime, "Asia/Ho_Chi_Minh");
+                        var (_, vnEnd)       = MV.DomainLayer.Helpers.TimeZoneHelper.ShiftToUserTime(s.Dayofweek, s.Endtime, "Asia/Ho_Chi_Minh");
+                        return new TutorPackageFixedSlotResponse
+                        {
+                            FixedSlotId = s.Fixedslotid,
+                            DayOfWeek   = vnDay,
+                            StartTime   = vnStart.ToString("HH:mm"),
+                            EndTime     = vnEnd.ToString("HH:mm")
+                        };
                     })
+                    .OrderBy(s => s.DayOfWeek)
+                    .ThenBy(s => s.StartTime)
                     .ToList()
             };
         }

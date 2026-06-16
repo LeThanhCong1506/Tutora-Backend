@@ -507,9 +507,16 @@ public partial class BookingService(
         var startDateVn = TimeZoneHelper.ToUserTime(TimeZoneHelper.ToUtc(startDate)).Date;
         var todayVn = TimeZoneHelper.ToUserTime(TimeZoneHelper.UtcNow).Date;
         var currentDate = startDateVn >= todayVn ? startDateVn : todayVn;
-        var fixedSlots = package.Tutorpackagefixedslots
-            .OrderBy(s => s.Dayofweek)
-            .ThenBy(s => s.Starttime)
+        // Fixed slots are stored in UTC. Convert to VN (Asia/Ho_Chi_Minh) for day-of-week iteration.
+        var fixedSlotsVn = package.Tutorpackagefixedslots
+            .Select(s =>
+            {
+                var (vnDay, vnStart) = MV.DomainLayer.Helpers.TimeZoneHelper.ShiftToUserTime(s.Dayofweek, s.Starttime, "Asia/Ho_Chi_Minh");
+                var (_, vnEnd)       = MV.DomainLayer.Helpers.TimeZoneHelper.ShiftToUserTime(s.Dayofweek, s.Endtime, "Asia/Ho_Chi_Minh");
+                return (vnDay, vnStart, vnEnd);
+            })
+            .OrderBy(s => s.vnDay)
+            .ThenBy(s => s.vnStart)
             .ToList();
         var result = new List<LessonSlot>();
 
@@ -518,17 +525,17 @@ public partial class BookingService(
             // Convert C# DayOfWeek (0=Sunday, 1=Monday...) to ISO format (1=Monday, 7=Sunday)
             var isoDayOfWeek = currentDate.DayOfWeek == DayOfWeek.Sunday ? 7 : (int)currentDate.DayOfWeek;
 
-            foreach (var fixedSlot in fixedSlots.Where(s => s.Dayofweek == isoDayOfWeek))
+            foreach (var (slotDay, slotStart, slotEnd) in fixedSlotsVn.Where(s => s.vnDay == isoDayOfWeek))
             {
                 if (result.Count >= totalSessions) break;
 
                 var start = new DateTime(currentDate.Year, currentDate.Month, currentDate.Day,
-                    fixedSlot.Starttime.Hour, fixedSlot.Starttime.Minute, 0, DateTimeKind.Unspecified);
+                    slotStart.Hour, slotStart.Minute, 0, DateTimeKind.Unspecified);
                 var end = new DateTime(currentDate.Year, currentDate.Month, currentDate.Day,
-                    fixedSlot.Endtime.Hour, fixedSlot.Endtime.Minute, 0, DateTimeKind.Unspecified);
+                    slotEnd.Hour, slotEnd.Minute, 0, DateTimeKind.Unspecified);
                 result.Add(new LessonSlot(
-                    MV.DomainLayer.Helpers.TimeZoneHelper.ToUtc(start),
-                    MV.DomainLayer.Helpers.TimeZoneHelper.ToUtc(end)));
+                    MV.DomainLayer.Helpers.TimeZoneHelper.ToUtc(start, "Asia/Ho_Chi_Minh"),
+                    MV.DomainLayer.Helpers.TimeZoneHelper.ToUtc(end, "Asia/Ho_Chi_Minh")));
             }
 
             currentDate = currentDate.AddDays(1);
