@@ -24,17 +24,20 @@ namespace MV.PresentationLayer.Controllers
         }
 
         /// <summary>
-        /// Upload video introduction file
+        /// Cập nhật link video giới thiệu (YouTube)
         /// </summary>
-        [RequestSizeLimit(104_857_600)] // 100 MB
-        [RequestFormLimits(MultipartBodyLengthLimit = 104_857_600)] // 100 MB
         [HttpPut("{id}/profile/video")]
-        public async Task<IActionResult> UpdateVideo([FromRoute] string id, [FromForm] UpdateTutorVideoRequest request)
+        public async Task<IActionResult> UpdateVideo([FromRoute] string id, [FromBody] UpdateTutorVideoRequest request)
         {
             var currentUserId = User.FindFirstValue(ClaimTypes.NameIdentifier);
             if (currentUserId != id)
             {
                 return StatusCode(403, APIResponse.Fail(ApiMessages.Forbidden, 403));
+            }
+
+            if (!ModelState.IsValid)
+            {
+                return BadRequest(APIResponse<object>.Fail(ApiMessages.InvalidRequestData, 400, ModelState));
             }
 
             try
