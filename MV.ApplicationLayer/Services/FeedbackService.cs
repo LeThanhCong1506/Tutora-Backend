@@ -90,7 +90,7 @@ public class FeedbackService : IFeedbackService
             Comment = request.Comment,
             ParentName = (await _context.Users.FindAsync(fromUserId))?.Fullname,
             IsVisible = true,
-            CreatedAt = TimeZoneHelper.ToUserTime(feedback.Createdat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow)
+            CreatedAt = feedback.Createdat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
         };
     }
 
@@ -123,9 +123,9 @@ public class FeedbackService : IFeedbackService
             Comment = feedback.Comment,
             ParentName = feedback.Fromuser?.Fullname,
             Reply = feedback.Replycomment,
-            RepliedAt = feedback.Repliedat.HasValue ? TimeZoneHelper.ToUserTime(feedback.Repliedat.Value) : (DateTime?)null,
+            RepliedAt = feedback.Repliedat,
             IsVisible = feedback.Isvisible ?? true,
-            CreatedAt = TimeZoneHelper.ToUserTime(feedback.Createdat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow)
+            CreatedAt = feedback.Createdat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
         };
     }
 
@@ -175,9 +175,9 @@ public class FeedbackService : IFeedbackService
             ParentAvatarUrl = f.ParentAvatarUrl,
             SubjectName = f.SubjectName,
             Reply = f.Reply,
-            RepliedAt = f.RepliedAt.HasValue ? TimeZoneHelper.ToUserTime(f.RepliedAt.Value) : (DateTime?)null,
+            RepliedAt = f.RepliedAt,
             IsVisible = f.IsVisible ?? true,
-            CreatedAt = TimeZoneHelper.ToUserTime(f.Createdat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow)
+            CreatedAt = f.Createdat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
         }).ToList();
 
         return new PagedList<FeedbackListResponse>(feedbacks, totalCount, page, pageSize);
@@ -363,7 +363,7 @@ public class FeedbackService : IFeedbackService
             Comment = request.Comment,
             ParentName = (await _context.Users.FindAsync(fromUserId))?.Fullname,
             IsVisible = true,
-            CreatedAt = TimeZoneHelper.ToUserTime(feedback.Createdat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow)
+            CreatedAt = feedback.Createdat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
         };
     }
 

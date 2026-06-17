@@ -40,10 +40,10 @@ public class ChatService(
             SenderAvatarUrl = m.Sender?.Avatarurl,
             Content = m.Content ?? string.Empty,
             MessageType = m.Messagetype ?? ChatMessageType.Text,
-            CreatedAt = m.Createdat.HasValue ? TimeZoneHelper.ToUserTime(m.Createdat.Value) : (DateTime?)null,
+            CreatedAt = m.Createdat,
             Metadata = string.IsNullOrEmpty(m.Metadata) ? null : JsonSerializer.Deserialize<object>(m.Metadata),
             IsRead = m.Isread ?? false,
-            ReadAt = m.Readat.HasValue ? TimeZoneHelper.ToUserTime(m.Readat.Value) : (DateTime?)null
+            ReadAt = m.Readat
         }).ToList();
 
         return new PagedList<ChatMessageResponse>(messageDtos, total, page, pageSize);
@@ -90,7 +90,7 @@ public class ChatService(
                 OtherUserName = otherUserName,
                 OtherUserAvatarUrl = otherUserAvatarUrl,
                 Status = channel.Status,
-                LastMessageAt = channel.Lastmessageat.HasValue ? TimeZoneHelper.ToUserTime(channel.Lastmessageat.Value) : (DateTime?)null,
+                LastMessageAt = channel.Lastmessageat,
                 LastMessagePreview = lastMessagePreview,
                 UnreadCount = unreadCount
             });
@@ -138,7 +138,7 @@ public class ChatService(
             SenderAvatarUrl = sender?.Avatarurl,
             Content = message.Content ?? string.Empty,
             MessageType = message.Messagetype ?? ChatMessageType.Text,
-            CreatedAt = message.Createdat.HasValue ? TimeZoneHelper.ToUserTime(message.Createdat.Value) : (DateTime?)null,
+            CreatedAt = message.Createdat,
             Metadata = dto.Metadata,
             IsRead = false,
             ReadAt = null

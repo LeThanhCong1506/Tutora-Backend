@@ -335,10 +335,10 @@ namespace MV.ApplicationLayer.Services
             // Normalize timezone
             var startUtc = startDate.Kind == DateTimeKind.Utc 
                 ? startDate 
-                : TimeZoneHelper.ToUtc(startDate);
+                : DateTime.SpecifyKind(startDate, DateTimeKind.Utc);
             var endUtc = endDate.Kind == DateTimeKind.Utc 
                 ? endDate 
-                : TimeZoneHelper.ToUtc(endDate);
+                : DateTime.SpecifyKind(endDate, DateTimeKind.Utc);
 
             var lessons = await _context.Lessons
                 .Where(l => l.Tutorid == tutorId && l.Scheduledstart >= startUtc && l.Scheduledstart <= endUtc)
@@ -377,11 +377,11 @@ namespace MV.ApplicationLayer.Services
                 foreach (var lesson in lessons)
                 {
                     worksheet.Cell(row, 1).Value = lesson.Lessonid;
-                    worksheet.Cell(row, 2).Value = MV.DomainLayer.Helpers.TimeZoneHelper.ToUserTime(lesson.Scheduledstart).ToString("dd/MM/yyyy HH:mm");
+                    worksheet.Cell(row, 2).Value = lesson.Scheduledstart.ToString("dd/MM/yyyy HH:mm");
                     worksheet.Cell(row, 3).Value = lesson.Student?.Fullname ?? DisplayValues.NotAvailable;
                     worksheet.Cell(row, 4).Value = lesson.Booking?.Subject?.Subjectname ?? DisplayValues.NotAvailable;
-                    worksheet.Cell(row, 5).Value = MV.DomainLayer.Helpers.TimeZoneHelper.ToUserTime(lesson.Checkintime)?.ToString("HH:mm") ?? "-";
-                    worksheet.Cell(row, 6).Value = MV.DomainLayer.Helpers.TimeZoneHelper.ToUserTime(lesson.Checkouttime)?.ToString("HH:mm") ?? "-";
+                    worksheet.Cell(row, 5).Value = lesson.Checkintime?.ToString("HH:mm") ?? "-";
+                    worksheet.Cell(row, 6).Value = lesson.Checkouttime?.ToString("HH:mm") ?? "-";
                     worksheet.Cell(row, 7).Value = lesson.Lessoncontent ?? lesson.Lessonreport?.Contentcovered ?? "";
                     worksheet.Cell(row, 8).Value = lesson.Homework ?? lesson.Lessonreport?.Homeworkassigned ?? "";
                     worksheet.Cell(row, 9).Value = lesson.Tutornotes ?? "";
@@ -424,10 +424,10 @@ namespace MV.ApplicationLayer.Services
             // Normalize timezone
             var startUtc = startDate.Kind == DateTimeKind.Utc 
                 ? startDate 
-                : TimeZoneHelper.ToUtc(startDate);
+                : DateTime.SpecifyKind(startDate, DateTimeKind.Utc);
             var endUtc = endDate.Kind == DateTimeKind.Utc 
                 ? endDate 
-                : TimeZoneHelper.ToUtc(endDate);
+                : DateTime.SpecifyKind(endDate, DateTimeKind.Utc);
 
             // Get tutor's wallet
             var wallet = await _context.Wallets
@@ -506,7 +506,7 @@ namespace MV.ApplicationLayer.Services
                 int row = 7;
                 foreach (var trans in transactions)
                 {
-                    worksheet.Cell(row, 1).Value = trans.Createdat.HasValue ? MV.DomainLayer.Helpers.TimeZoneHelper.ToUserTime(trans.Createdat.Value).ToString("dd/MM/yyyy HH:mm") : "-";
+                    worksheet.Cell(row, 1).Value = trans.Createdat.HasValue ? trans.Createdat.Value.ToString("dd/MM/yyyy HH:mm") : "-";
                     worksheet.Cell(row, 2).Value = trans.Transactiontype ?? DisplayValues.NotAvailable;
                     worksheet.Cell(row, 3).Value = trans.Referenceid?.ToString() ?? "-";
                     worksheet.Cell(row, 4).Value = trans.Amount ?? 0;
@@ -550,10 +550,10 @@ namespace MV.ApplicationLayer.Services
             // Normalize timezone
             var startUtc = startDate.Kind == DateTimeKind.Utc 
                 ? startDate 
-                : TimeZoneHelper.ToUtc(startDate);
+                : DateTime.SpecifyKind(startDate, DateTimeKind.Utc);
             var endUtc = endDate.Kind == DateTimeKind.Utc 
                 ? endDate 
-                : TimeZoneHelper.ToUtc(endDate);
+                : DateTime.SpecifyKind(endDate, DateTimeKind.Utc);
 
             var feedbacks = await _context.Feedbacks
                 .Where(f => f.Touserid == tutorId && f.Createdat >= startUtc && f.Createdat <= endUtc && f.Isvisible == true)
@@ -611,7 +611,7 @@ namespace MV.ApplicationLayer.Services
                 int row = 6;
                 foreach (var feedback in feedbacks)
                 {
-                    worksheet.Cell(row, 1).Value = feedback.Createdat.HasValue ? MV.DomainLayer.Helpers.TimeZoneHelper.ToUserTime(feedback.Createdat.Value).ToString("dd/MM/yyyy") : "-";
+                    worksheet.Cell(row, 1).Value = feedback.Createdat.HasValue ? feedback.Createdat.Value.ToString("dd/MM/yyyy") : "-";
                     worksheet.Cell(row, 2).Value = feedback.Fromuser?.Fullname ?? DisplayValues.NotAvailable;
                     worksheet.Cell(row, 3).Value = feedback.Lesson?.Student?.Fullname ?? DisplayValues.NotAvailable;
                     worksheet.Cell(row, 4).Value = feedback.Booking?.Subject?.Subjectname ?? feedback.Lesson?.Booking?.Subject?.Subjectname ?? DisplayValues.NotAvailable;
@@ -625,7 +625,7 @@ namespace MV.ApplicationLayer.Services
 
                     worksheet.Cell(row, 6).Value = feedback.Comment ?? "";
                     worksheet.Cell(row, 7).Value = feedback.Replycomment ?? "";
-                    worksheet.Cell(row, 8).Value = feedback.Repliedat.HasValue ? MV.DomainLayer.Helpers.TimeZoneHelper.ToUserTime(feedback.Repliedat.Value).ToString("dd/MM/yyyy") : "-";
+                    worksheet.Cell(row, 8).Value = feedback.Repliedat.HasValue ? feedback.Repliedat.Value.ToString("dd/MM/yyyy") : "-";
                     row++;
                 }
 
