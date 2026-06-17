@@ -33,8 +33,7 @@ using System.Text;
 // Npgsql Legacy Timestamp Mode
 // Giữ lại để tương thích với DB hiện tại dùng `timestamp without time zone`.
 // Mọi DateTime GHI xuống DB phải là UTC (dùng TimeZoneHelper.UtcNow).
-// Mọi DateTime ĐỌC từ DB sẽ được tự động gắn Kind=Utc bởi ValueConverter trong AgoraDbContext.
-// Frontend chịu trách nhiệm gửi header X-Timezone để backend convert khi trả response.
+// Mọi DateTime ĐỌC từ DB trả về UTC+0 — Frontend tự convert sang timezone hiển thị.
 AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
 
 var builder = WebApplication.CreateBuilder(args);
@@ -257,9 +256,7 @@ builder.Services.AddScoped<ILessonService, LessonService>();
 builder.Services.AddScoped<ITencentRTCService, TencentRTCService>();
 builder.Services.AddScoped<ITutorFinanceService, TutorFinanceService>();
 
-// Timezone Accessor
 builder.Services.AddHttpContextAccessor();
-builder.Services.AddScoped<MV.ApplicationLayer.Interfaces.ITimezoneAccessor, MV.PresentationLayer.Helpers.HttpTimezoneAccessor>();
 
 // M3: Lesson Management & Settlement
 builder.Services.AddScoped<ISettlementService, SettlementService>();
@@ -438,9 +435,6 @@ app.UseRouting();
 
 // CORS phải đứng SAU UseRouting và TRƯỚC UseAuthentication/UseAuthorization
 app.UseCors("AllowReactApp");
-
-// Timezone Middleware (đặt sau CORS để có thể đọc được header)
-app.UseMiddleware<MV.PresentationLayer.Middlewares.TimezoneMiddleware>();
 
 // Middleware xử lý lỗi
 app.UseMiddleware<ExceptionHandlingMiddleware>();

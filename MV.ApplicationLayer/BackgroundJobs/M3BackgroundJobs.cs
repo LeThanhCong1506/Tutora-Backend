@@ -278,7 +278,7 @@ public class LessonReminderJob : BackgroundService
                     });
 
                     // Zalo ZNS reminder (only if user has Zalo linked + notifications enabled)
-                    var vnTime = TimeZoneHelper.ToUserTime(lesson.Scheduledstart).ToString("HH:mm dd/MM");
+                    var vnTime = lesson.Scheduledstart.ToString("HH:mm dd/MM");
                     await zaloOAService.SendNotificationAsync(
                         parentId,
                         NotificationType.LessonReminder,

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using MV.ApplicationLayer.Interfaces;
 using MV.DomainLayer.Entities;
 using Microsoft.EntityFrameworkCore;
@@ -1972,7 +1972,6 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
         // Vì DB dùng `timestamp without time zone` + EnableLegacyTimestampBehavior,
         // EF Core đọc DateTime ra với Kind = Unspecified.
         // Convention này đảm bảo tất cả DateTime/DateTime? từ DB đều có Kind = Utc
-        // để TimeZoneHelper.ToUserTime() hoạt động đúng.
         foreach (var entityType in modelBuilder.Model.GetEntityTypes())
         {
             foreach (var property in entityType.GetProperties())
