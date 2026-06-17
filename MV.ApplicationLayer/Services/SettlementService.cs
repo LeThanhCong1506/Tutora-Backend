@@ -355,7 +355,6 @@ public class SettlementService : ISettlementService
     {
         var now = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 
-        // Load entities first, then project in memory to use MV.DomainLayer.Helpers.TimeZoneHelper.ToUserTime()
         var lessons = await _context.Lessons
             .AsNoTracking()
             .Where(l => l.Status == PendingConfirmation && l.Issettled != true)
@@ -373,10 +372,10 @@ public class SettlementService : ISettlementService
         {
             LessonId = l.Lessonid,
             BookingId = l.Bookingid,
-            ScheduledStart = MV.DomainLayer.Helpers.TimeZoneHelper.ToUserTime(l.Scheduledstart),
-            ScheduledEnd = MV.DomainLayer.Helpers.TimeZoneHelper.ToUserTime(l.Scheduledend),
-            SubmittedAt = MV.DomainLayer.Helpers.TimeZoneHelper.ToUserTime(l.Submittedat),
-            ConfirmDeadline = MV.DomainLayer.Helpers.TimeZoneHelper.ToUserTime(l.Confirmdeadline),
+            ScheduledStart = l.Scheduledstart,
+            ScheduledEnd = l.Scheduledend,
+            SubmittedAt = l.Submittedat,
+            ConfirmDeadline = l.Confirmdeadline,
             TutorName = l.Tutor?.Tutor?.Fullname,
             TutorAvatarUrl = l.Tutor?.Tutor?.Avatarurl,
             StudentName = l.Booking?.Student?.Fullname,

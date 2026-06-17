@@ -213,7 +213,7 @@ public partial class LessonService
         // Normalize timezone: nếu frontend gửi UTC thì convert sang UTC, nếu Unspecified thì coi như user time
         var scheduledStartUtc = newScheduledStart.Kind == DateTimeKind.Utc 
             ? newScheduledStart 
-            : TimeZoneHelper.ToUtc(newScheduledStart);
+            : DateTime.SpecifyKind(newScheduledStart, DateTimeKind.Utc);
 
         var makeupLesson = new Lesson
         {

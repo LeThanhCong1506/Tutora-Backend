@@ -278,15 +278,12 @@ namespace MV.ApplicationLayer.Services
                 Updatedat = now,
                 Tutorpackagefixedslots = request.FixedSlots.Select(s =>
                 {
-                    var localStart = TimeOnly.Parse(s.StartTime);
-                    var localEnd   = TimeOnly.Parse(s.EndTime);
-                    var (utcDay, utcStart) = MV.DomainLayer.Helpers.TimeZoneHelper.ShiftToUtc(s.DayOfWeek, localStart, "Asia/Ho_Chi_Minh");
-                    var (_, utcEnd)        = MV.DomainLayer.Helpers.TimeZoneHelper.ShiftToUtc(s.DayOfWeek, localEnd, "Asia/Ho_Chi_Minh");
+                    // FE sends UTC — use directly, no conversion needed
                     return new Tutorpackagefixedslot
                     {
-                        Dayofweek = utcDay,
-                        Starttime = utcStart,
-                        Endtime   = utcEnd,
+                        Dayofweek = s.DayOfWeek,
+                        Starttime = TimeOnly.Parse(s.StartTime),
+                        Endtime   = TimeOnly.Parse(s.EndTime),
                         Createdat = now
                     };
                 }).ToList()
@@ -470,19 +467,10 @@ namespace MV.ApplicationLayer.Services
         /// </summary>
         private static List<int> BuildContiguousBlocksInMinutes(List<MV.DomainLayer.Entities.Tutoravailability> slots)
         {
-            const string tz = "Asia/Ho_Chi_Minh";
-
-            // Convert each slot to local (day, start, end)
+            // Slots are stored in UTC — FE handles display conversion, group by UTC day
             var localSlots = slots
                 .Where(s => s.Starttime.HasValue && s.Endtime.HasValue && s.Dayofweek.HasValue)
-                .Select(s =>
-                {
-                    var (localDay, localStart) = MV.DomainLayer.Helpers.TimeZoneHelper.ShiftToUserTime(
-                        s.Dayofweek!.Value, s.Starttime!.Value, tz);
-                    var (_, localEnd) = MV.DomainLayer.Helpers.TimeZoneHelper.ShiftToUserTime(
-                        s.Dayofweek!.Value, s.Endtime!.Value, tz);
-                    return (localDay, localStart, localEnd);
-                })
+                .Select(s => (localDay: s.Dayofweek!.Value, localStart: s.Starttime!.Value, localEnd: s.Endtime!.Value))
                 .GroupBy(s => s.localDay)
                 .ToList();
 
@@ -604,17 +592,12 @@ namespace MV.ApplicationLayer.Services
                 PackageType = package.Packagetype,
                 IsActive = package.Isactive,
                 FixedSlots = package.Tutorpackagefixedslots
-                    .Select(s =>
+                    .Select(s => new TutorPackageFixedSlotResponse
                     {
-                        var (vnDay, vnStart) = MV.DomainLayer.Helpers.TimeZoneHelper.ShiftToUserTime(s.Dayofweek, s.Starttime, "Asia/Ho_Chi_Minh");
-                        var (_, vnEnd)       = MV.DomainLayer.Helpers.TimeZoneHelper.ShiftToUserTime(s.Dayofweek, s.Endtime, "Asia/Ho_Chi_Minh");
-                        return new TutorPackageFixedSlotResponse
-                        {
-                            FixedSlotId = s.Fixedslotid,
-                            DayOfWeek   = vnDay,
-                            StartTime   = vnStart.ToString("HH:mm"),
-                            EndTime     = vnEnd.ToString("HH:mm")
-                        };
+                        FixedSlotId = s.Fixedslotid,
+                        DayOfWeek   = s.Dayofweek,
+                        StartTime   = s.Starttime.ToString("HH:mm"),
+                        EndTime     = s.Endtime.ToString("HH:mm")
                     })
                     .OrderBy(s => s.DayOfWeek)
                     .ThenBy(s => s.StartTime)

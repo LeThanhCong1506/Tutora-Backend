@@ -493,9 +493,7 @@ namespace MV.ApplicationLayer.Services
                 Type = notification.Type,
                 Referenceid = notification.Referenceid,
                 Isread = notification.Isread,
-                Createdat = notification.Createdat.HasValue
-                                     ? TimeZoneHelper.ToUserTime(notification.Createdat.Value)
-                                     : (DateTime?)null,
+                Createdat = notification.Createdat,
                 // Username có thể null nếu user đăng ký bằng email/phone — fallback về Fullname
                 Username     = notification.User?.Username ?? notification.User?.Fullname,
                 UserFullname = notification.User?.Fullname
