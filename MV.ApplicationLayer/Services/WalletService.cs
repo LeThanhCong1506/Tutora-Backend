@@ -160,7 +160,7 @@ public class WalletService(
             Balance = bal,
             FrozenBalance = frz,
             TotalBalance = bal + frz,
-            LastUpdated = w != null && w.Lastupdated
+            LastUpdated = w != null ? w.Lastupdated : null
         };
     }
 

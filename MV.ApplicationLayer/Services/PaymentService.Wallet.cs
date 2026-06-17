@@ -177,7 +177,7 @@ public partial class PaymentService
         {
             Balance = wallet?.Balance ?? 0,
             FrozenBalance = wallet?.Frozenbalance ?? 0,
-            LastUpdated = wallet != null && wallet.Lastupdated
+            LastUpdated = wallet != null ? wallet.Lastupdated : null
         };
     }
 

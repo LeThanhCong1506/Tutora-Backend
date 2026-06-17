@@ -117,7 +117,7 @@ namespace MV.ApplicationLayer.Services
             return Task.FromResult(new IdentityCardSection
             {
                 Status = isComplete ? SectionStatus.Updated : SectionStatus.InProgress,
-                UpdatedAt = isComplete && user.Createdat,
+                UpdatedAt = isComplete ? user.Createdat : null,
                 FrontImageUrl = user.Idcardfronturl,
                 BackImageUrl = user.Idcardbackurl,
                 IsVerified = user.Isidentityverified ?? false
