@@ -239,7 +239,7 @@ public class AiChatService(
 
     private static AiChatSessionResponse ToSessionResponse(ChatSession s) => new()
     {
-        SessionId = s.SessionId,
+        SessionId = s.SessionId.ToString(),
         SessionType = s.SessionType,
         Title = s.Title,
         IsActive = s.IsActive ?? true,
@@ -263,8 +263,8 @@ public class AiChatService(
 
     private AiChatMessageResponse ToMessageResponse(ChatHistory m) => new()
     {
-        MessageId = m.MessageId,
-        SessionId = m.SessionId,
+        MessageId = m.MessageId.ToString(),
+        SessionId = m.SessionId.ToString(),
         Role = m.Role,
         Content = m.Content,
         ImageUrl = m.ImageUrl,
