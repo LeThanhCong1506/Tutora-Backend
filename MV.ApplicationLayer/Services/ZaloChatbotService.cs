@@ -38,8 +38,8 @@ public class ZaloChatbotService : IZaloChatbotService
         var sessionKey = $"zalo:chat:{senderZaloId}";
         var sessionJson = await db.StringGetAsync(sessionKey);
         var session = sessionJson.HasValue
-            ? JsonSerializer.Deserialize<ChatSession>(sessionJson!) ?? new ChatSession()
-            : new ChatSession();
+            ? JsonSerializer.Deserialize<ZaloChatState>(sessionJson!) ?? new ZaloChatState()
+            : new ZaloChatState();
 
         var text = messageText.Trim();
 
@@ -106,7 +106,7 @@ public class ZaloChatbotService : IZaloChatbotService
         }
     }
 
-    private async Task SearchAndReplyAsync(string senderZaloId, ChatSession session)
+    private async Task SearchAndReplyAsync(string senderZaloId, ZaloChatState session)
     {
         try
         {
@@ -153,14 +153,14 @@ public class ZaloChatbotService : IZaloChatbotService
     private static bool ContainsAny(string text, params string[] keywords)
         => keywords.Any(k => text.Contains(k, StringComparison.OrdinalIgnoreCase));
 
-    private static async Task SaveSession(IDatabase db, string key, ChatSession session)
+    private static async Task SaveSession(IDatabase db, string key, ZaloChatState session)
     {
         session.UpdatedAt = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
         await db.StringSetAsync(key, JsonSerializer.Serialize(session), TimeSpan.FromMinutes(10));
     }
 }
 
-public class ChatSession
+public class ZaloChatState
 {
         public string State { get; set; } = ZaloChatbotState.Idle;
     public string? Subject { get; set; }
