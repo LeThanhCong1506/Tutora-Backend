@@ -221,7 +221,17 @@ public class ChatService(
             isStudent ? null : parentId,
             isStudent ? parentId : null);
 
-        if (existing != null) return existing.Channelid;
+        if (existing != null)
+        {
+            if (existing.Status == ChatChannelStatus.Closed)
+            {
+                existing.Status = ChatChannelStatus.Active;
+                chatRepo.UpdateChannel(existing);
+                await chatRepo.SaveChangesAsync();
+            }
+
+            return existing.Channelid;
+        }
 
         var channel = new Chatchannel
         {
@@ -242,6 +252,23 @@ public class ChatService(
         chatRepo.AddChannel(channel);
         await chatRepo.SaveChangesAsync();
         return channel.Channelid;
+    }
+
+    public async Task<int> GetOrCreateChannelForBookingAsync(string userId, int bookingId)
+    {
+        var booking = await bookingRepo.FindByIdForUserAsync(bookingId, userId)
+            ?? throw new BookingException(
+                BookingErrorCodes.BookingNotFound,
+                "Không tìm thấy booking hoặc bạn không có quyền truy cập.",
+                404);
+
+        if (string.IsNullOrWhiteSpace(booking.Parentid) || string.IsNullOrWhiteSpace(booking.Tutorid))
+            throw new BookingException(
+                BookingErrorCodes.InvalidBookingStatus,
+                "Booking chưa có đủ thông tin phụ huynh và gia sư để tạo cuộc trò chuyện.",
+                400);
+
+        return await GetOrCreateChannelAsync(booking.Parentid, booking.Tutorid);
     }
 
     public Task<int> GetUnreadTotalCountAsync(string userId)

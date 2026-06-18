@@ -50,16 +50,23 @@ public class BookingController : ControllerBase
     }
 
     /// <summary>
-    /// Trả về danh sách slot (thứ + giờ) đã được book của một gia sư trong vòng 4 tuần tính từ startDate.
+    /// Trả về các khoảng thời gian đã được book của gia sư trong cửa sổ yêu cầu.
     /// FE dùng để disable/gray-out các slot không thể chọn trên form đặt lịch.
     /// </summary>
     [HttpGet("bookings/tutor/{tutorId}/booked-slots")]
     [Authorize(Roles = UserRole.ParentOrStudent)]
-    public async Task<IActionResult> GetTutorBookedSlots(string tutorId, [FromQuery] DateTime? startDate = null)
+    public async Task<IActionResult> GetTutorBookedSlots(
+        string tutorId,
+        [FromQuery] DateTime? startDate = null,
+        [FromQuery] DateTime? endDate = null)
     {
-        var from  = startDate.HasValue ? startDate.Value : MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
-        var slots = await _bookingService.GetTutorBookedSlotsAsync(tutorId, from);
-        return Ok(APIResponse<List<ScheduleItemResponse>>.Success(slots, "Lấy lịch đã đặt thành công."));
+        var from = startDate ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
+        var to = endDate ?? from.AddMonths(2);
+        if (to <= from)
+            return BadRequest(APIResponse.Fail("endDate phải lớn hơn startDate.", 400));
+
+        var slots = await _bookingService.GetTutorBookedSlotsAsync(tutorId, from, to);
+        return Ok(APIResponse<List<BookedSlotResponse>>.Success(slots, "Lấy lịch đã đặt thành công."));
     }
 
     [HttpGet("parent/bookings")]

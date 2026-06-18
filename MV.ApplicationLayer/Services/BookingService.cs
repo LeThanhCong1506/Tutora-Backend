@@ -25,7 +25,6 @@ public partial class BookingService(
     IChatService chatService,
     ILogger<BookingService> logger) : IBookingService
 {
-    private const int WeeksPerMonth = 4;
     private const int AvailabilityValidDays = 30;
 
     public async Task<BookingResponse> CreateBookingAsync(string userId, string userRole, CreateBookingRequest dto)
@@ -370,18 +369,24 @@ public partial class BookingService(
         return true;
     }
 
-    public async Task<List<ScheduleItemResponse>> GetTutorBookedSlotsAsync(string tutorId, DateTime startDate)
+    public async Task<List<BookedSlotResponse>> GetTutorBookedSlotsAsync(
+        string tutorId,
+        DateTime startDate,
+        DateTime endDate)
     {
-        // FE sends UTC — use directly
-        var startDateUtc = startDate.Kind == DateTimeKind.Utc
-            ? startDate
-            : DateTime.SpecifyKind(startDate, DateTimeKind.Utc);
-        var fromUtc = startDateUtc;
-        var toUtc = fromUtc.AddDays(WeeksPerMonth * 7);
+        static DateTime NormalizeUtc(DateTime value) => value.Kind switch
+        {
+            DateTimeKind.Utc => value,
+            DateTimeKind.Local => value.ToUniversalTime(),
+            _ => DateTime.SpecifyKind(value, DateTimeKind.Utc)
+        };
+
+        var fromUtc = NormalizeUtc(startDate);
+        var toUtc = NormalizeUtc(endDate);
 
         var lessons = await context.Lessons
             .Where(l => l.Tutorid == tutorId
-                && l.Scheduledstart >= fromUtc
+                && l.Scheduledend > fromUtc
                 && l.Scheduledstart < toUtc
                 && l.Status != Cancelled
                 && l.Status != CancelledNoshow
@@ -390,21 +395,11 @@ public partial class BookingService(
             .OrderBy(l => l.Scheduledstart)
             .ToListAsync();
 
-        return lessons
-            .Select(l =>
-            {
-                var startVn = l.Scheduledstart;
-                var endVn = l.Scheduledend;
-                var isoDayOfWeek = startVn.DayOfWeek == DayOfWeek.Sunday ? 7 : (int)startVn.DayOfWeek;
-                return new ScheduleItemResponse
-                {
-                    DayOfWeek = isoDayOfWeek,
-                    StartTime = startVn.ToString("HH:mm"),
-                    EndTime = endVn.ToString("HH:mm")
-                };
-            })
-            .DistinctBy(s => $"{s.DayOfWeek}|{s.StartTime}|{s.EndTime}")
-            .ToList();
+        return lessons.Select(l => new BookedSlotResponse
+        {
+            ScheduledStart = DateTime.SpecifyKind(l.Scheduledstart, DateTimeKind.Utc),
+            ScheduledEnd = DateTime.SpecifyKind(l.Scheduledend, DateTimeKind.Utc)
+        }).ToList();
     }
 
 
