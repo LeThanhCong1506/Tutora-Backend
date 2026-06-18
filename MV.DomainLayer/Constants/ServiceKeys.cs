@@ -13,5 +13,6 @@ public static class ServiceKeys
         public const string VietQR = "VietQR";
         public const string ZaloOA = "ZaloOA";
         public const string ZaloZNS = "ZaloZNS";
+        public const string TutorAi = "TutorAi";
     }
 }
