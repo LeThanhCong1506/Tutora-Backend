@@ -160,7 +160,7 @@ public class WalletService(
             Balance = bal,
             FrozenBalance = frz,
             TotalBalance = bal + frz,
-            LastUpdated = w != null && w.Lastupdated.HasValue ? TimeZoneHelper.ToUserTime(w.Lastupdated.Value) : (DateTime?)null
+            LastUpdated = w != null ? w.Lastupdated : null
         };
     }
 
@@ -197,7 +197,7 @@ public class WalletService(
             Description = t.Description ?? "",
             ReferenceId = t.Referenceid,
             ReferenceTable = t.Referencetable,
-            CreatedAt = TimeZoneHelper.ToUserTime(t.Createdat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow)
+            CreatedAt = t.Createdat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
         }).ToList();
 
         return new TransactionHistoryPagedResponse

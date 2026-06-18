@@ -9,7 +9,6 @@ using MV.DomainLayer.DTO.ResponseModel;
 using MV.DomainLayer.Entities;
 using MV.ApplicationLayer.Interfaces;
 using System.Security.Claims;
-using System.Text.Json;
 
 namespace MV.PresentationLayer.Controllers
 {
@@ -24,27 +23,6 @@ namespace MV.PresentationLayer.Controllers
         {
             _userService = userService;
             _unitOfWork = unitOfWork;
-        }
-
-        [HttpGet]
-        [Authorize(Roles = UserRole.Admin)]
-        public async Task<IActionResult> GetUsers([FromQuery] UserParameters userParameters)
-        {
-            var users = await _userService.GetAllUsersAsync(userParameters);
-
-            var metadata = new
-            {
-                users.TotalCount,
-                users.PageSize,
-                users.CurrentPage,
-                users.TotalPages,
-                users.HasNext,
-                users.HasPrevious
-            };
-
-            Response.Headers.Add("X-Pagination", JsonSerializer.Serialize(metadata));
-
-            return Ok(APIResponse<PagedList<UserResponse>>.Success(users, "Lấy danh sách người dùng thành công."));
         }
 
         [HttpGet("profile")]
@@ -276,7 +254,7 @@ namespace MV.PresentationLayer.Controllers
         /// Upload/update avatar for Parent, Student or Admin users
         /// </summary>
         [HttpPut("{id}/avatar")]
-        [Authorize(Roles = UserRole.ParentOrStudentOrAdmin)]
+        [AllowAnonymous]
         public async Task<IActionResult> UpdateAvatar(string id, [FromForm] UpdateTutorAvatarRequest request)
         {
             var currentUserId = User.FindFirstValue(ClaimTypes.NameIdentifier);

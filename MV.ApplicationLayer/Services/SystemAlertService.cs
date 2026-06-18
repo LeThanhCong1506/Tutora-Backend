@@ -32,9 +32,9 @@ public class SystemAlertService(IAppDbContext context) : ISystemAlertService
             Severity = a.Severity,
             Message = a.Message,
             Resolved = a.Resolved,
-            ResolvedAt = a.Resolvedat.HasValue ? TimeZoneHelper.ToUserTime(a.Resolvedat.Value) : (DateTime?)null,
+            ResolvedAt = a.Resolvedat,
             ResolvedBy = a.Resolvedby,
-            CreatedAt = TimeZoneHelper.ToUserTime(a.Createdat)
+            CreatedAt = a.Createdat
         }).ToList();
 
         return new SystemAlertResponse

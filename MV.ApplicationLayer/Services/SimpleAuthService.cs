@@ -1,5 +1,6 @@
 ﻿using System.Security.Cryptography;
 using System.Text.Encodings.Web;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
@@ -146,47 +147,48 @@ namespace MV.ApplicationLayer.Services
                     return new TokenResponse { ErrorMessage = "Chức vụ này không cho phép tự đăng ký." };
                 }
 
-                if (!string.IsNullOrEmpty(request.Email))
-                {
-                    var existingUser = await _unitOfWork.UserRepository.GetUserByEmailAsync(request.Email);
-                    if (existingUser != null)
-                    {
-                        if (existingUser.Isemailverified == true)
-                        {
-                            return new TokenResponse { ErrorMessage = "Email đã tồn tại." };
-                        }
-                        
-                        var otpCode = RandomNumberGenerator.GetInt32(100000, 1000000).ToString();
-                        existingUser.Password = _passwordRepository.HashPassword(request.Password);
-                        existingUser.Fullname = request.FullName;
-                        if (!string.IsNullOrEmpty(request.Phone))
-                            existingUser.Phone = request.Phone;
-                        existingUser.Otpcode = otpCode;
-                        existingUser.Otpexpiresat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow.AddMinutes(10);
-                        existingUser.Otpattempts = 0;
-                        
-                        await _unitOfWork.UserRepository.UpdateUserAsync(existingUser);
-                        await _unitOfWork.SaveChangesAsync();
-                        await SendVerificationEmailAsync(request.Email, request.FullName, otpCode);
+                var existingUserByEmail = !string.IsNullOrWhiteSpace(request.Email)
+                    ? await _unitOfWork.UserRepository.GetUserByEmailAsync(request.Email)
+                    : null;
 
-                        return new TokenResponse
-                        {
-                            RequiresEmailVerification = true,
-                            Email = request.Email,
-                            ErrorMessage = string.Empty
-                        };
+                if (!string.IsNullOrWhiteSpace(request.Phone))
+                {
+                    var existingUserByPhone = await _unitOfWork.UserRepository.GetUserByPhoneAsync(request.Phone);
+                    if (existingUserByPhone != null &&
+                        (existingUserByEmail == null || existingUserByPhone.Userid != existingUserByEmail.Userid))
+                    {
+                        return new TokenResponse { ErrorMessage = "Số điện thoại đã được sử dụng." };
                     }
                 }
-                else
+
+                if (existingUserByEmail != null)
                 {
+                    if (existingUserByEmail.Isemailverified == true)
+                    {
+                        return new TokenResponse { ErrorMessage = "Email đã tồn tại." };
+                    }
+
+                    var otpCode = RandomNumberGenerator.GetInt32(100000, 1000000).ToString();
+                    existingUserByEmail.Password = _passwordRepository.HashPassword(request.Password);
+                    existingUserByEmail.Fullname = request.FullName;
                     if (!string.IsNullOrEmpty(request.Phone))
                     {
-                        var existingUser = await _unitOfWork.UserRepository.GetUserByPhoneAsync(request.Phone);
-                        if (existingUser != null)
-                        {
-                            return new TokenResponse { ErrorMessage = "Điện thoại đó đã có rồi." };
-                        }
+                        existingUserByEmail.Phone = request.Phone;
                     }
+                    existingUserByEmail.Otpcode = otpCode;
+                    existingUserByEmail.Otpexpiresat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow.AddMinutes(10);
+                    existingUserByEmail.Otpattempts = 0;
+
+                    await _unitOfWork.UserRepository.UpdateUserAsync(existingUserByEmail);
+                    await _unitOfWork.SaveChangesAsync();
+                    await SendVerificationEmailAsync(request.Email!, request.FullName, otpCode);
+
+                    return new TokenResponse
+                    {
+                        RequiresEmailVerification = true,
+                        Email = request.Email,
+                        ErrorMessage = string.Empty
+                    };
                 }
 
                 if (!string.IsNullOrWhiteSpace(request.Email) && !request.Email.EndsWith("@tutora.test"))
@@ -225,6 +227,7 @@ namespace MV.ApplicationLayer.Services
                         {
                             Studentid = userId,
                             Parentid = null,
+                            Fullname = request.FullName,
                             Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
                         });
                     }
@@ -251,6 +254,11 @@ namespace MV.ApplicationLayer.Services
                 }
 
                 return await CreateUserAndTokenAsync(request);
+            }
+            catch (DbUpdateException ex) when (IsUniquePhoneConflict(ex))
+            {
+                _logger.LogWarning(ex, "Duplicate phone while registering");
+                return new TokenResponse { ErrorMessage = "Số điện thoại đã được sử dụng." };
             }
             catch (Exception ex)
             {
@@ -597,6 +605,12 @@ namespace MV.ApplicationLayer.Services
             user.Otpattempts = 0;
         }
 
+        private static bool IsUniquePhoneConflict(DbUpdateException ex)
+        {
+            var message = $"{ex.Message} {ex.InnerException?.Message}";
+            return message.Contains("users_phone_key", StringComparison.OrdinalIgnoreCase);
+        }
+
         private async Task<TokenResponse> CreateUserAndTokenAsync(SimpleRegisterRequest request)
         {
             var requestedRole = !string.IsNullOrEmpty(request.Role) ? request.Role : UserRole.Parent;
@@ -631,6 +645,7 @@ namespace MV.ApplicationLayer.Services
                 {
                     Studentid = userId,
                     Parentid = null,
+                    Fullname = request.FullName,
                     Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
                 });
             }

@@ -628,7 +628,6 @@ CREATE TABLE public.bookings (
     tutorsubjectgradepriceid integer,
     packageid integer,
     totalsessions integer,
-    durationminutespersession integer,
     priceperhour numeric(12,2),
     totalamount numeric(12,2),
     currency character varying(10) DEFAULT 'VND'::character varying
@@ -1854,7 +1853,6 @@ CREATE TABLE public.tutoravailability (
     starttime time without time zone,
     endtime time without time zone,
     createdat timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
-    isactive boolean DEFAULT true NOT NULL,
     CONSTRAINT ck_tutoravailability_dayofweek CHECK (((dayofweek >= 1) AND (dayofweek <= 7))),
     CONSTRAINT ck_tutoravailability_time_range CHECK ((starttime < endtime))
 );
@@ -1964,13 +1962,10 @@ CREATE TABLE public.tutorpackages (
     tutorid character varying(50) NOT NULL,
     name character varying(255) NOT NULL,
     packagetype integer NOT NULL,
-    durationminutespersession integer NOT NULL,
-    description text,
     isactive boolean DEFAULT true NOT NULL,
     createdat timestamp without time zone DEFAULT now(),
     updatedat timestamp without time zone DEFAULT now(),
-    CONSTRAINT ck_tutorpackages_packagetype CHECK ((packagetype = ANY (ARRAY[1, 2]))),
-    CONSTRAINT ck_tutorpackages_duration_positive CHECK ((durationminutespersession > 0))
+    CONSTRAINT ck_tutorpackages_packagetype CHECK ((packagetype = ANY (ARRAY[1, 2])))
 );
 
 
@@ -2025,8 +2020,6 @@ CREATE TABLE public.tutorprofiles (
     updatedat timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
     rejectionnote text,
     subscriptiontype character varying(30) DEFAULT 'free'::character varying,
-    triallessonprice numeric(12,2),
-    allowpricenegotiation boolean DEFAULT false,
     deletedat timestamp without time zone,
     reviewedby character varying(255),
     reviewedat timestamp without time zone,
@@ -2045,22 +2038,8 @@ CREATE TABLE public.tutorprofiles (
 
 ALTER TABLE public.tutorprofiles OWNER TO postgres;
 
---
--- TOC entry 5831 (class 0 OID 0)
--- Dependencies: 290
--- Name: COLUMN tutorprofiles.triallessonprice; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON COLUMN public.tutorprofiles.triallessonprice IS 'Trial lesson price in VND.';
 
 
---
--- TOC entry 5832 (class 0 OID 0)
--- Dependencies: 290
--- Name: COLUMN tutorprofiles.allowpricenegotiation; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON COLUMN public.tutorprofiles.allowpricenegotiation IS 'Whether the tutor allows price negotiation';
 
 
 --
@@ -2123,7 +2102,11 @@ CREATE TABLE public.tutorsubjectgradeprices (
     isactive boolean DEFAULT true NOT NULL,
     createdat timestamp without time zone DEFAULT now(),
     updatedat timestamp without time zone DEFAULT now(),
-    CONSTRAINT ck_tutorsubjectgradeprices_priceperhour_nonnegative CHECK ((priceperhour >= (0)::numeric))
+    durationminutespersession integer DEFAULT 60 NOT NULL,
+    sessionsperweek integer DEFAULT 1 NOT NULL,
+    CONSTRAINT ck_tutorsubjectgradeprices_priceperhour_nonnegative CHECK ((priceperhour >= (0)::numeric)),
+    CONSTRAINT ck_tutorsubjectgradeprices_duration_positive CHECK ((durationminutespersession > 0)),
+    CONSTRAINT ck_tutorsubjectgradeprices_sessionsperweek_positive CHECK ((sessionsperweek > 0))
 );
 
 
@@ -3023,12 +3006,12 @@ INSERT INTO hangfire.server VALUES ('laptop-dmtb9ov5:7156:8dd0fe9a-61f5-4f82-b9a
 -- Data for Name: bookings; Type: TABLE DATA; Schema: public; Owner: postgres
 --
 
-INSERT INTO public.bookings VALUES (64, NULL, '3efeb8ab-3412-441c-ae16-d250a8b58bcd', 'e6752adf-18d5-40e3-9dfd-8facb4614695', NULL, 0.00, 8, 840000.00, '614e20d3629b45d6b270d45fffafb991', NULL, NULL, NULL, NULL, 'deposit_paid', 'DepositEscrowed', NULL, '2026-03-19 05:59:11.283986', '2026-03-19 06:02:30.757907', 420000.00, '2026-03-19 06:02:30.757682', 420000.00, NULL, 'holding', 80000.00, 40000.00, 760000.00, NULL, NULL, NULL, NULL, 'online', '2026-03-19 00:00:00', NULL, NULL, NULL, '2026-03-20 05:59:11.041702', NULL, NULL, NULL, NULL, NULL, NULL, 'VND');
-INSERT INTO public.bookings VALUES (65, 'f284548d-85fa-473c-88e0-0b76a08120b1', 'STU-f284548d-85fa-473c-88e0-0b76a08120b1-2', 'e6752adf-18d5-40e3-9dfd-8facb4614695', NULL, 0.00, 4, 8400.00, '168763ca328844b9be284795045c8614', NULL, NULL, NULL, NULL, 'paid', 'Escrowed', NULL, '2026-03-22 15:11:26.012257', '2026-03-22 15:22:40.648943', 4200.00, '2026-03-22 15:20:35.4089', 4200.00, '2026-03-22 15:22:40.648722', 'holding', 800.00, 400.00, 7600.00, NULL, NULL, NULL, NULL, 'online', '2026-03-22 00:00:00', NULL, NULL, NULL, '2026-03-23 15:11:26.001037', NULL, NULL, NULL, NULL, NULL, NULL, 'VND');
-INSERT INTO public.bookings VALUES (66, 'f284548d-85fa-473c-88e0-0b76a08120b1', 'STU-f284548d-85fa-473c-88e0-0b76a08120b1-2', 'e6752adf-18d5-40e3-9dfd-8facb4614695', NULL, 0.00, 4, 8400.00, '501DC0668B2F', NULL, NULL, NULL, NULL, 'cancelled', 'Pending', NULL, '2026-03-22 15:29:50.657883', '2026-03-22 15:29:58.121908', NULL, NULL, NULL, NULL, NULL, 800.00, 400.00, 7600.00, 'Tutor declined via chat', 'e6752adf-18d5-40e3-9dfd-8facb4614695', '2026-03-22 15:29:58.121844', NULL, 'online', '2026-03-22 00:00:00', NULL, NULL, NULL, '2026-03-23 15:29:50.654777', NULL, NULL, NULL, NULL, NULL, NULL, 'VND');
-INSERT INTO public.bookings VALUES (68, 'f284548d-85fa-473c-88e0-0b76a08120b1', 'STU-f284548d-85fa-473c-88e0-0b76a08120b1-2', 'e6752adf-18d5-40e3-9dfd-8facb4614695', NULL, 0.00, 4, 8400.00, '2d93931441e44fe99dcd256699ca5dd6', NULL, NULL, NULL, NULL, 'paid', 'Escrowed', NULL, '2026-03-23 10:30:52.781309', '2026-03-23 10:39:38.90503', 4200.00, '2026-03-23 10:32:39.901925', 4200.00, '2026-03-23 10:39:38.905029', 'holding', 800.00, 400.00, 7600.00, NULL, NULL, NULL, NULL, 'online', '2026-03-23 00:00:00', NULL, NULL, NULL, '2026-03-24 10:30:52.760194', NULL, NULL, NULL, NULL, NULL, NULL, 'VND');
-INSERT INTO public.bookings VALUES (69, 'f284548d-85fa-473c-88e0-0b76a08120b1', 'STU-f284548d-85fa-473c-88e0-0b76a08120b1-2', 'e6752adf-18d5-40e3-9dfd-8facb4614695', NULL, 0.00, 8, 16800.00, '3C995C8AE23F', NULL, NULL, NULL, NULL, 'cancelled', 'Pending', '2026-03-24 10:47:25.313531', '2026-03-23 10:45:53.389038', '2026-03-23 10:50:04.742927', 8400.00, NULL, 8400.00, NULL, NULL, 1600.00, 800.00, 15200.00, 'Ok', 'f284548d-85fa-473c-88e0-0b76a08120b1', '2026-03-23 10:50:04.742925', NULL, 'online', '2026-03-23 00:00:00', NULL, NULL, 'no_refund', '2026-03-24 10:45:53.38629', NULL, NULL, NULL, NULL, NULL, NULL, 'VND');
-INSERT INTO public.bookings VALUES (67, 'f284548d-85fa-473c-88e0-0b76a08120b1', 'STU-f284548d-85fa-473c-88e0-0b76a08120b1-2', 'e6752adf-18d5-40e3-9dfd-8facb4614695', NULL, 0.00, 12, 25200.00, 'C7FD44E9F78A', NULL, NULL, NULL, NULL, 'payment_timeout', 'Pending', '2026-03-24 02:46:42.490837', '2026-03-23 02:46:08.819991', '2026-03-24 12:47:03.124743', 12600.00, NULL, 12600.00, NULL, NULL, 2400.00, 1200.00, 22800.00, NULL, NULL, NULL, NULL, 'online', '2026-03-23 00:00:00', NULL, NULL, NULL, '2026-03-24 02:46:08.798596', NULL, NULL, NULL, NULL, NULL, NULL, 'VND');
+INSERT INTO public.bookings VALUES (64, NULL, '3efeb8ab-3412-441c-ae16-d250a8b58bcd', 'e6752adf-18d5-40e3-9dfd-8facb4614695', NULL, 0.00, 8, 840000.00, '614e20d3629b45d6b270d45fffafb991', NULL, NULL, NULL, NULL, 'deposit_paid', 'DepositEscrowed', NULL, '2026-03-19 05:59:11.283986', '2026-03-19 06:02:30.757907', 420000.00, '2026-03-19 06:02:30.757682', 420000.00, NULL, 'holding', 80000.00, 40000.00, 760000.00, NULL, NULL, NULL, NULL, '2026-03-19 00:00:00', NULL, NULL, NULL, '2026-03-20 05:59:11.041702', NULL, NULL, NULL, NULL, NULL, 'VND');
+INSERT INTO public.bookings VALUES (65, 'f284548d-85fa-473c-88e0-0b76a08120b1', 'STU-f284548d-85fa-473c-88e0-0b76a08120b1-2', 'e6752adf-18d5-40e3-9dfd-8facb4614695', NULL, 0.00, 4, 8400.00, '168763ca328844b9be284795045c8614', NULL, NULL, NULL, NULL, 'paid', 'Escrowed', NULL, '2026-03-22 15:11:26.012257', '2026-03-22 15:22:40.648943', 4200.00, '2026-03-22 15:20:35.4089', 4200.00, '2026-03-22 15:22:40.648722', 'holding', 800.00, 400.00, 7600.00, NULL, NULL, NULL, NULL, '2026-03-22 00:00:00', NULL, NULL, NULL, '2026-03-23 15:11:26.001037', NULL, NULL, NULL, NULL, NULL, 'VND');
+INSERT INTO public.bookings VALUES (66, 'f284548d-85fa-473c-88e0-0b76a08120b1', 'STU-f284548d-85fa-473c-88e0-0b76a08120b1-2', 'e6752adf-18d5-40e3-9dfd-8facb4614695', NULL, 0.00, 4, 8400.00, '501DC0668B2F', NULL, NULL, NULL, NULL, 'cancelled', 'Pending', NULL, '2026-03-22 15:29:50.657883', '2026-03-22 15:29:58.121908', NULL, NULL, NULL, NULL, NULL, 800.00, 400.00, 7600.00, 'Tutor declined via chat', 'e6752adf-18d5-40e3-9dfd-8facb4614695', '2026-03-22 15:29:58.121844', NULL, '2026-03-22 00:00:00', NULL, NULL, NULL, '2026-03-23 15:29:50.654777', NULL, NULL, NULL, NULL, NULL, 'VND');
+INSERT INTO public.bookings VALUES (68, 'f284548d-85fa-473c-88e0-0b76a08120b1', 'STU-f284548d-85fa-473c-88e0-0b76a08120b1-2', 'e6752adf-18d5-40e3-9dfd-8facb4614695', NULL, 0.00, 4, 8400.00, '2d93931441e44fe99dcd256699ca5dd6', NULL, NULL, NULL, NULL, 'paid', 'Escrowed', NULL, '2026-03-23 10:30:52.781309', '2026-03-23 10:39:38.90503', 4200.00, '2026-03-23 10:32:39.901925', 4200.00, '2026-03-23 10:39:38.905029', 'holding', 800.00, 400.00, 7600.00, NULL, NULL, NULL, NULL, '2026-03-23 00:00:00', NULL, NULL, NULL, '2026-03-24 10:30:52.760194', NULL, NULL, NULL, NULL, NULL, 'VND');
+INSERT INTO public.bookings VALUES (69, 'f284548d-85fa-473c-88e0-0b76a08120b1', 'STU-f284548d-85fa-473c-88e0-0b76a08120b1-2', 'e6752adf-18d5-40e3-9dfd-8facb4614695', NULL, 0.00, 8, 16800.00, '3C995C8AE23F', NULL, NULL, NULL, NULL, 'cancelled', 'Pending', '2026-03-24 10:47:25.313531', '2026-03-23 10:45:53.389038', '2026-03-23 10:50:04.742927', 8400.00, NULL, 8400.00, NULL, NULL, 1600.00, 800.00, 15200.00, 'Ok', 'f284548d-85fa-473c-88e0-0b76a08120b1', '2026-03-23 10:50:04.742925', NULL, '2026-03-23 00:00:00', NULL, NULL, 'no_refund', '2026-03-24 10:45:53.38629', NULL, NULL, NULL, NULL, NULL, 'VND');
+INSERT INTO public.bookings VALUES (67, 'f284548d-85fa-473c-88e0-0b76a08120b1', 'STU-f284548d-85fa-473c-88e0-0b76a08120b1-2', 'e6752adf-18d5-40e3-9dfd-8facb4614695', NULL, 0.00, 12, 25200.00, 'C7FD44E9F78A', NULL, NULL, NULL, NULL, 'payment_timeout', 'Pending', '2026-03-24 02:46:42.490837', '2026-03-23 02:46:08.819991', '2026-03-24 12:47:03.124743', 12600.00, NULL, 12600.00, NULL, NULL, 2400.00, 1200.00, 22800.00, NULL, NULL, NULL, NULL, '2026-03-23 00:00:00', NULL, NULL, NULL, '2026-03-24 02:46:08.798596', NULL, NULL, NULL, NULL, NULL, 'VND');
 
 
 --
@@ -3232,22 +3215,22 @@ INSERT INTO public.gradelevels VALUES (12, 'Lớp 12', 12, '2026-06-05 14:39:03.
 -- Data for Name: lessons; Type: TABLE DATA; Schema: public; Owner: postgres
 --
 
-INSERT INTO public.lessons VALUES (79, 65, 'e6752adf-18d5-40e3-9dfd-8facb4614695', 'STU-f284548d-85fa-473c-88e0-0b76a08120b1-2', '2026-04-20 01:30:00', '2026-04-20 03:30:00', NULL, NULL, NULL, NULL, NULL, NULL, 'scheduled', NULL, NULL, NULL, NULL, 2000.00, false, NULL, NULL, NULL, NULL, NULL, false, NULL, false, NULL, NULL, '2026-03-22 15:20:35.458331', NULL, NULL);
-INSERT INTO public.lessons VALUES (80, 65, 'e6752adf-18d5-40e3-9dfd-8facb4614695', 'STU-f284548d-85fa-473c-88e0-0b76a08120b1-2', '2026-04-27 01:30:00', '2026-04-27 03:30:00', NULL, NULL, NULL, NULL, NULL, NULL, 'scheduled', NULL, NULL, NULL, NULL, 2000.00, false, NULL, NULL, NULL, NULL, NULL, false, NULL, false, NULL, NULL, '2026-03-22 15:20:35.459675', NULL, NULL);
-INSERT INTO public.lessons VALUES (81, 65, 'e6752adf-18d5-40e3-9dfd-8facb4614695', 'STU-f284548d-85fa-473c-88e0-0b76a08120b1-2', '2026-05-04 01:30:00', '2026-05-04 03:30:00', NULL, NULL, NULL, NULL, NULL, NULL, 'scheduled', NULL, NULL, NULL, NULL, 2000.00, false, NULL, NULL, NULL, NULL, NULL, false, NULL, false, NULL, NULL, '2026-03-22 15:20:35.459921', NULL, NULL);
-INSERT INTO public.lessons VALUES (82, 65, 'e6752adf-18d5-40e3-9dfd-8facb4614695', 'STU-f284548d-85fa-473c-88e0-0b76a08120b1-2', '2026-05-11 01:30:00', '2026-05-11 03:30:00', NULL, NULL, NULL, NULL, NULL, NULL, 'scheduled', NULL, NULL, NULL, NULL, 2000.00, false, NULL, NULL, NULL, NULL, NULL, false, NULL, false, NULL, NULL, '2026-03-22 15:20:35.459984', NULL, NULL);
-INSERT INTO public.lessons VALUES (71, 64, 'e6752adf-18d5-40e3-9dfd-8facb4614695', '3efeb8ab-3412-441c-ae16-d250a8b58bcd', '2026-03-23 01:30:00', '2026-03-23 03:30:00', NULL, NULL, NULL, NULL, NULL, NULL, 'scheduled', NULL, NULL, NULL, NULL, 100000.00, false, NULL, NULL, NULL, NULL, NULL, true, '2026-03-23 01:05:08.835327', false, NULL, NULL, '2026-03-19 06:02:30.931448', NULL, NULL);
-INSERT INTO public.lessons VALUES (83, 68, 'e6752adf-18d5-40e3-9dfd-8facb4614695', 'STU-f284548d-85fa-473c-88e0-0b76a08120b1-2', '2026-05-18 01:00:00', '2026-05-18 03:00:00', NULL, NULL, NULL, NULL, NULL, NULL, 'scheduled', NULL, NULL, NULL, NULL, 2000.00, false, NULL, NULL, NULL, NULL, NULL, false, NULL, false, NULL, NULL, '2026-03-23 10:32:39.9857', NULL, NULL);
-INSERT INTO public.lessons VALUES (84, 68, 'e6752adf-18d5-40e3-9dfd-8facb4614695', 'STU-f284548d-85fa-473c-88e0-0b76a08120b1-2', '2026-05-25 01:00:00', '2026-05-25 03:00:00', NULL, NULL, NULL, NULL, NULL, NULL, 'scheduled', NULL, NULL, NULL, NULL, 2000.00, false, NULL, NULL, NULL, NULL, NULL, false, NULL, false, NULL, NULL, '2026-03-23 10:32:39.98723', NULL, NULL);
-INSERT INTO public.lessons VALUES (85, 68, 'e6752adf-18d5-40e3-9dfd-8facb4614695', 'STU-f284548d-85fa-473c-88e0-0b76a08120b1-2', '2026-06-01 01:00:00', '2026-06-01 03:00:00', NULL, NULL, NULL, NULL, NULL, NULL, 'scheduled', NULL, NULL, NULL, NULL, 2000.00, false, NULL, NULL, NULL, NULL, NULL, false, NULL, false, NULL, NULL, '2026-03-23 10:32:39.987383', NULL, NULL);
-INSERT INTO public.lessons VALUES (86, 68, 'e6752adf-18d5-40e3-9dfd-8facb4614695', 'STU-f284548d-85fa-473c-88e0-0b76a08120b1-2', '2026-06-08 01:00:00', '2026-06-08 03:00:00', NULL, NULL, NULL, NULL, NULL, NULL, 'scheduled', NULL, NULL, NULL, NULL, 2000.00, false, NULL, NULL, NULL, NULL, NULL, false, NULL, false, NULL, NULL, '2026-03-23 10:32:39.987474', NULL, NULL);
-INSERT INTO public.lessons VALUES (72, 64, 'e6752adf-18d5-40e3-9dfd-8facb4614695', '3efeb8ab-3412-441c-ae16-d250a8b58bcd', '2026-03-25 01:30:00', '2026-03-25 03:30:00', NULL, NULL, NULL, NULL, NULL, NULL, 'scheduled', NULL, NULL, NULL, NULL, 100000.00, false, NULL, NULL, NULL, NULL, NULL, true, '2026-03-25 01:02:35.883962', false, NULL, NULL, '2026-03-19 06:02:31.023469', NULL, NULL);
-INSERT INTO public.lessons VALUES (73, 64, 'e6752adf-18d5-40e3-9dfd-8facb4614695', '3efeb8ab-3412-441c-ae16-d250a8b58bcd', '2026-03-30 01:30:00', '2026-03-30 03:30:00', NULL, NULL, NULL, NULL, NULL, NULL, 'scheduled', NULL, NULL, NULL, NULL, 100000.00, false, NULL, NULL, NULL, NULL, NULL, false, NULL, false, NULL, NULL, '2026-03-19 06:02:31.023783', NULL, NULL);
-INSERT INTO public.lessons VALUES (74, 64, 'e6752adf-18d5-40e3-9dfd-8facb4614695', '3efeb8ab-3412-441c-ae16-d250a8b58bcd', '2026-04-01 01:30:00', '2026-04-01 03:30:00', NULL, NULL, NULL, NULL, NULL, NULL, 'scheduled', NULL, NULL, NULL, NULL, 100000.00, false, NULL, NULL, NULL, NULL, NULL, false, NULL, false, NULL, NULL, '2026-03-19 06:02:31.023868', NULL, NULL);
-INSERT INTO public.lessons VALUES (75, 64, 'e6752adf-18d5-40e3-9dfd-8facb4614695', '3efeb8ab-3412-441c-ae16-d250a8b58bcd', '2026-04-06 01:30:00', '2026-04-06 03:30:00', NULL, NULL, NULL, NULL, NULL, NULL, 'scheduled', NULL, NULL, NULL, NULL, 100000.00, false, NULL, NULL, NULL, NULL, NULL, false, NULL, false, NULL, NULL, '2026-03-19 06:02:31.023919', NULL, NULL);
-INSERT INTO public.lessons VALUES (76, 64, 'e6752adf-18d5-40e3-9dfd-8facb4614695', '3efeb8ab-3412-441c-ae16-d250a8b58bcd', '2026-04-08 01:30:00', '2026-04-08 03:30:00', NULL, NULL, NULL, NULL, NULL, NULL, 'scheduled', NULL, NULL, NULL, NULL, 100000.00, false, NULL, NULL, NULL, NULL, NULL, false, NULL, false, NULL, NULL, '2026-03-19 06:02:31.023981', NULL, NULL);
-INSERT INTO public.lessons VALUES (77, 64, 'e6752adf-18d5-40e3-9dfd-8facb4614695', '3efeb8ab-3412-441c-ae16-d250a8b58bcd', '2026-04-13 01:30:00', '2026-04-13 03:30:00', NULL, NULL, NULL, NULL, NULL, NULL, 'scheduled', NULL, NULL, NULL, NULL, 100000.00, false, NULL, NULL, NULL, NULL, NULL, false, NULL, false, NULL, NULL, '2026-03-19 06:02:31.024027', NULL, NULL);
-INSERT INTO public.lessons VALUES (78, 64, 'e6752adf-18d5-40e3-9dfd-8facb4614695', '3efeb8ab-3412-441c-ae16-d250a8b58bcd', '2026-04-15 01:30:00', '2026-04-15 03:30:00', NULL, NULL, NULL, NULL, NULL, NULL, 'scheduled', NULL, NULL, NULL, NULL, 100000.00, false, NULL, NULL, NULL, NULL, NULL, false, NULL, false, NULL, NULL, '2026-03-19 06:02:31.024125', NULL, NULL);
+INSERT INTO public.lessons VALUES (79, 65, 'e6752adf-18d5-40e3-9dfd-8facb4614695', 'STU-f284548d-85fa-473c-88e0-0b76a08120b1-2', '2026-04-20 01:30:00', '2026-04-20 03:30:00', NULL, NULL, NULL, NULL, NULL, NULL, 'scheduled', NULL, NULL, NULL, NULL, 2000.00, false, NULL, NULL, NULL, NULL, NULL, false, NULL, false, NULL, NULL, '2026-03-22 15:20:35.458331', NULL);
+INSERT INTO public.lessons VALUES (80, 65, 'e6752adf-18d5-40e3-9dfd-8facb4614695', 'STU-f284548d-85fa-473c-88e0-0b76a08120b1-2', '2026-04-27 01:30:00', '2026-04-27 03:30:00', NULL, NULL, NULL, NULL, NULL, NULL, 'scheduled', NULL, NULL, NULL, NULL, 2000.00, false, NULL, NULL, NULL, NULL, NULL, false, NULL, false, NULL, NULL, '2026-03-22 15:20:35.459675', NULL);
+INSERT INTO public.lessons VALUES (81, 65, 'e6752adf-18d5-40e3-9dfd-8facb4614695', 'STU-f284548d-85fa-473c-88e0-0b76a08120b1-2', '2026-05-04 01:30:00', '2026-05-04 03:30:00', NULL, NULL, NULL, NULL, NULL, NULL, 'scheduled', NULL, NULL, NULL, NULL, 2000.00, false, NULL, NULL, NULL, NULL, NULL, false, NULL, false, NULL, NULL, '2026-03-22 15:20:35.459921', NULL);
+INSERT INTO public.lessons VALUES (82, 65, 'e6752adf-18d5-40e3-9dfd-8facb4614695', 'STU-f284548d-85fa-473c-88e0-0b76a08120b1-2', '2026-05-11 01:30:00', '2026-05-11 03:30:00', NULL, NULL, NULL, NULL, NULL, NULL, 'scheduled', NULL, NULL, NULL, NULL, 2000.00, false, NULL, NULL, NULL, NULL, NULL, false, NULL, false, NULL, NULL, '2026-03-22 15:20:35.459984', NULL);
+INSERT INTO public.lessons VALUES (71, 64, 'e6752adf-18d5-40e3-9dfd-8facb4614695', '3efeb8ab-3412-441c-ae16-d250a8b58bcd', '2026-03-23 01:30:00', '2026-03-23 03:30:00', NULL, NULL, NULL, NULL, NULL, NULL, 'scheduled', NULL, NULL, NULL, NULL, 100000.00, false, NULL, NULL, NULL, NULL, NULL, true, '2026-03-23 01:05:08.835327', false, NULL, NULL, '2026-03-19 06:02:30.931448', NULL);
+INSERT INTO public.lessons VALUES (83, 68, 'e6752adf-18d5-40e3-9dfd-8facb4614695', 'STU-f284548d-85fa-473c-88e0-0b76a08120b1-2', '2026-05-18 01:00:00', '2026-05-18 03:00:00', NULL, NULL, NULL, NULL, NULL, NULL, 'scheduled', NULL, NULL, NULL, NULL, 2000.00, false, NULL, NULL, NULL, NULL, NULL, false, NULL, false, NULL, NULL, '2026-03-23 10:32:39.9857', NULL);
+INSERT INTO public.lessons VALUES (84, 68, 'e6752adf-18d5-40e3-9dfd-8facb4614695', 'STU-f284548d-85fa-473c-88e0-0b76a08120b1-2', '2026-05-25 01:00:00', '2026-05-25 03:00:00', NULL, NULL, NULL, NULL, NULL, NULL, 'scheduled', NULL, NULL, NULL, NULL, 2000.00, false, NULL, NULL, NULL, NULL, NULL, false, NULL, false, NULL, NULL, '2026-03-23 10:32:39.98723', NULL);
+INSERT INTO public.lessons VALUES (85, 68, 'e6752adf-18d5-40e3-9dfd-8facb4614695', 'STU-f284548d-85fa-473c-88e0-0b76a08120b1-2', '2026-06-01 01:00:00', '2026-06-01 03:00:00', NULL, NULL, NULL, NULL, NULL, NULL, 'scheduled', NULL, NULL, NULL, NULL, 2000.00, false, NULL, NULL, NULL, NULL, NULL, false, NULL, false, NULL, NULL, '2026-03-23 10:32:39.987383', NULL);
+INSERT INTO public.lessons VALUES (86, 68, 'e6752adf-18d5-40e3-9dfd-8facb4614695', 'STU-f284548d-85fa-473c-88e0-0b76a08120b1-2', '2026-06-08 01:00:00', '2026-06-08 03:00:00', NULL, NULL, NULL, NULL, NULL, NULL, 'scheduled', NULL, NULL, NULL, NULL, 2000.00, false, NULL, NULL, NULL, NULL, NULL, false, NULL, false, NULL, NULL, '2026-03-23 10:32:39.987474', NULL);
+INSERT INTO public.lessons VALUES (72, 64, 'e6752adf-18d5-40e3-9dfd-8facb4614695', '3efeb8ab-3412-441c-ae16-d250a8b58bcd', '2026-03-25 01:30:00', '2026-03-25 03:30:00', NULL, NULL, NULL, NULL, NULL, NULL, 'scheduled', NULL, NULL, NULL, NULL, 100000.00, false, NULL, NULL, NULL, NULL, NULL, true, '2026-03-25 01:02:35.883962', false, NULL, NULL, '2026-03-19 06:02:31.023469', NULL);
+INSERT INTO public.lessons VALUES (73, 64, 'e6752adf-18d5-40e3-9dfd-8facb4614695', '3efeb8ab-3412-441c-ae16-d250a8b58bcd', '2026-03-30 01:30:00', '2026-03-30 03:30:00', NULL, NULL, NULL, NULL, NULL, NULL, 'scheduled', NULL, NULL, NULL, NULL, 100000.00, false, NULL, NULL, NULL, NULL, NULL, false, NULL, false, NULL, NULL, '2026-03-19 06:02:31.023783', NULL);
+INSERT INTO public.lessons VALUES (74, 64, 'e6752adf-18d5-40e3-9dfd-8facb4614695', '3efeb8ab-3412-441c-ae16-d250a8b58bcd', '2026-04-01 01:30:00', '2026-04-01 03:30:00', NULL, NULL, NULL, NULL, NULL, NULL, 'scheduled', NULL, NULL, NULL, NULL, 100000.00, false, NULL, NULL, NULL, NULL, NULL, false, NULL, false, NULL, NULL, '2026-03-19 06:02:31.023868', NULL);
+INSERT INTO public.lessons VALUES (75, 64, 'e6752adf-18d5-40e3-9dfd-8facb4614695', '3efeb8ab-3412-441c-ae16-d250a8b58bcd', '2026-04-06 01:30:00', '2026-04-06 03:30:00', NULL, NULL, NULL, NULL, NULL, NULL, 'scheduled', NULL, NULL, NULL, NULL, 100000.00, false, NULL, NULL, NULL, NULL, NULL, false, NULL, false, NULL, NULL, '2026-03-19 06:02:31.023919', NULL);
+INSERT INTO public.lessons VALUES (76, 64, 'e6752adf-18d5-40e3-9dfd-8facb4614695', '3efeb8ab-3412-441c-ae16-d250a8b58bcd', '2026-04-08 01:30:00', '2026-04-08 03:30:00', NULL, NULL, NULL, NULL, NULL, NULL, 'scheduled', NULL, NULL, NULL, NULL, 100000.00, false, NULL, NULL, NULL, NULL, NULL, false, NULL, false, NULL, NULL, '2026-03-19 06:02:31.023981', NULL);
+INSERT INTO public.lessons VALUES (77, 64, 'e6752adf-18d5-40e3-9dfd-8facb4614695', '3efeb8ab-3412-441c-ae16-d250a8b58bcd', '2026-04-13 01:30:00', '2026-04-13 03:30:00', NULL, NULL, NULL, NULL, NULL, NULL, 'scheduled', NULL, NULL, NULL, NULL, 100000.00, false, NULL, NULL, NULL, NULL, NULL, false, NULL, false, NULL, NULL, '2026-03-19 06:02:31.024027', NULL);
+INSERT INTO public.lessons VALUES (78, 64, 'e6752adf-18d5-40e3-9dfd-8facb4614695', '3efeb8ab-3412-441c-ae16-d250a8b58bcd', '2026-04-15 01:30:00', '2026-04-15 03:30:00', NULL, NULL, NULL, NULL, NULL, NULL, 'scheduled', NULL, NULL, NULL, NULL, 100000.00, false, NULL, NULL, NULL, NULL, NULL, false, NULL, false, NULL, NULL, '2026-03-19 06:02:31.024125', NULL);
 
 
 --
@@ -3462,20 +3445,20 @@ INSERT INTO public.systemconfigs VALUES (10, 'tutor_late_threshold_minutes', '15
 -- Data for Name: tutoravailability; Type: TABLE DATA; Schema: public; Owner: postgres
 --
 
-INSERT INTO public.tutoravailability VALUES (16, '92d26d85-cc6b-4c00-8c16-0c1fe11372e1', 1, '01:00:00', '06:00:00', '2026-03-14 04:11:19.329712', true);
-INSERT INTO public.tutoravailability VALUES (43, '47af5dfe-cd4d-41ed-9c19-74eeb18f2005', 1, '19:30:00', '22:00:00', '2026-03-19 03:05:34.116674', true);
-INSERT INTO public.tutoravailability VALUES (44, '47af5dfe-cd4d-41ed-9c19-74eeb18f2005', 2, '19:30:00', '22:00:00', '2026-03-19 03:05:56.939369', true);
-INSERT INTO public.tutoravailability VALUES (45, '47af5dfe-cd4d-41ed-9c19-74eeb18f2005', 3, '19:30:00', '22:00:00', '2026-03-19 03:06:52.04144', true);
-INSERT INTO public.tutoravailability VALUES (46, '47af5dfe-cd4d-41ed-9c19-74eeb18f2005', 4, '19:30:00', '22:00:00', '2026-03-19 03:07:12.259703', true);
-INSERT INTO public.tutoravailability VALUES (47, '47af5dfe-cd4d-41ed-9c19-74eeb18f2005', 5, '19:30:00', '22:00:00', '2026-03-19 03:07:30.731668', true);
-INSERT INTO public.tutoravailability VALUES (48, '47af5dfe-cd4d-41ed-9c19-74eeb18f2005', 6, '17:00:00', '22:00:00', '2026-03-19 03:07:46.464953', true);
-INSERT INTO public.tutoravailability VALUES (49, 'e6752adf-18d5-40e3-9dfd-8facb4614695', 1, '07:00:00', '21:00:00', '2026-03-19 05:28:26.262403', true);
-INSERT INTO public.tutoravailability VALUES (50, 'e6752adf-18d5-40e3-9dfd-8facb4614695', 4, '07:00:00', '18:00:00', '2026-03-19 05:28:39.129604', true);
-INSERT INTO public.tutoravailability VALUES (51, 'e6752adf-18d5-40e3-9dfd-8facb4614695', 3, '07:00:00', '18:00:00', '2026-03-19 05:29:04.445294', true);
-INSERT INTO public.tutoravailability VALUES (52, '8317286a-267a-4da0-82a7-9a0e7fd1d218', 1, '17:30:00', '20:00:00', '2026-03-19 06:21:42.530594', true);
-INSERT INTO public.tutoravailability VALUES (54, '8317286a-267a-4da0-82a7-9a0e7fd1d218', 2, '17:30:00', '20:00:00', '2026-03-19 06:22:26.345455', true);
-INSERT INTO public.tutoravailability VALUES (55, '8317286a-267a-4da0-82a7-9a0e7fd1d218', 3, '17:30:00', '20:00:00', '2026-03-19 06:22:36.315265', true);
-INSERT INTO public.tutoravailability VALUES (62, '92d26d85-cc6b-4c00-8c16-0c1fe11372e1', 2, '01:30:00', '04:00:00', '2026-03-23 05:25:24.336329', true);
+INSERT INTO public.tutoravailability VALUES (16, '92d26d85-cc6b-4c00-8c16-0c1fe11372e1', 1, '01:00:00', '06:00:00', '2026-03-14 04:11:19.329712');
+INSERT INTO public.tutoravailability VALUES (43, '47af5dfe-cd4d-41ed-9c19-74eeb18f2005', 1, '19:30:00', '22:00:00', '2026-03-19 03:05:34.116674');
+INSERT INTO public.tutoravailability VALUES (44, '47af5dfe-cd4d-41ed-9c19-74eeb18f2005', 2, '19:30:00', '22:00:00', '2026-03-19 03:05:56.939369');
+INSERT INTO public.tutoravailability VALUES (45, '47af5dfe-cd4d-41ed-9c19-74eeb18f2005', 3, '19:30:00', '22:00:00', '2026-03-19 03:06:52.04144');
+INSERT INTO public.tutoravailability VALUES (46, '47af5dfe-cd4d-41ed-9c19-74eeb18f2005', 4, '19:30:00', '22:00:00', '2026-03-19 03:07:12.259703');
+INSERT INTO public.tutoravailability VALUES (47, '47af5dfe-cd4d-41ed-9c19-74eeb18f2005', 5, '19:30:00', '22:00:00', '2026-03-19 03:07:30.731668');
+INSERT INTO public.tutoravailability VALUES (48, '47af5dfe-cd4d-41ed-9c19-74eeb18f2005', 6, '17:00:00', '22:00:00', '2026-03-19 03:07:46.464953');
+INSERT INTO public.tutoravailability VALUES (49, 'e6752adf-18d5-40e3-9dfd-8facb4614695', 1, '07:00:00', '21:00:00', '2026-03-19 05:28:26.262403');
+INSERT INTO public.tutoravailability VALUES (50, 'e6752adf-18d5-40e3-9dfd-8facb4614695', 4, '07:00:00', '18:00:00', '2026-03-19 05:28:39.129604');
+INSERT INTO public.tutoravailability VALUES (51, 'e6752adf-18d5-40e3-9dfd-8facb4614695', 3, '07:00:00', '18:00:00', '2026-03-19 05:29:04.445294');
+INSERT INTO public.tutoravailability VALUES (52, '8317286a-267a-4da0-82a7-9a0e7fd1d218', 1, '17:30:00', '20:00:00', '2026-03-19 06:21:42.530594');
+INSERT INTO public.tutoravailability VALUES (54, '8317286a-267a-4da0-82a7-9a0e7fd1d218', 2, '17:30:00', '20:00:00', '2026-03-19 06:22:26.345455');
+INSERT INTO public.tutoravailability VALUES (55, '8317286a-267a-4da0-82a7-9a0e7fd1d218', 3, '17:30:00', '20:00:00', '2026-03-19 06:22:36.315265');
+INSERT INTO public.tutoravailability VALUES (62, '92d26d85-cc6b-4c00-8c16-0c1fe11372e1', 2, '01:30:00', '04:00:00', '2026-03-23 05:25:24.336329');
 
 
 --
@@ -3503,7 +3486,7 @@ INSERT INTO public.tutorcertificates VALUES ('082f7e15-aab7-4525-92fc-ed140db1a3
 -- Data for Name: tutorpackages; Type: TABLE DATA; Schema: public; Owner: postgres
 --
 
-INSERT INTO public.tutorpackages VALUES (1, '47af5dfe-cd4d-41ed-9c19-74eeb18f2005', 'Codex Flexible Smoke', 1, 60, 'smoke test', true, '2026-06-05 14:41:07.741814', '2026-06-05 14:41:07.741814');
+INSERT INTO public.tutorpackages VALUES (1, '47af5dfe-cd4d-41ed-9c19-74eeb18f2005', 'Codex Flexible Smoke', 1, true, '2026-06-05 14:41:07.741814', '2026-06-05 14:41:07.741814');
 
 
 --
@@ -3512,10 +3495,10 @@ INSERT INTO public.tutorpackages VALUES (1, '47af5dfe-cd4d-41ed-9c19-74eeb18f200
 -- Data for Name: tutorprofiles; Type: TABLE DATA; Schema: public; Owner: postgres
 --
 
-INSERT INTO public.tutorprofiles VALUES ('0c9ad6e4-6512-4e5e-bcfa-9e75fa8aa3c1', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'draft', false, 0, 0, 0, '2026-03-06 07:11:38.252931', '2026-03-06 07:11:38.313264', NULL, 'free', NULL, false, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, false, NULL, NULL, 0, NULL, NULL, NULL);
-INSERT INTO public.tutorprofiles VALUES ('cf457954-3705-41a3-b74f-01c783da0d11', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'draft', false, 0, 0, 0, '2026-03-10 06:57:35.092345', '2026-03-10 06:57:35.099685', NULL, 'free', NULL, false, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, false, NULL, NULL, 0, NULL, NULL, NULL);
-INSERT INTO public.tutorprofiles VALUES ('92d26d85-cc6b-4c00-8c16-0c1fe11372e1', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'draft', false, 0, 0, 0, '2026-03-10 07:16:14.458476', '2026-03-10 07:16:14.463724', NULL, 'free', NULL, false, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, false, NULL, NULL, 0, NULL, NULL, NULL);
-INSERT INTO public.tutorprofiles VALUES ('1af56df5-e9d3-49da-b85a-88c5de28a70e', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'draft', false, 0, 0, 0, '2026-03-18 17:46:39.517413', '2026-03-18 17:46:39.520342', NULL, 'free', NULL, false, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, false, NULL, NULL, 0, NULL, NULL, NULL);
+INSERT INTO public.tutorprofiles VALUES ('0c9ad6e4-6512-4e5e-bcfa-9e75fa8aa3c1', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'draft', false, 0, 0, 0, '2026-03-06 07:11:38.252931', '2026-03-06 07:11:38.313264', NULL, 'free', NULL, NULL, NULL, NULL, NULL, NULL, false, NULL, NULL, 0, NULL, NULL, NULL);
+INSERT INTO public.tutorprofiles VALUES ('cf457954-3705-41a3-b74f-01c783da0d11', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'draft', false, 0, 0, 0, '2026-03-10 06:57:35.092345', '2026-03-10 06:57:35.099685', NULL, 'free', NULL, NULL, NULL, NULL, NULL, NULL, false, NULL, NULL, 0, NULL, NULL, NULL);
+INSERT INTO public.tutorprofiles VALUES ('92d26d85-cc6b-4c00-8c16-0c1fe11372e1', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'draft', false, 0, 0, 0, '2026-03-10 07:16:14.458476', '2026-03-10 07:16:14.463724', NULL, 'free', NULL, NULL, NULL, NULL, NULL, NULL, false, NULL, NULL, 0, NULL, NULL, NULL);
+INSERT INTO public.tutorprofiles VALUES ('1af56df5-e9d3-49da-b85a-88c5de28a70e', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'draft', false, 0, 0, 0, '2026-03-18 17:46:39.517413', '2026-03-18 17:46:39.520342', NULL, 'free', NULL, NULL, NULL, NULL, NULL, NULL, false, NULL, NULL, 0, NULL, NULL, NULL);
 INSERT INTO public.tutorprofiles VALUES ('e6752adf-18d5-40e3-9dfd-8facb4614695', 'Sinh viên năm cuối ngành Kỹ thuật Phần mềm tại Đại học FPT với tư duy logic vượt trội và
 khả năng giải thích các khái niệm Toán – Lý phức tạp một cách dễ hiểu, trực quan. Có
 kinh nghiệm thực tế trong việc phân tích vấn đề, xây dựng lộ trình học tập cá nhân hóa
@@ -3529,13 +3512,13 @@ tập của phụ huynh và học sinh.
 duy chiến lược.
 Business Analyst (Thử việc) — Axon Active
 10/2025 – Nay
-● Rèn luyện kỹ năng phân tích vấn đề, trình bày logic và giao tiếp hiệu quả với nhiều đối tượng—kỹ năng cốt lõi trong giảng dạy', 'hochiminh', 'tp-thu-duc', 'Online', 'active', true, 0, 0, 0, '2026-03-19 05:12:56.111722', '2026-03-23 02:49:04.011098', NULL, 'free', NULL, false, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, false, NULL, NULL, 0, NULL, NULL, NULL);
-INSERT INTO public.tutorprofiles VALUES ('c1ace8bf-425f-4650-8b19-f839454e1b58', NULL, 'Gia sư tiếng Tin học', NULL, NULL, NULL, NULL, NULL, 'hochiminh', 'binh-thanh', 'Online', 'draft', false, 0, 0, 0, '2026-03-19 05:57:56.612295', '2026-03-19 06:07:06.326585', NULL, 'free', NULL, false, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, false, NULL, NULL, 0, NULL, NULL, NULL);
-INSERT INTO public.tutorprofiles VALUES ('8317286a-267a-4da0-82a7-9a0e7fd1d218', NULL, 'Có kinh nghiệm ôn thi lớp 12 cho học sinh.', NULL, NULL, NULL, NULL, NULL, 'hochiminh', 'tp-thu-duc', 'Online', 'draft', false, 0, 0, 0, '2026-03-19 06:20:23.18913', '2026-03-19 06:25:18.271626', NULL, 'free', NULL, false, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, false, NULL, NULL, 0, NULL, NULL, NULL);
-INSERT INTO public.tutorprofiles VALUES ('47af5dfe-cd4d-41ed-9c19-74eeb18f2005', 'Phương pháp giảng dạy: trò chuyện với học viên để hiểu học viên đang cần gì và thiết kế phương thức dạy phù hợp', 'Gia sư tiếng Anh với 5 năm kinh nghiệm làm việc với người nước ngoài và 1 năm đứng lớp trực tiếp', 'https://outlxbcgkcuximxydlvq.supabase.co/storage/v1/object/sign/video-introduction/47af5dfe-cd4d-41ed-9c19-74eeb18f2005/7231c339-d418-43d9-a119-10c6a0ddcd2a.mov?token=eyJraWQiOiJzdG9yYWdlLXVybC1zaWduaW5nLWtleV82MTA4N2ZkMC0zYjUwLTQ2NTQtODYwOS1lMGFmYzA3ZTQwNTMiLCJhbGciOiJIUzI1NiJ9.eyJ1cmwiOiJ2aWRlby1pbnRyb2R1Y3Rpb24vNDdhZjVkZmUtY2Q0ZC00MWVkLTljMTktNzRlZWIxOGYyMDA1LzcyMzFjMzM5LWQ0MTgtNDNkOS1hMTE5LTEwYzZhMGRkY2QyYS5tb3YiLCJpYXQiOjE3NzM4OTg3OTYsImV4cCI6MTgwNTQzNDc5Nn0.sK7u4ySFzEqa-iCOeV4ntFN28gn8S2vQPjV5bJPEZmw', 'Cử nhân Kinh doanh quốc tế - Học viện Ngoại giao', 4, 3.44, 'Có 5 năm kinh nghiệm hỗ trợ người nước ngoài giảng dạy và trực tiếp đứng lớp cho các học viên từ mẫu giáo đến học viên đã đi làm', 'hochiminh', 'tan-phu', 'Online', 'active', true, 0, 0, 0, '2026-03-08 09:41:50.056418', '2026-03-25 11:54:59.724735', NULL, 'free', 0.00, false, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, false, NULL, NULL, 0, NULL, NULL, NULL);
-INSERT INTO public.tutorprofiles VALUES ('bba681d9-b28d-4fec-8204-bce6ed6b749a', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'draft', false, 0, 0, 0, '2026-05-19 12:00:21.919863', '2026-05-19 19:00:22.52048', NULL, 'free', NULL, false, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, false, NULL, NULL, 0, NULL, NULL, NULL);
-INSERT INTO public.tutorprofiles VALUES ('74339c05-e30f-4f08-be7c-cfb611597cd9', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'draft', false, 0, 0, 0, '2026-05-31 11:32:24.16977', '2026-05-31 18:32:24.843785', NULL, 'free', NULL, false, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, false, NULL, NULL, 0, NULL, NULL, NULL);
-INSERT INTO public.tutorprofiles VALUES ('c0112fa7-d3c2-44d4-a013-f038975d2411', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'draft', false, 0, 0, 0, '2026-06-05 14:39:55.311648', '2026-06-05 14:39:55.319237', NULL, 'free', NULL, false, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, false, NULL, NULL, 0, NULL, NULL, NULL);
+● Rèn luyện kỹ năng phân tích vấn đề, trình bày logic và giao tiếp hiệu quả với nhiều đối tượng—kỹ năng cốt lõi trong giảng dạy', 'hochiminh', 'tp-thu-duc', 'active', true, 0, 0, 0, '2026-03-19 05:12:56.111722', '2026-03-23 02:49:04.011098', NULL, 'free', NULL, NULL, NULL, NULL, NULL, NULL, false, NULL, NULL, 0, NULL, NULL, NULL);
+INSERT INTO public.tutorprofiles VALUES ('c1ace8bf-425f-4650-8b19-f839454e1b58', NULL, 'Gia sư tiếng Tin học', NULL, NULL, NULL, NULL, NULL, 'hochiminh', 'binh-thanh', 'draft', false, 0, 0, 0, '2026-03-19 05:57:56.612295', '2026-03-19 06:07:06.326585', NULL, 'free', NULL, NULL, NULL, NULL, NULL, NULL, false, NULL, NULL, 0, NULL, NULL, NULL);
+INSERT INTO public.tutorprofiles VALUES ('8317286a-267a-4da0-82a7-9a0e7fd1d218', NULL, 'Có kinh nghiệm ôn thi lớp 12 cho học sinh.', NULL, NULL, NULL, NULL, NULL, 'hochiminh', 'tp-thu-duc', 'draft', false, 0, 0, 0, '2026-03-19 06:20:23.18913', '2026-03-19 06:25:18.271626', NULL, 'free', NULL, NULL, NULL, NULL, NULL, NULL, false, NULL, NULL, 0, NULL, NULL, NULL);
+INSERT INTO public.tutorprofiles VALUES ('47af5dfe-cd4d-41ed-9c19-74eeb18f2005', 'Phương pháp giảng dạy: trò chuyện với học viên để hiểu học viên đang cần gì và thiết kế phương thức dạy phù hợp', 'Gia sư tiếng Anh với 5 năm kinh nghiệm làm việc với người nước ngoài và 1 năm đứng lớp trực tiếp', 'https://outlxbcgkcuximxydlvq.supabase.co/storage/v1/object/sign/video-introduction/47af5dfe-cd4d-41ed-9c19-74eeb18f2005/7231c339-d418-43d9-a119-10c6a0ddcd2a.mov?token=eyJraWQiOiJzdG9yYWdlLXVybC1zaWduaW5nLWtleV82MTA4N2ZkMC0zYjUwLTQ2NTQtODYwOS1lMGFmYzA3ZTQwNTMiLCJhbGciOiJIUzI1NiJ9.eyJ1cmwiOiJ2aWRlby1pbnRyb2R1Y3Rpb24vNDdhZjVkZmUtY2Q0ZC00MWVkLTljMTktNzRlZWIxOGYyMDA1LzcyMzFjMzM5LWQ0MTgtNDNkOS1hMTE5LTEwYzZhMGRkY2QyYS5tb3YiLCJpYXQiOjE3NzM4OTg3OTYsImV4cCI6MTgwNTQzNDc5Nn0.sK7u4ySFzEqa-iCOeV4ntFN28gn8S2vQPjV5bJPEZmw', 'Cử nhân Kinh doanh quốc tế - Học viện Ngoại giao', 4, 3.44, 'Có 5 năm kinh nghiệm hỗ trợ người nước ngoài giảng dạy và trực tiếp đứng lớp cho các học viên từ mẫu giáo đến học viên đã đi làm', 'hochiminh', 'tan-phu', 'active', true, 0, 0, 0, '2026-03-08 09:41:50.056418', '2026-03-25 11:54:59.724735', NULL, 'free', NULL, NULL, NULL, NULL, NULL, NULL, false, NULL, NULL, 0, NULL, NULL, NULL);
+INSERT INTO public.tutorprofiles VALUES ('bba681d9-b28d-4fec-8204-bce6ed6b749a', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'draft', false, 0, 0, 0, '2026-05-19 12:00:21.919863', '2026-05-19 19:00:22.52048', NULL, 'free', NULL, NULL, NULL, NULL, NULL, NULL, false, NULL, NULL, 0, NULL, NULL, NULL);
+INSERT INTO public.tutorprofiles VALUES ('74339c05-e30f-4f08-be7c-cfb611597cd9', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'draft', false, 0, 0, 0, '2026-05-31 11:32:24.16977', '2026-05-31 18:32:24.843785', NULL, 'free', NULL, NULL, NULL, NULL, NULL, NULL, false, NULL, NULL, 0, NULL, NULL, NULL);
+INSERT INTO public.tutorprofiles VALUES ('c0112fa7-d3c2-44d4-a013-f038975d2411', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'draft', false, 0, 0, 0, '2026-06-05 14:39:55.311648', '2026-06-05 14:39:55.319237', NULL, 'free', NULL, NULL, NULL, NULL, NULL, NULL, false, NULL, NULL, 0, NULL, NULL, NULL);
 
 
 --
@@ -6005,4 +5988,3 @@ REVOKE USAGE ON SCHEMA public FROM PUBLIC;
 --
 -- PostgreSQL database dump complete
 --
-

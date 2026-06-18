@@ -45,10 +45,8 @@ namespace MV.PresentationLayer.Controllers
                 return BadRequest(new APIResponse<object>(400, result.ErrorMessage, null));
             }
 
-            return Ok(new APIResponse<object>(200, "Dang ky thanh cong.", new
+            return Ok(new APIResponse<object>(200, "Đăng ký thành công. Vui lòng kiểm tra email để xác thực tài khoản.", new
             {
-                token = result.AccessToken,
-                refreshToken = result.RefreshToken,
                 requiresEmailVerification = result.RequiresEmailVerification,
                 email = result.Email
             }));

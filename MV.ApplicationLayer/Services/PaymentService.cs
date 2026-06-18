@@ -255,23 +255,12 @@ public partial class PaymentService(
                 });
             }
 
-            context.Notifications.Add(NotificationHelper.CreatePaymentNotification(
-                booking.Parentid!,
-                "Cọc thành công",
-                $"Đã thanh toán cọc 50% ({booking.Depositamount:N0}đ) cho booking #{booking.Bookingid}. Gia sư sẽ bắt đầu dạy buổi đầu tiên.",
-                booking.Bookingid));
-
-            if (!string.IsNullOrWhiteSpace(booking.Tutorid))
-                context.Notifications.Add(NotificationHelper.CreatePaymentNotification(
-                    booking.Tutorid,
-                    "Booking đã được cọc",
-                    $"Phụ huynh đã cọc 50% cho booking #{booking.Bookingid}. Bạn có thể bắt đầu dạy.",
-                    booking.Bookingid));
-
             await context.SaveChangesAsync(ct);
             await tx.CommitAsync(ct);
 
             logger.LogInformation("Deposit confirmed for booking {Id}, amount {Amount}", bookingId, amount);
+
+            await SendPaymentPhaseNotificationsAsync(booking, isDepositPhase: true);
 
             // Auto-create lessons after deposit (so tutor can teach first lesson)
             try
@@ -362,23 +351,12 @@ public partial class PaymentService(
                 });
             }
 
-            context.Notifications.Add(NotificationHelper.CreatePaymentNotification(
-                booking.Parentid!,
-                "Thanh toán hoàn tất",
-                $"Đã thanh toán 50% còn lại ({booking.Remainingamount:N0}đ) cho booking #{booking.Bookingid}. Booking đã được thanh toán đầy đủ.",
-                booking.Bookingid));
-
-            if (!string.IsNullOrWhiteSpace(booking.Tutorid))
-                context.Notifications.Add(NotificationHelper.CreatePaymentNotification(
-                    booking.Tutorid,
-                    "Booking đã thanh toán đầy đủ",
-                    $"Booking #{booking.Bookingid} đã được thanh toán đầy đủ.",
-                    booking.Bookingid));
-
             await context.SaveChangesAsync(ct);
             await tx.CommitAsync(ct);
 
             logger.LogInformation("Remaining payment confirmed for booking {Id}, amount {Amount}", bookingId, amount);
+
+            await SendPaymentPhaseNotificationsAsync(booking, isDepositPhase: false);
         }
         catch
         {

@@ -24,17 +24,20 @@ namespace MV.PresentationLayer.Controllers
         }
 
         /// <summary>
-        /// Upload video introduction file
+        /// Cập nhật link video giới thiệu (YouTube)
         /// </summary>
-        [RequestSizeLimit(104_857_600)] // 100 MB
-        [RequestFormLimits(MultipartBodyLengthLimit = 104_857_600)] // 100 MB
         [HttpPut("{id}/profile/video")]
-        public async Task<IActionResult> UpdateVideo([FromRoute] string id, [FromForm] UpdateTutorVideoRequest request)
+        public async Task<IActionResult> UpdateVideo([FromRoute] string id, [FromBody] UpdateTutorVideoRequest request)
         {
             var currentUserId = User.FindFirstValue(ClaimTypes.NameIdentifier);
             if (currentUserId != id)
             {
                 return StatusCode(403, APIResponse.Fail(ApiMessages.Forbidden, 403));
+            }
+
+            if (!ModelState.IsValid)
+            {
+                return BadRequest(APIResponse<object>.Fail(ApiMessages.InvalidRequestData, 400, ModelState));
             }
 
             try
@@ -47,6 +50,31 @@ namespace MV.PresentationLayer.Controllers
                 }
 
                 return Ok(APIResponse.Success("Cập nhật video giới thiệu thành công."));
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(APIResponse.Fail(ex.Message, 400));
+            }
+        }
+
+        /// <summary>
+        /// Upload CCCD (citizen ID card) 2 mặt — mặt trước và mặt sau.
+        /// Chấp nhận JPG, JPEG, PNG — tối đa 5MB mỗi ảnh.
+        /// Lưu URL vào user.Idcardfronturl và user.Idcardbackurl.
+        /// </summary>
+        [HttpPut("{id}/profile/cccd")]
+        [RequestSizeLimit(10_485_760)]
+        [RequestFormLimits(MultipartBodyLengthLimit = 10_485_760)]
+        public async Task<IActionResult> UploadCccd([FromRoute] string id, [FromForm] UploadCccdRequest request)
+        {
+            var currentUserId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (currentUserId != id)
+                return StatusCode(403, APIResponse.Fail("Bạn chỉ có thể cập nhật hồ sơ của chính mình.", 403));
+
+            try
+            {
+                var result = await _tutorService.UploadCccdImagesAsync(id, request);
+                return Ok(APIResponse<CccdUploadResponse>.Success(result, "Upload ảnh CCCD thành công."));
             }
             catch (ArgumentException ex)
             {
@@ -392,7 +420,7 @@ namespace MV.PresentationLayer.Controllers
         /// <summary>
         /// Add a single subject-grade-price entry for tutor
         /// </summary>
-        [HttpPost("{id}/profile/pricing/subject-grade")]
+        [HttpPost("{id}/profile/pricing")]
         public async Task<IActionResult> AddSubjectGradePrice([FromRoute] string id, [FromBody] TutorSubjectGradePriceRequest request)
         {
             var currentUserId = User.FindFirstValue(ClaimTypes.NameIdentifier);
@@ -404,8 +432,40 @@ namespace MV.PresentationLayer.Controllers
             try
             {
                 var result = await _tutorService.AddSubjectGradePriceAsync(id, request);
-                return CreatedAtAction(nameof(GetPricing), new { id }, 
+                return CreatedAtAction(nameof(GetPricing), new { id },
                     APIResponse<TutorSubjectGradePriceResponse>.Success(result, "Thêm giá môn học thành công.", 201));
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(APIResponse.Fail(ex.Message, 400));
+            }
+        }
+
+        /// <summary>
+        /// Delete a single subject-grade-price entry for tutor.
+        /// Soft-deletes if the entry is referenced by existing bookings; otherwise hard-deletes.
+        /// </summary>
+        [HttpDelete("{id}/profile/pricing/{subjectId:int}/{gradeLevelId:int}")]
+        public async Task<IActionResult> DeleteSubjectGradePrice(
+            [FromRoute] string id,
+            [FromRoute] int subjectId,
+            [FromRoute] int gradeLevelId)
+        {
+            var currentUserId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (currentUserId != id)
+            {
+                return StatusCode(403, APIResponse.Fail("Bạn chỉ có thể xóa giá của chính mình.", 403));
+            }
+
+            try
+            {
+                var result = await _tutorService.DeleteSubjectGradePriceAsync(id, subjectId, gradeLevelId);
+                if (!result)
+                {
+                    return NotFound(APIResponse.Fail("Không tìm thấy giá môn học tương ứng.", 404));
+                }
+
+                return Ok(APIResponse.Success("Xóa giá môn học thành công."));
             }
             catch (ArgumentException ex)
             {

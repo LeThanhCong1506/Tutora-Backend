@@ -1,4 +1,4 @@
-using Microsoft.AspNetCore.Http;
+﻿using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
 using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.Constants;
@@ -127,7 +127,7 @@ namespace MV.ApplicationLayer.Services
                 TemporaryPassword = tempPassword,
                 FullName = request.Fullname,
                 ParentId = parentId,
-                CreatedAt = TimeZoneHelper.ToUserTime(student.Createdat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow)
+                CreatedAt = student.Createdat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
             };
         }
 
@@ -336,7 +336,7 @@ namespace MV.ApplicationLayer.Services
                 TemporaryPassword = newPassword,
                 FullName = student.Fullname ?? "",
                 ParentId = parentId,
-                CreatedAt = TimeZoneHelper.ToUserTime(student.Createdat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow)
+                CreatedAt = student.Createdat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
             };
         }
 
@@ -433,7 +433,7 @@ namespace MV.ApplicationLayer.Services
 
         private static void ValidateBirthdate(DateOnly? birthdate)
         {
-            if (birthdate.HasValue && birthdate.Value > DateOnly.FromDateTime(DateTime.Today))
+            if (birthdate.HasValue && birthdate.Value > DateOnly.FromDateTime(DateTime.UtcNow))
                 throw new InvalidBirthdateException();
         }
 
@@ -546,8 +546,8 @@ namespace MV.ApplicationLayer.Services
             LearningGoals = s.Learninggoals,
             AvatarURL = s.Avatarurl,
             StudentCode = s.Studentcode,
-            StudentCodeExpiresAt = s.Studentcodeexpiresat.HasValue ? TimeZoneHelper.ToUserTime(s.Studentcodeexpiresat.Value) : (DateTime?)null,
-            CreatedAt = s.Createdat.HasValue ? TimeZoneHelper.ToUserTime(s.Createdat.Value) : (DateTime?)null
+            StudentCodeExpiresAt = s.Studentcodeexpiresat,
+            CreatedAt = s.Createdat
         };
 
         #endregion

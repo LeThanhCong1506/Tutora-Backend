@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using MV.DomainLayer.Enums;
 
 namespace MV.DomainLayer.DTO.RequestModel
 {
@@ -20,7 +21,8 @@ namespace MV.DomainLayer.DTO.RequestModel
         [StringLength(255, ErrorMessage = "Address must not exceed 255 characters.")]
         public string? Address { get; set; }
 
-        public string? Gender { get; set; }
+        [EnumDataType(typeof(Gender), ErrorMessage = "Gender value is invalid.")]
+        public Gender? Gender { get; set; }
 
         public string? Avatarurl { get; set; }
     }

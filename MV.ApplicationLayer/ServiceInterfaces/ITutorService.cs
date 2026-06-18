@@ -17,6 +17,12 @@ namespace MV.ApplicationLayer.ServiceInterfaces
         Task<bool> UpdateTutorAvatarAsync(string userId, IFormFile avatarFile);
 
         /// <summary>
+        /// Upload CCCD (citizen ID card) front and back images to Cloudinary.
+        /// Saves the resulting URLs to user.Idcardfronturl and user.Idcardbackurl.
+        /// </summary>
+        Task<CccdUploadResponse> UploadCccdImagesAsync(string userId, UploadCccdRequest request);
+
+        /// <summary>
         /// Update basic tutor info: headline, teaching area, teaching mode.
         /// </summary>
         Task<bool> UpdateTutorBasicInfoAsync(string userId, UpdateTutorBasicInfoRequest request);
@@ -74,6 +80,8 @@ namespace MV.ApplicationLayer.ServiceInterfaces
         /// Add a single subject-grade-price entry for tutor.
         /// </summary>
         Task<TutorSubjectGradePriceResponse> AddSubjectGradePriceAsync(string tutorId, TutorSubjectGradePriceRequest request);
+
+        Task<bool> DeleteSubjectGradePriceAsync(string tutorId, int subjectId, int gradeLevelId);
 
         Task<List<TutorPackageResponse>> GetTutorPackagesAsync(string tutorId, bool includeInactive = false);
 

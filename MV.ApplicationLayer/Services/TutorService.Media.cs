@@ -2,6 +2,7 @@
 using Microsoft.Extensions.Logging;
 using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO.RequestModel;
+using MV.DomainLayer.DTO.ResponseModel;
 
 namespace MV.ApplicationLayer.Services
 {
@@ -36,62 +37,55 @@ namespace MV.ApplicationLayer.Services
             var profile = await _unitOfWork.TutorRepository.GetTutorProfileByIdAsync(userId);
             if (profile == null) return false;
 
-            var allowedExtensions = new[] { ".mp4", ".avi", ".mov", ".wmv", ".webm" };
-            var fileExtension = Path.GetExtension(request.VideoFile.FileName).ToLowerInvariant();
+            if (!IsValidYoutubeUrl(request.VideoUrl))
+                throw new ArgumentException("Vui lòng nhập link video YouTube hợp lệ.");
 
-            if (!allowedExtensions.Contains(fileExtension))
-            {
-                throw new ArgumentException("Chỉ chấp nhận file video (mp4, avi, mov, wmv, webm).");
-            }
-
-            // Phase 1: Liveness Check
-            try
-            {
-                using var videoStream = request.VideoFile.OpenReadStream();
-                var livenessResult = await _fptAiService.CheckVideoLivenessAsync(videoStream, request.VideoFile.FileName);
-
-                if (livenessResult.Data != null)
-                {
-                    if (!livenessResult.Data.IsLive)
-                    {
-                        var attackType = livenessResult.Data.AttackType ?? DisplayValues.UnknownLower;
-                        throw new ArgumentException($"Video không đạt yêu cầu xác thực người thật. Phát hiện: {attackType}. Vui lòng quay video mới với khuôn mặt rõ ràng.");
-                    }
-
-                    if (livenessResult.Data.LivenessScore < LIVENESS_THRESHOLD)
-                    {
-                        throw new ArgumentException($"Độ tin cậy video quá thấp ({livenessResult.Data.LivenessScore:F1}%). Vui lòng quay video trong điều kiện ánh sáng tốt hơn.");
-                    }
-
-                    if (!livenessResult.Data.FaceDetected)
-                    {
-                        throw new ArgumentException("Không phát hiện khuôn mặt trong video. Vui lòng đảm bảo khuôn mặt hiển thị rõ ràng.");
-                    }
-
-                    _logger.LogInformation("Liveness check passed for user {UserId}: Score={Score}, Quality={Quality}",
-                        userId, livenessResult.Data.LivenessScore, livenessResult.Data.VideoQuality);
-                }
-            }
-            catch (ArgumentException)
-            {
-                throw;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Liveness check failed for user {UserId}, allowing upload anyway", userId);
-            }
-
-            var videoUrl = await _storageService.UploadFileAsync(VideoBucket, userId, request.VideoFile);
-
-            profile.Videointrourl = videoUrl;
+            profile.Videointrourl = request.VideoUrl.Trim();
             profile.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 
             await _unitOfWork.SaveChangesAsync();
 
-            // Try auto-activate profile if all conditions met
             await TryAutoActivateProfileAsync(userId);
 
             return true;
+        }
+
+        private static bool IsValidYoutubeUrl(string url)
+        {
+            if (string.IsNullOrWhiteSpace(url)) return false;
+            return System.Text.RegularExpressions.Regex.IsMatch(
+                url,
+                @"^(https?://)?(www\.|m\.)?(youtube\.com/(watch\?v=|shorts/|embed/)|youtu\.be/)[\w\-]{11}",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        }
+
+        // ─── CCCD Upload ─────────────────────────────────────────────────────
+
+        /// <summary>Upload CCCD front and back images, save URLs to user profile.</summary>
+        public async Task<CccdUploadResponse> UploadCccdImagesAsync(string userId, UploadCccdRequest request)
+        {
+            ValidateCccdImageFile(request.FrontImage, "mặt trước");
+            ValidateCccdImageFile(request.BackImage, "mặt sau");
+
+            var user = await _unitOfWork.UserRepository.GetUserByIdAsync(userId)
+                ?? throw new ArgumentException("Không tìm thấy người dùng.");
+
+            var frontUrl = await _storageService.UploadFileAsync(CccdBucket, userId + "/front", request.FrontImage);
+            var backUrl  = await _storageService.UploadFileAsync(CccdBucket, userId + "/back",  request.BackImage);
+
+            user.Idcardfronturl = frontUrl;
+            user.Idcardbackurl  = backUrl;
+
+            await _unitOfWork.UserRepository.UpdateUserAsync(user);
+            await _unitOfWork.SaveChangesAsync();
+
+            _logger.LogInformation("CCCD uploaded for user {UserId}: front={Front}, back={Back}", userId, frontUrl, backUrl);
+
+            return new CccdUploadResponse
+            {
+                FrontImageUrl = frontUrl,
+                BackImageUrl  = backUrl
+            };
         }
 
         // ─── Private helpers ─────────────────────────────────────────────────
@@ -102,15 +96,25 @@ namespace MV.ApplicationLayer.Services
             var extension = Path.GetExtension(file.FileName).ToLowerInvariant();
 
             if (!allowedExtensions.Contains(extension))
-            {
                 throw new ArgumentException("Chỉ chấp nhận ảnh JPG và PNG cho ảnh đại diện");
-            }
 
-            // 5MB limit
             if (file.Length > 5 * 1024 * 1024)
-            {
                 throw new ArgumentException("Ảnh đại diện phải nhỏ hơn 5MB");
-            }
+        }
+
+        private static void ValidateCccdImageFile(IFormFile file, string side)
+        {
+            if (file == null || file.Length == 0)
+                throw new ArgumentException($"Ảnh CCCD {side} không được để trống.");
+
+            var allowedExtensions = new[] { ".jpg", ".jpeg", ".png" };
+            var extension = Path.GetExtension(file.FileName).ToLowerInvariant();
+
+            if (!allowedExtensions.Contains(extension))
+                throw new ArgumentException($"Ảnh CCCD {side} chỉ chấp nhận định dạng JPG, JPEG hoặc PNG.");
+
+            if (file.Length > 5 * 1024 * 1024)
+                throw new ArgumentException($"Ảnh CCCD {side} phải nhỏ hơn 5MB.");
         }
     }
 }

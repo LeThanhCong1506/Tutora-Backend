@@ -239,7 +239,7 @@ public partial class BankVerificationService(
         return new ConfirmVerifyResponse
         {
             IsVerified = true,
-            VerifiedAt = TimeZoneHelper.ToUserTime(now),
+            VerifiedAt = now,
             AttemptsLeft = _settings.MaxVerificationAttempts,
             Message = "Xác minh tài khoản ngân hàng thành công!"
         };
@@ -261,7 +261,7 @@ public partial class BankVerificationService(
             IsPending = tutor.Bankverifystatus == BankVerificationConstants.Statuses.PendingDeposit,
             IsReadyToConfirm = tutor.Bankverifystatus == BankVerificationConstants.Statuses.ReadyToConfirm,
             AttemptsLeft = attemptsLeft,
-            ExpiresAt = expiresAt.HasValue ? TimeZoneHelper.ToUserTime(expiresAt.Value) : (DateTime?)null,
+            ExpiresAt = expiresAt,
             Status = tutor.Bankverifystatus ?? BankVerificationConstants.Statuses.None,
             BankName = tutor.Bankname,
             MaskedAccountNumber = MaskAccountNumber(tutor.Bankaccountnumber)

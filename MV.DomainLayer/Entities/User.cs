@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using MV.DomainLayer.Enums;
 
 namespace MV.DomainLayer.Entities;
 
@@ -23,7 +24,7 @@ public partial class User
 
     public DateOnly? Birthdate { get; set; }
 
-    public string? Gender { get; set; }
+    public Gender? Gender { get; set; }
 
     public string? Avatarurl { get; set; }
 

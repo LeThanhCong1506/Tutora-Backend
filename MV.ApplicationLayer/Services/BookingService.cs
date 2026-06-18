@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using MV.ApplicationLayer.Helpers;
 using MV.ApplicationLayer.Interfaces;
@@ -25,7 +25,6 @@ public partial class BookingService(
     IChatService chatService,
     ILogger<BookingService> logger) : IBookingService
 {
-    private const int WeeksPerMonth = 4;
     private const int AvailabilityValidDays = 30;
 
     public async Task<BookingResponse> CreateBookingAsync(string userId, string userRole, CreateBookingRequest dto)
@@ -33,10 +32,10 @@ public partial class BookingService(
         // Normalize StartDate: nếu Kind là Utc thì convert sang user time để so sánh ngày
         // Nếu Unspecified thì coi như đã là user time
         var startDateLocal = dto.StartDate.Kind == DateTimeKind.Utc 
-            ? TimeZoneHelper.ToUserTime(dto.StartDate)
+            ? dto.StartDate
             : dto.StartDate;
             
-        if (startDateLocal.Date < TimeZoneHelper.ToUserTime(TimeZoneHelper.UtcNow).Date)
+        if (startDateLocal.Date < TimeZoneHelper.UtcNow.Date)
             throw new BookingException(BookingErrorCodes.InvalidStartDate, "Ngày bắt đầu phải là ngày hiện tại hoặc trong tương lai", 400);
 
         var resolvedStudentId = !string.IsNullOrWhiteSpace(dto.StudentId)
@@ -150,7 +149,6 @@ public partial class BookingService(
                 });
             }
 
-            context.Notifications.Add(NotificationHelper.CreateBookingNotification(dto.TutorId, "Yêu cầu đặt lịch mới", $"Bạn có yêu cầu đặt lịch mới. Mã thanh toán: {paymentCode}", booking.Bookingid));
             await context.SaveChangesAsync();
             await tx.CommitAsync();
         }
@@ -164,6 +162,23 @@ public partial class BookingService(
         booking.Student = student;
         booking.Tutorsubjectgradeprice = price;
         booking.Package = package;
+
+        try
+        {
+            await notificationService.CreateNotificationAsync(new NotificationRequest
+            {
+                Userid = dto.TutorId,
+                Title = "Yêu cầu đặt lịch mới",
+                Message = $"Bạn có yêu cầu đặt lịch mới. Mã thanh toán: {paymentCode}",
+                Type = NotificationType.BookingNew,
+                Referenceid = booking.Bookingid.ToString()
+            });
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Không thể gửi thông báo booking mới cho tutor {TutorId}", dto.TutorId);
+        }
+
         return MapToResponse(booking, student, tutor, price.Subject);
     }
 
@@ -322,7 +337,9 @@ public partial class BookingService(
                     {
                         Userid = booking.Parentid,
                         Title = "Hoàn tiền thành công",
-                        Message = $"Booking #{bookingId} đã được hủy. Số tiền {refundAmount:N0}đ đã được hoàn vào ví của bạn."
+                        Message = $"Booking #{bookingId} đã được hủy. Số tiền {refundAmount:N0}đ đã được hoàn vào ví của bạn.",
+                        Type = NotificationType.PaymentRefundSuccess,
+                        Referenceid = bookingId.ToString()
                     });
                 }
             }
@@ -352,18 +369,24 @@ public partial class BookingService(
         return true;
     }
 
-    public async Task<List<ScheduleItemResponse>> GetTutorBookedSlotsAsync(string tutorId, DateTime startDate)
+    public async Task<List<BookedSlotResponse>> GetTutorBookedSlotsAsync(
+        string tutorId,
+        DateTime startDate,
+        DateTime endDate)
     {
-        // Normalize timezone: nếu frontend gửi UTC thì dùng, nếu Unspecified thì coi như user time
-        var startDateUtc = startDate.Kind == DateTimeKind.Utc 
-            ? startDate 
-            : TimeZoneHelper.ToUtc(startDate);
-        var fromUtc = startDateUtc;
-        var toUtc = fromUtc.AddDays(WeeksPerMonth * 7);
+        static DateTime NormalizeUtc(DateTime value) => value.Kind switch
+        {
+            DateTimeKind.Utc => value,
+            DateTimeKind.Local => value.ToUniversalTime(),
+            _ => DateTime.SpecifyKind(value, DateTimeKind.Utc)
+        };
+
+        var fromUtc = NormalizeUtc(startDate);
+        var toUtc = NormalizeUtc(endDate);
 
         var lessons = await context.Lessons
             .Where(l => l.Tutorid == tutorId
-                && l.Scheduledstart >= fromUtc
+                && l.Scheduledend > fromUtc
                 && l.Scheduledstart < toUtc
                 && l.Status != Cancelled
                 && l.Status != CancelledNoshow
@@ -372,21 +395,11 @@ public partial class BookingService(
             .OrderBy(l => l.Scheduledstart)
             .ToListAsync();
 
-        return lessons
-            .Select(l =>
-            {
-                var startVn = TimeZoneHelper.ToUserTime(l.Scheduledstart);
-                var endVn = TimeZoneHelper.ToUserTime(l.Scheduledend);
-                var isoDayOfWeek = startVn.DayOfWeek == DayOfWeek.Sunday ? 7 : (int)startVn.DayOfWeek;
-                return new ScheduleItemResponse
-                {
-                    DayOfWeek = isoDayOfWeek,
-                    StartTime = startVn.ToString("HH:mm"),
-                    EndTime = endVn.ToString("HH:mm")
-                };
-            })
-            .DistinctBy(s => $"{s.DayOfWeek}|{s.StartTime}|{s.EndTime}")
-            .ToList();
+        return lessons.Select(l => new BookedSlotResponse
+        {
+            ScheduledStart = DateTime.SpecifyKind(l.Scheduledstart, DateTimeKind.Utc),
+            ScheduledEnd = DateTime.SpecifyKind(l.Scheduledend, DateTimeKind.Utc)
+        }).ToList();
     }
 
 
@@ -407,8 +420,8 @@ public partial class BookingService(
             var endUtc = TimeOnly.FromTimeSpan(slot.End.TimeOfDay);
 
             // Local (+7) conversions kept only for human-readable error messages and logging
-            var startVn = TimeZoneHelper.ToUserTime(slot.Start);
-            var endVn = TimeZoneHelper.ToUserTime(slot.End);
+            var startVn = slot.Start;
+            var endVn = slot.End;
             var bookingDate = DateOnly.FromDateTime(startVn);
 
             // Debug logging
@@ -486,31 +499,32 @@ public partial class BookingService(
         if (package.Tutorpackagefixedslots.Count == 0)
             throw new BookingException(BookingErrorCodes.InvalidSchedule, "Package cố định chưa có khung giờ", 400);
 
-        var startDateVn = TimeZoneHelper.ToUserTime(TimeZoneHelper.ToUtc(startDate)).Date;
-        var todayVn = TimeZoneHelper.ToUserTime(TimeZoneHelper.UtcNow).Date;
-        var currentDate = startDateVn >= todayVn ? startDateVn : todayVn;
+        // FE sends UTC — use directly
+        var startDay = (startDate.Kind == DateTimeKind.Utc ? startDate : DateTime.SpecifyKind(startDate, DateTimeKind.Utc)).Date;
+        var todayUtc = TimeZoneHelper.UtcNow.Date;
+        var currentDate = startDay >= todayUtc ? startDay : todayUtc;
+
+        // Fixed slots stored in UTC — use directly, no conversion needed
         var fixedSlots = package.Tutorpackagefixedslots
-            .OrderBy(s => s.Dayofweek)
-            .ThenBy(s => s.Starttime)
+            .Select(s => (utcDay: s.Dayofweek, utcStart: s.Starttime, utcEnd: s.Endtime))
+            .OrderBy(s => s.utcDay)
+            .ThenBy(s => s.utcStart)
             .ToList();
         var result = new List<LessonSlot>();
 
         while (result.Count < totalSessions)
         {
-            // Convert C# DayOfWeek (0=Sunday, 1=Monday...) to ISO format (1=Monday, 7=Sunday)
             var isoDayOfWeek = currentDate.DayOfWeek == DayOfWeek.Sunday ? 7 : (int)currentDate.DayOfWeek;
 
-            foreach (var fixedSlot in fixedSlots.Where(s => s.Dayofweek == isoDayOfWeek))
+            foreach (var (slotDay, slotStart, slotEnd) in fixedSlots.Where(s => s.utcDay == isoDayOfWeek))
             {
                 if (result.Count >= totalSessions) break;
 
                 var start = new DateTime(currentDate.Year, currentDate.Month, currentDate.Day,
-                    fixedSlot.Starttime.Hour, fixedSlot.Starttime.Minute, 0, DateTimeKind.Unspecified);
+                    slotStart.Hour, slotStart.Minute, 0, DateTimeKind.Utc);
                 var end = new DateTime(currentDate.Year, currentDate.Month, currentDate.Day,
-                    fixedSlot.Endtime.Hour, fixedSlot.Endtime.Minute, 0, DateTimeKind.Unspecified);
-                result.Add(new LessonSlot(
-                    MV.DomainLayer.Helpers.TimeZoneHelper.ToUtc(start),
-                    MV.DomainLayer.Helpers.TimeZoneHelper.ToUtc(end)));
+                    slotEnd.Hour, slotEnd.Minute, 0, DateTimeKind.Utc);
+                result.Add(new LessonSlot(start, end));
             }
 
             currentDate = currentDate.AddDays(1);
@@ -527,18 +541,16 @@ public partial class BookingService(
                 $"Package linh hoạt yêu cầu chọn đúng {totalSessions} buổi học", 400);
 
         var duration = TimeSpan.FromMinutes(durationMinutes);
+        // FE sends UTC with Z — use directly
         return slots
             .Select(s =>
             {
-                // Frontend gửi datetime theo giờ user timezone
-                // Cần chuyển sang UTC để lưu DB và so sánh
-                // Nếu Kind là Unspecified, coi như User Time
-                var start = s.ScheduledStart.Kind == DateTimeKind.Utc 
-                    ? s.ScheduledStart 
-                    : TimeZoneHelper.ToUtc(s.ScheduledStart);
-                var end = s.ScheduledEnd.Kind == DateTimeKind.Utc 
-                    ? s.ScheduledEnd 
-                    : TimeZoneHelper.ToUtc(s.ScheduledEnd);
+                var start = s.ScheduledStart.Kind == DateTimeKind.Utc
+                    ? s.ScheduledStart
+                    : DateTime.SpecifyKind(s.ScheduledStart, DateTimeKind.Utc);
+                var end = s.ScheduledEnd.Kind == DateTimeKind.Utc
+                    ? s.ScheduledEnd
+                    : DateTime.SpecifyKind(s.ScheduledEnd, DateTimeKind.Utc);
                     
                 if (end <= start || Math.Abs((end - start - duration).TotalMinutes) > 1)
                     throw new BookingException(BookingErrorCodes.InvalidSchedule,
@@ -559,8 +571,8 @@ public partial class BookingService(
             {
                 LessonId = l.Lessonid,
                 SessionIndex = i + 1,
-                ScheduledStart = TimeZoneHelper.ToUserTime(l.Scheduledstart),
-                ScheduledEnd = TimeZoneHelper.ToUserTime(l.Scheduledend),
+                ScheduledStart = l.Scheduledstart,
+                ScheduledEnd = l.Scheduledend,
                 Status = l.Status,
                 LessonPrice = l.Lessonprice
             })
@@ -631,20 +643,19 @@ public partial class BookingService(
             }).ToList(),
             Lessons = lessons,
             StartDate = b.Startdate,
-            // BE luôn lưu UTC (DateTime.UtcNow), ToUserTime() convert sang múi giờ của FE truyền vào.
             // Pattern này đúng cả local lẫn cloud deployment.
-            CreatedAt = b.Createdat.HasValue ? TimeZoneHelper.ToUserTime(b.Createdat.Value) : (DateTime?)null,
-            PaymentDueAt = b.Paymentdueat.HasValue ? TimeZoneHelper.ToUserTime(b.Paymentdueat.Value) : (DateTime?)null,
+            CreatedAt = b.Createdat,
+            PaymentDueAt = b.Paymentdueat,
             DepositAmount = b.Depositamount,
             RemainingAmount = b.Remainingamount,
-            DepositPaidAt = b.Depositpaidat.HasValue ? TimeZoneHelper.ToUserTime(b.Depositpaidat.Value) : (DateTime?)null,
-            RemainingPaidAt = b.Remainingpaidat.HasValue ? TimeZoneHelper.ToUserTime(b.Remainingpaidat.Value) : (DateTime?)null,
+            DepositPaidAt = b.Depositpaidat,
+            RemainingPaidAt = b.Remainingpaidat,
             EscrowStatus = b.Escrowstatus,
             RefundAmount = b.Refundamount,
             RefundStatus = b.Refundstatus,
             CancellationReason = b.Cancellationreason,
             CancelledBy = b.Cancelledby,
-            CancelledAt = b.Cancelledat.HasValue ? TimeZoneHelper.ToUserTime(b.Cancelledat.Value) : (DateTime?)null
+            CancelledAt = b.Cancelledat
         };
     }
 

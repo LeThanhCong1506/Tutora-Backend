@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using MV.ApplicationLayer.Interfaces;
 using MV.ApplicationLayer.ServiceInterfaces;
@@ -42,11 +42,11 @@ public class AdminDashboardService(
         logger.LogInformation("AdminDashboardService.GetStatsAsync");
 
         var nowUtc = TimeZoneHelper.UtcNow;
-        var userNow = TimeZoneHelper.ToUserTime(nowUtc);
+        var userNow = nowUtc;
         var monthStartUser = new DateTime(userNow.Year, userNow.Month, 1, 0, 0, 0, DateTimeKind.Unspecified);
-        var monthStartUtc = TimeZoneHelper.ToUtc(monthStartUser);
+        var monthStartUtc = DateTime.SpecifyKind(monthStartUser, DateTimeKind.Utc);
         var todayStartUser = userNow.Date;
-        var todayStartUtc = TimeZoneHelper.ToUtc(todayStartUser);
+        var todayStartUtc = DateTime.SpecifyKind(todayStartUser, DateTimeKind.Utc);
         var todayEndUtc = todayStartUtc.AddDays(1);
 
         // Sequential fetch — EF Core DbContext is not thread-safe, cannot run concurrent queries
@@ -165,13 +165,17 @@ public class AdminDashboardService(
         CancellationToken ct = default)
     {
         var nowUtc = TimeZoneHelper.UtcNow;
-        var toUtc = to ?? nowUtc;
-        var fromUtc = from ?? toUtc.AddDays(-30);
+        var toUtc = to.HasValue
+            ? (to.Value.Kind == DateTimeKind.Utc ? to.Value : DateTime.SpecifyKind(to.Value, DateTimeKind.Utc))
+            : nowUtc;
+        var fromUtc = from.HasValue
+            ? (from.Value.Kind == DateTimeKind.Utc ? from.Value : DateTime.SpecifyKind(from.Value, DateTimeKind.Utc))
+            : toUtc.AddDays(-30);
 
-        var userNow = TimeZoneHelper.ToUserTime(nowUtc);
+        var userNow = nowUtc;
         var weekStartUtc = nowUtc.AddDays(-7);
         var monthStartUser = new DateTime(userNow.Year, userNow.Month, 1, 0, 0, 0, DateTimeKind.Unspecified);
-        var monthStartUtc = TimeZoneHelper.ToUtc(monthStartUser);
+        var monthStartUtc = DateTime.SpecifyKind(monthStartUser, DateTimeKind.Utc);
 
         logger.LogInformation(
             "AdminDashboardService.GetUserStatsAsync from={From} to={To}", fromUtc, toUtc);
@@ -210,8 +214,8 @@ public class AdminDashboardService(
 
         return new AdminUserStatsResponse
         {
-            FilterFrom = TimeZoneHelper.ToUserTime(fromUtc),
-            FilterTo = TimeZoneHelper.ToUserTime(toUtc),
+            FilterFrom = fromUtc,
+            FilterTo = toUtc,
             ByRole = new UserStatsByRole
             {
                 TotalTutors = tutors.Count,
@@ -253,8 +257,12 @@ public class AdminDashboardService(
         CancellationToken ct = default)
     {
         var nowUtc = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
-        var toUtc = to ?? nowUtc;
-        var fromUtc = from ?? toUtc.AddDays(-30);
+        var toUtc = to.HasValue
+            ? (to.Value.Kind == DateTimeKind.Utc ? to.Value : DateTime.SpecifyKind(to.Value, DateTimeKind.Utc))
+            : nowUtc;
+        var fromUtc = from.HasValue
+            ? (from.Value.Kind == DateTimeKind.Utc ? from.Value : DateTime.SpecifyKind(from.Value, DateTimeKind.Utc))
+            : toUtc.AddDays(-30);
 
         logger.LogInformation(
             "AdminDashboardService.GetTutorPerformanceAsync top={Top} from={From} to={To}",
@@ -366,8 +374,8 @@ public class AdminDashboardService(
 
         return new AdminTutorPerformanceResponse
         {
-            FilterFrom = TimeZoneHelper.ToUserTime(fromUtc),
-            FilterTo = TimeZoneHelper.ToUserTime(toUtc),
+            FilterFrom = fromUtc,
+            FilterTo = toUtc,
             PlatformAverageRating = platformAvgRating,
             PlatformAvgCompletionRate = platformAvgCompletion,
             TopByRating = topByRating,
@@ -391,8 +399,12 @@ public class AdminDashboardService(
         CancellationToken ct = default)
     {
         var nowUtc = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
-        var toUtc = to ?? nowUtc;
-        var fromUtc = from ?? toUtc.AddDays(-30);
+        var toUtc = to.HasValue
+            ? (to.Value.Kind == DateTimeKind.Utc ? to.Value : DateTime.SpecifyKind(to.Value, DateTimeKind.Utc))
+            : nowUtc;
+        var fromUtc = from.HasValue
+            ? (from.Value.Kind == DateTimeKind.Utc ? from.Value : DateTime.SpecifyKind(from.Value, DateTimeKind.Utc))
+            : toUtc.AddDays(-30);
 
         logger.LogInformation(
             "AdminDashboardService.GetDisputeStatsAsync from={From} to={To}", fromUtc, toUtc);
@@ -455,7 +467,7 @@ public class AdminDashboardService(
             .Where(d => d.Createdat >= fromUtc && d.Createdat <= toUtc)
             .GroupBy(d =>
             {
-                var vn = TimeZoneHelper.ToUserTime(d.Createdat!.Value);
+                var vn = d.Createdat!.Value;
                 return $"{vn.Year}-{vn.Month:D2}";
             })
             .Select(g => new DisputeTrendItem
@@ -469,8 +481,8 @@ public class AdminDashboardService(
 
         return new AdminDisputeStatsResponse
         {
-            FilterFrom = TimeZoneHelper.ToUserTime(fromUtc),
-            FilterTo = TimeZoneHelper.ToUserTime(toUtc),
+            FilterFrom = fromUtc,
+            FilterTo = toUtc,
             Overview = new DisputeStatsOverview
             {
                 TotalDisputes = total,

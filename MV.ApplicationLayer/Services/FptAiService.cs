@@ -74,12 +74,13 @@ namespace MV.ApplicationLayer.Services
         {
             try
             {
-                var livenessUrl = _config["FptAi:LivenessUrl"] ?? "https://api.fpt.ai/vision/liveness/v3";
+                var livenessUrl = _config["FptAi:LivenessUrl"] ?? "https://api.fpt.ai/dmp/liveness/v3";
 
                 using var request = new MultipartFormDataContent();
                 var fileContent = new StreamContent(videoStream);
                 fileContent.Headers.ContentType = new MediaTypeHeaderValue("video/mp4");
-                request.Add(fileContent, "file", fileName);
+                // FPT.AI liveness v3 yêu cầu form field tên "video"
+                request.Add(fileContent, "video", fileName);
 
                 using var httpRequest = new HttpRequestMessage(HttpMethod.Post, livenessUrl);
                 httpRequest.Headers.Add("api-key", _apiKey);
@@ -92,20 +93,19 @@ namespace MV.ApplicationLayer.Services
 
                 if (!response.IsSuccessStatusCode)
                 {
-                    _logger.LogWarning("FPT AI Liveness check failed with status: {StatusCode}", response.StatusCode);
+                    _logger.LogWarning("FPT AI Liveness check failed with HTTP status: {StatusCode}", response.StatusCode);
                     return new FptAiLivenessResponse
                     {
-                        ErrorCode = (int)response.StatusCode,
-                        ErrorMessage = "Liveness check failed",
-                        Data = null
+                        Code = ((int)response.StatusCode).ToString(),
+                        Message = "Liveness check HTTP failure"
                     };
                 }
 
                 var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
                 return JsonSerializer.Deserialize<FptAiLivenessResponse>(jsonString, options) ?? new FptAiLivenessResponse
                 {
-                    ErrorCode = -1,
-                    ErrorMessage = "Failed to parse response"
+                    Code = "-1",
+                    Message = "Failed to parse liveness response"
                 };
             }
             catch (Exception ex)
@@ -113,9 +113,8 @@ namespace MV.ApplicationLayer.Services
                 _logger.LogError(ex, "Error calling FPT AI Liveness API");
                 return new FptAiLivenessResponse
                 {
-                    ErrorCode = -1,
-                    ErrorMessage = ex.Message,
-                    Data = null
+                    Code = "-1",
+                    Message = ex.Message
                 };
             }
         }

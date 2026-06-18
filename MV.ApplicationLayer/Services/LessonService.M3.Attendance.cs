@@ -1,4 +1,4 @@
-using Microsoft.AspNetCore.Http;
+﻿using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using MV.DomainLayer.Constants;
@@ -72,7 +72,7 @@ public partial class LessonService
         // ── Gửi thông báo + link vào chat cho Parent và Student ──
         var parentId = lesson.Booking?.Parentid;
         var studentProfileId = lesson.Booking?.Studentid; // ProfileId (stu_xxx), KHÔNG phải UserId
-        var lessonTimeVn = TimeZoneHelper.ToUserTime(lesson.Scheduledstart).ToString("dd/MM HH:mm");
+        var lessonTimeVn = lesson.Scheduledstart.ToString("dd/MM HH:mm");
         // hasMeetLink được tính lại SAU khi Tencent RTC RoomId đã được set
         var hasMeetLink = !string.IsNullOrWhiteSpace(lesson.Meetinglink);
         string chatContent;
@@ -107,7 +107,7 @@ public partial class LessonService
         {
             lessonId,
             meetingLink = lesson.Meetinglink,
-            scheduledStart = TimeZoneHelper.ToUserTime(lesson.Scheduledstart)
+            scheduledStart = lesson.Scheduledstart
         };
 
         // ── Gửi cho Parent ──
@@ -296,7 +296,9 @@ public partial class LessonService
                         Userid = parentId,
                         Title = "Sắp cần thanh toán 50% còn lại",
                         Message = $"Buổi học đầu tiên của booking #{lesson.Bookingid} đã hoàn thành. " +
-                            $"Sau 24h xác nhận, bạn sẽ cần thanh toán 50% còn lại ({lesson.Booking.Remainingamount:N0}đ) để tiếp tục các buổi học sau."
+                            $"Sau 24h xác nhận, bạn sẽ cần thanh toán 50% còn lại ({lesson.Booking.Remainingamount:N0}đ) để tiếp tục các buổi học sau.",
+                        Type = NotificationType.PaymentRemainingRequired,
+                        Referenceid = lesson.Bookingid.ToString()
                     });
                 }
             }

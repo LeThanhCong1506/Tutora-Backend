@@ -1,4 +1,4 @@
-using Microsoft.AspNetCore.Http;
+﻿using Microsoft.AspNetCore.Http;
 using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO.RequestModel;
@@ -37,34 +37,6 @@ namespace MV.ApplicationLayer.Services
 
         // ─── Queries ──────────────────────────────────────────────────────────
 
-        public async Task<PagedList<UserResponse>> GetAllUsersAsync(UserParameters userParameters)
-        {
-            var users = await _unitOfWork.UserRepository.GetUsersAsync(userParameters);
-
-            var userResponses = users.Select(u => new UserResponse
-            {
-                Userid = u.Userid,
-                Username = u.Username,
-                Email = u.Email,
-                Fullname = u.Fullname,
-                Phone = u.Phone,
-                Address = u.Address,
-                Birthdate = u.Birthdate,
-                Gender = u.Gender,
-                Avatarurl = u.Avatarurl,
-                Status = u.Status,
-                Createdat = u.Createdat.HasValue ? TimeZoneHelper.ToUserTime(u.Createdat.Value) : (DateTime?)null,
-                LastLoginAt = u.Lastloginat.HasValue ? TimeZoneHelper.ToUserTime(u.Lastloginat.Value) : (DateTime?)null,
-                Role = u.Primaryrole ?? UserRole.User
-            }).ToList();
-
-            return new PagedList<UserResponse>(
-                userResponses,
-                users.TotalCount,
-                users.CurrentPage,
-                users.PageSize);
-        }
-
         public async Task<UserResponse> GetUserByIdAsync(string userId)
         {
             var user = await _unitOfWork.UserRepository.GetUserByIdAsync(userId)
@@ -77,14 +49,18 @@ namespace MV.ApplicationLayer.Services
                 Email = user.Email,
                 Fullname = user.Fullname,
                 Phone = user.Phone,
+                Isidentityverified = user.Isidentityverified,
+                Idcardfronturl = user.Idcardfronturl,
+                Idcardbackurl = user.Idcardbackurl,
                 Birthdate = user.Birthdate,
                 Address = user.Address,
                 Gender = user.Gender,
                 Avatarurl = user.Avatarurl,
                 Status = user.Status,
-                Createdat = user.Createdat.HasValue ? TimeZoneHelper.ToUserTime(user.Createdat.Value) : (DateTime?)null,
-                LastLoginAt = user.Lastloginat.HasValue ? TimeZoneHelper.ToUserTime(user.Lastloginat.Value) : (DateTime?)null,
-                Role = user.Primaryrole
+                Createdat = user.Createdat,
+                LastLoginAt = user.Lastloginat,
+                Role = user.Primaryrole,
+                Ekycrawdata = user.Ekycrawdata
             };
         }
 
@@ -122,11 +98,11 @@ namespace MV.ApplicationLayer.Services
                     Gender = u.Gender,
                     Address = u.Address,
                     Status = u.Status,
-                    Createdat = u.Createdat.HasValue ? TimeZoneHelper.ToUserTime(u.Createdat.Value) : (DateTime?)null,
+                    Createdat = u.Createdat,
                     ProfileStatus = u.Tutorprofile?.Profilestatus,
                     RejectionNote = u.Tutorprofile?.Rejectionnote,
-                    ProfileCreatedAt = u.Tutorprofile?.Createdat.HasValue == true ? TimeZoneHelper.ToUserTime(u.Tutorprofile.Createdat.Value) : (DateTime?)null,
-                    ProfileUpdatedAt = u.Tutorprofile?.Updatedat.HasValue == true ? TimeZoneHelper.ToUserTime(u.Tutorprofile.Updatedat.Value) : (DateTime?)null,
+                    ProfileCreatedAt = u.Tutorprofile?.Createdat.HasValue == true ? u.Tutorprofile.Createdat.Value : (DateTime?)null,
+                    ProfileUpdatedAt = u.Tutorprofile?.Updatedat.HasValue == true ? u.Tutorprofile.Updatedat.Value : (DateTime?)null,
                     Sections = progress?.Sections ?? new VerificationSections()
                 });
             }
@@ -298,7 +274,7 @@ namespace MV.ApplicationLayer.Services
             return new DeactivationStatusResponse
             {
                 IsDeactivated = willDeactivate,
-                DeactivatedAt = TimeZoneHelper.ToUserTime(now),
+                DeactivatedAt = now,
                 Message = message
             };
         }
@@ -342,9 +318,13 @@ namespace MV.ApplicationLayer.Services
             Gender = user.Gender,
             Avatarurl = user.Avatarurl,
             Status = user.Status,
-            Createdat = user.Createdat.HasValue ? TimeZoneHelper.ToUserTime(user.Createdat.Value) : (DateTime?)null,
-            LastLoginAt = user.Lastloginat.HasValue ? TimeZoneHelper.ToUserTime(user.Lastloginat.Value) : (DateTime?)null,
-            Role = user.Primaryrole
+            Createdat = user.Createdat,
+            LastLoginAt = user.Lastloginat,
+            Role = user.Primaryrole,
+            Ekycrawdata = user.Ekycrawdata,
+            Isidentityverified = user.Isidentityverified,
+            Idcardfronturl = user.Idcardfronturl,
+            Idcardbackurl = user.Idcardbackurl
         };
     }
 }

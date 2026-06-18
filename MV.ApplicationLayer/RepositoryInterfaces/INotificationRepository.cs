@@ -14,6 +14,7 @@ namespace MV.ApplicationLayer.RepositoryInterfaces
         Task<IEnumerable<Notification>> GetUnreadNotificationsByUserIdAsync(string userId);
         Task<int> GetUnreadCountByUserIdAsync(string userId);
         Task<Dictionary<string, int>> GetUnreadCountByTypeAsync(string userId);
+        Task<bool> ExistsByUserAndTypeAndReferenceAsync(string userId, string type, string? referenceId);
         Task<IEnumerable<Notification>> GetAllNotificationsAsync();
 
         // Update

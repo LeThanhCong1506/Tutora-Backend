@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Distributed;
 using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO.ResponseModel;
@@ -80,7 +80,7 @@ namespace MV.ApplicationLayer.Services
                     CredentialId = c.Credentialid,
                     CredentialUrl = c.Credentialurl,
                     CertificateFileUrl = c.Certificatefileurl,
-                    CreatedAt = TimeZoneHelper.ToUserTime(c.Createdat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow),
+                    CreatedAt = c.Createdat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow,
                     VerificationStatus = c.Verificationstatus,
                     VerificationNote = c.Verificationnote
                 }).ToList(),
@@ -99,104 +99,237 @@ namespace MV.ApplicationLayer.Services
         }
 
         /// <summary>
+        /// Get tutor profile info without schedule/package data.
+        /// </summary>
+        public async Task<TutorProfileInfoResponse?> GetTutorProfileInfoAsync(string tutorId)
+        {
+            var profile = await _dbContext.Tutorprofiles
+                .AsNoTracking()
+                .FirstOrDefaultAsync(t => t.Tutorid == tutorId);
+
+            if (!IsActiveTutorProfile(profile))
+            {
+                return null;
+            }
+
+            var user = await _dbContext.Users
+                .AsNoTracking()
+                .Where(u => u.Userid == tutorId)
+                .Select(u => new
+                {
+                    u.Avatarurl,
+                    u.Fullname
+                })
+                .FirstOrDefaultAsync();
+
+            var subjects = await _dbContext.Tutorsubjectgradeprices
+                .AsNoTracking()
+                .Where(ts => ts.Tutorid == tutorId)
+                .Select(ts => new
+                {
+                    ts.Id,
+                    ts.Subjectid,
+                    SubjectName = ts.Subject != null ? ts.Subject.Subjectname : null,
+                    ts.Gradelevelid,
+                    GradeLevelName = ts.Gradelevel != null ? ts.Gradelevel.Gradename : null,
+                    ts.Priceperhour,
+                    ts.Durationminutespersession,
+                    ts.Sessionsperweek,
+                    ts.Currency,
+                    ts.Isactive
+                })
+                .ToListAsync();
+
+            var certificates = await _dbContext.Tutorcertificates
+                .AsNoTracking()
+                .Where(c => c.Tutorid == tutorId)
+                .OrderByDescending(c => c.Createdat)
+                .Select(c => new CertificateResponse
+                {
+                    CertificateId = c.Certificateid,
+                    CertificateName = c.Certificatename,
+                    CertificateType = c.Certificatetype,
+                    IssuingOrganization = c.Issuingorganization,
+                    YearIssued = c.Yearissued,
+                    CredentialId = c.Credentialid,
+                    CredentialUrl = c.Credentialurl,
+                    CertificateFileUrl = c.Certificatefileurl,
+                    CreatedAt = c.Createdat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow,
+                    VerificationStatus = c.Verificationstatus,
+                    VerificationNote = c.Verificationnote
+                })
+                .ToListAsync();
+
+            var response = new TutorProfileInfoResponse
+            {
+                VideoIntroUrl = profile!.Videointrourl,
+                AvatarUrl = user?.Avatarurl,
+                FullName = user?.Fullname,
+                Headline = profile.Headline,
+                TeachingAreaCity = profile.Teachingareacity,
+                TeachingAreaDistrict = profile.Teachingareadistrict,
+                TeachingMode = TeachingMode.Online,
+                Subjects = subjects.Select(MapSubjectInfo).ToList(),
+                SubjectGradePrices = subjects
+                    .Where(s => s.Isactive)
+                    .Select(MapSubjectGradePrice)
+                    .ToList(),
+                Bio = profile.Bio,
+                Education = profile.Education,
+                Gpa = profile.Gpa,
+                GpaScale = profile.Gpascale,
+                Experience = profile.Experience,
+                Certificates = certificates,
+                TotalFeedbacks = profile.Totalreviews ?? 0,
+                AverageRating = Math.Round(profile.Averagerating ?? 0, 1)
+            };
+
+            return response;
+        }
+
+        /// <summary>
+        /// Get tutor schedule including weekly availability and packages.
+        /// </summary>
+        public async Task<TutorScheduleResponse?> GetTutorScheduleAsync(string tutorId)
+        {
+            var profile = await _dbContext.Tutorprofiles
+                .AsNoTracking()
+                .Where(t => t.Tutorid == tutorId)
+                .Select(t => new
+                {
+                    t.Tutorid,
+                    t.Profilestatus
+                })
+                .FirstOrDefaultAsync();
+
+            if (!IsActiveTutorProfile(profile))
+            {
+                return null;
+            }
+
+            var availabilities = await _dbContext.Tutoravailabilities
+                .AsNoTracking()
+                .Where(a => a.Tutorid == tutorId)
+                .OrderBy(a => a.Dayofweek)
+                .ThenBy(a => a.Starttime)
+                .Select(a => new TutorAvailabilityResponse
+                {
+                    Availabilityid = a.Availabilityid,
+                    Tutorid = a.Tutorid ?? string.Empty,
+                    Dayofweek = a.Dayofweek ?? 1,
+                    Starttime = a.Starttime != null ? a.Starttime.ToString() : string.Empty,
+                    Endtime = a.Endtime != null ? a.Endtime.ToString() : string.Empty,
+                    Createdat = a.Createdat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
+                })
+                .ToListAsync();
+
+            var packages = await _dbContext.Tutorpackages
+                .AsNoTracking()
+                .Where(p => p.Tutorid == tutorId && p.Isactive)
+                .OrderBy(p => p.Createdat)
+                .Select(p => new TutorPackageResponse
+                {
+                    PackageId = p.Packageid,
+                    TutorId = p.Tutorid,
+                    Name = p.Name,
+                    PackageType = p.Packagetype,
+                    IsActive = p.Isactive,
+                    FixedSlots = p.Tutorpackagefixedslots
+                        .OrderBy(fs => fs.Dayofweek)
+                        .ThenBy(fs => fs.Starttime)
+                        .Select(fs => new TutorPackageFixedSlotResponse
+                        {
+                            FixedSlotId = fs.Fixedslotid,
+                            DayOfWeek = fs.Dayofweek,
+                            StartTime = fs.Starttime.ToString(),
+                            EndTime = fs.Endtime.ToString()
+                        })
+                        .ToList()
+                })
+                .ToListAsync();
+
+            var response = new TutorScheduleResponse
+            {
+                TutorId = tutorId,
+                Availabilities = availabilities,
+                Packages = packages
+            };
+
+            return response;
+        }
+
+        /// <summary>
         /// Get full tutor profile for public display (cached 20 min)
         /// Includes all profile sections + schedule + feedbacks with statistics
         /// </summary>
         public async Task<TutorFullProfileResponse?> GetTutorFullProfileAsync(string tutorId)
         {
             var cacheKey = $"{FullProfileCacheKeyPrefix}{tutorId}";
-
-            // Try to get from cache first with short timeout to avoid blocking when Redis is down
-            try
+            var cachedResponse = await TryGetCachedResponseAsync<TutorFullProfileResponse>(cacheKey);
+            if (cachedResponse != null)
             {
-                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(1));
-                var cachedData = await _cache.GetStringAsync(cacheKey, cts.Token);
-                if (!string.IsNullOrEmpty(cachedData))
-                {
-                    return JsonSerializer.Deserialize<TutorFullProfileResponse>(cachedData);
-                }
-            }
-            catch
-            {
-                // Redis not available or timeout, continue to fetch from database
+                return cachedResponse;
             }
 
-            // Get profile first to validate existence and active status
-            var profile = await _dbContext.Tutorprofiles
-                .AsNoTracking()
-                .FirstOrDefaultAsync(t => t.Tutorid == tutorId);
-
-            if (profile == null || !string.Equals(profile.Profilestatus, TutorProfileStatus.Active, StringComparison.OrdinalIgnoreCase))
+            var profileInfo = await GetTutorProfileInfoAsync(tutorId);
+            if (profileInfo == null)
             {
                 return null;
             }
 
-            // Fetch user info
-            var user = await _dbContext.Users
-                .AsNoTracking()
-                .FirstOrDefaultAsync(u => u.Userid == tutorId);
-
-            // Fetch subjects (include Subject entity for SubjectName)
-            var subjects = await _dbContext.Tutorsubjectgradeprices
-                .AsNoTracking()
-                .Include(ts => ts.Subject)
-                .Include(ts => ts.Gradelevel)
-                .Where(ts => ts.Tutorid == tutorId)
-                .ToListAsync();
-
-            // Fetch certificates
-            var certificates = await _dbContext.Tutorcertificates
-                .AsNoTracking()
-                .Where(c => c.Tutorid == tutorId)
-                .OrderByDescending(c => c.Createdat)
-                .ToListAsync();
-
-            // Get availabilities — all slots (sorted by day and time)
-            var rawAvailabilities = await _dbContext.Tutoravailabilities
-                .AsNoTracking()
-                .Where(a => a.Tutorid == tutorId)
-                .OrderBy(a => a.Dayofweek)
-                .ThenBy(a => a.Starttime)
-                .ToListAsync();
-
-            var availabilities = rawAvailabilities
-                .Select(a => new TutorAvailabilityResponse
-                {
-                    Availabilityid = a.Availabilityid,
-                    Tutorid        = a.Tutorid ?? string.Empty,
-                    Dayofweek      = a.Dayofweek ?? 1,  // Default to Monday (1) instead of Sunday (0)
-                    Starttime      = a.Starttime?.ToString("HH:mm") ?? string.Empty,
-                    Endtime        = a.Endtime?.ToString("HH:mm") ?? string.Empty,
-                    Createdat      = TimeZoneHelper.ToUserTime(a.Createdat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow)
-                })
-                .ToList();
-
-            // Get packages with fixed slots (only active packages)
-            var packages = await _dbContext.Tutorpackages
-                .AsNoTracking()
-                .Include(p => p.Tutorpackagefixedslots)
-                .Where(p => p.Tutorid == tutorId && p.Isactive)
-                .OrderBy(p => p.Createdat)
-                .ToListAsync();
-
-            var packageResponses = packages.Select(p => new TutorPackageResponse
+            var schedule = await GetTutorScheduleAsync(tutorId);
+            if (schedule == null)
             {
-                PackageId = p.Packageid,
-                TutorId = p.Tutorid,
-                Name = p.Name,
-                PackageType = p.Packagetype,
-                IsActive = p.Isactive,
-                FixedSlots = p.Tutorpackagefixedslots.Select(fs => new TutorPackageFixedSlotResponse
-                {
-                    FixedSlotId = fs.Fixedslotid,
-                    DayOfWeek = fs.Dayofweek,
-                    StartTime = fs.Starttime.ToString("HH:mm"),
-                    EndTime = fs.Endtime.ToString("HH:mm")
-                }).ToList()
-            }).ToList();
+                return null;
+            }
 
-            // Get feedbacks sent To this tutor (with reviewer info)
-            var rawFeedbacksQuery = await _dbContext.Feedbacks
+            var feedbacks = await GetTutorFeedbacksAsync(tutorId);
+            var activeBookings = await GetTutorActiveBookingsAsync(tutorId);
+
+            var totalFeedbacks = feedbacks.Count;
+            var averageRating = totalFeedbacks > 0
+                ? feedbacks.Where(f => f.Rating.HasValue).Average(f => f.Rating!.Value)
+                : 0;
+
+            var response = new TutorFullProfileResponse
+            {
+                VideoIntroUrl = profileInfo.VideoIntroUrl,
+                AvatarUrl = profileInfo.AvatarUrl,
+                FullName = profileInfo.FullName,
+                Headline = profileInfo.Headline,
+                TeachingAreaCity = profileInfo.TeachingAreaCity,
+                TeachingAreaDistrict = profileInfo.TeachingAreaDistrict,
+                TeachingMode = profileInfo.TeachingMode,
+                Subjects = profileInfo.Subjects,
+                SubjectGradePrices = profileInfo.SubjectGradePrices,
+                Bio = profileInfo.Bio,
+                Education = profileInfo.Education,
+                Gpa = profileInfo.Gpa,
+                GpaScale = profileInfo.GpaScale,
+                Experience = profileInfo.Experience,
+                Certificates = profileInfo.Certificates,
+                Availabilities = schedule.Availabilities,
+                Packages = schedule.Packages,
+                TotalFeedbacks = totalFeedbacks,
+                AverageRating = Math.Round(averageRating, 1),
+                Feedbacks = feedbacks,
+                TotalActiveClasses = activeBookings.Count,
+                ActiveClasses = activeBookings.Select(MapActiveClass).ToList()
+            };
+
+            CacheResponseWithoutBlocking(cacheKey, response, FullProfileCacheDuration);
+            return response;
+        }
+
+        private static bool IsActiveTutorProfile(dynamic profile)
+        {
+            return profile != null &&
+                   string.Equals(profile.Profilestatus, TutorProfileStatus.Active, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private async Task<List<FeedbackItemResponse>> GetTutorFeedbacksAsync(string tutorId)
+        {
+            var rawFeedbacks = await _dbContext.Feedbacks
                 .AsNoTracking()
                 .Where(f => f.Touserid == tutorId && f.Isvisible == true)
                 .OrderByDescending(f => f.Createdat)
@@ -221,7 +354,7 @@ namespace MV.ApplicationLayer.Services
                     })
                 .ToListAsync();
 
-            var feedbacksQuery = rawFeedbacksQuery.Select(f => new FeedbackItemResponse
+            return rawFeedbacks.Select(f => new FeedbackItemResponse
             {
                 FeedbackId = f.FeedbackId,
                 FromUserId = f.FromUserId,
@@ -230,28 +363,25 @@ namespace MV.ApplicationLayer.Services
                 Rating = f.Rating,
                 Comment = f.Comment,
                 ReplyComment = f.ReplyComment,
-                RepliedAt = f.RepliedAt.HasValue ? TimeZoneHelper.ToUserTime(f.RepliedAt.Value) : (DateTime?)null,
-                CreatedAt = f.CreatedAt.HasValue ? TimeZoneHelper.ToUserTime(f.CreatedAt.Value) : (DateTime?)null,
+                RepliedAt = f.RepliedAt,
+                CreatedAt = f.CreatedAt,
                 InitialGoal = f.InitialGoal,
                 ActualResult = f.ActualResult,
                 CourseDuration = f.CourseDuration
             }).ToList();
+        }
 
-            // Calculate feedback statistics
-            var totalFeedbacks = feedbacksQuery.Count;
-            var averageRating = totalFeedbacks > 0
-                ? feedbacksQuery.Where(f => f.Rating.HasValue).Average(f => f.Rating!.Value)
-                : 0;
-
-            // Get active classes (bookings that are paid/ongoing)
-            var activeStatuses = new[] {
+        private async Task<List<MV.DomainLayer.Entities.Booking>> GetTutorActiveBookingsAsync(string tutorId)
+        {
+            var activeStatuses = new[]
+            {
                 BookingStatus.Paid,
                 BookingStatus.DepositPaid,
                 BookingStatus.Ongoing,
                 BookingStatus.PendingRemainingPayment
             };
 
-            var activeBookings = await _dbContext.Bookings
+            return await _dbContext.Bookings
                 .AsNoTracking()
                 .Include(b => b.Tutorsubjectgradeprice)
                     .ThenInclude(tsgp => tsgp!.Subject)
@@ -260,101 +390,79 @@ namespace MV.ApplicationLayer.Services
                 .Where(b => b.Tutorid == tutorId && activeStatuses.Contains(b.Status))
                 .OrderByDescending(b => b.Createdat)
                 .ToListAsync();
+        }
 
-            var response = new TutorFullProfileResponse
+        private static SubjectInfo MapSubjectInfo(dynamic subject)
+        {
+            return new SubjectInfo
             {
-                // Video
-                VideoIntroUrl = profile.Videointrourl,
-
-                // Basic Info
-                AvatarUrl = user?.Avatarurl,
-                FullName = user?.Fullname,
-                Headline = profile.Headline,
-                TeachingAreaCity = profile.Teachingareacity,
-                TeachingAreaDistrict = profile.Teachingareadistrict,
-                TeachingMode = TeachingMode.Online,
-                Subjects = subjects?.Select(s => new SubjectInfo
-                {
-                    SubjectId = s.Subjectid,
-                    SubjectName = s.Subject?.Subjectname,
-                    GradeLevels = s.Gradelevel?.Gradename,
-                    Tags = null
-                }).ToList(),
-                SubjectGradePrices = subjects?.Where(s => s.Isactive).Select(s => new TutorSubjectGradePriceResponse
-                {
-                    Id = s.Id,
-                    SubjectId = s.Subjectid,
-                    SubjectName = s.Subject?.Subjectname,
-                    GradeLevelId = s.Gradelevelid,
-                    GradeLevelName = s.Gradelevel?.Gradename,
-                    PricePerHour = s.Priceperhour,
-                    DurationMinutesPerSession = s.Durationminutespersession,
-                    SessionsPerWeek = s.Sessionsperweek,
-                    Currency = s.Currency,
-                    IsActive = s.Isactive
-                }).ToList(),
-
-                // Introduction
-                Bio = profile.Bio,
-                Education = profile.Education,
-                Gpa = profile.Gpa,
-                GpaScale = profile.Gpascale,
-                Experience = profile.Experience,
-
-                // Certificates
-                Certificates = certificates?.Select(c => new CertificateResponse
-                {
-                    CertificateId = c.Certificateid,
-                    CertificateName = c.Certificatename,
-                    CertificateType = c.Certificatetype,
-                    IssuingOrganization = c.Issuingorganization,
-                    YearIssued = c.Yearissued,
-                    CredentialId = c.Credentialid,
-                    CredentialUrl = c.Credentialurl,
-                    CertificateFileUrl = c.Certificatefileurl,
-                    CreatedAt = TimeZoneHelper.ToUserTime(c.Createdat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow),
-                    VerificationStatus = c.Verificationstatus,
-                    VerificationNote = c.Verificationnote
-                }).ToList(),
-
-                // Pricing — removed (see SubjectGradePrices per subject)
-
-                // Schedule
-                Availabilities = availabilities,
-
-                // Packages
-                Packages = packageResponses,
-
-                // Feedback Statistics
-                TotalFeedbacks = totalFeedbacks,
-                AverageRating = Math.Round(averageRating, 1),
-
-                // Feedback List
-                Feedbacks = feedbacksQuery,
-
-                // Active Classes
-                TotalActiveClasses = activeBookings.Count,
-                ActiveClasses = activeBookings.Select(b => new ActiveClassSummary
-                {
-                    BookingId = b.Bookingid,
-                    SubjectName = b.Tutorsubjectgradeprice?.Subject?.Subjectname,
-                    StudentName = b.Student?.Fullname,
-                    TotalLessons = b.Lessons?.Count ?? 0,
-                    CompletedLessons = b.Lessons?.Count(l => l.Status == Completed || l.Status == PendingConfirmation) ?? 0,
-                    Status = b.Status,
-                    StartDate = b.Startdate.HasValue ? TimeZoneHelper.ToUserTime(b.Startdate.Value) : (DateTime?)null
-                }).ToList()
+                SubjectId = subject.Subjectid,
+                SubjectName = subject.SubjectName,
+                GradeLevels = subject.GradeLevelName,
+                Tags = null
             };
+        }
 
-            // Cache the result with short timeout (fire-and-forget to not block response)
+        private static TutorSubjectGradePriceResponse MapSubjectGradePrice(dynamic subject)
+        {
+            return new TutorSubjectGradePriceResponse
+            {
+                Id = subject.Id,
+                SubjectId = subject.Subjectid,
+                SubjectName = subject.SubjectName,
+                GradeLevelId = subject.Gradelevelid,
+                GradeLevelName = subject.GradeLevelName,
+                PricePerHour = subject.Priceperhour,
+                DurationMinutesPerSession = subject.Durationminutespersession,
+                SessionsPerWeek = subject.Sessionsperweek,
+                Currency = subject.Currency,
+                IsActive = subject.Isactive
+            };
+        }
+
+        private static ActiveClassSummary MapActiveClass(MV.DomainLayer.Entities.Booking booking)
+        {
+            return new ActiveClassSummary
+            {
+                BookingId = booking.Bookingid,
+                SubjectName = booking.Tutorsubjectgradeprice?.Subject?.Subjectname,
+                StudentName = booking.Student?.Fullname,
+                TotalLessons = booking.Lessons?.Count ?? 0,
+                CompletedLessons = booking.Lessons?.Count(l => l.Status == Completed || l.Status == PendingConfirmation) ?? 0,
+                Status = booking.Status,
+                StartDate = booking.Startdate
+            };
+        }
+
+        private async Task<T?> TryGetCachedResponseAsync<T>(string cacheKey) where T : class
+        {
+            try
+            {
+                using var cts = new CancellationTokenSource(CacheOperationTimeout);
+                var cachedData = await _cache.GetStringAsync(cacheKey, cts.Token);
+                if (!string.IsNullOrEmpty(cachedData))
+                {
+                    return JsonSerializer.Deserialize<T>(cachedData);
+                }
+            }
+            catch
+            {
+                // Redis not available or timeout, continue to fetch from database
+            }
+
+            return null;
+        }
+
+        private void CacheResponseWithoutBlocking<T>(string cacheKey, T response, TimeSpan duration)
+        {
             _ = Task.Run(async () =>
             {
                 try
                 {
-                    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(1));
+                    using var cts = new CancellationTokenSource(CacheOperationTimeout);
                     var cacheOptions = new DistributedCacheEntryOptions
                     {
-                        AbsoluteExpirationRelativeToNow = FullProfileCacheDuration
+                        AbsoluteExpirationRelativeToNow = duration
                     };
                     await _cache.SetStringAsync(cacheKey, JsonSerializer.Serialize(response), cacheOptions, cts.Token);
                 }
@@ -363,8 +471,6 @@ namespace MV.ApplicationLayer.Services
                     // Redis not available or timeout, skip caching
                 }
             });
-
-            return response;
         }
     }
 }

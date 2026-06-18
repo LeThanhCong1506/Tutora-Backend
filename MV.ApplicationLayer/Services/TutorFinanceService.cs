@@ -55,7 +55,7 @@ public class TutorFinanceService(
             FrozenBalance = wallet.Frozenbalance ?? 0,
             TotalEarned = totalEarned,
             PendingSettlement = pendingSettlement,
-            LastWithdrawalAt = lastWithdrawal.HasValue ? TimeZoneHelper.ToUserTime(lastWithdrawal.Value) : (DateTime?)null
+            LastWithdrawalAt = lastWithdrawal
         };
     }
 
@@ -118,10 +118,19 @@ public class TutorFinanceService(
             query = query.Where(t => t.Transactiontype == type);
 
         if (from.HasValue)
-            query = query.Where(t => t.Createdat >= from.Value);
-
+        {
+            var fromUtc = from.Value.Kind == DateTimeKind.Utc
+                ? from.Value
+                : DateTime.SpecifyKind(from.Value, DateTimeKind.Utc);
+            query = query.Where(t => t.Createdat >= fromUtc);
+        }
         if (to.HasValue)
-            query = query.Where(t => t.Createdat <= to.Value);
+        {
+            var toUtc = to.Value.Kind == DateTimeKind.Utc
+                ? to.Value
+                : DateTime.SpecifyKind(to.Value, DateTimeKind.Utc);
+            query = query.Where(t => t.Createdat <= toUtc);
+        }
 
         var total = await query.CountAsync(ct);
 
@@ -138,7 +147,7 @@ public class TutorFinanceService(
             Amount = t.Amount ?? 0,
             TransactionType = t.Transactiontype ?? string.Empty,
             Description = t.Description ?? string.Empty,
-            CreatedAt = TimeZoneHelper.ToUserTime(t.Createdat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow)
+            CreatedAt = t.Createdat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
         }).ToList();
 
         return new TransactionHistoryPagedResponse
@@ -169,7 +178,7 @@ public class TutorFinanceService(
             Description = raw.Description ?? string.Empty,
             ReferenceId = raw.Referenceid,
             ReferenceTable = raw.Referencetable,
-            CreatedAt = TimeZoneHelper.ToUserTime(raw.Createdat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow)
+            CreatedAt = raw.Createdat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
         };
     }
 
@@ -189,7 +198,7 @@ public class TutorFinanceService(
             AccountNumber = tutor.Bankaccountnumber,
             AccountHolderName = tutor.Bankaccountname,
             IsVerified = tutor.Isbankverified ?? false,
-            BankChangedAt = tutor.Bankchangedat.HasValue ? TimeZoneHelper.ToUserTime(tutor.Bankchangedat.Value) : (DateTime?)null
+            BankChangedAt = tutor.Bankchangedat
         };
     }
 
@@ -216,7 +225,7 @@ public class TutorFinanceService(
             AccountNumber = tutor.Bankaccountnumber,
             AccountHolderName = tutor.Bankaccountname,
             IsVerified = tutor.Isbankverified ?? false,
-            BankChangedAt = tutor.Bankchangedat.HasValue ? TimeZoneHelper.ToUserTime(tutor.Bankchangedat.Value) : (DateTime?)null
+            BankChangedAt = tutor.Bankchangedat
         };
     }
 
@@ -380,8 +389,8 @@ public class TutorFinanceService(
                 BankName = withdrawal.Bankname,
                 AccountNumber = withdrawal.Accountnumber,
                 AccountHolderName = withdrawal.Accountholdername,
-                RequestedAt = TimeZoneHelper.ToUserTime(withdrawal.Requestedat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow),
-                ProcessedAt = withdrawal.Processedat.HasValue ? TimeZoneHelper.ToUserTime(withdrawal.Processedat.Value) : (DateTime?)null
+                RequestedAt = withdrawal.Requestedat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow,
+                ProcessedAt = withdrawal.Processedat
             };
         }
         catch
@@ -411,8 +420,8 @@ public class TutorFinanceService(
             WithdrawalId = w.Withdrawalid,
             Amount = w.Amount ?? 0,
             Status = w.Status ?? string.Empty,
-            RequestedAt = TimeZoneHelper.ToUserTime(w.Requestedat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow),
-            ProcessedAt = w.Processedat.HasValue ? TimeZoneHelper.ToUserTime(w.Processedat.Value) : (DateTime?)null
+            RequestedAt = w.Requestedat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow,
+            ProcessedAt = w.Processedat
         }).ToList();
 
         return new WithdrawalListResponse
@@ -443,8 +452,8 @@ public class TutorFinanceService(
             BankName = raw.Bankname,
             AccountNumber = raw.Accountnumber,
             AccountHolderName = raw.Accountholdername,
-            RequestedAt = TimeZoneHelper.ToUserTime(raw.Requestedat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow),
-            ProcessedAt = raw.Processedat.HasValue ? TimeZoneHelper.ToUserTime(raw.Processedat.Value) : (DateTime?)null
+            RequestedAt = raw.Requestedat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow,
+            ProcessedAt = raw.Processedat
         };
     }
 
