@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using MV.ApplicationLayer.Interfaces;
 using MV.ApplicationLayer.ServiceInterfaces;
@@ -55,13 +55,18 @@ public class AdminFinancialService(
             _ => "month"
         };
 
-        var toUtc = to ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
-        var fromUtc = from ?? period switch
-        {
-            "week" => toUtc.AddDays(-7 * 12),
-            "year" => toUtc.AddYears(-5),
-            _ => toUtc.AddMonths(-12)
-        };
+        var nowFallback = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
+        var toUtc = to.HasValue
+            ? (to.Value.Kind == DateTimeKind.Utc ? to.Value : DateTime.SpecifyKind(to.Value, DateTimeKind.Utc))
+            : nowFallback;
+        var fromUtc = from.HasValue
+            ? (from.Value.Kind == DateTimeKind.Utc ? from.Value : DateTime.SpecifyKind(from.Value, DateTimeKind.Utc))
+            : period switch
+            {
+                "week" => toUtc.AddDays(-7 * 12),
+                "year" => toUtc.AddYears(-5),
+                _ => toUtc.AddMonths(-12)
+            };
 
         logger.LogInformation(
             "AdminFinancialService.GetMetricsAsync period={Period} from={From} to={To}",
@@ -69,12 +74,12 @@ public class AdminFinancialService(
 
         // Current-month boundaries in UTC (derived from user local time)
         var nowUtc = TimeZoneHelper.UtcNow;
-        var userNow = TimeZoneHelper.ToUserTime(nowUtc);
+        var userNow = nowUtc;
         var currentMonthStartUser = new DateTime(userNow.Year, userNow.Month, 1, 0, 0, 0, DateTimeKind.Unspecified);
-        var currentMonthStartUtc = TimeZoneHelper.ToUtc(currentMonthStartUser);
+        var currentMonthStartUtc = DateTime.SpecifyKind(currentMonthStartUser, DateTimeKind.Utc);
         var previousMonthStartUtc = currentMonthStartUtc.AddMonths(-1);
         var currentYearStartUser = new DateTime(userNow.Year, 1, 1, 0, 0, 0, DateTimeKind.Unspecified);
-        var currentYearStartUtc = TimeZoneHelper.ToUtc(currentYearStartUser);
+        var currentYearStartUtc = DateTime.SpecifyKind(currentYearStartUser, DateTimeKind.Utc);
 
         // ─── Fetch raw projections in parallel ──────────────────────────────
         var bookingsRawTask = context.Bookings
@@ -286,8 +291,8 @@ public class AdminFinancialService(
         // ─── Assemble ────────────────────────────────────────────────────────
         return new AdminFinancialMetricsResponse
         {
-            FilterFrom = from.HasValue ? TimeZoneHelper.ToUserTime(from.Value) : null,
-            FilterTo = to.HasValue ? TimeZoneHelper.ToUserTime(to.Value) : null,
+            FilterFrom = from,
+            FilterTo = to,
             Period = period,
 
             Revenue = new RevenueOverviewMetrics
@@ -409,10 +414,19 @@ public class AdminFinancialService(
             query = query.Where(x => x.UserId == userId);
 
         if (from.HasValue)
-            query = query.Where(x => x.Createdat >= from.Value);
-
+        {
+            var fromUtc = from.Value.Kind == DateTimeKind.Utc
+                ? from.Value
+                : DateTime.SpecifyKind(from.Value, DateTimeKind.Utc);
+            query = query.Where(x => x.Createdat >= fromUtc);
+        }
         if (to.HasValue)
-            query = query.Where(x => x.Createdat <= to.Value);
+        {
+            var toUtc = to.Value.Kind == DateTimeKind.Utc
+                ? to.Value
+                : DateTime.SpecifyKind(to.Value, DateTimeKind.Utc);
+            query = query.Where(x => x.Createdat <= toUtc);
+        }
 
         if (!string.IsNullOrEmpty(search))
         {
@@ -448,9 +462,7 @@ public class AdminFinancialService(
             ReferenceId   = x.Referenceid,
             ReferenceTable = x.Referencetable,
             OrderCode     = x.Ordercode,
-            CreatedAt     = x.Createdat.HasValue
-                ? TimeZoneHelper.ToUserTime(x.Createdat.Value)
-                : (DateTime?)null
+            CreatedAt     = x.Createdat
         }).ToList();
 
         return new AdminTransactionListResponse
@@ -498,7 +510,7 @@ public class AdminFinancialService(
     private static string GetBucket(DateTime utcDate, string period)
     {
         if (utcDate == DateTime.MinValue) return "unknown";
-        var vn = TimeZoneHelper.ToUserTime(utcDate);
+        var vn = utcDate;
         return period switch
         {
             "week" => $"{ISOWeek.GetYear(vn)}-W{ISOWeek.GetWeekOfYear(vn):D2}",
@@ -510,8 +522,8 @@ public class AdminFinancialService(
     private static List<string> GenerateBuckets(DateTime fromUtc, DateTime toUtc, string period)
     {
         var buckets = new List<string>();
-        var vnFrom = TimeZoneHelper.ToUserTime(fromUtc);
-        var vnTo = TimeZoneHelper.ToUserTime(toUtc);
+        var vnFrom = fromUtc;
+        var vnTo = toUtc;
 
         if (period == "year")
         {

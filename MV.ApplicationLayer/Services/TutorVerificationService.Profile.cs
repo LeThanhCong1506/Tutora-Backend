@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Distributed;
 using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO.ResponseModel;
@@ -80,7 +80,7 @@ namespace MV.ApplicationLayer.Services
                     CredentialId = c.Credentialid,
                     CredentialUrl = c.Credentialurl,
                     CertificateFileUrl = c.Certificatefileurl,
-                    CreatedAt = TimeZoneHelper.ToUserTime(c.Createdat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow),
+                    CreatedAt = c.Createdat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow,
                     VerificationStatus = c.Verificationstatus,
                     VerificationNote = c.Verificationnote
                 }).ToList(),
@@ -154,7 +154,7 @@ namespace MV.ApplicationLayer.Services
                     CredentialId = c.Credentialid,
                     CredentialUrl = c.Credentialurl,
                     CertificateFileUrl = c.Certificatefileurl,
-                    CreatedAt = TimeZoneHelper.ToUserTime(c.Createdat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow),
+                    CreatedAt = c.Createdat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow,
                     VerificationStatus = c.Verificationstatus,
                     VerificationNote = c.Verificationnote
                 })
@@ -219,7 +219,7 @@ namespace MV.ApplicationLayer.Services
                     Dayofweek = a.Dayofweek ?? 1,
                     Starttime = a.Starttime != null ? a.Starttime.ToString() : string.Empty,
                     Endtime = a.Endtime != null ? a.Endtime.ToString() : string.Empty,
-                    Createdat = TimeZoneHelper.ToUserTime(a.Createdat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow)
+                    Createdat = a.Createdat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
                 })
                 .ToListAsync();
 
@@ -363,8 +363,8 @@ namespace MV.ApplicationLayer.Services
                 Rating = f.Rating,
                 Comment = f.Comment,
                 ReplyComment = f.ReplyComment,
-                RepliedAt = f.RepliedAt.HasValue ? TimeZoneHelper.ToUserTime(f.RepliedAt.Value) : (DateTime?)null,
-                CreatedAt = f.CreatedAt.HasValue ? TimeZoneHelper.ToUserTime(f.CreatedAt.Value) : (DateTime?)null,
+                RepliedAt = f.RepliedAt,
+                CreatedAt = f.CreatedAt,
                 InitialGoal = f.InitialGoal,
                 ActualResult = f.ActualResult,
                 CourseDuration = f.CourseDuration
@@ -430,7 +430,7 @@ namespace MV.ApplicationLayer.Services
                 TotalLessons = booking.Lessons?.Count ?? 0,
                 CompletedLessons = booking.Lessons?.Count(l => l.Status == Completed || l.Status == PendingConfirmation) ?? 0,
                 Status = booking.Status,
-                StartDate = booking.Startdate.HasValue ? TimeZoneHelper.ToUserTime(booking.Startdate.Value) : (DateTime?)null
+                StartDate = booking.Startdate
             };
         }
 

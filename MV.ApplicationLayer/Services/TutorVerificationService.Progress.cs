@@ -1,4 +1,4 @@
-using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Logging;
 using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO.ResponseModel;
 using MV.DomainLayer.Entities;
@@ -42,7 +42,7 @@ namespace MV.ApplicationLayer.Services
             return new VideoSection
             {
                 Status = hasVideo ? SectionStatus.Updated : SectionStatus.InProgress,
-                UpdatedAt = hasVideo && profile?.Updatedat != null ? TimeZoneHelper.ToUserTime(profile.Updatedat.Value) : (DateTime?)null,
+                UpdatedAt = hasVideo && profile?.Updatedat != null ? profile.Updatedat.Value : (DateTime?)null,
                 VideoUrl = profile?.Videointrourl
             };
         }
@@ -54,7 +54,7 @@ namespace MV.ApplicationLayer.Services
             return new BasicInfoSection
             {
                 Status = isComplete ? SectionStatus.Updated : SectionStatus.InProgress,
-                UpdatedAt = isComplete && profile?.Updatedat != null ? TimeZoneHelper.ToUserTime(profile.Updatedat.Value) : (DateTime?)null,
+                UpdatedAt = isComplete && profile?.Updatedat != null ? profile.Updatedat.Value : (DateTime?)null,
                 AvatarUrl = user.Avatarurl,
                 Headline = profile?.Headline,
                 TeachingAreaCity = profile?.Teachingareacity,
@@ -72,7 +72,7 @@ namespace MV.ApplicationLayer.Services
             return new IntroductionSection
             {
                 Status = isComplete ? SectionStatus.Updated : SectionStatus.InProgress,
-                UpdatedAt = isComplete && profile?.Updatedat != null ? TimeZoneHelper.ToUserTime(profile.Updatedat.Value) : (DateTime?)null,
+                UpdatedAt = isComplete && profile?.Updatedat != null ? profile.Updatedat.Value : (DateTime?)null,
                 Bio = profile?.Bio,
                 Education = profile?.Education,
                 Gpa = profile?.Gpa,
@@ -89,7 +89,7 @@ namespace MV.ApplicationLayer.Services
             return new CertificatesSection
             {
                 Status = hasCertificates ? SectionStatus.Updated : SectionStatus.InProgress,
-                UpdatedAt = maxCertDate.HasValue ? TimeZoneHelper.ToUserTime(maxCertDate.Value) : (DateTime?)null,
+                UpdatedAt = maxCertDate,
                 TotalCount = certificates?.Count ?? 0,
                 Certificates = certificates?.Select(c => new CertificateResponse
                 {
@@ -101,7 +101,7 @@ namespace MV.ApplicationLayer.Services
                     CredentialId = c.Credentialid,
                     CredentialUrl = c.Credentialurl,
                     CertificateFileUrl = c.Certificatefileurl,
-                    CreatedAt = TimeZoneHelper.ToUserTime(c.Createdat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow),
+                    CreatedAt = c.Createdat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow,
                     VerificationStatus = c.Verificationstatus,
                     VerificationNote = c.Verificationnote
                 }).ToList()
@@ -117,7 +117,7 @@ namespace MV.ApplicationLayer.Services
             return Task.FromResult(new IdentityCardSection
             {
                 Status = isComplete ? SectionStatus.Updated : SectionStatus.InProgress,
-                UpdatedAt = isComplete && user.Createdat.HasValue ? TimeZoneHelper.ToUserTime(user.Createdat.Value) : (DateTime?)null,
+                UpdatedAt = isComplete ? user.Createdat : null,
                 FrontImageUrl = user.Idcardfronturl,
                 BackImageUrl = user.Idcardbackurl,
                 IsVerified = user.Isidentityverified ?? false
@@ -136,7 +136,7 @@ namespace MV.ApplicationLayer.Services
             return new PricingSection
             {
                 Status = hasHourlyRate ? SectionStatus.Updated : SectionStatus.InProgress,
-                UpdatedAt = hasHourlyRate && profile?.Updatedat != null ? TimeZoneHelper.ToUserTime(profile.Updatedat.Value) : (DateTime?)null
+                UpdatedAt = hasHourlyRate && profile?.Updatedat != null ? profile.Updatedat.Value : (DateTime?)null
             };
         }
     }

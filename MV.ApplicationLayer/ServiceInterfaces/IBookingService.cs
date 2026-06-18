@@ -92,9 +92,8 @@ public interface IBookingService
     Task<PagedList<BookingResponse>> GetTutorBookingRequestsAsync(string tutorId, int page, int pageSize, string? status = null);
 
     /// <summary>
-    /// Returns the list of day-of-week + time slots already booked for a tutor
-    /// within the 4-week window starting from <paramref name="startDate"/>.
+    /// Returns the absolute occupied time ranges for a tutor within the requested window.
     /// Used by FE to disable/gray-out occupied slots before the user submits a booking.
     /// </summary>
-    Task<List<ScheduleItemResponse>> GetTutorBookedSlotsAsync(string tutorId, DateTime startDate);
+    Task<List<BookedSlotResponse>> GetTutorBookedSlotsAsync(string tutorId, DateTime startDate, DateTime endDate);
 }

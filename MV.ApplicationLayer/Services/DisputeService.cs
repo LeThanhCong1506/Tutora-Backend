@@ -47,9 +47,19 @@ public class DisputeService : IDisputeService
         if (!string.IsNullOrWhiteSpace(query.Status))
             q = q.Where(d => d.Status == query.Status);
         if (query.StartDate.HasValue)
-            q = q.Where(d => d.Createdat >= query.StartDate.Value);
+        {
+            var startUtc = query.StartDate.Value.Kind == DateTimeKind.Utc
+                ? query.StartDate.Value
+                : DateTime.SpecifyKind(query.StartDate.Value, DateTimeKind.Utc);
+            q = q.Where(d => d.Createdat >= startUtc);
+        }
         if (query.EndDate.HasValue)
-            q = q.Where(d => d.Createdat <= query.EndDate.Value);
+        {
+            var endUtc = query.EndDate.Value.Kind == DateTimeKind.Utc
+                ? query.EndDate.Value
+                : DateTime.SpecifyKind(query.EndDate.Value, DateTimeKind.Utc);
+            q = q.Where(d => d.Createdat <= endUtc);
+        }
         if (!string.IsNullOrWhiteSpace(query.DisputeType))
             q = q.Where(d => d.Disputetype == query.DisputeType);
 
@@ -85,7 +95,7 @@ public class DisputeService : IDisputeService
             CreatedByName = d.CreatedByName,
             TutorName = d.TutorName,
             LessonPrice = d.LessonPrice,
-            CreatedAt = d.Createdat.HasValue ? MV.DomainLayer.Helpers.TimeZoneHelper.ToUserTime(d.Createdat.Value) : (DateTime?)null
+            CreatedAt = d.Createdat.HasValue ? d.Createdat.Value : (DateTime?)null
         }).ToList();
 
         return new PagedList<DisputeListResponse>(disputes, totalCount, query.Page, query.PageSize);
@@ -107,8 +117,8 @@ public class DisputeService : IDisputeService
             Reason = dispute.Reason,
             Status = dispute.Status,
             Evidence = DeserializeJsonList(dispute.Evidence),
-            CreatedAt = dispute.Createdat.HasValue ? MV.DomainLayer.Helpers.TimeZoneHelper.ToUserTime(dispute.Createdat.Value) : (DateTime?)null,
-            ResolvedAt = dispute.Resolvedat.HasValue ? MV.DomainLayer.Helpers.TimeZoneHelper.ToUserTime(dispute.Resolvedat.Value) : (DateTime?)null,
+            CreatedAt = dispute.Createdat.HasValue ? dispute.Createdat.Value : (DateTime?)null,
+            ResolvedAt = dispute.Resolvedat.HasValue ? dispute.Resolvedat.Value : (DateTime?)null,
             ResolutionNote = dispute.Resolutionnote,
             RefundAmount = dispute.Refundamount,
             RefundPercentage = dispute.Refundpercentage,
@@ -128,8 +138,8 @@ public class DisputeService : IDisputeService
             Lesson = dispute.Lesson != null ? new DisputeLessonResponse
             {
                 LessonId = dispute.Lesson.Lessonid,
-                ScheduledStart = MV.DomainLayer.Helpers.TimeZoneHelper.ToUserTime(dispute.Lesson.Scheduledstart),
-                ScheduledEnd = MV.DomainLayer.Helpers.TimeZoneHelper.ToUserTime(dispute.Lesson.Scheduledend),
+                ScheduledStart = dispute.Lesson.Scheduledstart,
+                ScheduledEnd = dispute.Lesson.Scheduledend,
                 Status = dispute.Lesson.Status,
                 LessonPrice = dispute.Lesson.Lessonprice,
                 LessonContent = dispute.Lesson.Lessoncontent,
@@ -166,7 +176,7 @@ public class DisputeService : IDisputeService
             SenderId = m.Senderid ?? string.Empty,
             Content = m.Content ?? string.Empty,
             MessageType = m.Messagetype ?? ChatMessageType.Text,
-            CreatedAt = m.Createdat.HasValue ? MV.DomainLayer.Helpers.TimeZoneHelper.ToUserTime(m.Createdat.Value) : (DateTime?)null
+            CreatedAt = m.Createdat.HasValue ? m.Createdat.Value : (DateTime?)null
         }).ToList();
     }
 

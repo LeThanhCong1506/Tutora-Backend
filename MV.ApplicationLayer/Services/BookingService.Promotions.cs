@@ -168,12 +168,12 @@ public partial class BookingService
             DiscountValue     = p.Discountvalue,
             MaxDiscountAmount = p.Maxdiscountamount,
             MinOrderValue     = p.Minordervalue,
-            StartDate         = p.Startdate.HasValue  ? TimeZoneHelper.ToUserTime(p.Startdate.Value)  : (DateTime?)null,
-            EndDate           = p.Enddate.HasValue    ? TimeZoneHelper.ToUserTime(p.Enddate.Value)    : (DateTime?)null,
+            StartDate         = p.Startdate,
+            EndDate           = p.Enddate,
             UsageLimit        = p.Usagelimit,
             UsageCount        = p.Usagecount,
             IsActive          = p.Isactive,
-            CreatedAt         = p.Createdat.HasValue  ? TimeZoneHelper.ToUserTime(p.Createdat.Value)  : (DateTime?)null,
+            CreatedAt         = p.Createdat,
             RuntimeStatus     = ResolveRuntimeStatus(p.Isactive, p.Startdate, p.Enddate, p.Usagelimit, p.Usagecount, now)
         }).ToList();
 
@@ -228,12 +228,12 @@ public partial class BookingService
             DiscountValue     = promo.Discountvalue,
             MaxDiscountAmount = promo.Maxdiscountamount,
             MinOrderValue     = promo.Minordervalue,
-            StartDate         = promo.Startdate.HasValue ? TimeZoneHelper.ToUserTime(promo.Startdate.Value) : (DateTime?)null,
-            EndDate           = promo.Enddate.HasValue   ? TimeZoneHelper.ToUserTime(promo.Enddate.Value)   : (DateTime?)null,
+            StartDate         = promo.Startdate,
+            EndDate           = promo.Enddate,
             UsageLimit        = promo.Usagelimit,
             UsageCount        = promo.Usagecount,
             IsActive          = promo.Isactive,
-            CreatedAt         = promo.Createdat.HasValue ? TimeZoneHelper.ToUserTime(promo.Createdat.Value) : (DateTime?)null,
+            CreatedAt         = promo.Createdat,
             RuntimeStatus     = ResolveRuntimeStatus(promo.Isactive, promo.Startdate, promo.Enddate, promo.Usagelimit, promo.Usagecount, now)
         };
     }
