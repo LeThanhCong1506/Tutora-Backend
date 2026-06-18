@@ -132,8 +132,7 @@ public class ParentService : IParentService
                 StudentId = lesson.Booking.Student.Studentid,
                 FullName = lesson.Booking.Student.Fullname,
                 School = lesson.Booking.Student.School,
-                GradeLevel = lesson.Booking.Student.Gradelevel,
-                AvatarUrl = lesson.Booking.Student.Avatarurl
+                GradeLevel = lesson.Booking.Student.Gradelevel
             } : null,
             Tutor = lesson.Tutor?.Tutor != null ? new LessonTutorResponse
             {
