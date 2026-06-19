@@ -89,9 +89,15 @@ namespace MV.ApplicationLayer.ServiceInterfaces
         Task AdminUpdateUserAsync(string userId, AdminUpdateUserRequest request);
 
         /// <summary>
-        /// Admin: soft-deactivate a user account.
+        /// Admin: soft-deactivate a user account (status = 0).
         /// </summary>
         Task AdminDeactivateUserAsync(string userId);
+
+        /// <summary>
+        /// Admin: reactivate a previously deactivated user account (status = 1).
+        /// Nếu là gia sư và profile đang Active → khôi phục Ispublic = true.
+        /// </summary>
+        Task AdminReactivateUserAsync(string userId);
 
         /// <summary>
         /// Admin: change a user's role. Only roles in <see cref="UserRole.AssignableByAdmin"/> are permitted.
