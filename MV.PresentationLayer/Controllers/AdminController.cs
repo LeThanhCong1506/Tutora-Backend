@@ -6,6 +6,7 @@ using MV.DomainLayer.DTO;
 using MV.DomainLayer.DTO.RequestModel;
 using MV.DomainLayer.DTO.ResponseModel;
 using MV.DomainLayer.Exceptions;
+using System.Security.Claims;
 using System.Text.Json;
 
 namespace MV.PresentationLayer.Controllers
@@ -73,9 +74,13 @@ namespace MV.PresentationLayer.Controllers
                 return BadRequest(APIResponse<object>.Fail("Lý do từ chối là bắt buộc.", 400));
             }
 
+            var adminId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (string.IsNullOrEmpty(adminId))
+                return Unauthorized(APIResponse<object>.Fail("Không xác định được admin.", 401));
+
             try
             {
-                var result = await _userService.ApproveTutorProfileAsync(id, request);
+                var result = await _userService.ApproveTutorProfileAsync(id, request, adminId);
                 return Ok(APIResponse<ApproveTutorResponse>.Success(result, "Xử lý hồ sơ gia sư thành công."));
             }
             catch (KeyNotFoundException ex)

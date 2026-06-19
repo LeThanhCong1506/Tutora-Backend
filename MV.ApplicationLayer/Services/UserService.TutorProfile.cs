@@ -114,7 +114,7 @@ namespace MV.ApplicationLayer.Services
             await _unitOfWork.SaveChangesAsync();
         }
 
-        public async Task<ApproveTutorResponse> ApproveTutorProfileAsync(string tutorId, ApproveTutorRequest request)
+        public async Task<ApproveTutorResponse> ApproveTutorProfileAsync(string tutorId, ApproveTutorRequest request, string adminId)
         {
             var profile = await _unitOfWork.UserRepository.GetTutorProfileByIdAsync(tutorId)
                 ?? throw new KeyNotFoundException("Không tìm thấy hồ sơ gia sư.");
@@ -126,7 +126,7 @@ namespace MV.ApplicationLayer.Services
             if (request.IsApproved)
             {
                 profile.Rejectionnote = null;
-                profile.Reviewedby = ApprovalStatusText.AdminReviewer;
+                profile.Reviewedby = adminId;
                 profile.Reviewedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 
                 // Approve all pending certificates
@@ -165,6 +165,8 @@ namespace MV.ApplicationLayer.Services
                 profile.Profilestatus = TutorProfileStatus.Rejected;
                 profile.Ispublic = false;
                 profile.Rejectionnote = request.Reason;
+                profile.Reviewedby = adminId;
+                profile.Reviewedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
                 statusText = ApprovalStatusText.Rejected;
             }
 
