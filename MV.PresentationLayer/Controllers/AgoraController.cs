@@ -1,28 +1,27 @@
-﻿using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using MV.ApplicationLayer.Interfaces;
 using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO;
-using MV.PresentationLayer.Helpers;
 using System.Security.Claims;
 
 namespace MV.PresentationLayer.Controllers;
 
 /// <summary>
-/// Tencent RTC Controller — cung cấp UserSig và RoomId để client join video call.
-/// 
+/// Agora RTC Controller — cung cấp Token và ChannelName để client join video call.
+///
 /// Flow hoạt động:
-///   1. Tutor check-in → backend gán Meetinglink = lessonId (RoomId)
-///   2. Client (Tutor/Student/Parent) gọi GET /api/trtc/room/{lessonId} → nhận UserSig + RoomId
-///   3. Client dùng TRTC SDK để join room bằng UserSig + RoomId + SdkAppId
+///   1. Tutor check-in → backend gán Meetinglink = lessonId (ChannelName)
+///   2. Client (Tutor/Student/Parent) gọi GET /api/agora/room/{lessonId} → nhận Token + ChannelName + AppId
+///   3. Client dùng Agora SDK để join channel bằng Token + ChannelName + AppId
 /// </summary>
 [ApiController]
-[Route("api/trtc")]
+[Route("api/agora")]
 [Authorize]
-public class TRTCController(
-    ITencentRTCService trtcService,
+public class AgoraController(
+    IAgoraService agoraService,
     IAppDbContext context) : ControllerBase
 {
     private string UserId => User.FindFirstValue(ClaimTypes.NameIdentifier)
@@ -30,12 +29,12 @@ public class TRTCController(
     private string? CurrentUserRole => User.FindFirstValue("http://schemas.microsoft.com/ws/2008/06/identity/claims/role");
 
     /// <summary>
-    /// GET /api/trtc/room/{lessonId}
-    /// Lấy thông tin để join phòng Tencent RTC của một buổi học.
+    /// GET /api/agora/room/{lessonId}
+    /// Lấy thông tin để join Agora channel của một buổi học.
     /// Chỉ Tutor, Parent hoặc Student thuộc buổi học mới có thể gọi endpoint này.
     /// </summary>
     /// <param name="lessonId">ID của buổi học</param>
-    /// <returns>{ roomId, userId, userSig, sdkAppId, expireAt }</returns>
+    /// <returns>{ channelName, userId, token, appId, expireAt }</returns>
     [HttpGet("room/{lessonId:int}")]
     public async Task<IActionResult> GetRoomInfo(int lessonId)
     {
@@ -54,14 +53,13 @@ public class TRTCController(
         if (lesson == null)
             return NotFound(APIResponse<object>.Fail("Không tìm thấy buổi học.", 404));
 
-        // Kiểm tra quyền: chỉ Tutor, Parent của booking, hoặc Student được join
         var hasAccess = await CheckLessonAccessAsync(lesson, userId);
         if (!hasAccess)
             return Forbid();
 
-        // Buổi học phải đang diễn ra hoặc sắp diễn ra (không quá 30 phút trước giờ bắt đầu)
-        var now = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
-        var allowedFrom = lesson.Scheduledstart.AddMinutes(-30);
+        // Buổi học phải sắp diễn ra hoặc đang diễn ra (không quá 30 phút trước giờ bắt đầu)
+        var now          = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
+        var allowedFrom  = lesson.Scheduledstart.AddMinutes(-30);
         if (now < allowedFrom)
         {
             var minutesLeft = (int)(allowedFrom - now).TotalMinutes;
@@ -69,78 +67,67 @@ public class TRTCController(
                 $"Phòng học chưa mở. Vui lòng thử lại sau {minutesLeft} phút.", 400));
         }
 
-        // Buổi học đã kết thúc quá lâu (sau checkout hoặc 4 tiếng từ khi bắt đầu)
+        // Buổi học đã kết thúc quá lâu
         var endDeadline = lesson.Scheduledend.AddHours(4);
         if (now > endDeadline)
-        {
             return BadRequest(APIResponse<object>.Fail("Buổi học đã kết thúc.", 400));
-        }
 
-        // Lấy thông tin phòng
-        var roomInfo = trtcService.GetRoomInfo(lessonId, userId);
+        var roomInfo = agoraService.GetRoomInfo(lessonId, userId);
 
-        // Lấy tên thật của người tham gia
+        // Tên thật của các người tham gia
         var participantNames = new Dictionary<string, string>();
-        if (lesson.Tutor?.Tutor != null) {
+        if (lesson.Tutor?.Tutor != null)
             participantNames[lesson.Tutorid] = lesson.Tutor.Tutor.Fullname ?? "Gia sư";
-        }
-        if (lesson.Booking?.Parent != null) {
+        if (lesson.Booking?.Parent != null)
             participantNames[lesson.Booking.Parentid] = lesson.Booking.Parent.Fullname ?? "Phụ huynh";
-        }
-        if (lesson.Booking?.Student != null) {
-            if (!string.IsNullOrEmpty(lesson.Booking.Student.Linkeduserid)) {
-                participantNames[lesson.Booking.Student.Linkeduserid] = lesson.Booking.Student.Fullname ?? "Học sinh";
-            }
-        }
+        if (lesson.Booking?.Student != null && !string.IsNullOrEmpty(lesson.Booking.Student.Linkeduserid))
+            participantNames[lesson.Booking.Student.Linkeduserid] = lesson.Booking.Student.Fullname ?? "Học sinh";
 
         return Ok(APIResponse<object>.Success(new
         {
-            roomId     = roomInfo.RoomId,
-            userId     = roomInfo.UserId,
-            userSig    = roomInfo.UserSig,
-            sdkAppId   = roomInfo.SdkAppId,
-            expireAt   = roomInfo.ExpireAt,
+            channelName      = roomInfo.ChannelName,
+            userId           = roomInfo.UserId,
+            token            = roomInfo.Token,
+            appId            = roomInfo.AppId,
+            expireAt         = roomInfo.ExpireAt,
             participantNames = participantNames
-        }, "Lấy thông tin phòng Tencent RTC thành công."));
+        }, "Lấy thông tin phòng Agora thành công."));
     }
 
     /// <summary>
-    /// GET /api/trtc/token
-    /// Tạo UserSig nhanh cho user hiện tại (không gắn với buổi học cụ thể).
-    /// Dùng cho testing hoặc khi cần token độc lập.
+    /// GET /api/agora/token?channel={channelName}
+    /// Tạo Agora token nhanh cho user hiện tại (không gắn với buổi học cụ thể).
+    /// Dùng cho testing.
     /// </summary>
     [HttpGet("token")]
-    public IActionResult GetUserSig()
+    public IActionResult GetToken([FromQuery] string channel = "test")
     {
-        var userId = UserId;
-        var userSig = trtcService.GenerateUserSig(userId);
+        var userId  = UserId;
+        var token   = agoraService.GenerateToken(channel, userId);
         var expireAt = (int)(DateTimeOffset.UtcNow.ToUnixTimeSeconds() + 86400);
 
         return Ok(APIResponse<object>.Success(new
         {
+            channelName = channel,
             userId,
-            userSig,
+            token,
             expireAt
-        }, "Tạo UserSig thành công."));
+        }, "Tạo Agora token thành công."));
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────
 
     private async Task<bool> CheckLessonAccessAsync(MV.DomainLayer.Entities.Lesson lesson, string userId)
     {
-        // Admin có toàn quyền
         if (CurrentUserRole == MV.DomainLayer.Constants.UserRole.Admin)
             return true;
 
-        // Tutor của buổi học
         if (lesson.Tutorid == userId)
             return true;
 
-        // Parent của booking
         if (lesson.Booking?.Parentid == userId)
             return true;
 
-        // Student có tài khoản riêng (linkedUserId)
         var studentId = lesson.Booking?.Studentid;
         if (!string.IsNullOrEmpty(studentId))
         {

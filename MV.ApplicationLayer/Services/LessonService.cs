@@ -86,13 +86,13 @@ public partial class LessonService : ILessonService
 
             if (booking.Tutorid != null && booking.Studentid != null)
             {
-                // Tencent RTC: RoomId = lessonId (deterministic, không cần tạo link bên ngoài)
+                // Video call: RoomId = lessonId (deterministic, không cần tạo link bên ngoài)
                 foreach (var lesson in lessons.Where(l => string.IsNullOrWhiteSpace(l.Meetinglink)))
                 {
                     lesson.Meetinglink = lesson.Lessonid.ToString();
                 }
                 await _context.SaveChangesAsync(ct);
-                _logger.LogInformation("Assigned Tencent RTC RoomId for {Count} lessons in booking {BookingId}",
+                _logger.LogInformation("Assigned video call RoomId for {Count} lessons in booking {BookingId}",
                     lessons.Count, bookingId);
             }
 
@@ -303,7 +303,7 @@ public partial class LessonService : ILessonService
     {
         try
         {
-            // Tencent RTC: assign RoomId = lessonId cho tất cả lesson online/hybrid sắp tới chưa có RoomId
+            // Video call: assign RoomId = lessonId cho tất cả lesson online/hybrid sắp tới chưa có RoomId
             var lessons = await _context.Lessons
                 .Include(l => l.Booking)
                 .Where(l => l.Tutorid == tutorId
@@ -326,7 +326,7 @@ public partial class LessonService : ILessonService
             }
 
             await _context.SaveChangesAsync();
-            _logger.LogInformation("Assigned Tencent RTC RoomId for {Count} lessons for tutor {TutorId}", onlineLessons.Count, tutorId);
+            _logger.LogInformation("Assigned video call RoomId for {Count} lessons for tutor {TutorId}", onlineLessons.Count, tutorId);
 
             // Gửi chat message cho từng booking (gom nhóm theo bookingId)
             var byBooking = onlineLessons
