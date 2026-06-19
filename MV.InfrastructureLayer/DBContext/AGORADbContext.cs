@@ -29,6 +29,10 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
 
     public virtual DbSet<Chatmessage> Chatmessages { get; set; }
 
+    public virtual DbSet<ChatSession> ChatSessions { get; set; }
+
+    public virtual DbSet<ChatHistory> ChatHistories { get; set; }
+
     public virtual DbSet<Class> Classes { get; set; }
 
     public virtual DbSet<Dispute> Disputes { get; set; }
@@ -521,6 +525,91 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
             entity.HasOne(d => d.Sender).WithMany(p => p.Chatmessages)
                 .HasForeignKey(d => d.Senderid)
                 .HasConstraintName("chatmessages_senderid_fkey");
+        });
+
+        modelBuilder.Entity<ChatSession>(entity =>
+        {
+            entity.HasKey(e => e.SessionId).HasName("pk_chat_sessions");
+
+            entity.ToTable("chat_sessions");
+
+            entity.Property(e => e.SessionId)
+                .HasDefaultValueSql("gen_random_uuid()")
+                .HasColumnName("session_id");
+            entity.Property(e => e.UserId)
+                .HasMaxLength(50)
+                .HasColumnName("user_id");
+            entity.Property(e => e.SessionType)
+                .HasMaxLength(30)
+                .HasDefaultValueSql("'homework'::character varying")
+                .HasColumnName("session_type");
+            entity.Property(e => e.Title)
+                .HasMaxLength(255)
+                .HasColumnName("title");
+            entity.Property(e => e.IsActive)
+                .HasDefaultValue(true)
+                .HasColumnName("is_active");
+            entity.Property(e => e.Metadata)
+                .HasColumnType("jsonb")
+                .HasDefaultValueSql("'{}'::jsonb")
+                .HasColumnName("metadata");
+            entity.Property(e => e.CreatedAt)
+                .HasDefaultValueSql("now()")
+                .HasColumnType("timestamp with time zone")
+                .HasColumnName("created_at");
+            entity.Property(e => e.UpdatedAt)
+                .HasDefaultValueSql("now()")
+                .HasColumnType("timestamp with time zone")
+                .HasColumnName("updated_at");
+
+            entity.HasIndex(e => e.UserId, "idx_chat_sessions_user_id");
+            entity.HasIndex(e => e.SessionType, "idx_chat_sessions_type");
+
+            entity.HasOne(d => d.User).WithMany()
+                .HasForeignKey(d => d.UserId)
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("fk_chat_sessions_user");
+        });
+
+        modelBuilder.Entity<ChatHistory>(entity =>
+        {
+            entity.HasKey(e => e.MessageId).HasName("pk_chat_histories");
+
+            entity.ToTable("chat_histories");
+
+            entity.Property(e => e.MessageId)
+                .HasDefaultValueSql("gen_random_uuid()")
+                .HasColumnName("message_id");
+            entity.Property(e => e.SessionId).HasColumnName("session_id");
+            entity.Property(e => e.Role)
+                .HasMaxLength(20)
+                .HasColumnName("role");
+            entity.Property(e => e.Content).HasColumnName("content");
+            entity.Property(e => e.ImageUrl)
+                .HasMaxLength(1000)
+                .HasColumnName("image_url");
+            entity.Property(e => e.Grade)
+                .HasMaxLength(50)
+                .HasColumnName("grade");
+            entity.Property(e => e.RagUsed)
+                .HasDefaultValue(false)
+                .HasColumnName("rag_used");
+            entity.Property(e => e.Metadata)
+                .HasColumnType("jsonb")
+                .HasDefaultValueSql("'{}'::jsonb")
+                .HasColumnName("metadata");
+            entity.Property(e => e.CreatedAt)
+                .HasDefaultValueSql("now()")
+                .HasColumnType("timestamp with time zone")
+                .HasColumnName("created_at");
+
+            entity.HasIndex(e => new { e.SessionId, e.CreatedAt }, "idx_chat_histories_session_id");
+            entity.HasIndex(e => e.RagUsed, "idx_chat_histories_rag_used");
+
+            entity.HasOne(d => d.Session).WithMany(p => p.ChatHistories)
+                .HasForeignKey(d => d.SessionId)
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("fk_chat_histories_session");
         });
 
         modelBuilder.Entity<Class>(entity =>
