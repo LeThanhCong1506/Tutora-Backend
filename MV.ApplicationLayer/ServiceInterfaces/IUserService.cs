@@ -34,7 +34,7 @@ namespace MV.ApplicationLayer.ServiceInterfaces
         /// <summary>
         /// Admin approves or rejects a tutor's profile submission.
         /// </summary>
-        Task<ApproveTutorResponse> ApproveTutorProfileAsync(string tutorId, ApproveTutorRequest request);
+        Task<ApproveTutorResponse> ApproveTutorProfileAsync(string tutorId, ApproveTutorRequest request, string adminId);
 
         /// <summary>
         /// All student profiles belonging to a parent account.
