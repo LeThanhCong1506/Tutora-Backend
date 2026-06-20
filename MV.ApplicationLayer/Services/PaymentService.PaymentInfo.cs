@@ -55,8 +55,21 @@ public partial class PaymentService
                     return BuildPaymentInfoResponse(booking, bookingId, existingLink,
                         existingLink.OrderCode, depositAmount, walletForExisting, PaymentPhase.Deposit);
 
+                // Self-heal: link đã PAID tại PayOS nhưng DB chưa cập nhật (webhook lỗi/chưa tới).
+                // Xác nhận ngay thay vì tạo link mới — tránh làm "mồ côi" link đã thanh toán.
+                if (linkStatus == PayOSLinkStatus.Paid)
+                {
+                    logger.LogWarning("Deposit link for booking {BookingId} already PAID at PayOS; confirming instead of creating a new link.", bookingId);
+                    await SelfHealConfirmAsync(existingLink.OrderCode, depositAmount, bookingId, PaymentPhase.DepositShort);
+                    throw new BookingException(BookingErrorCodes.BookingAlreadyPaid, "Booking đã được thanh toán rồi", 409);
+                }
+
                 logger.LogInformation("Existing PayOS link for booking {BookingId} has status {Status}, creating new one",
                     bookingId, linkStatus);
+            }
+            catch (BookingException)
+            {
+                throw;
             }
             catch (Exception ex)
             {
@@ -127,8 +140,21 @@ public partial class PaymentService
                     return BuildPaymentInfoResponse(booking, bookingId, existingLink,
                         existingLink.OrderCode, remainingAmount, wallet, PaymentPhase.Remaining);
 
+                // Self-heal: link đã PAID tại PayOS nhưng DB chưa cập nhật (webhook lỗi/chưa tới).
+                // Xác nhận ngay thay vì tạo link mới — tránh làm "mồ côi" link đã thanh toán.
+                if (linkStatus == PayOSLinkStatus.Paid)
+                {
+                    logger.LogWarning("Remaining link for booking {BookingId} already PAID at PayOS; confirming instead of creating a new link.", bookingId);
+                    await SelfHealConfirmAsync(existingLink.OrderCode, remainingAmount, bookingId, PaymentPhase.RemainingShort);
+                    throw new BookingException(BookingErrorCodes.BookingAlreadyPaid, "Booking đã được thanh toán rồi", 409);
+                }
+
                 logger.LogInformation("Existing remaining PayOS link for booking {BookingId} has status {Status}, creating new one",
                     bookingId, linkStatus);
+            }
+            catch (BookingException)
+            {
+                throw;
             }
             catch (Exception ex)
             {
@@ -152,6 +178,26 @@ public partial class PaymentService
         {
             logger.LogError(ex, "Failed to create PayOS remaining link for booking {BookingId}", bookingId);
             throw new BookingException(BookingErrorCodes.InvalidInput, "Tạo link thanh toán thất bại: " + ex.Message, 500);
+        }
+    }
+
+    /// <summary>
+    /// Xác nhận thanh toán cho một link đã PAID nhưng DB chưa cập nhật (webhook lỗi/chưa tới).
+    /// Idempotent: nếu đã được webhook/poll xác nhận song song thì bỏ qua an toàn.
+    /// Tự nuốt mọi lỗi để phía gọi chỉ cần phát sinh BookingAlreadyPaid.
+    /// </summary>
+    private async Task SelfHealConfirmAsync(long orderCode, int amount, int bookingId, string phaseShort)
+    {
+        var txId = $"selfheal-{bookingId}-{phaseShort}-{MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow:yyyyMMddHHmmss}";
+        try
+        {
+            await ConfirmPaymentInternalAsync(orderCode, amount, txId, CancellationToken.None);
+            logger.LogInformation("Self-heal confirmed payment for booking {BookingId} (phase {Phase}).", bookingId, phaseShort);
+        }
+        catch (Exception ex)
+        {
+            // Đã xác nhận song song hoặc lỗi tạm thời — ghi log và giữ nguyên kết quả "đã thanh toán".
+            logger.LogWarning(ex, "Self-heal confirm for booking {BookingId} did not complete (có thể đã được thanh toán trước đó).", bookingId);
         }
     }
 
