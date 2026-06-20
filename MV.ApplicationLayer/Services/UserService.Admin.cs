@@ -153,5 +153,25 @@ namespace MV.ApplicationLayer.Services
 
             await _unitOfWork.SaveChangesAsync();
         }
+
+        public async Task AdminReactivateUserAsync(string userId)
+        {
+            var user = await _unitOfWork.UserRepository.GetUserByIdAsync(userId)
+                ?? throw new UserNotFoundException(userId);
+
+            user.Status = 1;
+            await _unitOfWork.UserRepository.UpdateUserAsync(user);
+
+            // Nếu là gia sư và profile đang Active → khôi phục hiển thị công khai
+            var tutorProfile = await _unitOfWork.UserRepository.GetTutorProfileByIdAsync(userId);
+            if (tutorProfile != null &&
+                string.Equals(tutorProfile.Profilestatus, TutorProfileStatus.Active, StringComparison.OrdinalIgnoreCase))
+            {
+                tutorProfile.Ispublic = true;
+                await _unitOfWork.UserRepository.UpdateTutorProfileAsync(tutorProfile);
+            }
+
+            await _unitOfWork.SaveChangesAsync();
+        }
     }
 }
