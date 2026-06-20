@@ -29,8 +29,6 @@ public partial class Tutorprofile
         set { }
     }
 
-
-
     public string? Teachingareacity { get; set; }
 
     public string? Teachingareadistrict { get; set; }
