@@ -52,8 +52,15 @@ public partial class PaymentService
                 var existingLink = await _payOS.PaymentRequests.GetAsync(booking.Paymentcode);
                 var linkStatus = existingLink.Status.ToString().ToUpper();
                 if (linkStatus == PayOSLinkStatus.Pending || linkStatus == PayOSLinkStatus.Processing)
-                    return BuildPaymentInfoResponse(booking, bookingId, existingLink,
-                        existingLink.OrderCode, depositAmount, walletForExisting, PaymentPhase.Deposit);
+                {
+                    // Reuse cached transfer info — giữ nguyên QR/STK qua mỗi lần reload.
+                    if (!string.IsNullOrEmpty(booking.Payosaccountnumber))
+                        return BuildReuseResponse(booking, bookingId, existingLink.OrderCode, depositAmount,
+                            walletForExisting, PaymentPhase.Deposit, existingLink.Status.ToString());
+
+                    // Booking cũ chưa có field cache → recreate 1 lần để backfill (sẽ cache ở bước tạo link).
+                    logger.LogInformation("Pending deposit link for booking {BookingId} has no cached PayOS fields; recreating to backfill.", bookingId);
+                }
 
                 // Self-heal: link đã PAID tại PayOS nhưng DB chưa cập nhật (webhook lỗi/chưa tới).
                 // Xác nhận ngay thay vì tạo link mới — tránh làm "mồ côi" link đã thanh toán.
@@ -103,6 +110,7 @@ public partial class PaymentService
         {
             var paymentLink = await _linkFactory.CreatePaymentLink(orderCode, depositAmount, $"Coc Booking #{bookingId}", expiredAt);
             booking.Paymentcode = paymentLink.PaymentLinkId;
+            PersistPayosDisplayFields(booking, paymentLink);
             await context.SaveChangesAsync();
 
             logger.LogInformation("Created PayOS deposit link {Id} for booking {BookingId}, amount {Amount}",
@@ -137,8 +145,15 @@ public partial class PaymentService
                 var existingLink = await _payOS.PaymentRequests.GetAsync(booking.Paymentcode);
                 var linkStatus = existingLink.Status.ToString().ToUpper();
                 if (linkStatus == PayOSLinkStatus.Pending || linkStatus == PayOSLinkStatus.Processing)
-                    return BuildPaymentInfoResponse(booking, bookingId, existingLink,
-                        existingLink.OrderCode, remainingAmount, wallet, PaymentPhase.Remaining);
+                {
+                    // Reuse cached transfer info — giữ nguyên QR/STK qua mỗi lần reload.
+                    if (!string.IsNullOrEmpty(booking.Payosaccountnumber))
+                        return BuildReuseResponse(booking, bookingId, existingLink.OrderCode, remainingAmount,
+                            wallet, PaymentPhase.Remaining, existingLink.Status.ToString());
+
+                    // Booking cũ chưa có field cache → recreate 1 lần để backfill (sẽ cache ở bước tạo link).
+                    logger.LogInformation("Pending remaining link for booking {BookingId} has no cached PayOS fields; recreating to backfill.", bookingId);
+                }
 
                 // Self-heal: link đã PAID tại PayOS nhưng DB chưa cập nhật (webhook lỗi/chưa tới).
                 // Xác nhận ngay thay vì tạo link mới — tránh làm "mồ côi" link đã thanh toán.
@@ -167,6 +182,7 @@ public partial class PaymentService
         {
             var paymentLink = await _linkFactory.CreatePaymentLink(orderCode, remainingAmount, $"Tra not Booking #{bookingId}", expiredAt);
             booking.Paymentcode = paymentLink.PaymentLinkId;
+            PersistPayosDisplayFields(booking, paymentLink);
             await context.SaveChangesAsync();
 
             logger.LogInformation("Created PayOS remaining link {Id} for booking {BookingId}, amount {Amount}",
@@ -199,6 +215,55 @@ public partial class PaymentService
             // Đã xác nhận song song hoặc lỗi tạm thời — ghi log và giữ nguyên kết quả "đã thanh toán".
             logger.LogWarning(ex, "Self-heal confirm for booking {BookingId} did not complete (có thể đã được thanh toán trước đó).", bookingId);
         }
+    }
+
+    /// <summary>
+    /// Cache PayOS transfer info on the booking right after a link is created, so subsequent
+    /// reloads reuse the SAME QR/account instead of creating a brand-new link each time.
+    /// </summary>
+    private static void PersistPayosDisplayFields(
+        Booking booking, PayOS.Models.V2.PaymentRequests.CreatePaymentLinkResponse link)
+    {
+        booking.Payosbin = link.Bin;
+        booking.Payosaccountnumber = link.AccountNumber;
+        booking.Payosaccountname = link.AccountName;
+        booking.Payosdescription = link.Description;
+        booking.Payoscheckouturl = link.CheckoutUrl;
+        booking.Payosqrcode = link.QrCode;
+    }
+
+    /// <summary>
+    /// Build the payment-info response from the cached PayOS fields (DB) instead of from the
+    /// PayOS GET response — the GET response does not carry QR/account/bin, so reading them
+    /// from it would fail and force an unwanted new-link creation on every reload.
+    /// </summary>
+    private PaymentInfoResponse BuildReuseResponse(Booking booking, int bookingId,
+        long orderCode, int amount, Wallet? wallet, string phase, string statusFromPayos)
+    {
+        return new PaymentInfoResponse
+        {
+            BookingId = bookingId,
+            PaymentLinkId = booking.Paymentcode ?? "",
+            PaymentCode = orderCode.ToString(),
+            Amount = amount,
+            Currency = Currency.Vnd,
+            CheckoutUrl = booking.Payoscheckouturl ?? "",
+            QrCode = booking.Payosqrcode ?? "",
+            AccountNumber = booking.Payosaccountnumber ?? "",
+            AccountName = booking.Payosaccountname ?? "",
+            Bin = booking.Payosbin ?? "",
+            Description = booking.Payosdescription ?? "",
+            ExpiredAt = booking.Paymentdueat,
+            Status = statusFromPayos,
+            CanPayWithWallet = (wallet?.Balance ?? 0) >= amount,
+            WalletBalance = wallet?.Balance ?? 0,
+            PaymentPhase = phase,
+            TotalAmount = booking.Finalprice ?? 0,
+            DepositAmount = booking.Depositamount ?? 0,
+            RemainingAmount = booking.Remainingamount ?? 0,
+            IsDepositPaid = booking.Depositpaidat != null,
+            IsRemainingPaid = booking.Remainingpaidat != null
+        };
     }
 
     private PaymentInfoResponse BuildPaymentInfoResponse(Booking booking, int bookingId,

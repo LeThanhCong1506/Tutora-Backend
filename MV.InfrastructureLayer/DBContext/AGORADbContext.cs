@@ -357,6 +357,12 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
                 .HasColumnName("createdbyrole");
             entity.Property(e => e.Responsedeadline)
                 .HasColumnName("responsedeadline");
+            entity.Property(e => e.Payosbin).HasMaxLength(20).HasColumnName("payosbin");
+            entity.Property(e => e.Payosaccountnumber).HasMaxLength(50).HasColumnName("payosaccountnumber");
+            entity.Property(e => e.Payosaccountname).HasMaxLength(200).HasColumnName("payosaccountname");
+            entity.Property(e => e.Payosdescription).HasMaxLength(100).HasColumnName("payosdescription");
+            entity.Property(e => e.Payoscheckouturl).HasColumnName("payoscheckouturl");
+            entity.Property(e => e.Payosqrcode).HasColumnName("payosqrcode");
             entity.Property(e => e.Tutorsubjectgradepriceid).HasColumnName("tutorsubjectgradepriceid");
             entity.Property(e => e.Tutorfee)
                 .HasPrecision(12, 2)
