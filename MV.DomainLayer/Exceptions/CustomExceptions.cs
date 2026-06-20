@@ -120,6 +120,19 @@ namespace MV.DomainLayer.Exceptions
             : base(message) { }
     }
 
+    // ---------------------------------- AI Chat Exceptions ----------------------------------
+    public class AiChatSessionNotFoundException : NotFoundException
+    {
+        public AiChatSessionNotFoundException(Guid sessionId)
+            : base($"AI chat session with ID '{sessionId}' was not found.") { }
+    }
+
+    public class AiChatSessionForbiddenException : BadRequestException
+    {
+        public AiChatSessionForbiddenException()
+            : base("Bạn không có quyền truy cập phiên trò chuyện AI này.") { }
+    }
+
     // ---------------------------------- Finance Exceptions ----------------------------------
     public class WalletNotFoundException : NotFoundException
     {

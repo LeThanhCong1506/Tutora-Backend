@@ -208,7 +208,7 @@ builder.Services.AddCors(options =>
                     // Next.js dev server (apps/web-next)
                     "http://localhost:3000",
                     "https://swd-391-frontend-d4ek.vercel.app", "http://localhost:5500",
-                    "https://www.tutora.vn", "https://tutora.vn",
+                    "https://www.tutora.vn", "https://tutora.vn", "https://tutorahelps.vercel.app",
                     // Vite app sau cutover sang Next (portal + auth)
                     "https://app.tutora.vn",
                     // Zalo Mini App domains
@@ -284,6 +284,7 @@ builder.Services.AddScoped<IBookingRepository, BookingRepository>();
 builder.Services.AddScoped<IDisputeRepository, DisputeRepository>();
 builder.Services.AddScoped<IWarningRepository, WarningRepository>();
 builder.Services.AddScoped<IChatRepository, ChatRepository>();
+builder.Services.AddScoped<IAiChatRepository, AiChatRepository>();
 builder.Services.AddScoped<ILessonRepository, LessonRepository>();
 builder.Services.AddScoped<IWalletRepository, WalletRepository>();
 builder.Services.AddScoped<IWithdrawalRepository, WithdrawalRepository>();
@@ -314,6 +315,7 @@ builder.Services.AddScoped<ILookupService, LookupService>();
 builder.Services.AddScoped<IBookingService, BookingService>();
 builder.Services.AddScoped<IStudentService, StudentService>();
 builder.Services.AddScoped<IChatService, ChatService>();
+builder.Services.AddScoped<IAiChatService, AiChatService>();
 builder.Services.AddScoped<IPaymentService, PaymentService>();
 builder.Services.AddScoped<IWalletService, WalletService>();
 builder.Services.AddScoped<ILessonService, LessonService>();
@@ -379,6 +381,16 @@ builder.Services.AddHttpClient(ServiceKeys.HttpClients.ZaloZNS, client =>
 {
     client.BaseAddress = new Uri("https://business.openapi.zalo.me/");
     client.Timeout = TimeSpan.FromSeconds(15);
+});
+// Tutor AI (FastAPI)
+builder.Services.AddHttpClient(ServiceKeys.HttpClients.TutorAi, client =>
+{
+    var aiSettings = builder.Configuration.GetSection(TutorAiSettings.SectionName).Get<TutorAiSettings>();
+    if (string.IsNullOrWhiteSpace(aiSettings?.BaseUrl))
+        throw new InvalidOperationException(
+            "Thiếu cấu hình 'TutorAi:BaseUrl'. Hãy set qua appsettings hoặc biến môi trường.");
+    client.BaseAddress = new Uri(aiSettings.BaseUrl);
+    client.Timeout = TimeSpan.FromSeconds(aiSettings.StreamTimeoutSeconds > 0 ? aiSettings.StreamTimeoutSeconds : 120);
 });
 // Zalo OA
 builder.Services.AddScoped<IZaloOAService, ZaloOAService>();

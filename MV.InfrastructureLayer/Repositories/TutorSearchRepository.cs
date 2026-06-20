@@ -186,8 +186,22 @@ namespace MV.InfrastructureLayer.Repositories
                 .Take(parameters.PageSize)
                 .ToListAsync();
 
+            // ==================== LESSON COUNTS (cho trang hiện tại) ====================
+            // Đếm tổng số buổi học theo từng gia sư bằng 1 query gộp, tránh Include toàn bộ Lessons.
+            var tutorIds = items.Select(u => u.Userid).ToList();
+            var lessonCounts = await _context.Lessons
+                .Where(l => l.Tutorid != null && tutorIds.Contains(l.Tutorid))
+                .GroupBy(l => l.Tutorid!)
+                .Select(g => new { TutorId = g.Key, Count = g.Count() })
+                .ToDictionaryAsync(x => x.TutorId, x => x.Count);
+
             // ==================== MAP TO RESPONSE ====================
-            var results = items.Select(u => MapToSearchResult(u)).ToList();
+            var results = items.Select(u =>
+            {
+                var dto = MapToSearchResult(u);
+                dto.TotalLessons = lessonCounts.TryGetValue(u.Userid, out var lessonCount) ? lessonCount : 0;
+                return dto;
+            }).ToList();
             // Grade Level filter is now applied at database level (before pagination)
 
             return new TutorSearchPagedResponse
@@ -530,6 +544,11 @@ namespace MV.InfrastructureLayer.Repositories
             // Extract degree level from education
             var degreeLevel = ExtractDegreeLevel(profile.Education);
 
+            // Lowest active price across all subject/grade offerings (for "Từ X đ/giờ").
+            var minPricePerHour = profile.Tutorsubjectgradeprices?
+                .Where(p => p.Isactive)
+                .Min(p => (decimal?)p.Priceperhour);
+
             return new TutorSearchResultResponse
             {
                 TutorId = user.Userid,
@@ -542,6 +561,7 @@ namespace MV.InfrastructureLayer.Repositories
                 DegreeLevel = degreeLevel,
                 AverageRating = profile.Averagerating,
                 TotalReviews = profile.Totalreviews,
+                MinPricePerHour = minPricePerHour,
                 YearsOfExperience = yearsExperience,
                 CompletedHours = profile.Completedhours,
                 TeachingAreaCity = profile.Teachingareacity,
@@ -586,6 +606,7 @@ namespace MV.InfrastructureLayer.Repositories
             {
                 SubjectId = ts.Subjectid,
                 SubjectName = ts.Subject?.Subjectname,
+                PricePerHour = ts.Priceperhour,
                 GradeLevels = ts.Gradelevel == null ? null : new List<string> { ts.Gradelevel.Gradename },
                 Tags = null
             }).ToList();

@@ -140,7 +140,7 @@ public class PaymentController(
     }
 
     [HttpPost("admin/bookings/{id}/payment/confirm")]
-    // [Authorize(Roles = UserRole.Admin)]
+    [Authorize(Roles = UserRole.Admin)]
     public async Task<IActionResult> ConfirmPayment([FromRoute] int id, [FromBody] AdminConfirmPaymentRequest request)
     {
         try

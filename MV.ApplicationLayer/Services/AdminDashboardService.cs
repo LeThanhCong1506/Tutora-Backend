@@ -391,6 +391,115 @@ public class AdminDashboardService(
         };
     }
 
+    // ─── API 5: GET /api/admin/dashboard/summary ─────────────────────────────
+
+    public async Task<AdminDashboardSummaryResponse> GetSummaryAsync(
+        DateTime? from,
+        DateTime? to,
+        string timezone = "Asia/Ho_Chi_Minh",
+        CancellationToken ct = default)
+    {
+        var nowUtc = TimeZoneHelper.UtcNow;
+        var toUtc   = to.HasValue   ? DateTime.SpecifyKind(to.Value,   DateTimeKind.Utc) : nowUtc;
+        var fromUtc = from.HasValue ? DateTime.SpecifyKind(from.Value, DateTimeKind.Utc) : toUtc.AddDays(-30);
+
+        // Previous period: same length, immediately preceding the current period
+        var periodLength = toUtc - fromUtc;
+        var prevFromUtc  = fromUtc - periodLength;
+        var prevToUtc    = fromUtc.AddTicks(-1);
+
+        logger.LogInformation(
+            "AdminDashboardService.GetSummaryAsync from={From} to={To} tz={Tz}",
+            fromUtc, toUtc, timezone);
+
+        // Sequential fetch — EF Core DbContext is not thread-safe
+        var bookings = await context.Bookings
+            .AsNoTracking()
+            .Select(b => new { b.Status, b.Finalprice, b.Platformfee, b.Createdat })
+            .ToListAsync(ct);
+
+        var withdrawals = await context.Withdrawalrequests
+            .AsNoTracking()
+            .Select(w => new { w.Status })
+            .ToListAsync(ct);
+
+        var disputes = await context.Disputes
+            .AsNoTracking()
+            .Select(d => new { d.Status })
+            .ToListAsync(ct);
+
+        var tutorProfiles = await context.Tutorprofiles
+            .AsNoTracking()
+            .Select(t => new { t.Profilestatus })
+            .ToListAsync(ct);
+
+        var unresolvedAlerts = await context.Systemalerts
+            .AsNoTracking()
+            .CountAsync(a => !a.Resolved, ct);
+
+        // ── GMV & Revenue ─────────────────────────────────────────────────────
+        var currentPeriodBookings = bookings
+            .Where(b => b.Createdat >= fromUtc && b.Createdat <= toUtc)
+            .ToList();
+        var gmvCurrent     = currentPeriodBookings.Sum(b => b.Finalprice  ?? 0);
+        var revenueCurrent = currentPeriodBookings.Sum(b => b.Platformfee ?? 0);
+
+        var prevPeriodBookings = bookings
+            .Where(b => b.Createdat >= prevFromUtc && b.Createdat <= prevToUtc)
+            .ToList();
+        var gmvPrev     = prevPeriodBookings.Sum(b => b.Finalprice  ?? 0);
+        var revenuePrev = prevPeriodBookings.Sum(b => b.Platformfee ?? 0);
+
+        decimal? gmvChange     = gmvPrev     == 0 ? null : Math.Round((gmvCurrent     - gmvPrev)     / gmvPrev     * 100, 1);
+        decimal? revenueChange = revenuePrev == 0 ? null : Math.Round((revenueCurrent - revenuePrev) / revenuePrev * 100, 1);
+
+        // ── Booking counts ────────────────────────────────────────────────────
+        var activeBookings    = bookings.Count(b => ActiveBookingStatuses.Contains(b.Status ?? ""));
+        var newInPeriod       = currentPeriodBookings.Count;
+        var completedInPeriod = currentPeriodBookings.Count(b => b.Status == BookingStatus.Completed);
+
+        // ── Pending actions (real-time snapshot, no period filter) ────────────
+        var tutorApprovals    = tutorProfiles.Count(t => t.Profilestatus == TutorProfileStatus.PendingApproval);
+        var withdrawalReviews = withdrawals.Count(w =>
+            w.Status == WithdrawalStatus.Pending ||
+            w.Status == WithdrawalStatus.PendingReview);
+        var openDisputes = disputes.Count(d =>
+            d.Status is DisputeStatus.Pending or DisputeStatus.Investigating);
+        var overdueCount = withdrawals.Count(w => w.Status == WithdrawalStatus.Delayed);
+        var actionsTotal = tutorApprovals + withdrawalReviews + openDisputes + unresolvedAlerts + overdueCount;
+
+        return new AdminDashboardSummaryResponse
+        {
+            FilterFrom = fromUtc,
+            FilterTo   = toUtc,
+            Gmv = new MetricWithChange
+            {
+                Value         = gmvCurrent,
+                ChangePercent = gmvChange
+            },
+            PlatformRevenue = new MetricWithChange
+            {
+                Value         = revenueCurrent,
+                ChangePercent = revenueChange
+            },
+            Bookings = new SummaryBookings
+            {
+                Active            = activeBookings,
+                NewInPeriod       = newInPeriod,
+                CompletedInPeriod = completedInPeriod
+            },
+            PendingActions = new SummaryPendingActions
+            {
+                Total             = actionsTotal,
+                TutorApprovals    = tutorApprovals,
+                WithdrawalReviews = withdrawalReviews,
+                OpenDisputes      = openDisputes,
+                UnresolvedAlerts  = unresolvedAlerts,
+                OverdueCount      = overdueCount
+            }
+        };
+    }
+
     // ─── API 4: GET /api/admin/dashboard/disputes ────────────────────────────
 
     public async Task<AdminDisputeStatsResponse> GetDisputeStatsAsync(

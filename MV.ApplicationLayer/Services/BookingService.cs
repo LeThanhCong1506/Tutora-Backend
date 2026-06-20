@@ -472,7 +472,7 @@ public partial class BookingService(
 
             if (hasConflict)
                 throw new BookingException(BookingErrorCodes.ScheduleConflict,
-                    $"Gia sư đã có lịch dạy vào {startVn:HH:mm ngày dd/MM/yyyy}. Vui lòng chọn khung giờ khác.", 409);
+                    $"Gia sư đã có lịch dạy vào {startVn:HH:mm} ngày {startVn:dd/MM/yyyy}. Vui lòng chọn khung giờ khác.", 409);
         }
     }
 
