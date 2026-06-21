@@ -14,7 +14,7 @@ namespace MV.ApplicationLayer.ServiceInterfaces
         /// <summary>
         /// Upload and replace the tutor's profile avatar image.
         /// </summary>
-        Task<bool> UpdateTutorAvatarAsync(string userId, IFormFile avatarFile);
+        Task<string?> UpdateTutorAvatarAsync(string userId, IFormFile avatarFile);
 
         /// <summary>
         /// Upload CCCD (citizen ID card) front and back images to Cloudinary.

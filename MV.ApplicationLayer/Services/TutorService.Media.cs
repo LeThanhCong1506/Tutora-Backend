@@ -11,7 +11,7 @@ namespace MV.ApplicationLayer.Services
         // ─── Media Methods (avatar + video) ─────────────────────────────────
 
         /// <summary>Upload/Update tutor avatar.</summary>
-        public async Task<bool> UpdateTutorAvatarAsync(string userId, IFormFile avatarFile)
+        public async Task<string?> UpdateTutorAvatarAsync(string userId, IFormFile avatarFile)
         {
             if (avatarFile == null || avatarFile.Length == 0)
                 throw new ArgumentException("Vui lòng chọn ảnh đại diện");
@@ -19,13 +19,13 @@ namespace MV.ApplicationLayer.Services
             ValidateImageFile(avatarFile);
 
             var user = await _unitOfWork.UserRepository.GetUserByIdAsync(userId);
-            if (user == null) return false;
+            if (user == null) return null;
 
             var avatarUrl = await _storageService.UploadFileAsync(AvatarBucket, userId, avatarFile);
             user.Avatarurl = avatarUrl;
 
             await _unitOfWork.SaveChangesAsync();
-            return true;
+            return avatarUrl;
         }
 
         public async Task<bool> UpdateTutorVideoAsync(string userId, UpdateTutorVideoRequest request)
