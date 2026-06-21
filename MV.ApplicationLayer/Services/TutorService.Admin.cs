@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using MV.DomainLayer.Constants;
+using MV.DomainLayer.DTO;
 using MV.DomainLayer.DTO.RequestModel;
 using MV.DomainLayer.DTO.ResponseModel;
 using MV.DomainLayer.Helpers;
@@ -75,29 +76,29 @@ namespace MV.ApplicationLayer.Services
             };
         }
 
-        // ─── Admin: Danh sách chứng chỉ chờ duyệt ──────────────────────────────
+        // ─── Admin: Danh sách chứng chỉ (có filter/search/paging) ──────────────
 
-        public async Task<List<PendingCertificateResponse>> GetPendingCertificatesAsync()
+        public async Task<PagedList<PendingCertificateResponse>> GetAdminCertificatesAsync(CertificateParameters parameters)
         {
-            var certificates = await _unitOfWork.TutorRepository.GetPendingCertificatesAsync();
+            var paged = await _unitOfWork.TutorRepository.GetAdminCertificatesAsync(parameters);
 
-            return certificates.Select(c => new PendingCertificateResponse
+            var mapped = paged.Select(c => new PendingCertificateResponse
             {
-                CertificateId      = c.Certificateid,
-                CertificateName    = c.Certificatename,
-                CertificateType    = c.Certificatetype,
+                CertificateId       = c.Certificateid,
+                CertificateName     = c.Certificatename,
                 IssuingOrganization = c.Issuingorganization,
-                YearIssued         = c.Yearissued,
-                CredentialId       = c.Credentialid,
-                CredentialUrl      = c.Credentialurl,
-                CertificateFileUrl = c.Certificatefileurl,
-                CreatedAt          = c.Createdat,
-                VerificationStatus = c.Verificationstatus,
-                TutorId            = c.Tutorid,
-                TutorFullName      = c.Tutor?.Tutor?.Fullname,
-                TutorEmail         = c.Tutor?.Tutor?.Email,
-                TutorAvatarUrl     = c.Tutor?.Tutor?.Avatarurl
+                YearIssued          = c.Yearissued,
+                CertificateFileUrl  = c.Certificatefileurl,
+                VerificationStatus  = c.Verificationstatus,
+                VerificationNote    = c.Verificationnote,
+                CreatedAt           = c.Createdat,
+                TutorId             = c.Tutorid,
+                TutorFullName       = c.Tutor?.Tutor?.Fullname,
+                TutorEmail          = c.Tutor?.Tutor?.Email,
+                TutorAvatarUrl      = c.Tutor?.Tutor?.Avatarurl
             }).ToList();
+
+            return new PagedList<PendingCertificateResponse>(mapped, paged.TotalCount, paged.CurrentPage, paged.PageSize);
         }
     }
 }

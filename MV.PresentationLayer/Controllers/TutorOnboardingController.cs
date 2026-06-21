@@ -96,14 +96,14 @@ namespace MV.PresentationLayer.Controllers
 
             try
             {
-                var result = await _tutorService.UpdateTutorAvatarAsync(id, request.AvatarFile);
+                var avatarUrl = await _tutorService.UpdateTutorAvatarAsync(id, request.AvatarFile);
 
-                if (!result)
+                if (avatarUrl == null)
                 {
                     return NotFound(APIResponse.Fail(ApiMessages.UserNotFound, 404));
                 }
 
-                return Ok(APIResponse.Success("Cập nhật ảnh đại diện thành công."));
+                return Ok(APIResponse<object>.Success(new { avatarUrl }, "Cập nhật ảnh đại diện thành công."));
             }
             catch (ArgumentException ex)
             {
