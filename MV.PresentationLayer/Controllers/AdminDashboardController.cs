@@ -3,6 +3,8 @@ using Microsoft.AspNetCore.Mvc;
 using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO;
+using MV.DomainLayer.DTO.RequestModel;
+using MV.DomainLayer.DTO.ResponseModel;
 using MV.DomainLayer.DTO.ResponseModel.Admin;
 
 namespace MV.PresentationLayer.Controllers;
@@ -137,6 +139,25 @@ public class AdminDashboardController(IAdminDashboardService dashboardService) :
 
             var result = await dashboardService.GetDisputeStatsAsync(from, to, ct);
             return Ok(APIResponse<AdminDisputeStatsResponse>.Success(result, "Lấy thống kê tranh chấp thành công."));
+        }
+        catch (Exception ex)
+        {
+            return HandleException(ex);
+        }
+    }
+
+    /// <summary>
+    /// GET /api/admin/dashboard/trends
+    /// Xu hướng doanh thu và buổi học theo khoảng thời gian.
+    /// Query: from (yyyy-MM-dd), to (yyyy-MM-dd), bucket (auto|day|week|month), timezone
+    /// </summary>
+    [HttpGet("trends")]
+    public async Task<IActionResult> GetTrends([FromQuery] DashboardTrendRequest request, CancellationToken ct = default)
+    {
+        try
+        {
+            var result = await dashboardService.GetTrendsAsync(request, ct);
+            return Ok(APIResponse<DashboardTrendResponse>.Success(result, "Lấy xu hướng thành công."));
         }
         catch (Exception ex)
         {
