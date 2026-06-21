@@ -25,10 +25,6 @@ namespace MV.ApplicationLayer.Services
             user.Avatarurl = avatarUrl;
 
             await _unitOfWork.SaveChangesAsync();
-
-            // Try auto-activate profile if all conditions met
-            await TryAutoActivateProfileAsync(userId);
-
             return true;
         }
 
@@ -44,9 +40,6 @@ namespace MV.ApplicationLayer.Services
             profile.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 
             await _unitOfWork.SaveChangesAsync();
-
-            await TryAutoActivateProfileAsync(userId);
-
             return true;
         }
 
