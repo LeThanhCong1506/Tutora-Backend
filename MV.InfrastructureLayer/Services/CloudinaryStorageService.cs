@@ -46,7 +46,8 @@ namespace MV.InfrastructureLayer.Services
 
             using var stream = file.OpenReadStream();
             var extension = Path.GetExtension(file.FileName).ToLowerInvariant();
-            var isImage = new[] { ".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".tiff" }.Contains(extension);
+            // PDF upload dưới dạng image để tránh Cloudinary chặn raw delivery
+            var isImage = new[] { ".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".tiff", ".pdf" }.Contains(extension);
             var isVideo = new[] { ".mp4", ".mov", ".avi", ".wmv", ".flv", ".webm" }.Contains(extension);
 
             UploadResult uploadResult;
