@@ -37,14 +37,7 @@ namespace MV.ApplicationLayer.Services
                 "Admin {AdminId} {Action} certificate {CertId} for tutor {TutorId}",
                 adminId, request.IsApproved ? "approved" : "rejected", certId, tutorId);
 
-            // 3. Nếu duyệt → re-evaluate profile status
-            bool isProfileActivated = false;
-            if (request.IsApproved)
-            {
-                isProfileActivated = await TryActivateProfileAsync(tutorId);
-            }
-
-            // 4. Gửi notification cho gia sư
+            // 3. Gửi notification cho gia sư
             try
             {
                 if (request.IsApproved)
@@ -53,9 +46,7 @@ namespace MV.ApplicationLayer.Services
                     {
                         Userid = tutorId,
                         Title = "Chứng chỉ được duyệt",
-                        Message = isProfileActivated
-                            ? $"Chứng chỉ \"{certificate.Certificatename}\" đã được admin phê duyệt. Hồ sơ của bạn đã được kích hoạt!"
-                            : $"Chứng chỉ \"{certificate.Certificatename}\" đã được admin phê duyệt."
+                        Message = $"Chứng chỉ \"{certificate.Certificatename}\" đã được admin phê duyệt."
                     });
                 }
                 else
@@ -80,44 +71,33 @@ namespace MV.ApplicationLayer.Services
                 CertificateName    = certificate.Certificatename,
                 VerificationStatus = certificate.Verificationstatus!,
                 VerificationNote   = certificate.Verificationnote,
-                IsProfileActivated = isProfileActivated
+                IsProfileActivated = false
             };
         }
 
-        // ─── Private helpers ─────────────────────────────────────────────────────
+        // ─── Admin: Danh sách chứng chỉ chờ duyệt ──────────────────────────────
 
-        /// <summary>
-        /// Kiểm tra đủ điều kiện và kích hoạt profile Active nếu đủ.
-        /// Trả về true nếu profile được kích hoạt lần này.
-        /// </summary>
-        private async Task<bool> TryActivateProfileAsync(string tutorId)
+        public async Task<List<PendingCertificateResponse>> GetPendingCertificatesAsync()
         {
-            var profile = await _unitOfWork.TutorRepository.GetTutorProfileByIdAsync(tutorId);
-            if (profile == null) return false;
+            var certificates = await _unitOfWork.TutorRepository.GetPendingCertificatesAsync();
 
-            // Chỉ xem xét kích hoạt nếu profile đang ở PendingApproval hoặc Draft
-            if (string.Equals(profile.Profilestatus, TutorProfileStatus.Active, StringComparison.OrdinalIgnoreCase))
-                return false;
-
-            var user     = await _unitOfWork.UserRepository.GetUserByIdAsync(tutorId);
-            var subjects = await _unitOfWork.TutorRepository.GetTutorSubjectsByTutorIdAsync(tutorId);
-            var prices   = await _unitOfWork.TutorRepository.GetTutorSubjectGradePricesAsync(tutorId);
-
-            bool identityVerified = user?.Isidentityverified ?? false;
-            bool hasRequiredFields = CheckRequiredFields(profile, user!, subjects, prices);
-
-            if (identityVerified && hasRequiredFields)
+            return certificates.Select(c => new PendingCertificateResponse
             {
-                profile.Profilestatus = TutorProfileStatus.Active;
-                profile.Ispublic      = true;
-                profile.Updatedat     = TimeZoneHelper.UtcNow;
-                await _unitOfWork.SaveChangesAsync();
-
-                _logger.LogInformation("Profile {TutorId} activated after admin approved certificate", tutorId);
-                return true;
-            }
-
-            return false;
+                CertificateId      = c.Certificateid,
+                CertificateName    = c.Certificatename,
+                CertificateType    = c.Certificatetype,
+                IssuingOrganization = c.Issuingorganization,
+                YearIssued         = c.Yearissued,
+                CredentialId       = c.Credentialid,
+                CredentialUrl      = c.Credentialurl,
+                CertificateFileUrl = c.Certificatefileurl,
+                CreatedAt          = c.Createdat,
+                VerificationStatus = c.Verificationstatus,
+                TutorId            = c.Tutorid,
+                TutorFullName      = c.Tutor?.Tutor?.Fullname,
+                TutorEmail         = c.Tutor?.Tutor?.Email,
+                TutorAvatarUrl     = c.Tutor?.Tutor?.Avatarurl
+            }).ToList();
         }
     }
 }

@@ -24,7 +24,6 @@ namespace MV.DomainLayer.DTO.ResponseModel
         public IntroductionSection Introduction { get; set; } = new();
         public CertificatesSection Certificates { get; set; } = new();
         public IdentityCardSection IdentityCard { get; set; } = new();
-        public PricingSection Pricing { get; set; } = new();
     }
 
     /// <summary>
@@ -75,12 +74,12 @@ namespace MV.DomainLayer.DTO.ResponseModel
 
     public class IdentityCardSection : BaseSectionInfo
     {
-        public string? FrontImageUrl { get; set; }
-        public string? BackImageUrl { get; set; }
+        public string? IdentityNumberMasked { get; set; }  // Số CCCD đã mã hóa, vd: 079****5678
+        public string? FullName { get; set; }              // Họ và tên
+        public string? DateOfBirth { get; set; }           // Ngày sinh (dd/MM/yyyy)
+        public string? Gender { get; set; }                // Giới tính
+        public string? PermanentAddress { get; set; }      // Địa chỉ thường trú
+        public string? PortraitImageUrl { get; set; }      // Ảnh chân dung (avatar gia sư)
         public bool IsVerified { get; set; }
-    }
-
-    public class PricingSection : BaseSectionInfo
-    {
     }
 }

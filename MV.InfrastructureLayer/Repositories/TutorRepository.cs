@@ -273,6 +273,16 @@ namespace MV.InfrastructureLayer.Repositories
             _context.Tutorcertificates.Remove(certificate);
         }
 
+        public async Task<List<Tutorcertificate>> GetPendingCertificatesAsync()
+        {
+            return await _context.Tutorcertificates
+                .Include(c => c.Tutor)
+                    .ThenInclude(p => p.Tutor)
+                .Where(c => c.Verificationstatus == MV.DomainLayer.Constants.CertificateStatus.PendingReview)
+                .OrderByDescending(c => c.Createdat)
+                .ToListAsync();
+        }
+
         public async Task UpdateTutorProfileStatusAsync(Tutorprofile profile)
         {
             await _context.Tutorprofiles

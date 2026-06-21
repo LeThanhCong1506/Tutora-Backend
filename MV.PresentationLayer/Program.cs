@@ -295,7 +295,6 @@ builder.Services.AddScoped<ITutorSearchRepository, TutorSearchRepository>();
 
 // Service injection
 builder.Services.AddScoped<ITutorVerificationService, TutorVerificationService>();
-builder.Services.AddScoped<ICertificateVerificationService, CertificateVerificationService>(); // NEW: Certificate auto-validation
 builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<ILoginService, LoginService>();
 builder.Services.AddScoped<ITutorService, TutorService>();

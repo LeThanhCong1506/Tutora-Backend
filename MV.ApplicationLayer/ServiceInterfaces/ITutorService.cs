@@ -64,6 +64,11 @@ namespace MV.ApplicationLayer.ServiceInterfaces
         /// </summary>
         Task<bool> DeleteCertificateAsync(string tutorId, string certificateId);
 
+        /// <summary>
+        /// Admin: danh sách chứng chỉ đang chờ duyệt (verificationstatus = pending_review).
+        /// </summary>
+        Task<List<PendingCertificateResponse>> GetPendingCertificatesAsync();
+
         // ── Pricing ───────────────────────────────────────────────────────
 
         /// <summary>
@@ -92,8 +97,14 @@ namespace MV.ApplicationLayer.ServiceInterfaces
         // ── Profile submission ─────────────────────────────────────────────
 
         /// <summary>
+        /// Returns completion status for each of the 6 required profile sections.
+        /// FE uses this to show a progress bar and enable/disable the Submit button.
+        /// </summary>
+        Task<ProfileCompletionResponse> GetProfileCompletionAsync(string tutorId);
+
+        /// <summary>
         /// Tutor submits their completed profile for admin review.
-        /// Sets status to Pending and notifies admins.
+        /// Throws InvalidOperationException if not all 6 sections are complete.
         /// </summary>
         Task<bool> SubmitForAdminReviewAsync(string tutorId);
 

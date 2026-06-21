@@ -1,11 +1,11 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using MV.ApplicationLayer.ServiceInterfaces;
+using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO;
 using MV.DomainLayer.DTO.RequestModel;
 using MV.DomainLayer.DTO.ResponseModel;
 using System.Security.Claims;
-using MV.DomainLayer.Constants;
 
 namespace MV.PresentationLayer.Controllers
 {
@@ -226,12 +226,8 @@ namespace MV.PresentationLayer.Controllers
             try
             {
                 var result = await _tutorService.AddCertificateAsync(id, request);
-
-                // Trả về response với validation result để FE xử lý
-                return Ok(APIResponse<CertificateUploadResponse>.Success(result,
-                    result.IsProfileActivated
-                        ? "Thêm chứng chỉ và kích hoạt hồ sơ thành công."
-                        : "Thêm chứng chỉ thành công. Vui lòng kiểm tra kết quả xác thực."));
+                return Ok(APIResponse<CertificateUploadResponse>.Success(
+                    result, "Thêm chứng chỉ thành công. Chứng chỉ đang chờ admin xét duyệt."));
             }
             catch (ArgumentException ex)
             {
@@ -240,8 +236,23 @@ namespace MV.PresentationLayer.Controllers
         }
 
         /// <summary>
-        /// Submit profile for admin review when certificate auto-check fails
-        /// User chọn gửi Admin thay vì upload lại
+        /// GET /api/tutors/{id}/profile-completion
+        /// Trả về trạng thái hoàn thành 6 mục hồ sơ. FE dùng để hiển thị progress bar
+        /// và bật/tắt nút "Nộp hồ sơ".
+        /// </summary>
+        [HttpGet("{id}/profile-completion")]
+        public async Task<IActionResult> GetProfileCompletion([FromRoute] string id)
+        {
+            var currentUserId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (currentUserId != id)
+                return StatusCode(403, APIResponse.Fail(ApiMessages.Forbidden, 403));
+
+            var result = await _tutorService.GetProfileCompletionAsync(id);
+            return Ok(APIResponse<ProfileCompletionResponse>.Success(result, "Lấy tiến trình hoàn thiện hồ sơ thành công."));
+        }
+
+        /// <summary>
+        /// Submit profile for admin review — yêu cầu hoàn thành đủ 6/6 mục.
         /// </summary>
         [HttpPost("{id}/submit-for-review")]
         public async Task<IActionResult> SubmitForAdminReview([FromRoute] string id)

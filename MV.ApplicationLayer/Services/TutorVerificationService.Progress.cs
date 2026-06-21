@@ -3,6 +3,7 @@ using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO.ResponseModel;
 using MV.DomainLayer.Entities;
 using MV.DomainLayer.Helpers;
+using System.Text.Json;
 
 namespace MV.ApplicationLayer.Services
 {
@@ -16,8 +17,6 @@ namespace MV.ApplicationLayer.Services
             if (user == null) return null;
 
             var profile = await _unitOfWork.TutorRepository.GetTutorProfileByIdAsync(userId);
-            var subjects = await _unitOfWork.TutorRepository.GetTutorSubjectsByTutorIdAsync(userId);
-            var prices = await _unitOfWork.TutorRepository.GetTutorSubjectGradePricesAsync(userId);
             var certificates = await _unitOfWork.TutorRepository.GetCertificatesByTutorIdAsync(userId);
 
             return new VerificationProgressResponse
@@ -28,8 +27,7 @@ namespace MV.ApplicationLayer.Services
                     BasicInfo = BuildBasicInfoSection(profile, user),
                     Introduction = BuildIntroductionSection(profile),
                     Certificates = BuildCertificatesSection(certificates, profile),
-                    IdentityCard = await BuildIdentityCardSectionAsync(user),
-                    Pricing = BuildPricingSection(profile, prices)
+                    IdentityCard = BuildIdentityCardSection(user)
                 }
             };
         }
@@ -108,35 +106,75 @@ namespace MV.ApplicationLayer.Services
             };
         }
 
-        private Task<IdentityCardSection> BuildIdentityCardSectionAsync(User user)
+        private static IdentityCardSection BuildIdentityCardSection(User user)
         {
-            var hasFront = !string.IsNullOrWhiteSpace(user.Idcardfronturl);
-            var hasBack = !string.IsNullOrWhiteSpace(user.Idcardbackurl);
-            var isComplete = hasFront && hasBack;
+            var isVerified = user.Isidentityverified ?? false;
+            var hasIdentity = !string.IsNullOrWhiteSpace(user.Identitynumber);
+            var isComplete = hasIdentity && isVerified;
 
-            return Task.FromResult(new IdentityCardSection
+            // Parse Ekycrawdata để lấy thông tin CCCD
+            string? fullName = null;
+            string? dateOfBirth = null;
+            string? gender = null;
+            string? permanentAddress = null;
+
+            if (!string.IsNullOrWhiteSpace(user.Ekycrawdata))
+            {
+                try
+                {
+                    using var doc = JsonDocument.Parse(user.Ekycrawdata);
+                    if (doc.RootElement.TryGetProperty("OcrResult", out var ocr))
+                    {
+                        fullName = ocr.TryGetProperty("name", out var n) ? n.GetString() : null;
+                        dateOfBirth = ocr.TryGetProperty("dob", out var d) ? d.GetString() : null;
+                        permanentAddress = ocr.TryGetProperty("address", out var a) ? a.GetString() : null;
+                        var rawSex = ocr.TryGetProperty("sex", out var s) ? s.GetString() : null;
+                        gender = NormalizeSex(rawSex);
+                    }
+                }
+                catch { /* bỏ qua nếu parse lỗi */ }
+            }
+
+            // Fallback sang User entity nếu Ekycrawdata chưa có
+            fullName ??= user.Fullname;
+            permanentAddress ??= user.Address;
+            if (gender == null && user.Gender != null)
+                gender = user.Gender.ToString();
+            if (dateOfBirth == null && user.Birthdate.HasValue)
+                dateOfBirth = user.Birthdate.Value.ToString("dd/MM/yyyy");
+
+            return new IdentityCardSection
             {
                 Status = isComplete ? SectionStatus.Updated : SectionStatus.InProgress,
                 UpdatedAt = isComplete ? user.Createdat : null,
-                FrontImageUrl = user.Idcardfronturl,
-                BackImageUrl = user.Idcardbackurl,
-                IsVerified = user.Isidentityverified ?? false
-            });
+                IdentityNumberMasked = MaskIdentityNumber(user.Identitynumber),
+                FullName = fullName,
+                DateOfBirth = dateOfBirth,
+                Gender = gender,
+                PermanentAddress = permanentAddress,
+                PortraitImageUrl = user.Avatarurl,
+                IsVerified = isVerified
+            };
         }
 
-        private static PricingSection BuildPricingSection(Tutorprofile? profile, List<Tutorsubjectgradeprice>? prices)
+        private static string? MaskIdentityNumber(string? number)
         {
-            var hourlyRate = prices?
-                .Where(p => p.Isactive)
-                .OrderBy(p => p.Priceperhour)
-                .Select(p => (decimal?)p.Priceperhour)
-                .FirstOrDefault();
-            var hasHourlyRate = hourlyRate.HasValue && hourlyRate.Value > 0;
+            if (string.IsNullOrWhiteSpace(number) || number.Length < 6) return null;
+            // Hiển thị 3 số đầu và 4 số cuối, che giữa
+            var visible = Math.Min(3, number.Length);
+            var tail = Math.Min(4, number.Length - visible);
+            var maskLen = number.Length - visible - tail;
+            return number[..visible] + new string('*', maskLen) + number[^tail..];
+        }
 
-            return new PricingSection
+        private static string? NormalizeSex(string? sex)
+        {
+            if (string.IsNullOrWhiteSpace(sex)) return null;
+            return sex.Trim().ToLower() switch
             {
-                Status = hasHourlyRate ? SectionStatus.Updated : SectionStatus.InProgress,
-                UpdatedAt = hasHourlyRate && profile?.Updatedat != null ? profile.Updatedat.Value : (DateTime?)null
+                "nam" or "male" or "m" => "Nam",
+                "nữ" or "nu" or "female" or "f" => "Nữ",
+                _ => sex
             };
         }
     }
