@@ -75,9 +75,6 @@ namespace MV.ApplicationLayer.Services
                     if (user.Isemailverified != true)
                     {
                         user.Isemailverified = true;
-                        user.Otpcode = null;
-                        user.Otpexpiresat = null;
-                        user.Otpattempts = 0;
                         await _unitOfWork.UserRepository.UpdateUserAsync(user);
                         await _unitOfWork.SaveChangesAsync();
                     }

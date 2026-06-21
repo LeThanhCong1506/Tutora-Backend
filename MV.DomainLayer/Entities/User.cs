@@ -48,12 +48,6 @@ public partial class User
 
     public string? Ekycrawdata { get; set; }
 
-    public string? Otpcode { get; set; }
-
-    public DateTime? Otpexpiresat { get; set; }
-
-    public int? Otpattempts { get; set; }
-
     public string? Primaryrole { get; set; }
 
     public string? Googlecalendartoken { get; set; }

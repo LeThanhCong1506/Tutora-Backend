@@ -1691,15 +1691,6 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
             entity.Property(e => e.Lastloginat)
                 .HasColumnType("timestamp without time zone")
                 .HasColumnName("lastloginat");
-            entity.Property(e => e.Otpattempts)
-                .HasDefaultValue(0)
-                .HasColumnName("otpattempts");
-            entity.Property(e => e.Otpcode)
-                .HasMaxLength(10)
-                .HasColumnName("otpcode");
-            entity.Property(e => e.Otpexpiresat)
-                .HasColumnType("timestamp without time zone")
-                .HasColumnName("otpexpiresat");
             entity.Property(e => e.Password)
                 .HasMaxLength(255)
                 .HasColumnName("password");
