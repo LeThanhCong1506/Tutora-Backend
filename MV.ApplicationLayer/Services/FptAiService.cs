@@ -226,14 +226,45 @@ namespace MV.ApplicationLayer.Services
 
         private List<string> GetVietnameseBannedWords()
         {
-            // Danh sách từ cấm tiếng Việt (chỉ giữ những từ thật sự xúc phạm)
             return new List<string>
             {
-                // Từ tục tiếng Việt phổ biến (đã encode để tránh hiển thị trực tiếp)
-                // "dmm", "vcl", "vkl", "dkm", "clm", "cmm",
-                // "dit", "lon", "cac", "buoi", "du ma",
-                // "ngu", "dien", "khung",
-                // Thêm các từ khác theo nhu cầu
+                // ── Tiếng Việt tục tĩu ───────────────────────────────────────
+                "dmm", "dmm", "d m m",
+                "vcl", "vkl", "vl",
+                "dkm", "d k m",
+                "clm", "cl m",
+                "cmm", "c m m",
+                "dit", "đit",
+                "lon", "lồn", "lỗn",
+                "cac", "cặc", "cak",
+                "buoi", "buổi tối", // tránh false-positive → chỉ dạng thô
+                "buoi", "bưới",
+                "du ma", "đụ má", "đụ mẹ", "đụ",
+                "cc", "ccc",        // viết tắt tục phổ biến trong chat
+                "fuck", "fck", "f*ck",
+                "shit", "sht",
+                "bitch", "btch",
+                "bastard",
+                "asshole", "a**hole",
+                "damn", "damm",
+                // ── Xúc phạm / miệt thị ─────────────────────────────────────
+                "ngu", "ngu ngoc", "thang ngu", "con ngu",
+                "dien", "điên", "thang dien", "con dien",
+                "khung", "khùng",
+                "do ngu", "đồ ngu",
+                "vo dung", "vô dụng",
+                "cho chet", "cho chết",
+                "dieu", "điếu",
+                "het thuoc chua", // "hết thuốc chữa"
+                "cu lao",
+                "thang kho",
+                "con kho",
+                "idiot", "stupid", "moron", "loser", "dumbass", "retard",
+                // ── Bạo lực / đe dọa ────────────────────────────────────────
+                "giet nguoi", "giết người",
+                "danh chet", "đánh chết",
+                "bom", "khung bo", "khủng bố",
+                "te nan", "tệ nạn",
             };
         }
 
@@ -241,12 +272,61 @@ namespace MV.ApplicationLayer.Services
         {
             return new List<string>
             {
-                // Từ khóa nhạy cảm liên quan đến lừa đảo, spam
-                "chuyen tien", "so tai khoan", "mat khau",
-                "trung thuong", "mien phi 100%", "kiem tien nhanh",
-                "dau tu sinh loi", "bitcoin", "crypto",
-                // Từ khóa liên quan đến nội dung không phù hợp cho giáo dục
-                "casino", "ca cuoc", "sex", "18+"
+                // ── Lừa đảo / spam tài chính ─────────────────────────────────
+                "chuyen tien", "chuyển tiền",
+                "so tai khoan", "số tài khoản",
+                "mat khau", "mật khẩu",
+                "trung thuong", "trúng thưởng",
+                "mien phi 100%", "miễn phí 100%",
+                "kiem tien nhanh", "kiếm tiền nhanh",
+                "dau tu sinh loi", "đầu tư sinh lời",
+                "hoan von 100", "hoàn vốn 100",
+                "lai suat cao", "lãi suất cao",
+                "nap tien", "nạp tiền",
+                "rut tien", "rút tiền",
+                "giao dich", "giao dịch nhanh",
+                "phi giao dich", "phí giao dịch",
+                "tai khoan ngan hang",
+                "qr code thanh toan",
+                // ── Tiền ảo / đầu tư ─────────────────────────────────────────
+                "bitcoin", "btc",
+                "crypto", "cryptocurrency",
+                "ethereum", "eth",
+                "nft", "token",
+                "forex", "trading coin",
+                "san giao dich", "sàn giao dịch",
+                // ── Cờ bạc / tệ nạn ─────────────────────────────────────────
+                "casino", "ca si no",
+                "ca cuoc", "cá cược",
+                "lo de", "lô đề",
+                "xo so", "xổ số",
+                "bai bac", "bài bạc",
+                "ma tuy", "ma túy",
+                "nghien ngap", "nghiện ngập",
+                // ── Nội dung người lớn ───────────────────────────────────────
+                "sex", "s3x",
+                "18+", "người lớn",
+                "khieu dam", "khiêu dâm",
+                "erotic", "adult content",
+                "onlyfans",
+                "escort",
+                // ── Liên lạc ngoài nền tảng (bypass) ────────────────────────
+                "zalo cua toi", "zalo của tôi",
+                "telegram cua toi",
+                "lien he qua zalo", "liên hệ qua zalo",
+                "nhan tin zalo", "nhắn tin zalo",
+                "inbox toi", "inbox tôi",
+                "dm me", "dm tôi",
+                // ── Tiếng Anh nhạy cảm ──────────────────────────────────────
+                "money transfer", "bank account",
+                "send money", "wire transfer",
+                "pyramid scheme", "ponzi",
+                "get rich quick",
+                "earn from home",
+                "multilevel", "mlm",
+                "drug", "narcotics",
+                "weapon", "gun for sale",
+                "hack", "phishing", "scam",
             };
         }
 
