@@ -117,6 +117,14 @@ public partial class Booking
     // Phase 13: Tutor response deadline (auto-cancel if tutor doesn't respond within 24h)
     public DateTime? Responsedeadline { get; set; }
 
+    // PayOS display fields — cache để reuse link mà không tạo link mới (giữ mã CK ổn định)
+    public string? Payosbin { get; set; }
+    public string? Payosaccountnumber { get; set; }
+    public string? Payosaccountname { get; set; }
+    public string? Payosdescription { get; set; }
+    public string? Payoscheckouturl { get; set; }
+    public string? Payosqrcode { get; set; }
+
     public virtual ICollection<Chatchannel> Chatchannels { get; set; } = new List<Chatchannel>();
 
     public virtual Class? Class { get; set; }
