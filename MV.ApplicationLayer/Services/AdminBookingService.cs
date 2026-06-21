@@ -192,9 +192,9 @@ public class AdminBookingService(IAppDbContext context) : IAdminBookingService
                 LessonsTotal     = lc?.Total    ?? 0,
                 LessonsCompleted = lc?.Completed ?? 0,
                 // Dates — tất cả convert sang VN time
-                StartDate        = x.Startdate.HasValue    ? TimeZoneHelper.ToUserTime(x.Startdate.Value)    : (DateTime?)null,
-                CreatedAt        = x.Createdat.HasValue    ? TimeZoneHelper.ToUserTime(x.Createdat.Value)    : (DateTime?)null,
-                CancelledAt      = x.Cancelledat.HasValue  ? TimeZoneHelper.ToUserTime(x.Cancelledat.Value)  : (DateTime?)null,
+                StartDate        = x.Startdate,
+                CreatedAt        = x.Createdat,
+                CancelledAt      = x.Cancelledat,
                 CancellationReason = x.Cancellationreason
             };
         }).ToList();
@@ -338,7 +338,7 @@ public class AdminBookingService(IAppDbContext context) : IAdminBookingService
             {
                 Label      = e.Label,
                 Status     = e.Status,
-                OccurredAt = TimeZoneHelper.ToUserTime(e.At!.Value)
+                OccurredAt = e.At!.Value
             })
             .ToList();
 
@@ -349,10 +349,10 @@ public class AdminBookingService(IAppDbContext context) : IAdminBookingService
                 LessonId       = l.Lessonid,
                 LessonNumber   = idx + 1,
                 Status         = l.Status,
-                ScheduledStart = TimeZoneHelper.ToUserTime(l.Scheduledstart),
-                ScheduledEnd   = TimeZoneHelper.ToUserTime(l.Scheduledend),
-                RealStart      = l.Realstart.HasValue ? TimeZoneHelper.ToUserTime(l.Realstart.Value) : null,
-                RealEnd        = l.Realend.HasValue   ? TimeZoneHelper.ToUserTime(l.Realend.Value)   : null,
+                ScheduledStart = l.Scheduledstart,
+                ScheduledEnd   = l.Scheduledend,
+                RealStart      = l.Realstart,
+                RealEnd        = l.Realend,
                 LessonPrice    = l.Lessonprice,
                 IsSettled      = l.Issettled,
                 IsMakeup       = l.Ismakeup,
@@ -405,21 +405,17 @@ public class AdminBookingService(IAppDbContext context) : IAdminBookingService
             {
                 TotalSessions     = row.Sessioncount,
                 CompletedSessions = completedLessons,
-                StartDate         = row.Startdate.HasValue
-                    ? TimeZoneHelper.ToUserTime(row.Startdate.Value)
-                    : null
+                StartDate         = row.Startdate
             },
             Cancellation = new AdminBookingCancellation
             {
                 IsCancelled = row.Status is BookingStatus.Cancelled or BookingStatus.CancelledNoshow,
-                CancelledAt = row.Cancelledat.HasValue
-                    ? TimeZoneHelper.ToUserTime(row.Cancelledat.Value)
-                    : null,
+                CancelledAt = row.Cancelledat,
                 Reason      = row.Cancellationreason
             },
 
-            CreatedAt = row.Createdat.HasValue ? TimeZoneHelper.ToUserTime(row.Createdat.Value) : null,
-            UpdatedAt = row.Updatedat.HasValue ? TimeZoneHelper.ToUserTime(row.Updatedat.Value) : null,
+            CreatedAt = row.Createdat,
+            UpdatedAt = row.Updatedat,
 
             Timeline = timeline,
             Lessons  = lessonItems,
@@ -429,9 +425,9 @@ public class AdminBookingService(IAppDbContext context) : IAdminBookingService
                 DiscountApplied  = row.Discountapplied,
                 FinalPrice       = row.Finalprice,
                 DepositAmount    = row.Depositamount,
-                DepositPaidAt    = row.Depositpaidat.HasValue   ? TimeZoneHelper.ToUserTime(row.Depositpaidat.Value)   : null,
+                DepositPaidAt    = row.Depositpaidat,
                 RemainingAmount  = row.Remainingamount,
-                RemainingPaidAt  = row.Remainingpaidat.HasValue ? TimeZoneHelper.ToUserTime(row.Remainingpaidat.Value) : null,
+                RemainingPaidAt  = row.Remainingpaidat,
                 PlatformFee      = row.Platformfee,
                 TutorFee         = row.Tutorfee,
                 ParentFee        = row.Parentfee,
@@ -439,7 +435,7 @@ public class AdminBookingService(IAppDbContext context) : IAdminBookingService
                 RefundAmount     = row.Refundamount,
                 RefundStatus     = row.Refundstatus,
                 PaymentStatus    = row.Paymentstatus,
-                PaymentDueAt     = row.Paymentdueat.HasValue    ? TimeZoneHelper.ToUserTime(row.Paymentdueat.Value)    : null
+                PaymentDueAt     = row.Paymentdueat
             }
         };
     }

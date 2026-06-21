@@ -133,7 +133,7 @@ public class AdminPayoutService(
             Amount = i.Amount ?? 0,
             TrustScore = scores.GetValueOrDefault(i.Withdrawalid),
             TopFraudFlags = fraudFlags.GetValueOrDefault(i.Withdrawalid, []),
-            RequestedAt = TimeZoneHelper.ToUserTime(i.Requestedat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow)
+            RequestedAt = i.Requestedat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
         }).ToList();
 
         return new PendingReviewResponse
@@ -179,8 +179,8 @@ public class AdminPayoutService(
             WithdrawalId = w.Withdrawalid,
             Amount = w.Amount ?? 0,
             Status = w.Status ?? "",
-            RequestedAt = TimeZoneHelper.ToUserTime(w.Requestedat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow),
-            ProcessedAt = w.Processedat.HasValue ? TimeZoneHelper.ToUserTime(w.Processedat.Value) : (DateTime?)null
+            RequestedAt = w.Requestedat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow,
+            ProcessedAt = w.Processedat
         }).ToList();
 
         return new WithdrawalListResponse
@@ -222,7 +222,7 @@ public class AdminPayoutService(
             WithdrawalId = w.Withdrawalid,
             Amount = w.Amount ?? 0,
             Status = w.Status ?? "",
-            RequestedAt = TimeZoneHelper.ToUserTime(w.Requestedat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow)
+            RequestedAt = w.Requestedat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
         }).ToList();
 
         var wallet = await walletRepo.GetByUserIdAsNoTrackingAsync(tutorId, ct);
@@ -260,7 +260,7 @@ public class AdminPayoutService(
             AccountAgeDays = (MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow - (user.Createdat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow)).Days,
             CompletedLessons = completedLessons,
             TotalEarnings = totalEarnings,
-            JoinedAt = TimeZoneHelper.ToUserTime(user.Createdat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow)
+            JoinedAt = user.Createdat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
         };
 
         var timeline = BuildTimeline(withdrawal);
@@ -276,8 +276,8 @@ public class AdminPayoutService(
                 BankName = withdrawal.Bankname,
                 AccountNumber = withdrawal.Accountnumber,
                 AccountHolderName = withdrawal.Accountholdername,
-                CreatedAt = TimeZoneHelper.ToUserTime(withdrawal.Requestedat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow),
-                ProcessedAt = withdrawal.Processedat.HasValue ? TimeZoneHelper.ToUserTime(withdrawal.Processedat.Value) : (DateTime?)null,
+                CreatedAt = withdrawal.Requestedat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow,
+                ProcessedAt = withdrawal.Processedat,
                 ProcessedBy = withdrawal.Processedby,
                 PayosTransactionId = withdrawal.Payostransactionid,
                 PayosStatus = withdrawal.Payosstatus
@@ -320,14 +320,14 @@ public class AdminPayoutService(
     {
         var timeline = new List<TimelineEventResponse>
         {
-            new() { Timestamp = TimeZoneHelper.ToUserTime(withdrawal.Requestedat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow), Event = "Withdrawal requested", Details = $"Amount: {withdrawal.Amount:N0} VND" }
+            new() { Timestamp = withdrawal.Requestedat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow, Event = "Withdrawal requested", Details = $"Amount: {withdrawal.Amount:N0} VND" }
         };
 
         if (!string.IsNullOrEmpty(withdrawal.Decision))
-            timeline.Add(new() { Timestamp = TimeZoneHelper.ToUserTime(withdrawal.Requestedat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow), Event = "Decision made", Details = withdrawal.Decision });
+            timeline.Add(new() { Timestamp = withdrawal.Requestedat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow, Event = "Decision made", Details = withdrawal.Decision });
 
         if (withdrawal.Processedat.HasValue)
-            timeline.Add(new() { Timestamp = TimeZoneHelper.ToUserTime(withdrawal.Processedat.Value), Event = "Processed", Details = $"Status: {withdrawal.Status}" });
+            timeline.Add(new() { Timestamp = withdrawal.Processedat.Value, Event = "Processed", Details = $"Status: {withdrawal.Status}" });
 
         return timeline;
     }
@@ -499,7 +499,7 @@ public class AdminPayoutService(
             Passed = f.Passed,
             IsFlagged = f.Isflagged,
             Message = f.Message,
-            CheckedAt = TimeZoneHelper.ToUserTime(f.Checkedat)
+            CheckedAt = f.Checkedat
         }).ToList();
 
         return new FraudLogResponse

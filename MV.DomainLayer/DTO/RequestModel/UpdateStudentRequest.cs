@@ -14,9 +14,6 @@ namespace MV.DomainLayer.DTO.RequestModel
         [StringLength(255, ErrorMessage = "School name must not exceed 255 characters.")]
         public string? School { get; set; }
 
-        [StringLength(50, ErrorMessage = "Grade level must not exceed 50 characters.")]
-        public string? Gradelevel { get; set; }
-
         public int? GradeLevelId { get; set; }
 
         [StringLength(1000, ErrorMessage = "Learning goals must not exceed 1000 characters.")]

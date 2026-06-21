@@ -32,6 +32,56 @@ namespace MV.PresentationLayer.Controllers
         }
 
         // --- PUBLIC / GET ---
+        [Authorize(Roles = UserRole.Tutor)]
+        [HttpGet("me/profile")]
+        public async Task<IActionResult> GetMyTutorProfileInfo()
+        {
+            var tutorId = GetCurrentUserId();
+            if (string.IsNullOrEmpty(tutorId))
+                return Unauthorized(APIResponse<object>.Fail(ApiMessages.Unauthorized, 401));
+
+            var result = await _verificationService.GetTutorProfileInfoAsync(tutorId);
+
+            if (result == null)
+            {
+                return NotFound(APIResponse.Fail("Không tìm thấy hồ sơ gia sư hoặc chưa được duyệt.", 404));
+            }
+
+            return Ok(APIResponse<TutorProfileInfoResponse>.Success(result, "Lấy thông tin hồ sơ gia sư thành công."));
+        }
+
+        [Authorize(Roles = UserRole.Tutor)]
+        [HttpGet("me/schedule")]
+        public async Task<IActionResult> GetMyTutorSchedule()
+        {
+            var tutorId = GetCurrentUserId();
+            if (string.IsNullOrEmpty(tutorId))
+                return Unauthorized(APIResponse<object>.Fail(ApiMessages.Unauthorized, 401));
+
+            var result = await _verificationService.GetTutorScheduleAsync(tutorId);
+
+            if (result == null)
+            {
+                return NotFound(APIResponse.Fail("Không tìm thấy hồ sơ gia sư hoặc chưa được duyệt.", 404));
+            }
+
+            return Ok(APIResponse<TutorScheduleResponse>.Success(result, "Lấy lịch gia sư thành công."));
+        }
+
+        [Authorize(Roles = UserRole.Tutor)]
+        [HttpGet("me/feedbacks")]
+        public async Task<IActionResult> GetMyTutorFeedbacks(
+            [FromQuery] int page = 1,
+            [FromQuery] int pageSize = 10)
+        {
+            var tutorId = GetCurrentUserId();
+            if (string.IsNullOrEmpty(tutorId))
+                return Unauthorized(APIResponse<object>.Fail(ApiMessages.Unauthorized, 401));
+
+            var result = await _feedbackService.GetTutorFeedbacksAsync(tutorId, page, pageSize);
+            return Ok(APIResponse<PagedList<FeedbackListResponse>>.Success(result, "Lấy danh sách đánh giá gia sư thành công."));
+        }
+
         /// <summary>
         /// Get full tutor profile for public display (cached 20 min)
         /// Includes all profile sections + schedule + feedbacks with statistics
@@ -101,7 +151,7 @@ namespace MV.PresentationLayer.Controllers
         [HttpGet("profile")]
         public async Task<IActionResult> GetTutorProfileInfo()
         {
-            var currentUserId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            var currentUserId = GetCurrentUserId();
             if (string.IsNullOrEmpty(currentUserId))
                 return Unauthorized(APIResponse<object>.Fail(ApiMessages.Unauthorized, 401));
 
@@ -127,6 +177,11 @@ namespace MV.PresentationLayer.Controllers
         {
             var result = await _userService.GetPendingTutorsAsync(parameters);
             return Ok(APIResponse<PagedList<PendingTutorResponse>>.Success(result, "Lấy danh sách gia sư chờ duyệt thành công."));
+        }
+
+        private string? GetCurrentUserId()
+        {
+            return User.FindFirstValue(ClaimTypes.NameIdentifier);
         }
     }
 }

@@ -17,6 +17,9 @@ namespace MV.DomainLayer.DTO.ResponseModel
         /// </summary>
         public string? Headline { get; set; }
 
+        public string? Bio { get; set; }
+        public string? VideoUrl { get; set; }
+
         /// <summary>
         /// Education institution (e.g., "Stanford University", "ĐH Khoa học Tự nhiên")
         /// Displayed with university icon in Figma
@@ -35,6 +38,18 @@ namespace MV.DomainLayer.DTO.ResponseModel
         /// </summary>
         public double? AverageRating { get; set; }
         public int? TotalReviews { get; set; }
+
+        /// <summary>
+        /// Total number of lessons (buổi học) this tutor has. Shown next to the rating on the card.
+        /// </summary>
+        public int TotalLessons { get; set; }
+
+        // === Pricing ===
+        /// <summary>
+        /// Lowest active price-per-hour across all of the tutor's subjects/grades.
+        /// Displayed on the card as "Từ {MinPricePerHour}đ/giờ".
+        /// </summary>
+        public decimal? MinPricePerHour { get; set; }
 
         // === Experience (Thâm niên) ===
         /// <summary>
@@ -110,6 +125,11 @@ namespace MV.DomainLayer.DTO.ResponseModel
     {
         public int SubjectId { get; set; }
         public string? SubjectName { get; set; }
+
+        /// <summary>
+        /// Price per hour for this subject/grade offering (VND).
+        /// </summary>
+        public decimal? PricePerHour { get; set; }
 
         /// <summary>
         /// Grade levels this subject covers

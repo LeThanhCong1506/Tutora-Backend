@@ -24,17 +24,20 @@ namespace MV.PresentationLayer.Controllers
         }
 
         /// <summary>
-        /// Upload video introduction file
+        /// Cập nhật link video giới thiệu (YouTube)
         /// </summary>
-        [RequestSizeLimit(104_857_600)] // 100 MB
-        [RequestFormLimits(MultipartBodyLengthLimit = 104_857_600)] // 100 MB
         [HttpPut("{id}/profile/video")]
-        public async Task<IActionResult> UpdateVideo([FromRoute] string id, [FromForm] UpdateTutorVideoRequest request)
+        public async Task<IActionResult> UpdateVideo([FromRoute] string id, [FromBody] UpdateTutorVideoRequest request)
         {
             var currentUserId = User.FindFirstValue(ClaimTypes.NameIdentifier);
             if (currentUserId != id)
             {
                 return StatusCode(403, APIResponse.Fail(ApiMessages.Forbidden, 403));
+            }
+
+            if (!ModelState.IsValid)
+            {
+                return BadRequest(APIResponse<object>.Fail(ApiMessages.InvalidRequestData, 400, ModelState));
             }
 
             try
@@ -47,6 +50,31 @@ namespace MV.PresentationLayer.Controllers
                 }
 
                 return Ok(APIResponse.Success("Cập nhật video giới thiệu thành công."));
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(APIResponse.Fail(ex.Message, 400));
+            }
+        }
+
+        /// <summary>
+        /// Upload CCCD (citizen ID card) 2 mặt — mặt trước và mặt sau.
+        /// Chấp nhận JPG, JPEG, PNG — tối đa 5MB mỗi ảnh.
+        /// Lưu URL vào user.Idcardfronturl và user.Idcardbackurl.
+        /// </summary>
+        [HttpPut("{id}/profile/cccd")]
+        [RequestSizeLimit(10_485_760)]
+        [RequestFormLimits(MultipartBodyLengthLimit = 10_485_760)]
+        public async Task<IActionResult> UploadCccd([FromRoute] string id, [FromForm] UploadCccdRequest request)
+        {
+            var currentUserId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (currentUserId != id)
+                return StatusCode(403, APIResponse.Fail("Bạn chỉ có thể cập nhật hồ sơ của chính mình.", 403));
+
+            try
+            {
+                var result = await _tutorService.UploadCccdImagesAsync(id, request);
+                return Ok(APIResponse<CccdUploadResponse>.Success(result, "Upload ảnh CCCD thành công."));
             }
             catch (ArgumentException ex)
             {

@@ -16,12 +16,14 @@ namespace MV.ApplicationLayer.Services
         private readonly IFileStorageService _storageService;
         private readonly IFptAiService _fptAiService;
         private readonly ICertificateVerificationService _certificateVerificationService;
+        private readonly INotificationService _notificationService;
         private readonly ILogger<TutorService> _logger;
 
         // Storage buckets
         private const string CertificateBucket = StorageBucket.CertificateFiles;
         private const string VideoBucket = StorageBucket.VideoIntroduction;
         private const string AvatarBucket = StorageBucket.TutorAvatars;
+        private const string CccdBucket = StorageBucket.CccdFiles;
 
         // Certificate validation
         private static readonly string[] AllowedCertificateExtensions = { ".jpg", ".jpeg", ".png", ".pdf" };
@@ -32,12 +34,14 @@ namespace MV.ApplicationLayer.Services
             IFileStorageService storageService,
             IFptAiService fptAiService,
             ICertificateVerificationService certificateVerificationService,
+            INotificationService notificationService,
             ILogger<TutorService> logger)
         {
             _unitOfWork = unitOfWork;
             _storageService = storageService;
             _fptAiService = fptAiService;
             _certificateVerificationService = certificateVerificationService;
+            _notificationService = notificationService;
             _logger = logger;
         }
 
@@ -275,12 +279,16 @@ namespace MV.ApplicationLayer.Services
                 Isactive = true,
                 Createdat = now,
                 Updatedat = now,
-                Tutorpackagefixedslots = request.FixedSlots.Select(s => new Tutorpackagefixedslot
+                Tutorpackagefixedslots = request.FixedSlots.Select(s =>
                 {
-                    Dayofweek = s.DayOfWeek,
-                    Starttime = TimeOnly.Parse(s.StartTime),
-                    Endtime = TimeOnly.Parse(s.EndTime),
-                    Createdat = now
+                    // FE sends UTC — use directly, no conversion needed
+                    return new Tutorpackagefixedslot
+                    {
+                        Dayofweek = s.DayOfWeek,
+                        Starttime = TimeOnly.Parse(s.StartTime),
+                        Endtime   = TimeOnly.Parse(s.EndTime),
+                        Createdat = now
+                    };
                 }).ToList()
             };
 
@@ -462,19 +470,10 @@ namespace MV.ApplicationLayer.Services
         /// </summary>
         private static List<int> BuildContiguousBlocksInMinutes(List<MV.DomainLayer.Entities.Tutoravailability> slots)
         {
-            const string tz = "Asia/Ho_Chi_Minh";
-
-            // Convert each slot to local (day, start, end)
+            // Slots are stored in UTC — FE handles display conversion, group by UTC day
             var localSlots = slots
                 .Where(s => s.Starttime.HasValue && s.Endtime.HasValue && s.Dayofweek.HasValue)
-                .Select(s =>
-                {
-                    var (localDay, localStart) = MV.DomainLayer.Helpers.TimeZoneHelper.ShiftToUserTime(
-                        s.Dayofweek!.Value, s.Starttime!.Value, tz);
-                    var (_, localEnd) = MV.DomainLayer.Helpers.TimeZoneHelper.ShiftToUserTime(
-                        s.Dayofweek!.Value, s.Endtime!.Value, tz);
-                    return (localDay, localStart, localEnd);
-                })
+                .Select(s => (localDay: s.Dayofweek!.Value, localStart: s.Starttime!.Value, localEnd: s.Endtime!.Value))
                 .GroupBy(s => s.localDay)
                 .ToList();
 
@@ -596,15 +595,15 @@ namespace MV.ApplicationLayer.Services
                 PackageType = package.Packagetype,
                 IsActive = package.Isactive,
                 FixedSlots = package.Tutorpackagefixedslots
-                    .OrderBy(s => s.Dayofweek)
-                    .ThenBy(s => s.Starttime)
                     .Select(s => new TutorPackageFixedSlotResponse
                     {
                         FixedSlotId = s.Fixedslotid,
-                        DayOfWeek = s.Dayofweek,
-                        StartTime = s.Starttime.ToString("HH:mm"),
-                        EndTime = s.Endtime.ToString("HH:mm")
+                        DayOfWeek   = s.Dayofweek,
+                        StartTime   = s.Starttime.ToString("HH:mm"),
+                        EndTime     = s.Endtime.ToString("HH:mm")
                     })
+                    .OrderBy(s => s.DayOfWeek)
+                    .ThenBy(s => s.StartTime)
                     .ToList()
             };
         }

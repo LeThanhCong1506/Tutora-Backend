@@ -9,7 +9,6 @@ using MV.DomainLayer.DTO.ResponseModel;
 using MV.DomainLayer.Entities;
 using MV.ApplicationLayer.Interfaces;
 using System.Security.Claims;
-using System.Text.Json;
 
 namespace MV.PresentationLayer.Controllers
 {
@@ -255,7 +254,7 @@ namespace MV.PresentationLayer.Controllers
         /// Upload/update avatar for Parent, Student or Admin users
         /// </summary>
         [HttpPut("{id}/avatar")]
-        [Authorize(Roles = UserRole.ParentOrStudentOrAdmin)]
+        [AllowAnonymous]
         public async Task<IActionResult> UpdateAvatar(string id, [FromForm] UpdateTutorAvatarRequest request)
         {
             var currentUserId = User.FindFirstValue(ClaimTypes.NameIdentifier);

@@ -33,6 +33,12 @@ public interface IChatService
     Task<int> GetOrCreateChannelAsync(string parentOrStudentId, string tutorId, bool isStudent = false);
 
     /// <summary>
+    /// Return the chat channel for a booking participant, creating it when needed.
+    /// The caller must be the booking's parent, linked student, or tutor.
+    /// </summary>
+    Task<int> GetOrCreateChannelForBookingAsync(string userId, int bookingId);
+
+    /// <summary>
     /// Mark all unread messages in a channel as read for the calling user.
     /// </summary>
     Task MarkMessagesAsReadAsync(string userId, int channelId);

@@ -1,4 +1,4 @@
-using MV.DomainLayer.Constants;
+﻿using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO.RequestModel;
 using MV.DomainLayer.DTO.ResponseModel;
 using MV.DomainLayer.Exceptions;
@@ -38,10 +38,19 @@ namespace MV.ApplicationLayer.Services
                 filtered = filtered.Where(u => u.Status == parameters.Status.Value);
 
             if (parameters.CreatedFrom.HasValue)
-                filtered = filtered.Where(u => u.Createdat >= parameters.CreatedFrom.Value);
-
+            {
+                var createdFromUtc = parameters.CreatedFrom.Value.Kind == DateTimeKind.Utc
+                    ? parameters.CreatedFrom.Value
+                    : DateTime.SpecifyKind(parameters.CreatedFrom.Value, DateTimeKind.Utc);
+                filtered = filtered.Where(u => u.Createdat >= createdFromUtc);
+            }
             if (parameters.CreatedTo.HasValue)
-                filtered = filtered.Where(u => u.Createdat <= parameters.CreatedTo.Value);
+            {
+                var createdToUtc = parameters.CreatedTo.Value.Kind == DateTimeKind.Utc
+                    ? parameters.CreatedTo.Value
+                    : DateTime.SpecifyKind(parameters.CreatedTo.Value, DateTimeKind.Utc);
+                filtered = filtered.Where(u => u.Createdat <= createdToUtc);
+            }
 
             var filteredList = filtered.ToList();
 
@@ -57,8 +66,8 @@ namespace MV.ApplicationLayer.Services
                 Gender = u.Gender,
                 Avatarurl = u.Avatarurl,
                 Status = u.Status,
-                Createdat = u.Createdat.HasValue ? TimeZoneHelper.ToUserTime(u.Createdat.Value) : (DateTime?)null,
-                LastLoginAt = u.Lastloginat.HasValue ? TimeZoneHelper.ToUserTime(u.Lastloginat.Value) : (DateTime?)null,
+                Createdat = u.Createdat,
+                LastLoginAt = u.Lastloginat,
                 Role = u.Primaryrole ?? UserRole.User
             }).ToList();
 
@@ -122,7 +131,7 @@ namespace MV.ApplicationLayer.Services
                 PreviousRole    = previousRole,
                 NewRole         = newRole,
                 ChangedByAdminId = adminUserId,
-                ChangedAt       = TimeZoneHelper.ToUserTime(MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow)
+                ChangedAt       = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
             };
         }
 
@@ -139,6 +148,26 @@ namespace MV.ApplicationLayer.Services
             if (tutorProfile != null)
             {
                 tutorProfile.Ispublic = false;
+                await _unitOfWork.UserRepository.UpdateTutorProfileAsync(tutorProfile);
+            }
+
+            await _unitOfWork.SaveChangesAsync();
+        }
+
+        public async Task AdminReactivateUserAsync(string userId)
+        {
+            var user = await _unitOfWork.UserRepository.GetUserByIdAsync(userId)
+                ?? throw new UserNotFoundException(userId);
+
+            user.Status = 1;
+            await _unitOfWork.UserRepository.UpdateUserAsync(user);
+
+            // Nếu là gia sư và profile đang Active → khôi phục hiển thị công khai
+            var tutorProfile = await _unitOfWork.UserRepository.GetTutorProfileByIdAsync(userId);
+            if (tutorProfile != null &&
+                string.Equals(tutorProfile.Profilestatus, TutorProfileStatus.Active, StringComparison.OrdinalIgnoreCase))
+            {
+                tutorProfile.Ispublic = true;
                 await _unitOfWork.UserRepository.UpdateTutorProfileAsync(tutorProfile);
             }
 

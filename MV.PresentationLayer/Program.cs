@@ -1,6 +1,7 @@
 using FirebaseAdmin;
 using Google.Apis.Auth.OAuth2;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
@@ -18,6 +19,7 @@ using Hangfire.PostgreSql;
 using MV.DomainLayer.Configuration;
 using MV.DomainLayer.Interfaces;
 using MV.DomainLayer.Settings;
+using MV.DomainLayer.DTO;
 using MV.InfrastructureLayer;
 using MV.InfrastructureLayer.DBContext;
 using MV.InfrastructureLayer.ExternalServices;
@@ -33,8 +35,7 @@ using System.Text;
 // Npgsql Legacy Timestamp Mode
 // Giữ lại để tương thích với DB hiện tại dùng `timestamp without time zone`.
 // Mọi DateTime GHI xuống DB phải là UTC (dùng TimeZoneHelper.UtcNow).
-// Mọi DateTime ĐỌC từ DB sẽ được tự động gắn Kind=Utc bởi ValueConverter trong AgoraDbContext.
-// Frontend chịu trách nhiệm gửi header X-Timezone để backend convert khi trả response.
+// Mọi DateTime ĐỌC từ DB trả về UTC+0 — Frontend tự convert sang timezone hiển thị.
 AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
 
 var builder = WebApplication.CreateBuilder(args);
@@ -112,6 +113,68 @@ builder.Services.AddControllers()
         // Note: Nếu muốn frontend gửi local time (VN) thì cần gửi với offset: "2026-06-10T14:00:00+07:00"
     });
 
+builder.Services.Configure<ApiBehaviorOptions>(options =>
+{
+    options.InvalidModelStateResponseFactory = context =>
+    {
+        var hasPayloadErrors = context.ModelState.Keys
+            .Any(key => key == "$" || key.StartsWith("$."));
+
+        var errors = context.ModelState
+            .Where(entry => entry.Value?.Errors.Count > 0)
+            .Where(entry => !hasPayloadErrors || !entry.Key.Equals("request", StringComparison.OrdinalIgnoreCase))
+            .Select(entry => new
+            {
+                Key = NormalizeModelStateKey(entry.Key),
+                Errors = entry.Value!.Errors
+                    .Select(error => NormalizeValidationError(entry.Key, error.ErrorMessage))
+            })
+            .GroupBy(entry => entry.Key)
+            .ToDictionary(
+                group => group.Key,
+                group => group.SelectMany(entry => entry.Errors).Distinct().ToArray());
+
+        return new BadRequestObjectResult(
+            APIResponse<object>.Fail("Dữ liệu đầu vào không hợp lệ.", 400, errors));
+    };
+});
+
+static string NormalizeModelStateKey(string key)
+{
+    if (string.IsNullOrWhiteSpace(key))
+        return "body";
+
+    if (key == "$")
+        return "body";
+
+    return key.Length > 2 && key.StartsWith("$.")
+        ? char.ToLowerInvariant(key[2]) + key[3..]
+        : char.ToLowerInvariant(key[0]) + key[1..];
+}
+
+static string NormalizeValidationError(string key, string message)
+{
+    if (key.Equals("$.birthdate", StringComparison.OrdinalIgnoreCase) ||
+        key.Equals("Birthdate", StringComparison.OrdinalIgnoreCase))
+    {
+        return "Birthdate must be a valid date in yyyy-MM-dd format.";
+    }
+
+    if (key.Equals("$.gender", StringComparison.OrdinalIgnoreCase) ||
+        key.Equals("Gender", StringComparison.OrdinalIgnoreCase))
+    {
+        return "Gender must be a valid value.";
+    }
+
+    if (message.Contains("The request field is required.", StringComparison.OrdinalIgnoreCase))
+        return "Request body is required.";
+
+    if (message.Contains("could not be converted", StringComparison.OrdinalIgnoreCase))
+        return "Invalid value format.";
+
+    return message;
+}
+
 var signalRBuilder = builder.Services.AddSignalR(options =>
 {
     options.EnableDetailedErrors = true;
@@ -145,7 +208,7 @@ builder.Services.AddCors(options =>
                     // Next.js dev server (apps/web-next)
                     "http://localhost:3000",
                     "https://swd-391-frontend-d4ek.vercel.app", "http://localhost:5500",
-                    "https://www.tutora.vn", "https://tutora.vn",
+                    "https://www.tutora.vn", "https://tutora.vn", "https://tutorahelps.vercel.app",
                     // Vite app sau cutover sang Next (portal + auth)
                     "https://app.tutora.vn",
                     // Zalo Mini App domains
@@ -221,6 +284,7 @@ builder.Services.AddScoped<IBookingRepository, BookingRepository>();
 builder.Services.AddScoped<IDisputeRepository, DisputeRepository>();
 builder.Services.AddScoped<IWarningRepository, WarningRepository>();
 builder.Services.AddScoped<IChatRepository, ChatRepository>();
+builder.Services.AddScoped<IAiChatRepository, AiChatRepository>();
 builder.Services.AddScoped<ILessonRepository, LessonRepository>();
 builder.Services.AddScoped<IWalletRepository, WalletRepository>();
 builder.Services.AddScoped<IWithdrawalRepository, WithdrawalRepository>();
@@ -251,15 +315,14 @@ builder.Services.AddScoped<ILookupService, LookupService>();
 builder.Services.AddScoped<IBookingService, BookingService>();
 builder.Services.AddScoped<IStudentService, StudentService>();
 builder.Services.AddScoped<IChatService, ChatService>();
+builder.Services.AddScoped<IAiChatService, AiChatService>();
 builder.Services.AddScoped<IPaymentService, PaymentService>();
 builder.Services.AddScoped<IWalletService, WalletService>();
 builder.Services.AddScoped<ILessonService, LessonService>();
 builder.Services.AddScoped<ITencentRTCService, TencentRTCService>();
 builder.Services.AddScoped<ITutorFinanceService, TutorFinanceService>();
 
-// Timezone Accessor
 builder.Services.AddHttpContextAccessor();
-builder.Services.AddScoped<MV.ApplicationLayer.Interfaces.ITimezoneAccessor, MV.PresentationLayer.Helpers.HttpTimezoneAccessor>();
 
 // M3: Lesson Management & Settlement
 builder.Services.AddScoped<ISettlementService, SettlementService>();
@@ -318,6 +381,16 @@ builder.Services.AddHttpClient(ServiceKeys.HttpClients.ZaloZNS, client =>
 {
     client.BaseAddress = new Uri("https://business.openapi.zalo.me/");
     client.Timeout = TimeSpan.FromSeconds(15);
+});
+// Tutor AI (FastAPI)
+builder.Services.AddHttpClient(ServiceKeys.HttpClients.TutorAi, client =>
+{
+    var aiSettings = builder.Configuration.GetSection(TutorAiSettings.SectionName).Get<TutorAiSettings>();
+    if (string.IsNullOrWhiteSpace(aiSettings?.BaseUrl))
+        throw new InvalidOperationException(
+            "Thiếu cấu hình 'TutorAi:BaseUrl'. Hãy set qua appsettings hoặc biến môi trường.");
+    client.BaseAddress = new Uri(aiSettings.BaseUrl);
+    client.Timeout = TimeSpan.FromSeconds(aiSettings.StreamTimeoutSeconds > 0 ? aiSettings.StreamTimeoutSeconds : 120);
 });
 // Zalo OA
 builder.Services.AddScoped<IZaloOAService, ZaloOAService>();
@@ -438,9 +511,6 @@ app.UseRouting();
 
 // CORS phải đứng SAU UseRouting và TRƯỚC UseAuthentication/UseAuthorization
 app.UseCors("AllowReactApp");
-
-// Timezone Middleware (đặt sau CORS để có thể đọc được header)
-app.UseMiddleware<MV.PresentationLayer.Middlewares.TimezoneMiddleware>();
 
 // Middleware xử lý lỗi
 app.UseMiddleware<ExceptionHandlingMiddleware>();

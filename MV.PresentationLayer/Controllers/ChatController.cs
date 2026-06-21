@@ -82,6 +82,20 @@ public class ChatController : ControllerBase
         return Ok(APIResponse<object>.Success(new { channelId }, "Tạo/lấy kênh chat thành công."));
     }
 
+    /// <summary>
+    /// POST /api/chat/channels/booking/:bookingId — Create or get the channel
+    /// between the parent and tutor attached to a booking.
+    /// </summary>
+    [HttpPost("channels/booking/{bookingId:int}")]
+    public async Task<IActionResult> CreateOrGetBookingChannel(int bookingId)
+    {
+        if (string.IsNullOrEmpty(UserId))
+            return Unauthorized(APIResponse.Fail(ApiMessages.Unauthorized, 401));
+
+        var channelId = await _chatService.GetOrCreateChannelForBookingAsync(UserId, bookingId);
+        return Ok(APIResponse<object>.Success(new { channelId }, "Tạo/lấy kênh chat cho booking thành công."));
+    }
+
     [HttpPost("channels/{id}/images")]
     [RequestSizeLimit(5 * 1024 * 1024)]
     public async Task<IActionResult> UploadImage(int id, IFormFile file)

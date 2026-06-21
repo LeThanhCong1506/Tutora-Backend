@@ -1,7 +1,8 @@
 ﻿using System.Security.Cryptography;
 using System.Text.Encodings.Web;
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using MV.ApplicationLayer.Interfaces;
@@ -22,7 +23,10 @@ namespace MV.ApplicationLayer.Services
         private readonly IEmailService _emailService;
         private readonly IConfiguration _configuration;
         private readonly ILogger<SimpleAuthService> _logger;
-        private readonly IMemoryCache _cache;
+        private readonly IDistributedCache _cache;
+
+        private const int OtpExpiryMinutes = 10;
+        private const int MaxOtpAttempts = 5;
 
         public SimpleAuthService(
             IUnitOfWork unitOfWork,
@@ -31,7 +35,7 @@ namespace MV.ApplicationLayer.Services
             IEmailService emailService,
             IConfiguration configuration,
             ILogger<SimpleAuthService> logger,
-            IMemoryCache cache)
+            IDistributedCache cache)
         {
             _unitOfWork = unitOfWork;
             _passwordRepository = passwordRepository;
@@ -168,19 +172,17 @@ namespace MV.ApplicationLayer.Services
                         return new TokenResponse { ErrorMessage = "Email đã tồn tại." };
                     }
 
-                    var otpCode = RandomNumberGenerator.GetInt32(100000, 1000000).ToString();
+                    var otpCode = GenerateOtpCode();
                     existingUserByEmail.Password = _passwordRepository.HashPassword(request.Password);
                     existingUserByEmail.Fullname = request.FullName;
                     if (!string.IsNullOrEmpty(request.Phone))
                     {
                         existingUserByEmail.Phone = request.Phone;
                     }
-                    existingUserByEmail.Otpcode = otpCode;
-                    existingUserByEmail.Otpexpiresat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow.AddMinutes(10);
-                    existingUserByEmail.Otpattempts = 0;
 
                     await _unitOfWork.UserRepository.UpdateUserAsync(existingUserByEmail);
                     await _unitOfWork.SaveChangesAsync();
+                    await StoreEmailOtpAsync(request.Email!, otpCode);
                     await SendVerificationEmailAsync(request.Email!, request.FullName, otpCode);
 
                     return new TokenResponse
@@ -193,7 +195,7 @@ namespace MV.ApplicationLayer.Services
 
                 if (!string.IsNullOrWhiteSpace(request.Email) && !request.Email.EndsWith("@tutora.test"))
                 {
-                    var otpCode = RandomNumberGenerator.GetInt32(100000, 1000000).ToString();
+                    var otpCode = GenerateOtpCode();
                     var userId = Guid.NewGuid().ToString();
                     var newUser = new User
                     {
@@ -206,10 +208,7 @@ namespace MV.ApplicationLayer.Services
                         Isemailverified = false,
                         Isphoneverified = false,
                         Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow,
-                        Primaryrole = requestedRole,
-                        Otpcode = otpCode,
-                        Otpexpiresat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow.AddMinutes(10),
-                        Otpattempts = 0
+                        Primaryrole = requestedRole
                     };
 
                     if (string.Equals(requestedRole, UserRole.Tutor, StringComparison.OrdinalIgnoreCase))
@@ -227,6 +226,7 @@ namespace MV.ApplicationLayer.Services
                         {
                             Studentid = userId,
                             Parentid = null,
+                            Fullname = request.FullName,
                             Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
                         });
                     }
@@ -242,6 +242,7 @@ namespace MV.ApplicationLayer.Services
 
                     await _unitOfWork.UserRepository.CreateUserAsync(newUser);
                     await _unitOfWork.SaveChangesAsync();
+                    await StoreEmailOtpAsync(request.Email, otpCode);
                     await SendVerificationEmailAsync(request.Email, request.FullName, otpCode);
 
                     return new TokenResponse
@@ -286,30 +287,28 @@ namespace MV.ApplicationLayer.Services
                     return await CreateTokenResponseAsync(user);
                 }
 
-                if ((user.Otpattempts ?? 0) >= 5)
-                {
-                    return new TokenResponse { ErrorMessage = "Quá nhiều lần nhập OTP không hợp lệ. Vui lòng gửi lại mã mới." };
-                }
-
-                if (user.Otpexpiresat == null || user.Otpexpiresat <= MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow)
+                var otpEntry = await GetEmailOtpAsync(request.Email);
+                if (otpEntry == null)
                 {
                     return new TokenResponse { ErrorMessage = "OTP đã hết hạn. Vui lòng gửi lại mã mới." };
                 }
 
-                if (!string.Equals(user.Otpcode, request.Otp.Trim(), StringComparison.Ordinal))
+                if (otpEntry.Attempts >= MaxOtpAttempts)
                 {
-                    user.Otpattempts = (user.Otpattempts ?? 0) + 1;
-                    await _unitOfWork.UserRepository.UpdateUserAsync(user);
-                    await _unitOfWork.SaveChangesAsync();
+                    return new TokenResponse { ErrorMessage = "Quá nhiều lần nhập OTP không hợp lệ. Vui lòng gửi lại mã mới." };
+                }
+
+                if (!string.Equals(otpEntry.Code, request.Otp.Trim(), StringComparison.Ordinal))
+                {
+                    otpEntry.Attempts++;
+                    await SaveEmailOtpAsync(request.Email, otpEntry);
                     return new TokenResponse { ErrorMessage = "Mã OTP không hợp lệ." };
                 }
 
                 user.Isemailverified = true;
-                user.Otpcode = null;
-                user.Otpexpiresat = null;
-                user.Otpattempts = 0;
                 await _unitOfWork.UserRepository.UpdateUserAsync(user);
                 await _unitOfWork.SaveChangesAsync();
+                await RemoveEmailOtpAsync(request.Email);
 
                 return await CreateTokenResponseAsync(user);
             }
@@ -340,10 +339,9 @@ namespace MV.ApplicationLayer.Services
                     return new TokenResponse { ErrorMessage = "Email đã được xác minh." };
                 }
 
-                SetEmailOtp(user);
-                await _unitOfWork.UserRepository.UpdateUserAsync(user);
-                await _unitOfWork.SaveChangesAsync();
-                await SendVerificationEmailAsync(user.Email!, user.Fullname ?? "there", user.Otpcode!);
+                var otpCode = GenerateOtpCode();
+                await StoreEmailOtpAsync(user.Email!, otpCode);
+                await SendVerificationEmailAsync(user.Email!, user.Fullname ?? "there", otpCode);
 
                 return new TokenResponse
                 {
@@ -369,15 +367,9 @@ namespace MV.ApplicationLayer.Services
                     return new TokenResponse { ErrorMessage = string.Empty };
                 }
 
-                // Generate a secure token
+                // Generate a secure token, store in Redis with a 10-minute TTL
                 var token = Guid.NewGuid().ToString("N").Substring(0, 10);
-                
-                // Store token in Otpcode and set expiry to 10 minutes
-                user.Otpcode = token;
-                user.Otpexpiresat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow.AddMinutes(10);
-                
-                await _unitOfWork.UserRepository.UpdateUserAsync(user);
-                await _unitOfWork.SaveChangesAsync();
+                await StoreResetTokenAsync(user.Email!, token);
 
                 // Generate reset link
                 var frontendUrl = _configuration["FrontendUrl"] ?? "http://localhost:5173";
@@ -524,18 +516,16 @@ namespace MV.ApplicationLayer.Services
                     return new TokenResponse { ErrorMessage = "Yêu cầu không hợp lệ." };
                 }
 
-                if (user.Otpcode != request.Token || user.Otpexpiresat == null || user.Otpexpiresat < MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow)
+                var storedToken = await GetResetTokenAsync(request.Email);
+                if (string.IsNullOrEmpty(storedToken) || !string.Equals(storedToken, request.Token, StringComparison.Ordinal))
                 {
                     return new TokenResponse { ErrorMessage = "Đường link đã hết hạn hoặc không hợp lệ. Vui lòng yêu cầu lại." };
                 }
 
                 user.Password = _passwordRepository.HashPassword(request.NewPassword);
-                user.Otpcode = null;
-                user.Otpexpiresat = null;
-                user.Otpattempts = 0;
-
                 await _unitOfWork.UserRepository.UpdateUserAsync(user);
                 await _unitOfWork.SaveChangesAsync();
+                await RemoveResetTokenAsync(request.Email);
 
                 return new TokenResponse { ErrorMessage = string.Empty };
             }
@@ -597,12 +587,59 @@ namespace MV.ApplicationLayer.Services
             return rawToken;
         }
 
-        private static void SetEmailOtp(User user)
+        private static string GenerateOtpCode()
+            => RandomNumberGenerator.GetInt32(100000, 1000000).ToString();
+
+        // ─── OTP / reset-token storage (Redis via IDistributedCache) ─────────
+        private static string EmailOtpKey(string email) => $"otp:verify:{email.Trim().ToLowerInvariant()}";
+        private static string ResetTokenKey(string email) => $"otp:reset:{email.Trim().ToLowerInvariant()}";
+
+        private sealed class EmailOtpEntry
         {
-            user.Otpcode = RandomNumberGenerator.GetInt32(100000, 1000000).ToString();
-            user.Otpexpiresat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow.AddMinutes(10);
-            user.Otpattempts = 0;
+            public string Code { get; set; } = "";
+            public int Attempts { get; set; }
+            public DateTime ExpiresAtUtc { get; set; }
         }
+
+        private Task StoreEmailOtpAsync(string email, string code)
+        {
+            var entry = new EmailOtpEntry
+            {
+                Code = code,
+                Attempts = 0,
+                ExpiresAtUtc = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow.AddMinutes(OtpExpiryMinutes)
+            };
+            return SaveEmailOtpAsync(email, entry);
+        }
+
+        // Re-saves with the SAME absolute expiry so a failed attempt does not extend the OTP lifetime.
+        private Task SaveEmailOtpAsync(string email, EmailOtpEntry entry)
+        {
+            var json = JsonSerializer.Serialize(entry);
+            return _cache.SetStringAsync(EmailOtpKey(email), json, new DistributedCacheEntryOptions
+            {
+                AbsoluteExpiration = new DateTimeOffset(
+                    DateTime.SpecifyKind(entry.ExpiresAtUtc, DateTimeKind.Utc), TimeSpan.Zero)
+            });
+        }
+
+        private async Task<EmailOtpEntry?> GetEmailOtpAsync(string email)
+        {
+            var json = await _cache.GetStringAsync(EmailOtpKey(email));
+            return string.IsNullOrEmpty(json) ? null : JsonSerializer.Deserialize<EmailOtpEntry>(json);
+        }
+
+        private Task RemoveEmailOtpAsync(string email) => _cache.RemoveAsync(EmailOtpKey(email));
+
+        private Task StoreResetTokenAsync(string email, string token)
+            => _cache.SetStringAsync(ResetTokenKey(email), token, new DistributedCacheEntryOptions
+            {
+                AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(OtpExpiryMinutes)
+            });
+
+        private Task<string?> GetResetTokenAsync(string email) => _cache.GetStringAsync(ResetTokenKey(email));
+
+        private Task RemoveResetTokenAsync(string email) => _cache.RemoveAsync(ResetTokenKey(email));
 
         private static bool IsUniquePhoneConflict(DbUpdateException ex)
         {
@@ -644,6 +681,7 @@ namespace MV.ApplicationLayer.Services
                 {
                     Studentid = userId,
                     Parentid = null,
+                    Fullname = request.FullName,
                     Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
                 });
             }

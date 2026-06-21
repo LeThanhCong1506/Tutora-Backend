@@ -17,6 +17,12 @@ namespace MV.ApplicationLayer.ServiceInterfaces
         Task<bool> UpdateTutorAvatarAsync(string userId, IFormFile avatarFile);
 
         /// <summary>
+        /// Upload CCCD (citizen ID card) front and back images to Cloudinary.
+        /// Saves the resulting URLs to user.Idcardfronturl and user.Idcardbackurl.
+        /// </summary>
+        Task<CccdUploadResponse> UploadCccdImagesAsync(string userId, UploadCccdRequest request);
+
+        /// <summary>
         /// Update basic tutor info: headline, teaching area, teaching mode.
         /// </summary>
         Task<bool> UpdateTutorBasicInfoAsync(string userId, UpdateTutorBasicInfoRequest request);
@@ -90,5 +96,15 @@ namespace MV.ApplicationLayer.ServiceInterfaces
         /// Sets status to Pending and notifies admins.
         /// </summary>
         Task<bool> SubmitForAdminReviewAsync(string tutorId);
+
+        // ── Admin certificate management ───────────────────────────────────
+
+        /// <summary>
+        /// Admin duyệt hoặc từ chối một chứng chỉ của gia sư.
+        /// Nếu duyệt: set Verified + re-evaluate profile status (có thể kích hoạt Active).
+        /// Nếu từ chối: set Rejected + gửi notification cho gia sư.
+        /// </summary>
+        Task<AdminVerifyCertificateResponse> AdminVerifyCertificateAsync(
+            string tutorId, string certId, AdminVerifyCertificateRequest request, string adminId);
     }
 }

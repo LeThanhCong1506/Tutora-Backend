@@ -14,19 +14,19 @@ public partial class LessonService
             LessonId = lesson.Lessonid,
             BookingId = lesson.Bookingid,
             // Tất cả datetime trả về theo giờ Việt Nam (UTC+7) để frontend hiển thị đúng
-            ScheduledStart = MV.DomainLayer.Helpers.TimeZoneHelper.ToUserTime(lesson.Scheduledstart),
-            ScheduledEnd = MV.DomainLayer.Helpers.TimeZoneHelper.ToUserTime(lesson.Scheduledend),
-            RealStart = MV.DomainLayer.Helpers.TimeZoneHelper.ToUserTime(lesson.Realstart),
-            RealEnd = MV.DomainLayer.Helpers.TimeZoneHelper.ToUserTime(lesson.Realend),
-            CheckInTime = MV.DomainLayer.Helpers.TimeZoneHelper.ToUserTime(lesson.Checkintime),
-            CheckOutTime = MV.DomainLayer.Helpers.TimeZoneHelper.ToUserTime(lesson.Checkouttime),
+            ScheduledStart = lesson.Scheduledstart,
+            ScheduledEnd = lesson.Scheduledend,
+            RealStart = lesson.Realstart,
+            RealEnd = lesson.Realend,
+            CheckInTime = lesson.Checkintime,
+            CheckOutTime = lesson.Checkouttime,
             IsTutorPresent = lesson.Istutorpresent,
             IsStudentPresent = lesson.Isstudentpresent,
             AttendanceNote = lesson.Attendancenote,
             Status = lesson.Status,
-            SubmittedAt = MV.DomainLayer.Helpers.TimeZoneHelper.ToUserTime(lesson.Submittedat),
-            ConfirmDeadline = MV.DomainLayer.Helpers.TimeZoneHelper.ToUserTime(lesson.Confirmdeadline),
-            ParentAckAt = MV.DomainLayer.Helpers.TimeZoneHelper.ToUserTime(lesson.Parentackat),
+            SubmittedAt = lesson.Submittedat,
+            ConfirmDeadline = lesson.Confirmdeadline,
+            ParentAckAt = lesson.Parentackat,
             IsSettled = lesson.Issettled,
             LessonContent = lesson.Lessoncontent,
             Homework = lesson.Homework,
@@ -62,7 +62,7 @@ public partial class LessonService
                 HomeworkAssigned = lesson.Lessonreport.Homeworkassigned,
                 StudentPerformanceRating = lesson.Lessonreport.Studentperformancerating,
                 Attachments = DeserializeAttachments(lesson.Lessonreport.Attachments),
-                CreatedAt = lesson.Lessonreport.Createdat.HasValue ? MV.DomainLayer.Helpers.TimeZoneHelper.ToUserTime(lesson.Lessonreport.Createdat.Value) : (DateTime?)null
+                CreatedAt = lesson.Lessonreport.Createdat.HasValue ? lesson.Lessonreport.Createdat.Value : (DateTime?)null
             } : null
         };
     }

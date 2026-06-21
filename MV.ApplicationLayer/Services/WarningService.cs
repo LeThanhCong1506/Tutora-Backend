@@ -78,7 +78,7 @@ public class WarningService : IWarningService
             Reason = warning.Reason,
             IssuedByName = issuer?.Fullname,
             RelatedBookingId = warning.Relatedbookingid,
-            CreatedAt = warning.Createdat.HasValue ? TimeZoneHelper.ToUserTime(warning.Createdat.Value) : (DateTime?)null
+            CreatedAt = warning.Createdat
         };
     }
 
@@ -145,7 +145,7 @@ public class WarningService : IWarningService
             SuspensionType = activeSuspension != null
                 ? (activeSuspension.Enddate.HasValue ? SuspensionType.Temporary : SuspensionType.Permanent)
                 : null,
-            SuspensionEndDate = activeSuspension?.Enddate.HasValue == true ? TimeZoneHelper.ToUserTime(activeSuspension.Enddate.Value) : (DateTime?)null,
+            SuspensionEndDate = activeSuspension?.Enddate.HasValue == true ? activeSuspension.Enddate.Value : (DateTime?)null,
             Warnings = warnings.Select(w => new WarningHistoryResponse
             {
                 WarningId = w.Warningid,
@@ -153,7 +153,7 @@ public class WarningService : IWarningService
                 Reason = w.Reason,
                 IssuedByName = w.IssuedbyNavigation?.Fullname,
                 RelatedBookingId = w.Relatedbookingid,
-                CreatedAt = w.Createdat.HasValue ? TimeZoneHelper.ToUserTime(w.Createdat.Value) : (DateTime?)null
+                CreatedAt = w.Createdat
             }).ToList()
         };
     }
@@ -224,8 +224,8 @@ public class WarningService : IWarningService
                 UserEmail = user.Email,
                 SuspensionType = suspensionType,
                 Reason = reason,
-                StartDate = TimeZoneHelper.ToUserTime(now),
-                EndDate = endDate.HasValue ? TimeZoneHelper.ToUserTime(endDate.Value) : (DateTime?)null,
+                StartDate = now,
+                EndDate = endDate,
                 CreatedByName = creatorName,
                 IsActive = true
             };
@@ -271,8 +271,8 @@ public class WarningService : IWarningService
             UserEmail = s.User?.Email,
             SuspensionType = s.Suspensiontype,
             Reason = s.Reason,
-            StartDate = s.Startdate.HasValue ? TimeZoneHelper.ToUserTime(s.Startdate.Value) : (DateTime?)null,
-            EndDate = s.Enddate.HasValue ? TimeZoneHelper.ToUserTime(s.Enddate.Value) : (DateTime?)null,
+            StartDate = s.Startdate,
+            EndDate = s.Enddate,
                     CreatedByName = s.CreatedbyNavigation?.Fullname ?? SystemActors.DisplayName,
             IsActive = s.Isactive
         }).ToList();

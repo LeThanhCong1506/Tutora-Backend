@@ -14,6 +14,8 @@ public interface IAppDbContext
     DbSet<LoginHistory> Loginhistories { get; }
     DbSet<Chatchannel> Chatchannels { get; }
     DbSet<Chatmessage> Chatmessages { get; }
+    DbSet<ChatSession> ChatSessions { get; }
+    DbSet<ChatHistory> ChatHistories { get; }
     DbSet<Class> Classes { get; }
     DbSet<Dispute> Disputes { get; }
     DbSet<Feedback> Feedbacks { get; }

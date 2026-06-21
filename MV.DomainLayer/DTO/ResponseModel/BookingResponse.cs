@@ -7,6 +7,12 @@ public class ScheduleItemResponse
     public string EndTime { get; set; } = null!;
 }
 
+public class BookedSlotResponse
+{
+    public DateTime ScheduledStart { get; set; }
+    public DateTime ScheduledEnd { get; set; }
+}
+
 public class StudentMiniResponse
 {
     public string StudentId { get; set; } = null!;

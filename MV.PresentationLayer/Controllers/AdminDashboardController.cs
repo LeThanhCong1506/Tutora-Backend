@@ -91,6 +91,35 @@ public class AdminDashboardController(IAdminDashboardService dashboardService) :
     }
 
     /// <summary>
+    /// GET /api/admin/dashboard/summary
+    /// Trả về thẻ KPI tóm tắt cho panel đầu trang admin: GMV, doanh thu nền tảng (có %thay đổi so với kỳ trước),
+    /// số lượng booking, và danh sách việc cần xử lý của admin.
+    /// Query params:
+    ///   from, to  — khoảng thời gian (UTC). Mặc định: 30 ngày gần nhất.
+    ///   timezone  — tên timezone IANA để FE tham chiếu (mặc định Asia/Ho_Chi_Minh). from/to luôn được coi là UTC.
+    /// </summary>
+    [HttpGet("summary")]
+    public async Task<IActionResult> GetSummary(
+        [FromQuery] DateTime? from = null,
+        [FromQuery] DateTime? to = null,
+        [FromQuery] string timezone = "Asia/Ho_Chi_Minh",
+        CancellationToken ct = default)
+    {
+        try
+        {
+            if (from.HasValue && to.HasValue && from > to)
+                return BadRequest(APIResponse<object>.Fail("Ngày bắt đầu không được lớn hơn ngày kết thúc.", 400));
+
+            var result = await dashboardService.GetSummaryAsync(from, to, timezone, ct);
+            return Ok(APIResponse<AdminDashboardSummaryResponse>.Success(result, "Lấy tóm tắt dashboard thành công."));
+        }
+        catch (Exception ex)
+        {
+            return HandleException(ex);
+        }
+    }
+
+    /// <summary>
     /// GET /api/admin/dashboard/disputes
     /// Trả về thống kê tranh chấp bao gồm tổng quan, tài chính, phân loại và xu hướng theo tháng.
     /// Query params: from, to (default: 30 ngày gần nhất)

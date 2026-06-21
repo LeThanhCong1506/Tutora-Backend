@@ -405,7 +405,7 @@ public class PayoutService(
             return new MV.DomainLayer.DTO.ResponseModel.Admin.PayOSBalanceResponse
             {
                 Balance = balance,
-                LastChecked = TimeZoneHelper.ToUserTime(MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow),
+                LastChecked = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow,
                 AlertLevel = alertLevel
             };
         }
