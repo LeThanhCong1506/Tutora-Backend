@@ -8,6 +8,7 @@ using MV.DomainLayer.DTO.ResponseModel;
 using MV.DomainLayer.Exceptions;
 using System.Security.Claims;
 using System.Text.Json;
+using MV.DomainLayer.Helpers;
 
 namespace MV.PresentationLayer.Controllers
 {
@@ -101,18 +102,32 @@ namespace MV.PresentationLayer.Controllers
 
         /// <summary>
         /// GET /api/admin/certificates/pending
-        /// Danh sách tất cả chứng chỉ đang chờ admin xét duyệt.
+        /// Danh sách chứng chỉ gia sư — có filter status, tìm kiếm tên/email, sắp xếp và phân trang.
+        /// Query: pageNumber, pageSize, searchTerm, status (pending_review|verified|rejected|all), orderBy
         /// </summary>
         [Authorize(Roles = UserRole.AdminOrStaff)]
         [HttpGet("certificates/pending")]
-        public async Task<IActionResult> GetPendingCertificates()
+        public async Task<IActionResult> GetAdminCertificates([FromQuery] CertificateParameters parameters)
         {
             try
             {
-                var result = await _tutorService.GetPendingCertificatesAsync();
-                return Ok(APIResponse<List<PendingCertificateResponse>>.Success(
+                var result = await _tutorService.GetAdminCertificatesAsync(parameters);
+
+                var metadata = new
+                {
+                    result.TotalCount,
+                    result.PageSize,
+                    result.CurrentPage,
+                    result.TotalPages,
+                    result.HasNext,
+                    result.HasPrevious
+                };
+
+                Response.Headers.Append("X-Pagination", JsonSerializer.Serialize(metadata));
+
+                return Ok(APIResponse<PagedList<PendingCertificateResponse>>.Success(
                     result,
-                    $"Lấy danh sách chứng chỉ chờ duyệt thành công. Tổng: {result.Count} chứng chỉ."));
+                    $"Lấy danh sách chứng chỉ thành công. Tổng: {result.TotalCount} chứng chỉ."));
             }
             catch (Exception ex)
             {

@@ -65,9 +65,9 @@ namespace MV.ApplicationLayer.ServiceInterfaces
         Task<bool> DeleteCertificateAsync(string tutorId, string certificateId);
 
         /// <summary>
-        /// Admin: danh sách chứng chỉ đang chờ duyệt (verificationstatus = pending_review).
+        /// Admin: danh sách chứng chỉ có lọc/tìm kiếm/phân trang.
         /// </summary>
-        Task<List<PendingCertificateResponse>> GetPendingCertificatesAsync();
+        Task<PagedList<PendingCertificateResponse>> GetAdminCertificatesAsync(CertificateParameters parameters);
 
         // ── Pricing ───────────────────────────────────────────────────────
 
