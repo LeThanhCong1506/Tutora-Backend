@@ -140,45 +140,6 @@ namespace MV.PresentationLayer.Controllers
         }
 
 
-        [HttpGet("subjects/{id}")]
-        public async Task<IActionResult> GetTutorsBySubject(int id, [FromQuery] UserParameters parameters)
-        {
-            var result = await _userService.GetTutorsBySubjectAsync(id, parameters);
-            return Ok(APIResponse<PagedList<UserResponse>>.Success(result, "Lấy danh sách gia sư theo môn học thành công."));
-        }
-
-
-        [HttpGet("profile")]
-        public async Task<IActionResult> GetTutorProfileInfo()
-        {
-            var currentUserId = GetCurrentUserId();
-            if (string.IsNullOrEmpty(currentUserId))
-                return Unauthorized(APIResponse<object>.Fail(ApiMessages.Unauthorized, 401));
-
-            try
-            {
-                var result = await _userService.GetTutorProfileShortAsync(currentUserId);
-                return Ok(APIResponse<TutorProfileShortResponse>.Success(result, "Lấy thông tin hồ sơ gia sư thành công."));
-            }
-            catch (KeyNotFoundException ex)
-            {
-                return NotFound(APIResponse<object>.Fail(ex.Message, 404));
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, APIResponse<object>.Fail(ApiMessages.GenericErrorPrefix + ex.Message, 500));
-            }
-        }
-
-
-        [Authorize(Roles = UserRole.Admin)]
-        [HttpGet("pending")]
-        public async Task<IActionResult> GetPendingTutors([FromQuery] UserParameters parameters)
-        {
-            var result = await _userService.GetPendingTutorsAsync(parameters);
-            return Ok(APIResponse<PagedList<PendingTutorResponse>>.Success(result, "Lấy danh sách gia sư chờ duyệt thành công."));
-        }
-
         private string? GetCurrentUserId()
         {
             return User.FindFirstValue(ClaimTypes.NameIdentifier);
