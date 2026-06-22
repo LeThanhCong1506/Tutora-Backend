@@ -6,6 +6,8 @@ using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO.RequestModel;
 using MV.ApplicationLayer.Interfaces;
+using MV.ApplicationLayer.Helpers;
+using MV.DomainLayer.Entities;
 
 namespace MV.ApplicationLayer.BackgroundJobs;
 
@@ -48,6 +50,7 @@ public class TutorResponseTimeoutJob(IServiceProvider sp, ILogger<TutorResponseT
         // Find bookings in pending_tutor status whose response deadline has passed
         var expired = await db.Bookings
             .Include(b => b.Chatchannels)
+            .Include(b => b.Lessons)
             .Where(b => b.Status == BookingStatus.PendingTutor
                         && b.Responsedeadline != null
                         && b.Responsedeadline < now)
@@ -73,6 +76,10 @@ public class TutorResponseTimeoutJob(IServiceProvider sp, ILogger<TutorResponseT
                 // Close associated chat channels
                 foreach (var ch in b.Chatchannels)
                     ch.Status = ChatChannelStatus.Closed;
+                foreach (var lesson in b.Lessons.Where(l => l.Status == LessonStatus.Reserved))
+                    lesson.Status = LessonStatus.Cancelled;
+
+                await RefundPaidBookingAsync(db, b, now, ct);
 
                 await db.SaveChangesAsync(ct);
 
@@ -83,7 +90,7 @@ public class TutorResponseTimeoutJob(IServiceProvider sp, ILogger<TutorResponseT
                     {
                         Userid = b.Parentid,
                         Title = "Booking đã tự động hủy",
-                        Message = $"Booking #{b.Bookingid} đã bị hủy do gia sư không phản hồi trong 24 giờ. Bạn có thể tìm gia sư khác.",
+                        Message = $"Booking #{b.Bookingid} đã bị hủy do gia sư không phản hồi trong 24 giờ. Tiền cọc đã được hoàn vào ví của bạn.",
                         Type = NotificationType.BookingTimeout,
                         Referenceid = b.Bookingid.ToString()
                     });
@@ -124,5 +131,76 @@ public class TutorResponseTimeoutJob(IServiceProvider sp, ILogger<TutorResponseT
                 }
             }
         }
+    }
+
+    private static async Task RefundPaidBookingAsync(IAppDbContext db, Booking booking, DateTime now, CancellationToken ct)
+    {
+        if (booking.Depositpaidat == null)
+        {
+            booking.Refundstatus = RefundStatus.NoRefund;
+            return;
+        }
+
+        var refundAmount = booking.Paymentstatus == PaymentStatus.Escrowed || booking.Remainingpaidat != null
+            ? booking.Finalprice ?? booking.Totalamount ?? 0
+            : booking.Depositamount ?? 0;
+
+        if (refundAmount <= 0 || string.IsNullOrWhiteSpace(booking.Parentid))
+        {
+            booking.Refundstatus = RefundStatus.NoRefund;
+            return;
+        }
+
+        var parentWallet = await db.Wallets
+            .FromSqlRaw(SqlQueries.LockWalletByUserId, booking.Parentid)
+            .FirstOrDefaultAsync(ct);
+
+        if (parentWallet != null)
+        {
+            parentWallet.Balance = (parentWallet.Balance ?? 0) + refundAmount;
+            parentWallet.Lastupdated = now;
+
+            db.Wallettransactions.Add(new Wallettransaction
+            {
+                Wallet = parentWallet,
+                Amount = refundAmount,
+                Transactiontype = TransactionType.Refund,
+                Referencetable = ReferenceTable.Booking,
+                Referenceid = booking.Bookingid,
+                Description = $"Hoàn tiền booking #{booking.Bookingid} do gia sư không phản hồi",
+                Createdat = now
+            });
+        }
+
+        if (!string.IsNullOrWhiteSpace(booking.Tutorid))
+        {
+            var tutorWallet = await db.Wallets
+                .FromSqlRaw(SqlQueries.LockWalletByUserId, booking.Tutorid)
+                .FirstOrDefaultAsync(ct);
+
+            if (tutorWallet != null)
+            {
+                var tutorEscrowAmount = booking.Paymentstatus == PaymentStatus.Escrowed || booking.Remainingpaidat != null
+                    ? booking.Tutorfee ?? 0
+                    : Math.Round((booking.Tutorfee ?? 0) / Math.Max(booking.Totalsessions ?? 1, 1), 2);
+
+                tutorWallet.Frozenbalance = Math.Max(0, (tutorWallet.Frozenbalance ?? 0) - tutorEscrowAmount);
+                tutorWallet.Lastupdated = now;
+
+                db.Wallettransactions.Add(new Wallettransaction
+                {
+                    Wallet = tutorWallet,
+                    Amount = -tutorEscrowAmount,
+                    Transactiontype = TransactionType.EscrowRelease,
+                    Referencetable = ReferenceTable.Booking,
+                    Referenceid = booking.Bookingid,
+                    Description = $"Giải phóng escrow booking #{booking.Bookingid} do gia sư không phản hồi",
+                    Createdat = now
+                });
+            }
+        }
+
+        booking.Refundamount = refundAmount;
+        booking.Refundstatus = RefundStatus.Refunded;
     }
 }

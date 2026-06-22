@@ -24,7 +24,6 @@ public partial class PaymentService(
     IOptions<PaymentSettings> paymentSettings,
     [FromKeyedServices(ServiceKeys.PayOS.Checkout)] PayOSClient payOS,
     INotificationService notificationService,
-    ILessonService lessonService,
     ILogger<PaymentService> logger) : IPaymentService
 {
     //fix link
@@ -225,11 +224,12 @@ public partial class PaymentService(
             if (booking.Status != BookingStatus.Accepted && booking.Status != BookingStatus.PendingPayment)
                 throw new BookingException(BookingErrorCodes.InvalidBookingStatus, "Booking không đũ điều kiện nhận tiền cọc", 409);
 
-            // Update booking for deposit paid
-            booking.Status = BookingStatus.DepositPaid;
+            // Parent has paid the first lesson/deposit. The booking now waits for tutor approval.
+            booking.Status = BookingStatus.PendingTutor;
             booking.Paymentstatus = DepositEscrowed;
             booking.Paymentdueat = null; // Clear deposit deadline
             booking.Depositpaidat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
+            booking.Responsedeadline = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow.AddHours(24);
             booking.Escrowstatus = Holding;
             booking.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 
@@ -256,10 +256,9 @@ public partial class PaymentService(
                 });
             }
 
-            // Single-session booking: treat as fully paid immediately (no second payment phase)
+            // Single-session booking: the full amount is already escrowed, but tutor still must accept.
             if ((booking.Remainingamount ?? 0) <= 0)
             {
-                booking.Status = BookingStatus.Paid;
                 booking.Paymentstatus = Escrowed;
                 booking.Remainingpaidat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
             }
@@ -271,24 +270,6 @@ public partial class PaymentService(
 
             await SendPaymentPhaseNotificationsAsync(booking, isDepositPhase: true);
 
-            // Auto-create lessons after deposit (so tutor can teach first lesson)
-            try
-            {
-                await lessonService.AutoCreateLessonsAsync(bookingId, ct);
-            }
-            catch (Exception ex)
-            {
-                logger.LogError(ex, "Failed to auto-create lessons for booking {BookingId}, retrying...", bookingId);
-                try
-                {
-                    await Task.Delay(1000, ct);
-                    await lessonService.AutoCreateLessonsAsync(bookingId, ct);
-                }
-                catch (Exception retryEx)
-                {
-                    logger.LogError(retryEx, "Retry failed for auto-create lessons booking {BookingId}", bookingId);
-                }
-            }
         }
         catch
         {

@@ -90,6 +90,7 @@ public class PaymentTimeoutJob(IServiceProvider sp, ILogger<PaymentTimeoutJob> l
 
         var expired = await db.Bookings
             .Include(b => b.Chatchannels)
+            .Include(b => b.Lessons)
             .Where(b => (b.Status == BookingStatus.PendingPayment || b.Status == BookingStatus.Accepted)
                         && b.Paymentdueat != null
                         && b.Paymentdueat < now)
@@ -108,6 +109,8 @@ public class PaymentTimeoutJob(IServiceProvider sp, ILogger<PaymentTimeoutJob> l
                 b.Status = BookingStatus.PaymentTimeout;
                 b.Updatedat = now;
                 foreach (var ch in b.Chatchannels) ch.Status = ChatChannelStatus.Closed;
+                foreach (var lesson in b.Lessons.Where(l => l.Status == LessonStatus.Reserved))
+                    lesson.Status = LessonStatus.Cancelled;
 
                 await db.SaveChangesAsync(ct);
 

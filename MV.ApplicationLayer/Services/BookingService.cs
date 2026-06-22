@@ -93,10 +93,6 @@ public partial class BookingService(
         }
 
         var fees = BookingFeeCalculator.Calculate(totalAmount - discountApplied);
-        string paymentCode;
-        do { paymentCode = Guid.NewGuid().ToString("N")[..12].ToUpperInvariant(); }
-        while (await bookingRepo.PaymentCodeExistsAsync(paymentCode));
-
         var booking = new Booking
         {
             Parentid = userRole == UserRole.Parent ? userId : student.Parentid,
@@ -116,15 +112,14 @@ public partial class BookingService(
             Platformfee = fees.PlatformFee,
             Parentfee = fees.ParentFee,
             Tutorfee = fees.TutorReceivable,
-            Status = BookingStatus.PendingTutor,
+            Status = BookingStatus.PendingPayment,
             Paymentstatus = PaymentStatus.Pending,
-            Paymentcode = paymentCode,
+            Paymentdueat = TimeZoneHelper.UtcNow.AddHours(24),
             Locationcity = dto.LocationCity,
             Locationdistrict = dto.LocationDistrict,
             Locationward = dto.LocationWard,
             Locationdetail = dto.LocationDetail,
-            Createdat = TimeZoneHelper.UtcNow,
-            Responsedeadline = TimeZoneHelper.UtcNow.AddHours(24)
+            Createdat = TimeZoneHelper.UtcNow
         };
 
         await using var tx = await context.Database.BeginTransactionAsync(IsolationLevel.Serializable);
@@ -162,22 +157,6 @@ public partial class BookingService(
         booking.Student = student;
         booking.Tutorsubjectgradeprice = price;
         booking.Package = package;
-
-        try
-        {
-            await notificationService.CreateNotificationAsync(new NotificationRequest
-            {
-                Userid = dto.TutorId,
-                Title = "Yêu cầu đặt lịch mới",
-                Message = $"Bạn có yêu cầu đặt lịch mới. Mã thanh toán: {paymentCode}",
-                Type = NotificationType.BookingNew,
-                Referenceid = booking.Bookingid.ToString()
-            });
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "Không thể gửi thông báo booking mới cho tutor {TutorId}", dto.TutorId);
-        }
 
         return MapToResponse(booking, student, tutor, price.Subject);
     }

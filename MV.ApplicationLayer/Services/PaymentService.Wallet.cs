@@ -83,10 +83,11 @@ public partial class PaymentService
 
             if (isDepositPhase)
             {
-                booking.Status = BookingStatus.DepositPaid;
+                booking.Status = BookingStatus.PendingTutor;
                 booking.Paymentstatus = DepositEscrowed;
                 booking.Depositpaidat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
                 booking.Paymentdueat = null;
+                booking.Responsedeadline = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow.AddHours(24);
                 booking.Escrowstatus = Holding;
                 booking.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 
@@ -111,10 +112,9 @@ public partial class PaymentService
                     });
                 }
 
-                // Single-session booking: treat as fully paid immediately (no second payment phase)
+                // Single-session booking: the full amount is already escrowed, but tutor still must accept.
                 if ((booking.Remainingamount ?? 0) <= 0)
                 {
-                    booking.Status = BookingStatus.Paid;
                     booking.Paymentstatus = Escrowed;
                     booking.Remainingpaidat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
                 }
@@ -160,18 +160,6 @@ public partial class PaymentService
             logger.LogInformation("Parent {ParentId} paid {Phase} for booking {BookingId} with wallet",
                 userId, isDepositPhase ? PaymentPhase.Deposit : PaymentPhase.Remaining, bookingId);
 
-            // Post-commit: auto-create lessons (deposit phase only)
-            if (isDepositPhase)
-            {
-                try
-                {
-                    await lessonService.AutoCreateLessonsAsync(bookingId, ct);
-                }
-                catch (Exception ex)
-                {
-                    logger.LogError(ex, "Failed to auto-create lessons for booking {BookingId} (wallet pay)", bookingId);
-                }
-            }
         }
         catch
         {
@@ -202,7 +190,7 @@ public partial class PaymentService
                     Userid = booking.Parentid,
                     Title = isDepositPhase ? "Thanh toán buổi đầu tiên thành công" : "Thanh toán hoàn tất",
                     Message = isDepositPhase
-                        ? $"Đã thanh toán buổi học đầu tiên ({booking.Depositamount:N0}đ) cho booking #{booking.Bookingid}. Gia sư sẽ bắt đầu dạy buổi đầu tiên."
+                        ? $"Đã thanh toán buổi học đầu tiên ({booking.Depositamount:N0}đ) cho booking #{booking.Bookingid}. Booking đang chờ gia sư xác nhận."
                         : $"Đã thanh toán các buổi học còn lại ({booking.Remainingamount:N0}đ) cho booking #{booking.Bookingid}. Booking đã được thanh toán đầy đủ.",
                     Type = NotificationType.PaymentSuccess,
                     Referenceid = booking.Bookingid.ToString()
@@ -214,11 +202,11 @@ public partial class PaymentService
                 await notificationService.CreateNotificationAsync(new NotificationRequest
                 {
                     Userid = booking.Tutorid,
-                    Title = isDepositPhase ? "Booking đã thanh toán buổi đầu" : "Booking đã thanh toán đầy đủ",
+                    Title = isDepositPhase ? "Yêu cầu đặt lịch mới đã thanh toán" : "Booking đã thanh toán đầy đủ",
                     Message = isDepositPhase
-                        ? $"Phụ huynh đã thanh toán buổi học đầu tiên cho booking #{booking.Bookingid}. Bạn có thể bắt đầu dạy."
+                        ? $"Phụ huynh đã thanh toán buổi học đầu tiên cho booking #{booking.Bookingid}. Vui lòng phản hồi trong 24 giờ."
                         : $"Booking #{booking.Bookingid} đã được thanh toán đầy đủ.",
-                    Type = NotificationType.PaymentSuccess,
+                    Type = isDepositPhase ? NotificationType.BookingNew : NotificationType.PaymentSuccess,
                     Referenceid = booking.Bookingid.ToString()
                 });
             }
