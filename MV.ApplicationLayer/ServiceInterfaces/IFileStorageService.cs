@@ -20,12 +20,21 @@ namespace MV.ApplicationLayer.ServiceInterfaces
         Task<string> UploadFileAsync(string bucketName, string userId, IFormFile file);
 
         /// <summary>
+        /// Upload a file dưới dạng private (authenticated). Dùng cho CCCD và tài liệu nhạy cảm.
+        /// URL trả về chỉ là public ID, cần gọi GenerateSignedUrl để lấy link xem tạm thời.
+        /// </summary>
+        Task<string> UploadPrivateFileAsync(string bucketName, string userId, IFormFile file);
+
+        /// <summary>
+        /// Tạo signed URL có thời hạn cho file private. Dùng khi admin/owner cần xem CCCD.
+        /// </summary>
+        /// <param name="publicIdOrUrl">Public ID hoặc URL Cloudinary của file.</param>
+        /// <param name="expiresInMinutes">Thời gian hiệu lực (mặc định 15 phút).</param>
+        string GenerateSignedUrl(string publicIdOrUrl, int expiresInMinutes = 15);
+
+        /// <summary>
         /// Delete a file from the storage provider.
         /// </summary>
-        /// <param name="bucketName">The root folder or bucket name.</param>
-        /// <param name="userId">The sub-folder name (e.g., user ID).</param>
-        /// <param name="filePathOrUrl">The file path, public ID, or URL to delete.</param>
-        /// <returns>True if deleted successfully, otherwise false.</returns>
         Task<bool> DeleteFileAsync(string bucketName, string userId, string filePathOrUrl);
     }
 }
