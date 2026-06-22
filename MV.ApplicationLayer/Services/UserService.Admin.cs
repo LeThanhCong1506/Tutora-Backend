@@ -181,15 +181,13 @@ namespace MV.ApplicationLayer.Services
             var user = await _unitOfWork.UserRepository.GetUserByIdAsync(tutorId)
                 ?? throw new UserNotFoundException(tutorId);
 
-            const int expiresInMinutes = 10; // Set thời gian hết hiệu lực đối với signed URL
-
             // URL lưu trong DB là authenticated (private). Phải tạo signed URL mới xem được.
             var frontSigned = !string.IsNullOrEmpty(user.Idcardfronturl)
-                ? _storage.GenerateSignedUrl(user.Idcardfronturl, expiresInMinutes)
+                ? _storage.GenerateSignedUrl(user.Idcardfronturl)
                 : null;
 
             var backSigned = !string.IsNullOrEmpty(user.Idcardbackurl)
-                ? _storage.GenerateSignedUrl(user.Idcardbackurl, expiresInMinutes)
+                ? _storage.GenerateSignedUrl(user.Idcardbackurl)
                 : null;
 
             return new TutorCccdUrlsResponse
@@ -198,8 +196,7 @@ namespace MV.ApplicationLayer.Services
                 TutorFullName      = user.Fullname,
                 FrontImageUrl      = frontSigned,
                 BackImageUrl       = backSigned,
-                IsIdentityVerified = user.Isidentityverified ?? false,
-                ExpiresInMinutes   = expiresInMinutes
+                IsIdentityVerified = user.Isidentityverified ?? false
             };
         }
     }

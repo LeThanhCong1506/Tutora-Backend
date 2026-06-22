@@ -137,7 +137,7 @@ namespace MV.PresentationLayer.Controllers
 
         /// <summary>
         /// GET /api/admin/tutors/{id}/cccd
-        /// Admin xem ảnh CCCD của gia sư. Trả về signed URL có hiệu lực 15 phút.
+        /// Admin xem ảnh CCCD của gia sư. Trả về signed URL (yêu cầu chữ ký backend để truy cập).
         /// Chỉ Admin mới được gọi (không áp dụng cho Staff).
         /// </summary>
         [Authorize(Roles = UserRole.Admin)]
@@ -149,7 +149,7 @@ namespace MV.PresentationLayer.Controllers
                 var result = await _userService.GetTutorCccdUrlsAsync(id);
                 return Ok(APIResponse<TutorCccdUrlsResponse>.Success(
                     result,
-                    $"Lấy link xem CCCD thành công. Link có hiệu lực {result.ExpiresInMinutes} phút."));
+                    "Lấy link xem CCCD thành công."));
             }
             catch (UserNotFoundException ex)
             {

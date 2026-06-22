@@ -123,25 +123,21 @@ namespace MV.InfrastructureLayer.Services
                 throw new Exception($"Cloudinary upload failed: {uploadResult.Error.Message}");
             }
 
-            // Trả về SecureUrl (authenticated — chỉ dùng để lưu DB, không share trực tiếp)
-            return uploadResult.SecureUrl.ToString();
+            // Lưu PublicId (không có chữ ký) — SecureUrl chứa s--...-- có thể truy cập trực tiếp
+            // GenerateSignedUrl sẽ tạo signed URL tạm thời khi Admin cần xem
+            return uploadResult.PublicId;
         }
 
         public string GenerateSignedUrl(string publicIdOrUrl, int expiresInMinutes = 15)
         {
-            // Trích public ID từ URL nếu cần
             var publicId = publicIdOrUrl.Contains("/upload/")
                 ? ExtractPublicIdFromUrl(publicIdOrUrl)
                 : publicIdOrUrl;
 
-            var expireAt = DateTimeOffset.UtcNow.AddMinutes(expiresInMinutes).ToUnixTimeSeconds();
-
-            var transformation = new Transformation();
             var signedUrl = _cloudinary.Api.UrlImgUp
                 .Signed(true)
-                .Transform(transformation)
                 .Secure(true)
-                .BuildUrl($"{publicId}?_expires={expireAt}");
+                .BuildUrl(publicId);
 
             return signedUrl;
         }
@@ -175,14 +171,9 @@ namespace MV.InfrastructureLayer.Services
 
         private string ExtractPublicIdFromUrl(string url)
         {
-            // Regex to extract public ID from Cloudinary URL
-            var match = Regex.Match(url, @"/upload/(?:v\d+/)?(.+?)(?:\.[^.]+)?$");
-            if (match.Success)
-            {
-                return match.Groups[1].Value;
-            }
-
-            return url;
+            // Skip: s--signature-- (authenticated URL prefix) + v1234567 (version), then capture public ID without extension
+            var match = Regex.Match(url, @"/upload/(?:s--[^/]+--/)?(?:v\d+/)?(.+?)(?:\.[^.]+)?$");
+            return match.Success ? match.Groups[1].Value : url;
         }
     }
 }
