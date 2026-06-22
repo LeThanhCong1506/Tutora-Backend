@@ -76,6 +76,11 @@ namespace MV.PresentationLayer.Controllers
                 var result = await _tutorService.UploadCccdImagesAsync(id, request);
                 return Ok(APIResponse<CccdUploadResponse>.Success(result, "Upload ảnh CCCD thành công."));
             }
+            catch (InvalidOperationException ex)
+            {
+                // Tên CCCD không khớp với hồ sơ
+                return UnprocessableEntity(APIResponse.Fail(ex.Message, 422));
+            }
             catch (ArgumentException ex)
             {
                 return BadRequest(APIResponse.Fail(ex.Message, 400));
