@@ -86,6 +86,7 @@ namespace MV.ApplicationLayer.Services
             {
                 CertificateId = c.Certificateid,
                 CertificateName = c.Certificatename,
+                CertificateType = c.Certificatetype,
                 IssuingOrganization = c.Issuingorganization,
                 YearIssued = c.Yearissued,
                 CertificateFileUrl = c.Certificatefileurl,
