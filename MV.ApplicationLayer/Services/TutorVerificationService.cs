@@ -3,24 +3,16 @@ using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.Logging;
 using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.Constants;
-using MV.DomainLayer.DTO;
 using MV.DomainLayer.DTO.ResponseModel;
 using MV.DomainLayer.Entities;
 using MV.DomainLayer.Helpers;
-using MV.DomainLayer.Utilities;
 using MV.ApplicationLayer.Interfaces;
-using MV.ApplicationLayer.Interfaces;
-
-using System.Globalization;
-using System.Text.Json;
-using static MV.DomainLayer.Constants.LessonStatus;
 
 namespace MV.ApplicationLayer.Services
 {
     public partial class TutorVerificationService : ITutorVerificationService
     {
         private readonly IUnitOfWork _unitOfWork;
-        private readonly HttpClient _httpClient;
         private readonly IFptAiService _fptAiService;
         private readonly IDistributedCache _cache;
         private readonly IAppDbContext _dbContext;
@@ -37,177 +29,18 @@ namespace MV.ApplicationLayer.Services
         private static readonly TimeSpan ScheduleCacheDuration = TimeSpan.FromMinutes(10);
         private static readonly TimeSpan CacheOperationTimeout = TimeSpan.FromMilliseconds(200);
 
-        // Phase 1: Identity Verification Thresholds
-        private const double OCR_PROBABILITY_THRESHOLD = 90.0;
-        private const double CCCD_NAME_MATCH_THRESHOLD = 0.8;
-
         public TutorVerificationService(
             IUnitOfWork unitOfWork,
-            IHttpClientFactory httpClientFactory,
             IFptAiService fptAiService,
             IDistributedCache cache,
             IAppDbContext dbContext,
             ILogger<TutorVerificationService> logger)
         {
             _unitOfWork = unitOfWork;
-            _httpClient = httpClientFactory.CreateClient();
             _fptAiService = fptAiService;
             _cache = cache;
             _dbContext = dbContext;
             _logger = logger;
-        }
-
-        /// <summary>
-        /// Phase 1: Identity Verification
-        /// 1. OCR CCCD để lấy thông tin
-        /// 2. Kết quả: IdentityVerified = true nếu OCR > 90%
-        /// </summary>
-        public async Task<APIResponse<FptAiResult>> VerifyAndSaveTutorDataAsync(string userId, string frontImgPath, string backImgPath)
-        {
-            try
-            {
-                _logger.LogInformation("Starting identity verification for user {UserId}", userId);
-
-                // 1. Lấy thông tin User từ DB
-                var user = await _unitOfWork.UserRepository.GetUserByIdAsync(userId);
-                if (user == null)
-                {
-                    return APIResponse<FptAiResult>.Fail("Không tìm thấy người dùng.", 404);
-                }
-
-                // 2. Tải ảnh mặt trước CCCD từ URL
-                byte[] idCardBytes;
-                try
-                {
-                    idCardBytes = await _httpClient.GetByteArrayAsync(frontImgPath);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Failed to download ID card for user {UserId}", userId);
-                    return APIResponse<FptAiResult>.Fail($"Lỗi không tải được ảnh CCCD: {ex.Message}", 500);
-                }
-
-                // 3. Gọi FPT.AI để quét thông tin CCCD (OCR)
-                using var ocrStream = new MemoryStream(idCardBytes);
-                var ocrResponse = await _fptAiService.VerifyIdCardAsync(ocrStream, "front_card.jpg");
-
-                // 6. Validate kết quả OCR từ FPT
-                if (ocrResponse == null || ocrResponse.Data == null || ocrResponse.Data.Count == 0)
-                {
-                    _logger.LogWarning("OCR failed for user {UserId}: No data returned", userId);
-                    return APIResponse<FptAiResult>.Fail("Không nhận diện được giấy tờ. Vui lòng chụp rõ nét hơn.", 400);
-                }
-
-                var resultData = ocrResponse.Data[0];
-
-                // Kiểm tra độ thật giả của CCCD (> 90% là an toàn)
-                if (resultData.Probability < OCR_PROBABILITY_THRESHOLD)
-                {
-                    _logger.LogWarning("ID card authenticity check failed for user {UserId}: Probability={Probability}",
-                        userId, resultData.Probability);
-                    return APIResponse<FptAiResult>.Fail(
-                        $"Ảnh CCCD có dấu hiệu giả mạo hoặc quá mờ/mất góc. Độ tin cậy: {resultData.Probability:F1}%", 400);
-                }
-
-                // 5. Quyết định kết quả Identity Verification (chỉ dựa vào OCR)
-                bool identityVerified = resultData.Probability >= OCR_PROBABILITY_THRESHOLD;
-
-                // 5.5. Kiểm tra trùng số CCCD (unique constraint trên DB)
-                if (!string.IsNullOrEmpty(resultData.Id) && resultData.Id != user.Identitynumber)
-                {
-                    var isUnique = await _unitOfWork.UserRepository.IsIdentityNumberUniqueAsync(resultData.Id);
-                    if (!isUnique)
-                    {
-                        _logger.LogWarning("Duplicate identity number detected for user {UserId}: {IdentityNumber}",
-                            userId, resultData.Id);
-                        return APIResponse<FptAiResult>.Fail(
-                            "Số CCCD/CMND này đã được sử dụng bởi tài khoản khác. Vui lòng liên hệ hỗ trợ nếu đây là nhầm lẫn.", 409);
-                    }
-                }
-
-                // 5.7. So sánh tên tài khoản với tên trên CCCD
-                var ocrName = resultData.Name?.Trim();
-                if (string.IsNullOrWhiteSpace(ocrName))
-                {
-                    _logger.LogWarning("OCR did not extract name for user {UserId}", userId);
-                    return APIResponse<FptAiResult>.Fail(
-                        "Không đọc được tên trên CCCD. Vui lòng chụp lại ảnh rõ nét hơn.", 400);
-                }
-
-                if (!string.IsNullOrWhiteSpace(user.Fullname))
-                {
-                    var (isMatch, similarity) = StringSimilarity.CompareNames(ocrName, user.Fullname, CCCD_NAME_MATCH_THRESHOLD);
-                    _logger.LogInformation(
-                        "Name match for user {UserId}: OCR='{OcrName}' Account='{AccountName}' Similarity={Similarity:F2} Match={IsMatch}",
-                        userId, ocrName, user.Fullname, similarity, isMatch);
-
-                    if (!isMatch)
-                    {
-                        return APIResponse<FptAiResult>.Fail(
-                            $"Tên trên CCCD ('{ocrName}') không khớp với tên tài khoản ('{user.Fullname}'). " +
-                            "Vui lòng kiểm tra lại thông tin hoặc chụp lại CCCD.", 400);
-                    }
-                }
-
-                // 6. Cập nhật thông tin vào User Entity
-                user.Identitynumber = resultData.Id;       // Số CCCD
-                user.Idcardfronturl = frontImgPath;        // Link ảnh trước
-                user.Idcardbackurl = backImgPath;          // Link ảnh sau
-                user.Isidentityverified = identityVerified; // Đánh dấu đã xác thực
-
-                // Lưu dữ liệu gốc
-                var ekycData = new
-                {
-                    OcrResult = resultData,
-                    VerifiedAt = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
-                };
-                user.Ekycrawdata = JsonSerializer.Serialize(ekycData);
-
-                // Tự động điền thông tin cá nhân (Auto-fill)
-                if (string.IsNullOrEmpty(user.Fullname))
-                    user.Fullname = resultData.Name;
-
-                if (string.IsNullOrEmpty(user.Address))
-                    user.Address = resultData.Address;
-
-                if (user.Gender == null)
-                    user.Gender = GenderHelper.FromEkycSex(resultData.Sex);
-
-                if (user.Birthdate == null && !string.IsNullOrEmpty(resultData.Dob))
-                {
-                    if (DateOnly.TryParseExact(resultData.Dob, "dd/MM/yyyy", CultureInfo.InvariantCulture, DateTimeStyles.None, out var dob))
-                    {
-                        user.Birthdate = dob;
-                    }
-                }
-
-                // 7. Lưu xuống Database
-                await _unitOfWork.UserRepository.UpdateUserAsync(user);
-                await _unitOfWork.SaveChangesAsync();
-
-                // 8. Tính toán Final Profile Status
-                await CalculateFinalProfileStatusAsync(userId);
-
-                _logger.LogInformation("Identity verification completed for user {UserId}: Verified={Verified}",
-                    userId, identityVerified);
-
-                return APIResponse<FptAiResult>.Success(resultData,
-                    identityVerified
-                        ? "Xác thực danh tính thành công!"
-                        : "Xác thực danh tính hoàn tất nhưng cần được kiểm tra thêm.");
-            }
-            catch (DbUpdateException ex) when (ex.InnerException?.Message?.Contains("identitynumber") == true ||
-                                                ex.InnerException?.Message?.Contains("users_identitynumber_key") == true)
-            {
-                _logger.LogWarning(ex, "Duplicate identity number constraint violation for user {UserId}", userId);
-                return APIResponse<FptAiResult>.Fail(
-                    "Số CCCD/CMND này đã được sử dụng bởi tài khoản khác. Vui lòng liên hệ hỗ trợ nếu đây là nhầm lẫn.", 409);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "System error during identity verification for user {UserId}", userId);
-                return APIResponse<FptAiResult>.Fail($"Lỗi hệ thống: {ex.Message}", 500);
-            }
         }
 
         /// <summary>

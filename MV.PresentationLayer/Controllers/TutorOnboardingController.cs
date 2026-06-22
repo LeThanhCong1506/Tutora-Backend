@@ -60,9 +60,9 @@ namespace MV.PresentationLayer.Controllers
         /// <summary>
         /// Upload CCCD (citizen ID card) 2 mặt — mặt trước và mặt sau.
         /// Chấp nhận JPG, JPEG, PNG — tối đa 5MB mỗi ảnh.
-        /// Lưu URL vào user.Idcardfronturl và user.Idcardbackurl.
+        /// Gọi FPT.AI OCR trực tiếp bằng bytes, lưu PublicId (private) vào DB.
         /// </summary>
-        [HttpPut("{id}/profile/cccd")]
+        [HttpPost("{id}/profile/cccd")]
         [RequestSizeLimit(10_485_760)]
         [RequestFormLimits(MultipartBodyLengthLimit = 10_485_760)]
         public async Task<IActionResult> UploadCccd([FromRoute] string id, [FromForm] UploadCccdRequest request)
@@ -363,24 +363,8 @@ namespace MV.PresentationLayer.Controllers
         //    return Ok(APIResponse<TutorProfilePreviewResponse>.Success(result, "Get tutor profile preview successfully."));
         //}
 
-        [HttpPost("verification/submit")]
-        public async Task<IActionResult> SubmitVerification([FromBody] SubmitVerificationRequest request)
-        {
-            // Sử dụng ClaimTypes.NameIdentifier thay vì "UserId" 
-            // vì trong AuthenticationRepository đã dùng: new Claim(ClaimTypes.NameIdentifier, loginResponse.Userid!)
-            var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
-            if (string.IsNullOrEmpty(userId))
-                return Unauthorized(APIResponse.Fail("Token không hợp lệ."));
-
-            var result = await _verificationService.VerifyAndSaveTutorDataAsync(
-                userId,
-                request.FrontImgPath,
-                request.BackImgPath
-            );
-
-            if (result.StatusCode != 200) return BadRequest(result);
-            return Ok(result);
-        }
+        // [DEPRECATED] POST verification/submit — đã thay thế bởi POST {id}/profile/cccd
+        // Endpoint cũ nhận URL ảnh rồi download. Flow mới upload file trực tiếp + OCR trong 1 request.
 
         /// <summary>
         /// Get tutor pricing information (hourly rate, trial lesson price, allow negotiation)
