@@ -9,7 +9,6 @@ namespace MV.DomainLayer.DTO.ResponseModel
         public int? YearIssued { get; set; }
         public string CertificateFileUrl { get; set; } = string.Empty;
         public string? VerificationStatus { get; set; }
-        public string? VerificationNote { get; set; }
         public DateTime? CreatedAt { get; set; }
 
         // ── Tutor info ────────────────────────────────────────────────────
