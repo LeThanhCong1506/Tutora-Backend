@@ -173,5 +173,34 @@ namespace MV.ApplicationLayer.Services
 
             await _unitOfWork.SaveChangesAsync();
         }
+
+        // ─── Admin: xem ảnh CCCD (signed URL, có hiệu lực 10 phút) ──────────────
+
+        public async Task<TutorCccdUrlsResponse> GetTutorCccdUrlsAsync(string tutorId)
+        {
+            var user = await _unitOfWork.UserRepository.GetUserByIdAsync(tutorId)
+                ?? throw new UserNotFoundException(tutorId);
+
+            const int expiresInMinutes = 10; // Set thời gian hết hiệu lực đối với signed URL
+
+            // URL lưu trong DB là authenticated (private). Phải tạo signed URL mới xem được.
+            var frontSigned = !string.IsNullOrEmpty(user.Idcardfronturl)
+                ? _storage.GenerateSignedUrl(user.Idcardfronturl, expiresInMinutes)
+                : null;
+
+            var backSigned = !string.IsNullOrEmpty(user.Idcardbackurl)
+                ? _storage.GenerateSignedUrl(user.Idcardbackurl, expiresInMinutes)
+                : null;
+
+            return new TutorCccdUrlsResponse
+            {
+                TutorId            = user.Userid,
+                TutorFullName      = user.Fullname,
+                FrontImageUrl      = frontSigned,
+                BackImageUrl       = backSigned,
+                IsIdentityVerified = user.Isidentityverified ?? false,
+                ExpiresInMinutes   = expiresInMinutes
+            };
+        }
     }
 }
