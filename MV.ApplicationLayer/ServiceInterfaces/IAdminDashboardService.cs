@@ -1,3 +1,5 @@
+using MV.DomainLayer.DTO.RequestModel;
+using MV.DomainLayer.DTO.ResponseModel;
 using MV.DomainLayer.DTO.ResponseModel.Admin;
 
 namespace MV.ApplicationLayer.ServiceInterfaces;
@@ -48,4 +50,9 @@ public interface IAdminDashboardService
         DateTime? to,
         string timezone = "Asia/Ho_Chi_Minh",
         CancellationToken ct = default);
+
+    /// <summary>
+    /// Xu hướng doanh thu và buổi học theo khoảng thời gian, nhóm theo bucket (day/week/month).
+    /// </summary>
+    Task<DashboardTrendResponse> GetTrendsAsync(DashboardTrendRequest request, CancellationToken ct = default);
 }

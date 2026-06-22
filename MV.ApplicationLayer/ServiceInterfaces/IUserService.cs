@@ -115,5 +115,11 @@ namespace MV.ApplicationLayer.ServiceInterfaces
         /// Lưu thời điểm thay đổi trạng thái vào <c>Deactivatedat</c>.
         /// </summary>
         Task<DeactivationStatusResponse> ToggleDeactivationAsync(string userId);
+
+        /// <summary>
+        /// Admin only: lấy signed URL có thời hạn 15 phút để xem ảnh CCCD của gia sư.
+        /// URL lưu trong DB là private/authenticated — không thể truy cập trực tiếp.
+        /// </summary>
+        Task<TutorCccdUrlsResponse> GetTutorCccdUrlsAsync(string tutorId);
     }
 }

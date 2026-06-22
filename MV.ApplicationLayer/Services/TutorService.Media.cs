@@ -63,8 +63,9 @@ namespace MV.ApplicationLayer.Services
             var user = await _unitOfWork.UserRepository.GetUserByIdAsync(userId)
                 ?? throw new ArgumentException("Không tìm thấy người dùng.");
 
-            var frontUrl = await _storageService.UploadFileAsync(CccdBucket, userId + "/front", request.FrontImage);
-            var backUrl  = await _storageService.UploadFileAsync(CccdBucket, userId + "/back",  request.BackImage);
+            // CCCD là tài liệu nhạy cảm → upload private, không public
+            var frontUrl = await _storageService.UploadPrivateFileAsync(CccdBucket, userId + "/front", request.FrontImage);
+            var backUrl  = await _storageService.UploadPrivateFileAsync(CccdBucket, userId + "/back",  request.BackImage);
 
             user.Idcardfronturl = frontUrl;
             user.Idcardbackurl  = backUrl;

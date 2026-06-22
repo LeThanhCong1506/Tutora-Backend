@@ -3,6 +3,8 @@ using Microsoft.Extensions.Logging;
 using MV.ApplicationLayer.Interfaces;
 using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.Constants;
+using MV.DomainLayer.DTO.RequestModel;
+using MV.DomainLayer.DTO.ResponseModel;
 using MV.DomainLayer.DTO.ResponseModel.Admin;
 using MV.DomainLayer.Helpers;
 
@@ -611,5 +613,190 @@ public class AdminDashboardService(
             ByType = byType,
             Trend = trend
         };
+    }
+
+    // ─── API 5: GET /api/admin/dashboard/trends ───────────────────────────────
+
+    public async Task<DashboardTrendResponse> GetTrendsAsync(DashboardTrendRequest request, CancellationToken ct = default)
+    {
+        // ── Resolve date range ────────────────────────────────────────────
+        var tzOffset = ResolveTimezoneOffset(request.Timezone);
+        var nowLocal = TimeZoneHelper.UtcNow.Add(tzOffset);
+
+        var todayLocal = DateOnly.FromDateTime(nowLocal.Date);
+        var toLocal    = TryParseDate(request.To,   todayLocal);
+        var fromLocal  = TryParseDate(request.From, toLocal.AddDays(-29)); // default: last 30 days
+
+        if (fromLocal > toLocal) fromLocal = toLocal.AddDays(-29);
+
+        // Convert to UTC for DB query
+        var fromUtc = fromLocal.ToDateTime(TimeOnly.MinValue).Subtract(tzOffset);
+        var toUtc   = toLocal.ToDateTime(TimeOnly.MaxValue).Subtract(tzOffset);
+
+        var totalDays = toLocal.DayNumber - fromLocal.DayNumber + 1;
+
+        // ── Resolve bucket ────────────────────────────────────────────────
+        var bucket = (request.Bucket?.Trim().ToLower()) switch
+        {
+            "day"   => "day",
+            "week"  => "week",
+            "month" => "month",
+            _       => totalDays <= 31 ? "day" : totalDays <= 90 ? "week" : "month"
+        };
+
+        // ── Fetch data ────────────────────────────────────────────────────
+        var bookings = await context.Bookings
+            .AsNoTracking()
+            .Where(b => b.Createdat >= fromUtc && b.Createdat <= toUtc
+                        && (b.Status == BookingStatus.Completed || b.Status == BookingStatus.Ongoing
+                            || b.Status == BookingStatus.Paid    || b.Status == BookingStatus.DepositPaid
+                            || b.Status == BookingStatus.PendingRemainingPayment))
+            .Select(b => new { b.Createdat, b.Finalprice, b.Platformfee })
+            .ToListAsync(ct);
+
+        var lessons = await context.Lessons
+            .AsNoTracking()
+            .Where(l => l.Createdat >= fromUtc && l.Createdat <= toUtc)
+            .Select(l => new { l.Createdat, l.Status })
+            .ToListAsync(ct);
+
+        // ── Build bucket labels ───────────────────────────────────────────
+        var bucketLabels = BuildBucketLabels(fromLocal, toLocal, bucket);
+
+        // ── Map to local time, group by bucket ───────────────────────────
+        var financialTrend = bucketLabels.Select(bl => new FinancialTrendPoint
+        {
+            Label           = bl.Label,
+            Gmv             = bookings
+                .Where(b => b.Createdat.HasValue && BucketOf(b.Createdat.Value.Add(tzOffset), bucket) == bl.Key)
+                .Sum(b => b.Finalprice ?? 0),
+            PlatformRevenue = bookings
+                .Where(b => b.Createdat.HasValue && BucketOf(b.Createdat.Value.Add(tzOffset), bucket) == bl.Key
+                            && b.Platformfee.HasValue)
+                .Sum(b => b.Platformfee ?? 0)
+        }).ToList();
+
+        var lessonTrend = bucketLabels.Select(bl => new LessonTrendPoint
+        {
+            Label     = bl.Label,
+            Completed = lessons.Count(l => l.Createdat.HasValue
+                && BucketOf(l.Createdat.Value.Add(tzOffset), bucket) == bl.Key
+                && l.Status == LessonStatus.Completed),
+            Cancelled = lessons.Count(l => l.Createdat.HasValue
+                && BucketOf(l.Createdat.Value.Add(tzOffset), bucket) == bl.Key
+                && l.Status == LessonStatus.Cancelled),
+            NoShow    = lessons.Count(l => l.Createdat.HasValue
+                && BucketOf(l.Createdat.Value.Add(tzOffset), bucket) == bl.Key
+                && (l.Status == LessonStatus.NoShow || l.Status == LessonStatus.CancelledNoshow))
+        }).ToList();
+
+        // ── Overall rates ─────────────────────────────────────────────────
+        var totalCompleted  = lessonTrend.Sum(x => x.Completed);
+        var totalCancelled  = lessonTrend.Sum(x => x.Cancelled);
+        var totalNoShow     = lessonTrend.Sum(x => x.NoShow);
+        var totalLessons    = totalCompleted + totalCancelled + totalNoShow;
+
+        var rates = totalLessons == 0
+            ? new LessonRates()
+            : new LessonRates
+            {
+                CompletionRate   = Math.Round((double)totalCompleted / totalLessons * 100, 1),
+                CancellationRate = Math.Round((double)totalCancelled  / totalLessons * 100, 1),
+                NoShowRate       = Math.Round((double)totalNoShow     / totalLessons * 100, 1)
+            };
+
+        return new DashboardTrendResponse
+        {
+            From           = fromLocal.ToString("yyyy-MM-dd"),
+            To             = toLocal.ToString("yyyy-MM-dd"),
+            Bucket         = bucket,
+            FinancialTrend = financialTrend,
+            LessonTrend    = lessonTrend,
+            LessonRates    = rates
+        };
+    }
+
+    // ─── Helpers ──────────────────────────────────────────────────────────────
+
+    private static TimeSpan ResolveTimezoneOffset(string? timezone)
+    {
+        if (string.IsNullOrWhiteSpace(timezone)) return TimeSpan.FromHours(7);
+        try
+        {
+            var tz = TimeZoneInfo.FindSystemTimeZoneById(
+                // Windows ID fallback for IANA names
+                timezone == "Asia/Ho_Chi_Minh" ? "SE Asia Standard Time" : timezone);
+            return tz.BaseUtcOffset;
+        }
+        catch
+        {
+            return TimeSpan.FromHours(7); // fallback UTC+7
+        }
+    }
+
+    private static DateOnly TryParseDate(string? value, DateOnly fallback)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return fallback;
+        return DateOnly.TryParseExact(value, "yyyy-MM-dd",
+            System.Globalization.CultureInfo.InvariantCulture,
+            System.Globalization.DateTimeStyles.None, out var d) ? d : fallback;
+    }
+
+    private static string BucketOf(DateTime localDt, string bucket) => bucket switch
+    {
+        "week"  => ISOWeekKey(localDt),
+        "month" => localDt.ToString("yyyy-MM"),
+        _       => localDt.ToString("yyyy-MM-dd")
+    };
+
+    private static string ISOWeekKey(DateTime dt)
+    {
+        // ISO week: Monday-based, yields key like "2026-W25"
+        var dow = (int)dt.DayOfWeek;
+        var monday = dt.AddDays(-(dow == 0 ? 6 : dow - 1)).Date;
+        return monday.ToString("yyyy-MM-dd");
+    }
+
+    private record BucketLabel(string Key, string Label);
+
+    private static List<BucketLabel> BuildBucketLabels(DateOnly from, DateOnly to, string bucket)
+    {
+        var labels = new List<BucketLabel>();
+
+        if (bucket == "day")
+        {
+            for (var d = from; d <= to; d = d.AddDays(1))
+                labels.Add(new BucketLabel(d.ToString("yyyy-MM-dd"), d.ToString("dd/MM")));
+        }
+        else if (bucket == "week")
+        {
+            // Walk by Monday of each ISO week
+            var cursor = from.ToDateTime(TimeOnly.MinValue);
+            var dow = (int)cursor.DayOfWeek;
+            cursor = cursor.AddDays(-(dow == 0 ? 6 : dow - 1)); // rewind to Monday
+
+            var todt = to.ToDateTime(TimeOnly.MinValue);
+            while (cursor <= todt)
+            {
+                var weekEnd = cursor.AddDays(6);
+                var key   = cursor.ToString("yyyy-MM-dd");
+                var label = $"{cursor:dd/MM} - {weekEnd:dd/MM}";
+                labels.Add(new BucketLabel(key, label));
+                cursor = cursor.AddDays(7);
+            }
+        }
+        else // month
+        {
+            var cursor = new DateOnly(from.Year, from.Month, 1);
+            while (cursor <= to)
+            {
+                var key   = cursor.ToString("yyyy-MM");
+                var label = $"T{cursor.Month:D2}/{cursor.Year}";
+                labels.Add(new BucketLabel(key, label));
+                cursor = cursor.AddMonths(1);
+            }
+        }
+
+        return labels;
     }
 }

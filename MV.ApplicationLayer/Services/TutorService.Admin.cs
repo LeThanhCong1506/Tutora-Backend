@@ -67,11 +67,11 @@ namespace MV.ApplicationLayer.Services
 
             return new AdminVerifyCertificateResponse
             {
-                CertificateId      = certificate.Certificateid,
-                TutorId            = certificate.Tutorid,
-                CertificateName    = certificate.Certificatename,
+                CertificateId = certificate.Certificateid,
+                TutorId = certificate.Tutorid,
+                CertificateName = certificate.Certificatename,
                 VerificationStatus = certificate.Verificationstatus!,
-                VerificationNote   = certificate.Verificationnote,
+                VerificationNote = certificate.Verificationnote,
                 IsProfileActivated = false
             };
         }
@@ -84,18 +84,18 @@ namespace MV.ApplicationLayer.Services
 
             var mapped = paged.Select(c => new PendingCertificateResponse
             {
-                CertificateId       = c.Certificateid,
-                CertificateName     = c.Certificatename,
+                CertificateId = c.Certificateid,
+                CertificateName = c.Certificatename,
+                CertificateType = c.Certificatetype,
                 IssuingOrganization = c.Issuingorganization,
-                YearIssued          = c.Yearissued,
-                CertificateFileUrl  = c.Certificatefileurl,
-                VerificationStatus  = c.Verificationstatus,
-                VerificationNote    = c.Verificationnote,
-                CreatedAt           = c.Createdat,
-                TutorId             = c.Tutorid,
-                TutorFullName       = c.Tutor?.Tutor?.Fullname,
-                TutorEmail          = c.Tutor?.Tutor?.Email,
-                TutorAvatarUrl      = c.Tutor?.Tutor?.Avatarurl
+                YearIssued = c.Yearissued,
+                CertificateFileUrl = c.Certificatefileurl,
+                VerificationStatus = c.Verificationstatus,
+                CreatedAt = c.Createdat,
+                TutorId = c.Tutorid,
+                TutorFullName = c.Tutor?.Tutor?.Fullname,
+                TutorEmail = c.Tutor?.Tutor?.Email,
+                TutorAvatarUrl = c.Tutor?.Tutor?.Avatarurl
             }).ToList();
 
             return new PagedList<PendingCertificateResponse>(mapped, paged.TotalCount, paged.CurrentPage, paged.PageSize);

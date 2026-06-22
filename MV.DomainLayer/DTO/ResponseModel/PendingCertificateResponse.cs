@@ -5,11 +5,11 @@ namespace MV.DomainLayer.DTO.ResponseModel
         // ── Certificate info ──────────────────────────────────────────────
         public string CertificateId { get; set; } = string.Empty;
         public string CertificateName { get; set; } = string.Empty;
+        public string CertificateType { get; set; } = string.Empty;
         public string IssuingOrganization { get; set; } = string.Empty;
         public int? YearIssued { get; set; }
         public string CertificateFileUrl { get; set; } = string.Empty;
         public string? VerificationStatus { get; set; }
-        public string? VerificationNote { get; set; }
         public DateTime? CreatedAt { get; set; }
 
         // ── Tutor info ────────────────────────────────────────────────────
