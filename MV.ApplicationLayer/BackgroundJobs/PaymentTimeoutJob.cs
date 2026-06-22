@@ -68,8 +68,8 @@ public class PaymentTimeoutJob(IServiceProvider sp, ILogger<PaymentTimeoutJob> l
                 await notify.CreateNotificationAsync(new NotificationRequest
                 {
                     Userid = booking.Parentid,
-                    Title = "Sắp hết hạn thanh toán đặt cọc",
-                    Message = $"Booking #{booking.Bookingid} sắp hết hạn thanh toán đặt cọc. Vui lòng hoàn tất thanh toán để giữ lịch học.",
+                    Title = "Sắp hết hạn thanh toán buổi học đầu tiên",
+                    Message = $"Booking #{booking.Bookingid} sắp hết hạn thanh toán buổi học đầu tiên. Vui lòng hoàn tất thanh toán để giữ lịch học.",
                     Type = NotificationType.BookingPaymentDueSoon,
                     Referenceid = booking.Bookingid.ToString()
                 });
@@ -156,66 +156,38 @@ public class PaymentTimeoutJob(IServiceProvider sp, ILogger<PaymentTimeoutJob> l
 
     /// <summary>
     /// Handle expired remaining payment deadlines.
-    /// Unlike deposit timeout (which cancels the booking), remaining timeout only sends reminders
-    /// because the first lesson has already been taught. Check-in blocking handles enforcement.
+    /// Parent chose not to pay for remaining sessions within 48h → finalize booking early:
+    /// release escrow for completed lessons, cancel remaining lessons, mark booking Completed.
     /// </summary>
     private async Task ProcessExpiredRemainingPaymentsAsync(CancellationToken ct)
     {
         using var scope = sp.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<IAppDbContext>();
-        var notify = scope.ServiceProvider.GetRequiredService<INotificationService>();
+        var settlement = scope.ServiceProvider.GetRequiredService<ISettlementService>();
         var now = TimeZoneHelper.UtcNow;
 
         var expiredRemaining = await db.Bookings
-            .Include(b => b.Student)
             .Where(b => b.Status == BookingStatus.PendingRemainingPayment
                         && b.Paymentdueat != null
                         && b.Paymentdueat < now
                         && b.Remainingpaidat == null)
+            .Select(b => b.Bookingid)
             .ToListAsync(ct);
 
         if (expiredRemaining.Count == 0) return;
 
-        logger.LogInformation("Thành lập {Count} đặt chỗ với thời hạn thanh toán còn lại đã hết hạn.", expiredRemaining.Count);
+        logger.LogInformation("{Count} booking hết hạn thanh toán buổi còn lại — tiến hành kết thúc sớm.", expiredRemaining.Count);
 
-        foreach (var b in expiredRemaining)
+        foreach (var bookingId in expiredRemaining)
         {
             try
             {
-                // Extend deadline and send reminder - do NOT cancel
-                b.Paymentdueat = now.AddHours(24);
-                b.Updatedat = now;
-                await db.SaveChangesAsync(ct);
-
-                var notifications = new List<NotificationRequest>();
-                var parentId = b.Student?.Parentid ?? b.Parentid;
-                if (!string.IsNullOrEmpty(parentId))
-                    notifications.Add(new NotificationRequest
-                    {
-                        Userid = parentId,
-                        Title = "Nhắc nhở thanh toán 50% còn lại",
-                        Message = $"Booking #{b.Bookingid} chưa được thanh toán đầy đủ. " +
-                            $"Vui lòng thanh toán {b.Remainingamount:N0}đ còn lại để tiếp tục các buổi học.",
-                        Type = NotificationType.PaymentRemainingRequired,
-                        Referenceid = b.Bookingid.ToString()
-                    });
-                if (!string.IsNullOrEmpty(b.Tutorid))
-                    notifications.Add(new NotificationRequest
-                    {
-                        Userid = b.Tutorid,
-                        Title = "Phụ huynh chưa thanh toán phần còn lại",
-                        Message = $"Booking #{b.Bookingid}: Phụ huynh chưa thanh toán 50% còn lại. Các buổi học tiếp theo đã bị tạm dừng.",
-                        Type = NotificationType.PaymentRemainingRequired,
-                        Referenceid = b.Bookingid.ToString()
-                    });
-
-                if (notifications.Count > 0) await notify.CreateNotificationsAsync(notifications);
-
-                logger.LogInformation("Đã gửi nhắc nhở thanh toán phần còn lại cho đặt chỗ {BookingId}.", b.Bookingid);
+                await settlement.FinalizeBookingEarlyAsync(bookingId, ct);
+                logger.LogInformation("Booking {BookingId} đã kết thúc sớm do hết hạn thanh toán.", bookingId);
             }
             catch (Exception ex)
             {
-                logger.LogError(ex, "Không thể xử lý nhắc nhở thanh toán phần còn lại cho đặt chỗ {BookingId}.", b.Bookingid);
+                logger.LogError(ex, "Không thể kết thúc sớm booking {BookingId}.", bookingId);
             }
         }
     }

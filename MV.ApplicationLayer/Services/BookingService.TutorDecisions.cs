@@ -38,8 +38,10 @@ public partial class BookingService
         booking.Status = BookingStatus.Accepted;
         booking.Updatedat = TimeZoneHelper.UtcNow;
         booking.Paymentdueat = TimeZoneHelper.UtcNow.AddHours(24);
-        booking.Depositamount = Math.Ceiling((booking.Finalprice ?? 0) * 0.5m);
-        booking.Remainingamount = (booking.Finalprice ?? 0) - booking.Depositamount.Value;
+        var sessions = booking.Totalsessions ?? 1;
+        var firstLesson = Math.Round((booking.Finalprice ?? 0) / sessions, 0, MidpointRounding.AwayFromZero);
+        booking.Depositamount = firstLesson;
+        booking.Remainingamount = (booking.Finalprice ?? 0) - firstLesson;
 
         // Save booking changes FIRST — before any chat/notification operations that share
         // the same DbContext, to avoid DbUpdateException from concurrent entity tracking.
@@ -67,7 +69,7 @@ public partial class BookingService
             {
                 Userid = booking.Parentid!,
                 Title = "Gia sư đã chấp nhận lịch học",
-                Message = $"Gia sư đã chấp nhận yêu cầu đặt lịch #{bookingId}. Hãy thanh toán đặt cọc để giữ lịch học.",
+                Message = $"Gia sư đã chấp nhận yêu cầu đặt lịch #{bookingId}. Hãy thanh toán buổi học đầu tiên để giữ lịch học.",
                 Type = NotificationType.BookingAccepted,
                 Referenceid = bookingId.ToString()
             });

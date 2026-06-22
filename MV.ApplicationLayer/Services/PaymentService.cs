@@ -233,13 +233,14 @@ public partial class PaymentService(
             booking.Escrowstatus = Holding;
             booking.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 
-            // Escrow 50% of tutor receivable to frozen balance
+            // Escrow first-lesson share of tutor receivable to frozen balance
+            var sessions = booking.Totalsessions ?? 1;
             if (!string.IsNullOrWhiteSpace(booking.Tutorid))
             {
                 var wallet = await walletRepo.GetOrCreateForUpdateAsync(booking.Tutorid, ct);
 
                 var totalEscrow = booking.Tutorfee ?? 0;
-                var depositEscrow = Math.Round(totalEscrow * 0.5m, 2);
+                var depositEscrow = Math.Round(totalEscrow / sessions, 2);
                 wallet.Frozenbalance = (wallet.Frozenbalance ?? 0) + depositEscrow;
                 wallet.Lastupdated = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 
@@ -253,6 +254,14 @@ public partial class PaymentService(
                     Description = txId,
                     Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
                 });
+            }
+
+            // Single-session booking: treat as fully paid immediately (no second payment phase)
+            if ((booking.Remainingamount ?? 0) <= 0)
+            {
+                booking.Status = BookingStatus.Paid;
+                booking.Paymentstatus = Escrowed;
+                booking.Remainingpaidat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
             }
 
             await context.SaveChangesAsync(ct);
@@ -328,13 +337,14 @@ public partial class PaymentService(
             booking.Paymentdueat = null; // Clear remaining deadline
             booking.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 
-            // Escrow remaining 50% of tutor receivable to frozen balance
+            // Escrow remaining lessons' share of tutor receivable to frozen balance
             if (!string.IsNullOrWhiteSpace(booking.Tutorid))
             {
                 var wallet = await walletRepo.GetOrCreateForUpdateAsync(booking.Tutorid, ct);
 
                 var totalEscrow = booking.Tutorfee ?? 0;
-                var depositEscrow = Math.Round(totalEscrow * 0.5m, 2);
+                var remainingSessions = booking.Totalsessions ?? 1;
+                var depositEscrow = Math.Round(totalEscrow / remainingSessions, 2);
                 var remainingEscrow = totalEscrow - depositEscrow;
                 wallet.Frozenbalance = (wallet.Frozenbalance ?? 0) + remainingEscrow;
                 wallet.Lastupdated = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
@@ -369,8 +379,10 @@ public partial class PaymentService(
     {
         if (booking.Depositamount == null || booking.Depositamount == 0)
         {
-            booking.Depositamount = Math.Ceiling((booking.Finalprice ?? 0) * 0.5m);
-            booking.Remainingamount = (booking.Finalprice ?? 0) - booking.Depositamount.Value;
+            var sessions = booking.Totalsessions ?? 1;
+            var firstLesson = Math.Round((booking.Finalprice ?? 0) / sessions, 0, MidpointRounding.AwayFromZero);
+            booking.Depositamount = firstLesson;
+            booking.Remainingamount = (booking.Finalprice ?? 0) - firstLesson;
         }
     }
 

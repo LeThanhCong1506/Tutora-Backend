@@ -262,8 +262,9 @@ public partial class BookingService(
                 : booking.Finalprice ?? booking.Totalamount ?? 0;
 
             var tutorFee = booking.Tutorfee ?? 0;
+            var cancelSessions = booking.Totalsessions ?? 1;
             decimal tutorEscrowAmount = booking.Paymentstatus == DepositEscrowed
-                ? Math.Round(tutorFee * 0.5m, 2)
+                ? Math.Round(tutorFee / cancelSessions, 2)
                 : tutorFee;
 
             await using var tx = await context.Database.BeginTransactionAsync(IsolationLevel.Serializable);
