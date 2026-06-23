@@ -114,7 +114,7 @@ public partial class BookingService(
             Tutorfee = fees.TutorReceivable,
             Status = BookingStatus.PendingPayment,
             Paymentstatus = PaymentStatus.Pending,
-            Paymentdueat = TimeZoneHelper.UtcNow.AddHours(24),
+            Paymentdueat = TimeZoneHelper.UtcNow.AddMinutes(30),
             Locationcity = dto.LocationCity,
             Locationdistrict = dto.LocationDistrict,
             Locationward = dto.LocationWard,

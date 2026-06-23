@@ -104,7 +104,7 @@ public partial class PaymentService
         var wallet = await walletRepo.GetByUserIdAsNoTrackingAsync(userId);
         var expiredAt = booking.Paymentdueat.HasValue
             ? (int)new DateTimeOffset(booking.Paymentdueat.Value, TimeSpan.Zero).ToUnixTimeSeconds()
-            : (int)DateTimeOffset.UtcNow.AddHours(24).ToUnixTimeSeconds();
+            : (int)DateTimeOffset.UtcNow.AddMinutes(30).ToUnixTimeSeconds();
 
         try
         {

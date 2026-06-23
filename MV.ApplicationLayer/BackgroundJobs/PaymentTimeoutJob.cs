@@ -13,7 +13,7 @@ namespace MV.ApplicationLayer.BackgroundJobs;
 
 public class PaymentTimeoutJob(IServiceProvider sp, ILogger<PaymentTimeoutJob> logger) : BackgroundService
 {
-    private readonly TimeSpan _interval = TimeSpan.FromMinutes(30);
+    private readonly TimeSpan _interval = TimeSpan.FromMinutes(10);
 
     protected override async Task ExecuteAsync(CancellationToken ct)
     {
@@ -41,7 +41,7 @@ public class PaymentTimeoutJob(IServiceProvider sp, ILogger<PaymentTimeoutJob> l
         var notify = scope.ServiceProvider.GetRequiredService<INotificationService>();
         var notificationRepo = scope.ServiceProvider.GetRequiredService<INotificationRepository>();
         var now = TimeZoneHelper.UtcNow;
-        var dueSoon = now.AddHours(2);
+        var dueSoon = now.AddMinutes(10);
 
         var bookingsDueSoon = await db.Bookings
             .Where(b => (b.Status == BookingStatus.PendingPayment || b.Status == BookingStatus.Accepted)
@@ -119,7 +119,7 @@ public class PaymentTimeoutJob(IServiceProvider sp, ILogger<PaymentTimeoutJob> l
                     {
                         Userid = b.Parentid,
                         Title = "Booking đã hết hạn thanh toán",
-                        Message = $"Booking #{b.Bookingid} đã bị hủy do quá hạn thanh toán 24h.",
+                        Message = $"Booking #{b.Bookingid} đã bị hủy do quá hạn thanh toán 30 phút.",
                         Type = NotificationType.BookingTimeout,
                         Referenceid = b.Bookingid.ToString()
                     });
@@ -128,7 +128,7 @@ public class PaymentTimeoutJob(IServiceProvider sp, ILogger<PaymentTimeoutJob> l
                     {
                         Userid = b.Tutorid,
                         Title = "Booking đã hết hạn thanh toán",
-                        Message = $"Booking #{b.Bookingid} đã bị hủy do phụ huynh không thanh toán trong 24h.",
+                        Message = $"Booking #{b.Bookingid} đã bị hủy do phụ huynh không thanh toán trong 30 phút.",
                         Type = NotificationType.BookingTimeout,
                         Referenceid = b.Bookingid.ToString()
                     });
