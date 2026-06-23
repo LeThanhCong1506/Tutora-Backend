@@ -27,6 +27,12 @@ namespace MV.PresentationLayer.Controllers
 
             var result = await _loginService.AuthenticateGoogleUserAsync(request.IdToken, request.Role);
 
+            // User mới chưa chọn vai trò → FE cần hiện màn chọn role rồi gọi lại kèm role
+            if (result.RequiresRoleSelection)
+            {
+                return Ok(new { requiresRoleSelection = true, email = result.Email, message = result.ErrorMessage });
+            }
+
             if (!string.IsNullOrEmpty(result.ErrorMessage))
             {
                 return BadRequest(new { message = result.ErrorMessage });

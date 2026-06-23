@@ -55,7 +55,17 @@ namespace MV.ApplicationLayer.Services
 
                 if (user == null)
                 {
-                    // 4. Auto-Register User
+                    // 4. Auto-Register User — bắt buộc chọn role hợp lệ, không mặc định Parent nữa
+                    if (string.IsNullOrWhiteSpace(role) || !UserRole.SelfRegisterable.Contains(role))
+                    {
+                        return new TokenResponse
+                        {
+                            RequiresRoleSelection = true,
+                            Email = email,
+                            ErrorMessage = "Vui lòng chọn vai trò (Parent, Student hoặc Tutor) để hoàn tất đăng ký."
+                        };
+                    }
+
                     var randomPassword = Guid.NewGuid().ToString("N") + Guid.NewGuid().ToString("N");
                     var (newUser, createError) = await CreateUserEntityAsync(payload.Email, payload.Name, randomPassword, role);
                     
@@ -123,8 +133,10 @@ namespace MV.ApplicationLayer.Services
         {
             var userId = Guid.NewGuid().ToString();
 
-            // Determine Role (default is Parent)
-            var roleToUse = !string.IsNullOrEmpty(requestedRole) ? requestedRole : UserRole.Parent;
+            // Role bắt buộc hợp lệ — không mặc định Parent nữa (đã validate ở caller, guard lại cho chắc)
+            if (string.IsNullOrWhiteSpace(requestedRole) || !UserRole.SelfRegisterable.Contains(requestedRole))
+                return (null, "Vai trò không hợp lệ.");
+            var roleToUse = requestedRole;
 
             var newUser = new User
             {
