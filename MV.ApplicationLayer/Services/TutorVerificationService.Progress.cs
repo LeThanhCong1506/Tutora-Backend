@@ -106,7 +106,7 @@ namespace MV.ApplicationLayer.Services
             };
         }
 
-        private static IdentityCardSection BuildIdentityCardSection(User user)
+        private IdentityCardSection BuildIdentityCardSection(User user)
         {
             var isVerified = user.Isidentityverified ?? false;
             var hasIdentity = !string.IsNullOrWhiteSpace(user.Identitynumber);
@@ -147,7 +147,7 @@ namespace MV.ApplicationLayer.Services
             {
                 Status = isComplete ? SectionStatus.Updated : SectionStatus.InProgress,
                 UpdatedAt = isComplete ? user.Createdat : null,
-                IdentityNumberMasked = MaskIdentityNumber(user.Identitynumber),
+                IdentityNumberMasked = MaskIdentityNumber(_encryption.Decrypt(user.Identitynumber)),
                 FullName = fullName,
                 DateOfBirth = dateOfBirth,
                 Gender = gender,

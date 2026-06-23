@@ -17,6 +17,7 @@ namespace MV.ApplicationLayer.Services
         private readonly IFptAiService _fptAiService;
         private readonly INotificationService _notificationService;
         private readonly ILogger<TutorService> _logger;
+        private readonly IEncryptionService _encryption;
 
         // Storage buckets
         private const string CertificateBucket = StorageBucket.CertificateFiles;
@@ -33,13 +34,15 @@ namespace MV.ApplicationLayer.Services
             IFileStorageService storageService,
             IFptAiService fptAiService,
             INotificationService notificationService,
-            ILogger<TutorService> logger)
+            ILogger<TutorService> logger,
+            IEncryptionService encryption)
         {
             _unitOfWork = unitOfWork;
             _storageService = storageService;
             _fptAiService = fptAiService;
             _notificationService = notificationService;
             _logger = logger;
+            _encryption = encryption;
         }
 
         // ─── Profile Queries ─────────────────────────────────────────────────
