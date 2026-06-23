@@ -89,6 +89,47 @@ public partial class PaymentService(
         await ConfirmPaymentInternalAsync(orderCode, (int)request.Amount, txId, ct);
     }
 
+    public async Task<TestConfirmBookingPaymentResponse> ConfirmCurrentBookingPaymentForTestAsync(
+        int bookingId,
+        string? transactionId = null,
+        CancellationToken ct = default)
+    {
+        var booking = await bookingRepo.FindTrackedAsync(bookingId, ct)
+            ?? throw new BookingException(BookingErrorCodes.BookingNotFound, ApiMessages.BookingNotFound, 404);
+
+        EnsureDepositAmountsCalculated(booking);
+
+        if (booking.Paymentstatus == Escrowed || booking.Status == BookingStatus.Paid || booking.Remainingpaidat != null)
+            throw new BookingException(BookingErrorCodes.BookingAlreadyPaid, "Booking đã được thanh toán rồi", 409);
+
+        var isDepositPhase = booking.Depositpaidat == null;
+        var phase = isDepositPhase ? PaymentPhase.Deposit : PaymentPhase.Remaining;
+        var amount = isDepositPhase
+            ? booking.Depositamount ?? 0
+            : booking.Remainingamount ?? 0;
+
+        if (amount <= 0)
+            throw new BookingException(BookingErrorCodes.BookingAlreadyPaid, "Booking đã được thanh toán rồi", 409);
+
+        var txId = string.IsNullOrWhiteSpace(transactionId)
+            ? $"test-admin-{bookingId}-{(isDepositPhase ? PaymentPhase.DepositShort : PaymentPhase.RemainingShort)}-{MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow:yyyyMMddHHmmss}"
+            : transactionId.Trim();
+
+        var orderCode = isDepositPhase
+            ? OrderCodeHelper.GenerateBookingOrderCode(bookingId)
+            : OrderCodeHelper.GenerateRemainingOrderCode(bookingId);
+
+        await ConfirmPaymentInternalAsync(orderCode, (int)amount, txId, ct);
+
+        return new TestConfirmBookingPaymentResponse
+        {
+            BookingId = bookingId,
+            Phase = phase,
+            Amount = amount,
+            TransactionId = txId
+        };
+    }
+
     public async Task<PaymentStatusResponse> GetPaymentStatusAsync(int bookingId, string userId)
     {
         var booking = await bookingRepo.FindForPaymentByUserAsync(bookingId, userId)
