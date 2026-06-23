@@ -386,4 +386,128 @@ public class SettlementService : ISettlementService
             TutorNotes = l.Tutornotes
         }).ToList();
     }
+
+    /// <summary>
+    /// Finalize booking early: parent did not pay for remaining sessions.
+    /// Releases escrow for completed lessons, cancels pending lessons, marks booking Completed.
+    /// </summary>
+    public async Task FinalizeBookingEarlyAsync(int bookingId, CancellationToken ct = default)
+    {
+        var booking = await _context.Bookings
+            .Include(b => b.Lessons)
+            .FirstOrDefaultAsync(b => b.Bookingid == bookingId, ct)
+            ?? throw new InvalidOperationException($"Booking {bookingId} not found");
+
+        var tutorId = booking.Tutorid;
+        if (string.IsNullOrWhiteSpace(tutorId)) return;
+
+        await using var tx = await _context.Database.BeginTransactionAsync(
+            System.Data.IsolationLevel.Serializable, ct);
+        try
+        {
+            var tutorWallet = await _context.Wallets
+                .FromSqlRaw(MV.DomainLayer.Constants.SqlQueries.LockWalletByUserId, tutorId)
+                .FirstOrDefaultAsync(ct);
+
+            if (tutorWallet == null)
+            {
+                tutorWallet = new Wallet
+                {
+                    Userid = tutorId,
+                    Balance = 0,
+                    Frozenbalance = 0,
+                    Lastupdated = TimeZoneHelper.UtcNow
+                };
+                _context.Wallets.Add(tutorWallet);
+            }
+
+            // Count completed lessons and calculate escrow to release
+            var completedLessons = booking.Lessons!
+                .Where(l => l.Status == Completed || l.Issettled == true)
+                .ToList();
+            var completedCount = completedLessons.Count;
+
+            var totalSessions = booking.Totalsessions ?? 1;
+            var totalEscrow = booking.Tutorfee ?? 0;
+            // Release only the escrow corresponding to lessons already completed
+            var perLesson = Math.Round(totalEscrow / totalSessions, 2);
+            var releaseAmount = Math.Min(perLesson * completedCount, tutorWallet.Frozenbalance ?? 0);
+
+            if (releaseAmount > 0)
+            {
+                tutorWallet.Frozenbalance = Math.Max(0, (tutorWallet.Frozenbalance ?? 0) - releaseAmount);
+                tutorWallet.Balance = (tutorWallet.Balance ?? 0) + releaseAmount;
+                tutorWallet.Lastupdated = TimeZoneHelper.UtcNow;
+
+                _context.Wallettransactions.Add(new Wallettransaction
+                {
+                    Walletid = tutorWallet.Walletid,
+                    Amount = releaseAmount,
+                    Transactiontype = TransactionType.EscrowRelease,
+                    Referencetable = ReferenceTable.Booking,
+                    Referenceid = bookingId,
+                    Description = $"Kết thúc sớm — đã dạy {completedCount}/{totalSessions} buổi #{bookingId}",
+                    Createdat = TimeZoneHelper.UtcNow
+                });
+            }
+
+            // Cancel lessons that have not started yet
+            var now = TimeZoneHelper.UtcNow;
+            foreach (var lesson in booking.Lessons!)
+            {
+                if (lesson.Status == LessonStatus.Reserved || lesson.Status == LessonStatus.Scheduled)
+                {
+                    lesson.Status = LessonStatus.Cancelled;
+                }
+            }
+
+            // Mark booking as completed
+            booking.Status = BookingStatus.Completed;
+            booking.Sessionsremaining = 0;
+            booking.Updatedat = now;
+
+            await _context.SaveChangesAsync(ct);
+            await tx.CommitAsync(ct);
+
+            _logger.LogInformation(
+                "FinalizeBookingEarly: booking {BookingId} finalized. Released {Amount} for {Completed}/{Total} completed lessons.",
+                bookingId, releaseAmount, completedCount, totalSessions);
+        }
+        catch
+        {
+            await tx.RollbackAsync(ct);
+            throw;
+        }
+
+        // Notifications (outside transaction)
+        try
+        {
+            var completedLessonsCount = booking.Lessons!.Count(l => l.Status == Completed || l.Issettled == true);
+            await _notificationService.CreateNotificationAsync(new NotificationRequest
+            {
+                Userid = tutorId,
+                Title = "Phụ huynh ngừng học — giải ngân hoàn tất",
+                Message = $"Booking #{bookingId}: Phụ huynh không thanh toán các buổi còn lại. " +
+                          $"Bạn đã nhận thanh toán cho {completedLessonsCount} buổi đã dạy.",
+                Type = NotificationType.BookingTimeout,
+                Referenceid = bookingId.ToString()
+            });
+
+            if (!string.IsNullOrWhiteSpace(booking.Parentid))
+            {
+                await _notificationService.CreateNotificationAsync(new NotificationRequest
+                {
+                    Userid = booking.Parentid,
+                    Title = "Khóa học đã kết thúc",
+                    Message = $"Booking #{bookingId} đã kết thúc sau buổi học đầu tiên do không thanh toán các buổi còn lại.",
+                    Type = NotificationType.BookingTimeout,
+                    Referenceid = bookingId.ToString()
+                });
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to send finalize-early notifications for booking {BookingId}", bookingId);
+        }
+    }
 }
