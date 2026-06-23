@@ -50,8 +50,6 @@ namespace MV.ApplicationLayer.Services
             _logger.LogInformation("Certificate {CertId} uploaded for tutor {TutorId}, awaiting admin review",
                 certificate.Certificateid, tutorId);
 
-            await AutoSubmitIfCompleteAsync(tutorId);
-
             return new CertificateUploadResponse
             {
                 Certificate = MapToCertificateResponse(certificate)

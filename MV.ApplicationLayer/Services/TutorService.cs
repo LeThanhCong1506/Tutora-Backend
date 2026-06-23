@@ -314,11 +314,10 @@ namespace MV.ApplicationLayer.Services
         /// </summary>
         public async Task<ProfileCompletionResponse> GetProfileCompletionAsync(string tutorId)
         {
-            var profile      = await _unitOfWork.TutorRepository.GetTutorProfileByIdAsync(tutorId);
-            var user         = await _unitOfWork.UserRepository.GetUserByIdAsync(tutorId);
-            var subjects     = await _unitOfWork.TutorRepository.GetTutorSubjectsByTutorIdAsync(tutorId);
-            var prices       = await _unitOfWork.TutorRepository.GetTutorSubjectGradePricesAsync(tutorId);
-            var certificates = await _unitOfWork.TutorRepository.GetCertificatesByTutorIdAsync(tutorId);
+            var profile        = await _unitOfWork.TutorRepository.GetTutorProfileByIdAsync(tutorId);
+            var user           = await _unitOfWork.UserRepository.GetUserByIdAsync(tutorId);
+            var subjects       = await _unitOfWork.TutorRepository.GetTutorSubjectsByTutorIdAsync(tutorId);
+            var prices         = await _unitOfWork.TutorRepository.GetTutorSubjectGradePricesAsync(tutorId);
             var availabilities = await _unitOfWork.TutorRepository.GetAvailabilitiesByTutorIdAsync(tutorId);
 
             bool hasBasicInfo    = profile != null
@@ -331,29 +330,23 @@ namespace MV.ApplicationLayer.Services
                                    && prices != null && prices.Any(p => p.Isactive && p.Priceperhour > 0);
             bool hasAvailability = availabilities != null && availabilities.Count > 0;
             bool hasIdentity     = user?.Isidentityverified ?? false;
-            bool hasCertificate  = certificates != null
-                                   && certificates.Any(c => string.Equals(
-                                       c.Verificationstatus, CertificateStatus.Verified,
-                                       StringComparison.OrdinalIgnoreCase));
 
             var sections = new List<ProfileSection>
             {
-                new() { Key = "basic_info",    Name = "Thông tin cơ bản",          IsComplete = hasBasicInfo,
+                new() { Key = "basic_info",    Name = "Thông tin cơ bản",     IsComplete = hasBasicInfo,
                     MissingReason = hasBasicInfo    ? null : "Cần điền Tiêu đề và Khu vực dạy học" },
-                new() { Key = "introduction",  Name = "Giới thiệu bản thân",        IsComplete = hasIntroduction,
+                new() { Key = "introduction",  Name = "Giới thiệu bản thân",   IsComplete = hasIntroduction,
                     MissingReason = hasIntroduction ? null : "Cần điền Bio và Học vấn" },
-                new() { Key = "subjects",      Name = "Môn học & Bảng giá",         IsComplete = hasSubjects,
+                new() { Key = "subjects",      Name = "Môn học & Bảng giá",    IsComplete = hasSubjects,
                     MissingReason = hasSubjects     ? null : "Cần chọn ít nhất 1 môn học và thiết lập giá" },
-                new() { Key = "availability",  Name = "Lịch rảnh",                  IsComplete = hasAvailability,
+                new() { Key = "availability",  Name = "Lịch rảnh",             IsComplete = hasAvailability,
                     MissingReason = hasAvailability ? null : "Cần thiết lập ít nhất 1 khung giờ rảnh" },
-                new() { Key = "identity",      Name = "Xác minh CCCD",              IsComplete = hasIdentity,
+                new() { Key = "identity",      Name = "Xác minh CCCD",         IsComplete = hasIdentity,
                     MissingReason = hasIdentity     ? null : "Cần upload CCCD và chờ xác minh" },
-                new() { Key = "certificate",   Name = "Chứng chỉ",                  IsComplete = hasCertificate,
-                    MissingReason = hasCertificate  ? null : "Cần ít nhất 1 chứng chỉ được xác minh" },
             };
 
             int completedCount = sections.Count(s => s.IsComplete);
-            bool canSubmit = completedCount == 6
+            bool canSubmit = completedCount == 5
                              && profile != null
                              && (string.Equals(profile.Profilestatus, TutorProfileStatus.Draft,    StringComparison.OrdinalIgnoreCase)
                               || string.Equals(profile.Profilestatus, TutorProfileStatus.Rejected, StringComparison.OrdinalIgnoreCase));
@@ -361,7 +354,7 @@ namespace MV.ApplicationLayer.Services
             return new ProfileCompletionResponse
             {
                 CompletedSections = completedCount,
-                TotalSections     = 6,
+                TotalSections     = 5,
                 CanSubmit         = canSubmit,
                 ProfileStatus     = profile?.Profilestatus ?? TutorProfileStatus.Draft,
                 Sections          = sections
