@@ -63,7 +63,12 @@ public partial class BookingService
             .FirstOrDefaultAsync(b => b.Bookingid == bookingId &&
                 (b.Parentid == userId || b.Studentid == userId || b.Student.Linkeduserid == userId));
 
-        if (booking == null || booking.Status != BookingStatus.PendingTutor) return null;
+        if (booking == null ||
+            booking.Status != BookingStatus.PendingPayment ||
+            !string.Equals(booking.Paymentstatus, PaymentStatus.Pending, StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
 
         var price = booking.Totalamount ?? 0;
         var promoResult = await ResolvePromotionAsync(promotionCode, price);

@@ -90,11 +90,11 @@ namespace MV.ApplicationLayer.Services
                 Userid = childUserId,
                 Username = username,
                 Password = _passwordRepository.HashPassword(tempPassword),
-                Email = $"{childUserId}@noemail.agora.local",
+                Email = $"{childUserId}@no-email.tutora.production.com",
                 Fullname = request.Fullname,
                 Birthdate = request.Birthdate,
                 Status = 1,
-                Isemailverified = false,
+                Isemailverified = true, // tài khoản do parent tạo, dùng email giả — không cần verify
                 Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow,
                 Primaryrole = UserRole.Student
             };

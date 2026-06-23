@@ -1,3 +1,5 @@
+using MV.DomainLayer.DTO.RequestModel;
+using MV.DomainLayer.DTO.ResponseModel;
 using MV.DomainLayer.DTO.ResponseModel.Admin;
 
 namespace MV.ApplicationLayer.ServiceInterfaces;
@@ -37,4 +39,20 @@ public interface IAdminDashboardService
         DateTime? from,
         DateTime? to,
         CancellationToken ct = default);
+
+    /// <summary>
+    /// Returns a compact KPI summary card for the admin dashboard top panel.
+    /// Includes period-aware GMV/revenue with change-vs-previous-period, booking counts, and a real-time pending-actions to-do list.
+    /// Supports optional date-range filtering (default: last 30 days). Timezone is informational — from/to are treated as UTC.
+    /// </summary>
+    Task<AdminDashboardSummaryResponse> GetSummaryAsync(
+        DateTime? from,
+        DateTime? to,
+        string timezone = "Asia/Ho_Chi_Minh",
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Xu hướng doanh thu và buổi học theo khoảng thời gian, nhóm theo bucket (day/week/month).
+    /// </summary>
+    Task<DashboardTrendResponse> GetTrendsAsync(DashboardTrendRequest request, CancellationToken ct = default);
 }

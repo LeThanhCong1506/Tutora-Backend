@@ -99,22 +99,56 @@ namespace MV.InfrastructureLayer.Repositories
 
         public async Task<PagedList<User>> GetPendingTutorsAsync(UserParameters parameters)
         {
-            // Lấy User có Role là Tutor VÀ trạng thái Profile là 'pending_approval'
             var query = _context.Users
                 .Include(u => u.Tutorprofile)
                 .Where(u => u.Primaryrole != null && u.Primaryrole.ToLower() == UserRole.Tutor.ToLower() &&
                             u.Tutorprofile.Profilestatus.ToLower() == TutorProfileStatus.PendingApproval)
                 .AsNoTracking();
 
+            // Search term: fullname, email, phone, username
+            if (!string.IsNullOrWhiteSpace(parameters.SearchTerm))
+            {
+                var term = parameters.SearchTerm.Trim().ToLower();
+                query = query.Where(u =>
+                    (u.Fullname != null && u.Fullname.ToLower().Contains(term)) ||
+                    (u.Email != null && u.Email.ToLower().Contains(term)) ||
+                    (u.Phone != null && u.Phone.ToLower().Contains(term)) ||
+                    (u.Username != null && u.Username.ToLower().Contains(term)));
+            }
 
+            // Filter: teachingareacity
+            if (!string.IsNullOrWhiteSpace(parameters.TeachingAreaCity))
+            {
+                var city = parameters.TeachingAreaCity.Trim().ToLower();
+                query = query.Where(u =>
+                    u.Tutorprofile != null &&
+                    u.Tutorprofile.Teachingareacity != null &&
+                    u.Tutorprofile.Teachingareacity.ToLower().Contains(city));
+            }
 
-            // Sorting - Mặc định sắp xếp theo ngày tạo mới nhất
+            // Filter: ispublic
+            if (parameters.IsPublic.HasValue)
+                query = query.Where(u =>
+                    u.Tutorprofile != null &&
+                    u.Tutorprofile.Ispublic == parameters.IsPublic.Value);
+
+            // Filter: subscriptiontype
+            if (!string.IsNullOrWhiteSpace(parameters.SubscriptionType))
+            {
+                var sub = parameters.SubscriptionType.Trim().ToLower();
+                query = query.Where(u =>
+                    u.Tutorprofile != null &&
+                    u.Tutorprofile.Subscriptiontype != null &&
+                    u.Tutorprofile.Subscriptiontype.ToLower() == sub);
+            }
+
+            // Sorting
             query = parameters.OrderBy?.ToLower() switch
             {
-                UserListSortBy.CreatedAtAsc => query.OrderBy(u => u.Createdat),
-                UserListSortBy.FullNameAsc => query.OrderBy(u => u.Fullname),
-                UserListSortBy.FullNameDesc => query.OrderByDescending(u => u.Fullname),
-                _ => query.OrderByDescending(u => u.Createdat) // default: newest first
+                UserListSortBy.CreatedAtAsc  => query.OrderBy(u => u.Createdat),
+                UserListSortBy.FullNameAsc   => query.OrderBy(u => u.Fullname),
+                UserListSortBy.FullNameDesc  => query.OrderByDescending(u => u.Fullname),
+                _ => query.OrderByDescending(u => u.Createdat)
             };
 
             return PagedList<User>.ToPagedList(query, parameters.PageNumber, parameters.PageSize);

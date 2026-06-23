@@ -1,3 +1,4 @@
+using MV.DomainLayer.DTO.RequestModel;
 using MV.DomainLayer.Entities;
 
 namespace MV.ApplicationLayer.RepositoryInterfaces
@@ -38,5 +39,6 @@ namespace MV.ApplicationLayer.RepositoryInterfaces
         Task<Tutorcertificate?> GetCertificateByIdAsync(string certificateId);
         Task AddCertificateAsync(Tutorcertificate certificate);
         void DeleteCertificate(Tutorcertificate certificate);
+        Task<PagedList<Tutorcertificate>> GetAdminCertificatesAsync(CertificateParameters parameters);
     }
 }

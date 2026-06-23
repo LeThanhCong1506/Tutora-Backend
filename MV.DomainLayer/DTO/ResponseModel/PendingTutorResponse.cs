@@ -23,7 +23,6 @@ namespace MV.DomainLayer.DTO.ResponseModel
 
         // --- Profile Status ---
         public string? ProfileStatus { get; set; }
-        public string? RejectionNote { get; set; }
         public DateTime? ProfileCreatedAt { get; set; }
         public DateTime? ProfileUpdatedAt { get; set; }
 

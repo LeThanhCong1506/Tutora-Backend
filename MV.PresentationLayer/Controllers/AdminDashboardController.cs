@@ -3,6 +3,8 @@ using Microsoft.AspNetCore.Mvc;
 using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO;
+using MV.DomainLayer.DTO.RequestModel;
+using MV.DomainLayer.DTO.ResponseModel;
 using MV.DomainLayer.DTO.ResponseModel.Admin;
 
 namespace MV.PresentationLayer.Controllers;
@@ -91,6 +93,35 @@ public class AdminDashboardController(IAdminDashboardService dashboardService) :
     }
 
     /// <summary>
+    /// GET /api/admin/dashboard/summary
+    /// Trả về thẻ KPI tóm tắt cho panel đầu trang admin: GMV, doanh thu nền tảng (có %thay đổi so với kỳ trước),
+    /// số lượng booking, và danh sách việc cần xử lý của admin.
+    /// Query params:
+    ///   from, to  — khoảng thời gian (UTC). Mặc định: 30 ngày gần nhất.
+    ///   timezone  — tên timezone IANA để FE tham chiếu (mặc định Asia/Ho_Chi_Minh). from/to luôn được coi là UTC.
+    /// </summary>
+    [HttpGet("summary")]
+    public async Task<IActionResult> GetSummary(
+        [FromQuery] DateTime? from = null,
+        [FromQuery] DateTime? to = null,
+        [FromQuery] string timezone = "Asia/Ho_Chi_Minh",
+        CancellationToken ct = default)
+    {
+        try
+        {
+            if (from.HasValue && to.HasValue && from > to)
+                return BadRequest(APIResponse<object>.Fail("Ngày bắt đầu không được lớn hơn ngày kết thúc.", 400));
+
+            var result = await dashboardService.GetSummaryAsync(from, to, timezone, ct);
+            return Ok(APIResponse<AdminDashboardSummaryResponse>.Success(result, "Lấy tóm tắt dashboard thành công."));
+        }
+        catch (Exception ex)
+        {
+            return HandleException(ex);
+        }
+    }
+
+    /// <summary>
     /// GET /api/admin/dashboard/disputes
     /// Trả về thống kê tranh chấp bao gồm tổng quan, tài chính, phân loại và xu hướng theo tháng.
     /// Query params: from, to (default: 30 ngày gần nhất)
@@ -108,6 +139,25 @@ public class AdminDashboardController(IAdminDashboardService dashboardService) :
 
             var result = await dashboardService.GetDisputeStatsAsync(from, to, ct);
             return Ok(APIResponse<AdminDisputeStatsResponse>.Success(result, "Lấy thống kê tranh chấp thành công."));
+        }
+        catch (Exception ex)
+        {
+            return HandleException(ex);
+        }
+    }
+
+    /// <summary>
+    /// GET /api/admin/dashboard/trends
+    /// Xu hướng doanh thu và buổi học theo khoảng thời gian.
+    /// Query: from (yyyy-MM-dd), to (yyyy-MM-dd), bucket (auto|day|week|month), timezone
+    /// </summary>
+    [HttpGet("trends")]
+    public async Task<IActionResult> GetTrends([FromQuery] DashboardTrendRequest request, CancellationToken ct = default)
+    {
+        try
+        {
+            var result = await dashboardService.GetTrendsAsync(request, ct);
+            return Ok(APIResponse<DashboardTrendResponse>.Success(result, "Lấy xu hướng thành công."));
         }
         catch (Exception ex)
         {

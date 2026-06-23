@@ -289,7 +289,7 @@ public class UserTestService : IUserTestService
         // Xóa trực tiếp qua raw SQL để tránh load full entity Chatchannel
         // (cột studentid chưa có trong DB nên không thể ToListAsync)
         await _context.Database.ExecuteSqlRawAsync(
-            "DELETE FROM chatparticipants WHERE userid = {0}", userId);
+            "DELETE FROM chat_participants WHERE user_id = {0}", userId);
 
         // 5.5. Xóa Notification
         await _context.Notifications

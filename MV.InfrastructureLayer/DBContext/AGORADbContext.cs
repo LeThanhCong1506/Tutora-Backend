@@ -112,36 +112,36 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
 
             entity.ToTable("bank_change_logs");
 
-            entity.Property(e => e.Logid).HasColumnName("logid");
+            entity.Property(e => e.Logid).HasColumnName("log_id");
             entity.Property(e => e.Tutorid)
                 .HasMaxLength(50)
-                .HasColumnName("tutorid");
+                .HasColumnName("tutor_id");
             entity.Property(e => e.Oldbankname)
                 .HasMaxLength(100)
-                .HasColumnName("oldbankname");
+                .HasColumnName("old_bank_name");
             entity.Property(e => e.Oldbankaccountnumber)
                 .HasMaxLength(50)
-                .HasColumnName("oldbankaccountnumber");
+                .HasColumnName("old_bank_account_number");
             entity.Property(e => e.Oldbankaccountname)
                 .HasMaxLength(200)
-                .HasColumnName("oldbankaccountname");
+                .HasColumnName("old_bank_account_name");
             entity.Property(e => e.Newbankname)
                 .HasMaxLength(100)
-                .HasColumnName("newbankname");
+                .HasColumnName("new_bank_name");
             entity.Property(e => e.Newbankaccountnumber)
                 .HasMaxLength(50)
-                .HasColumnName("newbankaccountnumber");
+                .HasColumnName("new_bank_account_number");
             entity.Property(e => e.Newbankaccountname)
                 .HasMaxLength(200)
-                .HasColumnName("newbankaccountname");
+                .HasColumnName("new_bank_account_name");
             entity.Property(e => e.Changedat)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnType("timestamp without time zone")
-                .HasColumnName("changedat");
+                .HasColumnName("changed_at");
             entity.Property(e => e.Ipaddress)
                 .HasMaxLength(45)
-                .HasColumnName("ipaddress");
-            entity.Property(e => e.Useragent).HasColumnName("useragent");
+                .HasColumnName("ip_address");
+            entity.Property(e => e.Useragent).HasColumnName("user_agent");
             entity.Property(e => e.Reason)
                 .HasMaxLength(500)
                 .HasColumnName("reason");
@@ -158,16 +158,16 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
 
             entity.ToTable("fraud_logs");
 
-            entity.Property(e => e.Logid).HasColumnName("logid");
+            entity.Property(e => e.Logid).HasColumnName("log_id");
             entity.Property(e => e.Tutorid)
                 .HasMaxLength(50)
-                .HasColumnName("tutorid");
-            entity.Property(e => e.Withdrawalrequestid).HasColumnName("withdrawalrequestid");
+                .HasColumnName("tutor_id");
+            entity.Property(e => e.Withdrawalrequestid).HasColumnName("withdrawal_request_id");
             entity.Property(e => e.Rulename)
                 .HasMaxLength(100)
-                .HasColumnName("rulename");
+                .HasColumnName("rule_name");
             entity.Property(e => e.Passed).HasColumnName("passed");
-            entity.Property(e => e.Isflagged).HasColumnName("isflagged");
+            entity.Property(e => e.Isflagged).HasColumnName("is_flagged");
             entity.Property(e => e.Message).HasColumnName("message");
             entity.Property(e => e.Metadata)
                 .HasColumnType("jsonb")
@@ -175,7 +175,7 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
             entity.Property(e => e.Checkedat)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnType("timestamp without time zone")
-                .HasColumnName("checkedat");
+                .HasColumnName("checked_at");
 
             entity.HasOne(d => d.Tutor).WithMany()
                 .HasForeignKey(d => d.Tutorid)
@@ -194,18 +194,18 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
 
             entity.ToTable("login_history");
 
-            entity.Property(e => e.Logid).HasColumnName("logid");
+            entity.Property(e => e.Logid).HasColumnName("log_id");
             entity.Property(e => e.Userid)
                 .HasMaxLength(50)
-                .HasColumnName("userid");
+                .HasColumnName("user_id");
             entity.Property(e => e.Ipaddress)
                 .HasMaxLength(45)
-                .HasColumnName("ipaddress");
-            entity.Property(e => e.Useragent).HasColumnName("useragent");
+                .HasColumnName("ip_address");
+            entity.Property(e => e.Useragent).HasColumnName("user_agent");
             entity.Property(e => e.Loggedat)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnType("timestamp without time zone")
-                .HasColumnName("loggedat");
+                .HasColumnName("logged_at");
 
             entity.HasOne(d => d.User).WithMany()
                 .HasForeignKey(d => d.Userid)
@@ -219,29 +219,29 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
 
             entity.ToTable("withdrawal_scores");
 
-            entity.Property(e => e.Scoreid).HasColumnName("scoreid");
-            entity.Property(e => e.Withdrawalrequestid).HasColumnName("withdrawalrequestid");
+            entity.Property(e => e.Scoreid).HasColumnName("score_id");
+            entity.Property(e => e.Withdrawalrequestid).HasColumnName("withdrawal_request_id");
             entity.Property(e => e.Tutorid)
                 .HasMaxLength(50)
-                .HasColumnName("tutorid");
-            entity.Property(e => e.Basescore).HasColumnName("basescore");
+                .HasColumnName("tutor_id");
+            entity.Property(e => e.Basescore).HasColumnName("base_score");
             entity.Property(e => e.Positivefactors)
                 .HasColumnType("jsonb")
-                .HasColumnName("positivefactors");
+                .HasColumnName("positive_factors");
             entity.Property(e => e.Negativefactors)
                 .HasColumnType("jsonb")
-                .HasColumnName("negativefactors");
+                .HasColumnName("negative_factors");
             entity.Property(e => e.Fraudflags)
                 .HasColumnType("jsonb")
-                .HasColumnName("fraudflags");
-            entity.Property(e => e.Totalscore).HasColumnName("totalscore");
+                .HasColumnName("fraud_flags");
+            entity.Property(e => e.Totalscore).HasColumnName("total_score");
             entity.Property(e => e.Decision)
                 .HasMaxLength(50)
                 .HasColumnName("decision");
             entity.Property(e => e.Createdat)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnType("timestamp without time zone")
-                .HasColumnName("createdat");
+                .HasColumnName("created_at");
 
             entity.HasOne(d => d.Withdrawalrequest).WithMany()
                 .HasForeignKey(d => d.Withdrawalrequestid)
@@ -264,120 +264,126 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
 
             entity.HasIndex(e => e.Status, "idx_bookings_status");
 
-            entity.Property(e => e.Bookingid).HasColumnName("bookingid");
-            entity.Property(e => e.Cancellationreason).HasColumnName("cancellationreason");
+            entity.Property(e => e.Bookingid).HasColumnName("booking_id");
+            entity.Property(e => e.Cancellationreason).HasColumnName("cancellation_reason");
             entity.Property(e => e.Cancelledat)
                 .HasColumnType("timestamp without time zone")
-                .HasColumnName("cancelledat");
+                .HasColumnName("cancelled_at");
             entity.Property(e => e.Cancelledby)
                 .HasMaxLength(50)
-                .HasColumnName("cancelledby");
+                .HasColumnName("cancelled_by");
             entity.Property(e => e.Createdat)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnType("timestamp without time zone")
-                .HasColumnName("createdat");
+                .HasColumnName("created_at");
             entity.Property(e => e.Depositamount)
                 .HasPrecision(12, 2)
-                .HasColumnName("depositamount");
+                .HasColumnName("deposit_amount");
             entity.Property(e => e.Depositpaidat)
                 .HasColumnType("timestamp without time zone")
-                .HasColumnName("depositpaidat");
+                .HasColumnName("deposit_paid_at");
             entity.Property(e => e.Discountapplied)
                 .HasPrecision(18, 2)
-                .HasColumnName("discountapplied");
+                .HasColumnName("discount_applied");
 
             entity.Property(e => e.Escrowstatus)
                 .HasMaxLength(20)
                 .HasDefaultValueSql("'held'::character varying")
-                .HasColumnName("escrowstatus");
+                .HasColumnName("escrow_status");
             entity.Property(e => e.Finalprice)
                 .HasPrecision(12, 2)
-                .HasColumnName("finalprice");
+                .HasColumnName("final_price");
             entity.Property(e => e.Graceperiodends)
                 .HasColumnType("timestamp without time zone")
-                .HasColumnName("graceperiodends");
+                .HasColumnName("grace_period_ends");
             entity.Property(e => e.Locationcity)
                 .HasMaxLength(50)
-                .HasColumnName("locationcity");
+                .HasColumnName("location_city");
             entity.Property(e => e.Locationdetail)
                 .HasMaxLength(255)
-                .HasColumnName("locationdetail");
+                .HasColumnName("location_detail");
             entity.Property(e => e.Locationdistrict)
                 .HasMaxLength(50)
-                .HasColumnName("locationdistrict");
+                .HasColumnName("location_district");
             entity.Property(e => e.Locationward)
                 .HasMaxLength(50)
-                .HasColumnName("locationward");
-            entity.Property(e => e.Packageid).HasColumnName("packageid");
-            entity.Property(e => e.Totalsessions).HasColumnName("totalsessions");
+                .HasColumnName("location_ward");
+            entity.Property(e => e.Packageid).HasColumnName("package_id");
+            entity.Property(e => e.Totalsessions).HasColumnName("total_sessions");
 
             entity.Property(e => e.Priceperhour)
                 .HasPrecision(12, 2)
-                .HasColumnName("priceperhour");
+                .HasColumnName("price_per_hour");
             entity.Property(e => e.Totalamount)
                 .HasPrecision(12, 2)
-                .HasColumnName("totalamount");
+                .HasColumnName("total_amount");
             entity.Property(e => e.Currency)
                 .HasMaxLength(10)
                 .HasDefaultValueSql("'VND'::character varying")
                 .HasColumnName("currency");
             entity.Property(e => e.Parentfee)
                 .HasPrecision(12, 2)
-                .HasColumnName("parentfee");
+                .HasColumnName("parent_fee");
             entity.Property(e => e.Parentid)
                 .HasMaxLength(50)
-                .HasColumnName("parentid");
+                .HasColumnName("parent_id");
             entity.Property(e => e.Paymentcode)
                 .HasMaxLength(50)
-                .HasColumnName("paymentcode");
+                .HasColumnName("payment_code");
             entity.Property(e => e.Startdate)
                 .HasColumnType("timestamp without time zone")
-                .HasColumnName("startdate");
+                .HasColumnName("start_date");
             entity.Property(e => e.Paymentdueat)
                 .HasColumnType("timestamp without time zone")
-                .HasColumnName("paymentdueat");
+                .HasColumnName("payment_due_at");
             entity.Property(e => e.Paymentstatus)
                 .HasMaxLength(20)
-                .HasColumnName("paymentstatus");
+                .HasColumnName("payment_status");
             entity.Property(e => e.Platformfee)
                 .HasPrecision(12, 2)
-                .HasColumnName("platformfee");
-            entity.Property(e => e.Promotionid).HasColumnName("promotionid");
+                .HasColumnName("platform_fee");
+            entity.Property(e => e.Promotionid).HasColumnName("promotion_id");
             entity.Property(e => e.Remainingamount)
                 .HasPrecision(12, 2)
-                .HasColumnName("remainingamount");
+                .HasColumnName("remaining_amount");
             entity.Property(e => e.Remainingpaidat)
                 .HasColumnType("timestamp without time zone")
-                .HasColumnName("remainingpaidat");
-            entity.Property(e => e.Sessionsremaining).HasColumnName("sessionsremaining");
+                .HasColumnName("remaining_paid_at");
+            entity.Property(e => e.Sessionsremaining).HasColumnName("sessions_remaining");
             entity.Property(e => e.Status)
                 .HasMaxLength(30)
                 .HasColumnName("status");
             entity.Property(e => e.Studentid)
                 .HasMaxLength(50)
-                .HasColumnName("studentid");
+                .HasColumnName("student_id");
             entity.Property(e => e.Createdbyrole)
                 .HasMaxLength(20)
-                .HasColumnName("createdbyrole");
+                .HasColumnName("created_by_role");
             entity.Property(e => e.Responsedeadline)
-                .HasColumnName("responsedeadline");
-            entity.Property(e => e.Tutorsubjectgradepriceid).HasColumnName("tutorsubjectgradepriceid");
+                .HasColumnName("response_deadline");
+            entity.Property(e => e.Payosbin).HasMaxLength(20).HasColumnName("payos_bin");
+            entity.Property(e => e.Payosaccountnumber).HasMaxLength(50).HasColumnName("payos_account_number");
+            entity.Property(e => e.Payosaccountname).HasMaxLength(200).HasColumnName("payos_account_name");
+            entity.Property(e => e.Payosdescription).HasMaxLength(100).HasColumnName("payos_description");
+            entity.Property(e => e.Payoscheckouturl).HasColumnName("payos_checkout_url");
+            entity.Property(e => e.Payosqrcode).HasColumnName("payos_qr_code");
+            entity.Property(e => e.Tutorsubjectgradepriceid).HasColumnName("tutor_subject_grade_price_id");
             entity.Property(e => e.Tutorfee)
                 .HasPrecision(12, 2)
-                .HasColumnName("tutorfee");
+                .HasColumnName("tutor_fee");
             entity.Property(e => e.Tutorid)
                 .HasMaxLength(50)
-                .HasColumnName("tutorid");
+                .HasColumnName("tutor_id");
             entity.Property(e => e.Updatedat)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnType("timestamp without time zone")
-                .HasColumnName("updatedat");
+                .HasColumnName("updated_at");
             entity.Property(e => e.Refundamount)
                 .HasPrecision(12, 2)
-                .HasColumnName("refundamount");
+                .HasColumnName("refund_amount");
             entity.Property(e => e.Refundstatus)
                 .HasMaxLength(50)
-                .HasColumnName("refundstatus");
+                .HasColumnName("refund_status");
 
             entity.HasOne(d => d.Parent).WithMany(p => p.Bookings)
                 .HasForeignKey(d => d.Parentid)
@@ -409,27 +415,27 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
         {
             entity.HasKey(e => e.Channelid).HasName("chatchannels_pkey");
 
-            entity.ToTable("chatchannels");
+            entity.ToTable("chat_channels");
 
-            entity.Property(e => e.Channelid).HasColumnName("channelid");
-            entity.Property(e => e.Bookingid).HasColumnName("bookingid");
+            entity.Property(e => e.Channelid).HasColumnName("channel_id");
+            entity.Property(e => e.Bookingid).HasColumnName("booking_id");
             entity.Property(e => e.Parentid)
                 .HasMaxLength(50)
-                .HasColumnName("parentid");
+                .HasColumnName("parent_id");
             entity.Property(e => e.Tutorid)
                 .HasMaxLength(50)
-                .HasColumnName("tutorid");
+                .HasColumnName("tutor_id");
             // Phase 4: Uncomment khi DB có cột studentid trên chatchannels
             entity.Property(e => e.Studentid)
                 .HasMaxLength(50)
-                .HasColumnName("studentid");
+                .HasColumnName("student_id");
             entity.Property(e => e.Createdat)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnType("timestamp without time zone")
-                .HasColumnName("createdat");
+                .HasColumnName("created_at");
             entity.Property(e => e.Lastmessageat)
                 .HasColumnType("timestamp without time zone")
-                .HasColumnName("lastmessageat");
+                .HasColumnName("last_message_at");
             entity.Property(e => e.Status)
                 .HasMaxLength(20)
                 .HasDefaultValueSql("'active'::character varying")
@@ -437,13 +443,13 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
 
             entity.HasIndex(e => new { e.Parentid, e.Tutorid })
                 .IsUnique()
-                .HasFilter("parentid IS NOT NULL AND tutorid IS NOT NULL")
+                .HasFilter("parent_id IS NOT NULL AND tutor_id IS NOT NULL")
                 .HasDatabaseName("ix_chatchannels_parentid_tutorid");
 
             // Phase 4: Uncomment khi DB có cột studentid trên chatchannels
             entity.HasIndex(e => new { e.Studentid, e.Tutorid })
                 .IsUnique()
-                .HasFilter("studentid IS NOT NULL AND tutorid IS NOT NULL")
+                .HasFilter("student_id IS NOT NULL AND tutor_id IS NOT NULL")
                 .HasDatabaseName("ix_chatchannels_studentid_tutorid");
 
             entity.HasOne(d => d.Booking).WithMany(p => p.Chatchannels)
@@ -479,11 +485,11 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
                     j =>
                     {
                         j.HasKey("Channelid", "Userid").HasName("chatparticipants_pkey");
-                        j.ToTable("chatparticipants");
-                        j.IndexerProperty<int>("Channelid").HasColumnName("channelid");
+                        j.ToTable("chat_participants");
+                        j.IndexerProperty<int>("Channelid").HasColumnName("channel_id");
                         j.IndexerProperty<string>("Userid")
                             .HasMaxLength(50)
-                            .HasColumnName("userid");
+                            .HasColumnName("user_id");
                     });
         });
 
@@ -491,31 +497,31 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
         {
             entity.HasKey(e => e.Messageid).HasName("chatmessages_pkey");
 
-            entity.ToTable("chatmessages");
+            entity.ToTable("chat_messages");
 
-            entity.Property(e => e.Messageid).HasColumnName("messageid");
-            entity.Property(e => e.Channelid).HasColumnName("channelid");
+            entity.Property(e => e.Messageid).HasColumnName("message_id");
+            entity.Property(e => e.Channelid).HasColumnName("channel_id");
             entity.Property(e => e.Content).HasColumnName("content");
             entity.Property(e => e.Createdat)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnType("timestamp without time zone")
-                .HasColumnName("createdat");
+                .HasColumnName("created_at");
             entity.Property(e => e.Metadata)
                 .HasColumnType("jsonb")
                 .HasColumnName("metadata");
             entity.Property(e => e.Messagetype)
                 .HasMaxLength(20)
                 .HasDefaultValueSql("'text'::character varying")
-                .HasColumnName("messagetype");
+                .HasColumnName("message_type");
             entity.Property(e => e.Senderid)
                 .HasMaxLength(50)
-                .HasColumnName("senderid");
+                .HasColumnName("sender_id");
             entity.Property(e => e.Isread)
                 .HasDefaultValue(false)
-                .HasColumnName("isread");
+                .HasColumnName("is_read");
             entity.Property(e => e.Readat)
                 .HasColumnType("timestamp without time zone")
-                .HasColumnName("readat");
+                .HasColumnName("read_at");
 
             entity.HasOne(d => d.Channel).WithMany(p => p.Chatmessages)
                 .HasForeignKey(d => d.Channelid)
@@ -624,25 +630,25 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
 
             entity.HasIndex(e => e.Classcode, "idx_classes_code");
 
-            entity.Property(e => e.Classid).HasColumnName("classid");
-            entity.Property(e => e.Bookingid).HasColumnName("bookingid");
+            entity.Property(e => e.Classid).HasColumnName("class_id");
+            entity.Property(e => e.Bookingid).HasColumnName("booking_id");
             entity.Property(e => e.Classcode)
                 .HasMaxLength(20)
-                .HasColumnName("classcode");
+                .HasColumnName("class_code");
             entity.Property(e => e.Classname)
                 .HasMaxLength(200)
-                .HasColumnName("classname");
+                .HasColumnName("class_name");
             entity.Property(e => e.Createdat)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnType("timestamp without time zone")
-                .HasColumnName("createdat");
+                .HasColumnName("created_at");
             entity.Property(e => e.Status)
                 .HasMaxLength(20)
                 .HasDefaultValueSql("'active'::character varying")
                 .HasColumnName("status");
             entity.Property(e => e.Tutorid)
                 .HasMaxLength(50)
-                .HasColumnName("tutorid");
+                .HasColumnName("tutor_id");
 
             entity.HasOne(d => d.Booking).WithOne(p => p.Class)
                 .HasForeignKey<Class>(d => d.Bookingid)
@@ -660,37 +666,37 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
 
             entity.ToTable("disputes");
 
-            entity.Property(e => e.Disputeid).HasColumnName("disputeid");
-            entity.Property(e => e.Bookingid).HasColumnName("bookingid");
+            entity.Property(e => e.Disputeid).HasColumnName("dispute_id");
+            entity.Property(e => e.Bookingid).HasColumnName("booking_id");
             entity.Property(e => e.Createdat)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnType("timestamp without time zone")
-                .HasColumnName("createdat");
+                .HasColumnName("created_at");
             entity.Property(e => e.Createdby)
                 .HasMaxLength(50)
-                .HasColumnName("createdby");
+                .HasColumnName("created_by");
             entity.Property(e => e.Disputetype)
                 .HasMaxLength(50)
-                .HasColumnName("disputetype");
+                .HasColumnName("dispute_type");
             entity.Property(e => e.Evidence)
                 .HasColumnType("jsonb")
                 .HasColumnName("evidence");
-            entity.Property(e => e.Lessonid).HasColumnName("lessonid");
+            entity.Property(e => e.Lessonid).HasColumnName("lesson_id");
             entity.Property(e => e.Reason).HasColumnName("reason");
             entity.Property(e => e.Refundamount)
                 .HasPrecision(12, 2)
-                .HasColumnName("refundamount");
+                .HasColumnName("refund_amount");
             entity.Property(e => e.Refundissued)
                 .HasDefaultValue(false)
-                .HasColumnName("refundissued");
-            entity.Property(e => e.Refundpercentage).HasColumnName("refundpercentage");
-            entity.Property(e => e.Resolutionnote).HasColumnName("resolutionnote");
+                .HasColumnName("refund_issued");
+            entity.Property(e => e.Refundpercentage).HasColumnName("refund_percentage");
+            entity.Property(e => e.Resolutionnote).HasColumnName("resolution_note");
             entity.Property(e => e.Resolvedat)
                 .HasColumnType("timestamp without time zone")
-                .HasColumnName("resolvedat");
+                .HasColumnName("resolved_at");
             entity.Property(e => e.Resolvedby)
                 .HasMaxLength(50)
-                .HasColumnName("resolvedby");
+                .HasColumnName("resolved_by");
             entity.Property(e => e.Status)
                 .HasMaxLength(50)
                 .HasColumnName("status");
@@ -720,32 +726,32 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
 
             entity.HasIndex(e => new { e.Bookingid, e.Fromuserid }, "feedbacks_bookingid_fromuserid_key").IsUnique();
 
-            entity.Property(e => e.Feedbackid).HasColumnName("feedbackid");
-            entity.Property(e => e.Bookingid).HasColumnName("bookingid");
+            entity.Property(e => e.Feedbackid).HasColumnName("feedback_id");
+            entity.Property(e => e.Bookingid).HasColumnName("booking_id");
             entity.Property(e => e.Comment).HasColumnName("comment");
             entity.Property(e => e.Createdat)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnType("timestamp without time zone")
-                .HasColumnName("createdat");
+                .HasColumnName("created_at");
             entity.Property(e => e.Feedbacktype)
                 .HasMaxLength(30)
                 .HasDefaultValueSql("'post_lesson'::character varying")
-                .HasColumnName("feedbacktype");
+                .HasColumnName("feedback_type");
             entity.Property(e => e.Fromuserid)
                 .HasMaxLength(50)
-                .HasColumnName("fromuserid");
+                .HasColumnName("from_user_id");
             entity.Property(e => e.Isvisible)
                 .HasDefaultValue(true)
-                .HasColumnName("isvisible");
-            entity.Property(e => e.Lessonid).HasColumnName("lessonid");
+                .HasColumnName("is_visible");
+            entity.Property(e => e.Lessonid).HasColumnName("lesson_id");
             entity.Property(e => e.Rating).HasColumnName("rating");
             entity.Property(e => e.Repliedat)
                 .HasColumnType("timestamp without time zone")
-                .HasColumnName("repliedat");
-            entity.Property(e => e.Replycomment).HasColumnName("replycomment");
+                .HasColumnName("replied_at");
+            entity.Property(e => e.Replycomment).HasColumnName("reply_comment");
             entity.Property(e => e.Touserid)
                 .HasMaxLength(50)
-                .HasColumnName("touserid");
+                .HasColumnName("to_user_id");
             
             // --- CẤU HÌNH MAPPING MỚI ---
             entity.Property(e => e.InitialGoal)
@@ -780,35 +786,35 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
         {
             entity.HasKey(e => e.Summaryid).HasName("handoversummaries_pkey");
 
-            entity.ToTable("handoversummaries");
+            entity.ToTable("handover_summaries");
 
-            entity.Property(e => e.Summaryid).HasColumnName("summaryid");
+            entity.Property(e => e.Summaryid).HasColumnName("summary_id");
             entity.Property(e => e.Attendancerate)
                 .HasPrecision(5, 2)
-                .HasColumnName("attendancerate");
+                .HasColumnName("attendance_rate");
             entity.Property(e => e.Averagescore)
                 .HasPrecision(5, 2)
-                .HasColumnName("averagescore");
-            entity.Property(e => e.Frombookingid).HasColumnName("frombookingid");
+                .HasColumnName("average_score");
+            entity.Property(e => e.Frombookingid).HasColumnName("from_booking_id");
             entity.Property(e => e.Fromtutorid)
                 .HasMaxLength(50)
-                .HasColumnName("fromtutorid");
+                .HasColumnName("from_tutor_id");
             entity.Property(e => e.Generatedat)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnType("timestamp without time zone")
-                .HasColumnName("generatedat");
+                .HasColumnName("generated_at");
             entity.Property(e => e.Scoretrend)
                 .HasMaxLength(20)
-                .HasColumnName("scoretrend");
+                .HasColumnName("score_trend");
             entity.Property(e => e.Studentid)
                 .HasMaxLength(50)
-                .HasColumnName("studentid");
-            entity.Property(e => e.Topicscovered).HasColumnName("topicscovered");
-            entity.Property(e => e.Totalsessions).HasColumnName("totalsessions");
+                .HasColumnName("student_id");
+            entity.Property(e => e.Topicscovered).HasColumnName("topics_covered");
+            entity.Property(e => e.Totalsessions).HasColumnName("total_sessions");
             entity.Property(e => e.Totutorid)
                 .HasMaxLength(50)
-                .HasColumnName("totutorid");
-            entity.Property(e => e.Tutornotes).HasColumnName("tutornotes");
+                .HasColumnName("to_tutor_id");
+            entity.Property(e => e.Tutornotes).HasColumnName("tutor_notes");
 
             entity.HasOne(d => d.Frombooking).WithMany(p => p.Handoversummaries)
                 .HasForeignKey(d => d.Frombookingid)
@@ -832,37 +838,37 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
         {
             entity.HasKey(e => e.Materialid).HasName("learningmaterials_pkey");
 
-            entity.ToTable("learningmaterials");
+            entity.ToTable("learning_materials");
 
             entity.HasIndex(e => e.Studentid, "idx_learningmaterials_student");
 
-            entity.Property(e => e.Materialid).HasColumnName("materialid");
-            entity.Property(e => e.Bookingid).HasColumnName("bookingid");
+            entity.Property(e => e.Materialid).HasColumnName("material_id");
+            entity.Property(e => e.Bookingid).HasColumnName("booking_id");
             entity.Property(e => e.Createdat)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnType("timestamp without time zone")
-                .HasColumnName("createdat");
+                .HasColumnName("created_at");
             entity.Property(e => e.Description).HasColumnName("description");
-            entity.Property(e => e.Filesize).HasColumnName("filesize");
+            entity.Property(e => e.Filesize).HasColumnName("file_size");
             entity.Property(e => e.Filetype)
                 .HasMaxLength(50)
-                .HasColumnName("filetype");
-            entity.Property(e => e.Fileurl).HasColumnName("fileurl");
+                .HasColumnName("file_type");
+            entity.Property(e => e.Fileurl).HasColumnName("file_url");
             entity.Property(e => e.Ispublic)
                 .HasDefaultValue(false)
-                .HasColumnName("ispublic");
+                .HasColumnName("is_public");
             entity.Property(e => e.Ownertype)
                 .HasMaxLength(20)
-                .HasColumnName("ownertype");
+                .HasColumnName("owner_type");
             entity.Property(e => e.Studentid)
                 .HasMaxLength(50)
-                .HasColumnName("studentid");
+                .HasColumnName("student_id");
             entity.Property(e => e.Title)
                 .HasMaxLength(255)
                 .HasColumnName("title");
             entity.Property(e => e.Uploadedby)
                 .HasMaxLength(50)
-                .HasColumnName("uploadedby");
+                .HasColumnName("uploaded_by");
 
             entity.HasOne(d => d.Booking).WithMany(p => p.Learningmaterials)
                 .HasForeignKey(d => d.Bookingid)
@@ -887,84 +893,84 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
 
             entity.HasIndex(e => new { e.Istutorpresent, e.Isstudentpresent }, "idx_lessons_attendance");
 
-            entity.HasIndex(e => e.Autoreportsent, "idx_lessons_autoreport").HasFilter("(autoreportsent = false)");
+            entity.HasIndex(e => e.Autoreportsent, "idx_lessons_autoreport").HasFilter("(auto_report_sent = false)");
 
-            entity.Property(e => e.Lessonid).HasColumnName("lessonid");
-            entity.Property(e => e.Attendancenote).HasColumnName("attendancenote");
+            entity.Property(e => e.Lessonid).HasColumnName("lesson_id");
+            entity.Property(e => e.Attendancenote).HasColumnName("attendance_note");
             entity.Property(e => e.Autoreportsent)
                 .HasDefaultValue(false)
-                .HasColumnName("autoreportsent");
+                .HasColumnName("auto_report_sent");
             entity.Property(e => e.Autoreportsentat)
                 .HasColumnType("timestamp without time zone")
-                .HasColumnName("autoreportsentat");
-            entity.Property(e => e.Bookingid).HasColumnName("bookingid");
+                .HasColumnName("auto_report_sent_at");
+            entity.Property(e => e.Bookingid).HasColumnName("booking_id");
             entity.Property(e => e.Checkintime)
                 .HasColumnType("timestamp without time zone")
-                .HasColumnName("checkintime");
+                .HasColumnName("check_in_time");
             entity.Property(e => e.Checkouttime)
                 .HasColumnType("timestamp without time zone")
-                .HasColumnName("checkouttime");
+                .HasColumnName("check_out_time");
             entity.Property(e => e.Confirmdeadline)
                 .HasColumnType("timestamp without time zone")
-                .HasColumnName("confirmdeadline");
+                .HasColumnName("confirm_deadline");
             entity.Property(e => e.Homework).HasColumnName("homework");
             entity.Property(e => e.Ismakeup)
                 .HasDefaultValue(false)
-                .HasColumnName("ismakeup");
+                .HasColumnName("is_makeup");
             entity.Property(e => e.Issettled)
                 .HasDefaultValue(false)
-                .HasColumnName("issettled");
-            entity.Property(e => e.Isstudentpresent).HasColumnName("isstudentpresent");
-            entity.Property(e => e.Istutorpresent).HasColumnName("istutorpresent");
-            entity.Property(e => e.Lessoncontent).HasColumnName("lessoncontent");
+                .HasColumnName("is_settled");
+            entity.Property(e => e.Isstudentpresent).HasColumnName("is_student_present");
+            entity.Property(e => e.Istutorpresent).HasColumnName("is_tutor_present");
+            entity.Property(e => e.Lessoncontent).HasColumnName("lesson_content");
             entity.Property(e => e.Lessonprice)
                 .HasPrecision(12, 2)
-                .HasColumnName("lessonprice");
+                .HasColumnName("lesson_price");
             entity.Property(e => e.Meetinglink)
                 .HasMaxLength(1000)
-                .HasColumnName("meetinglink");
+                .HasColumnName("meeting_link");
             entity.Property(e => e.Noshowaction)
                 .HasMaxLength(30)
-                .HasColumnName("noshowaction");
-            entity.Property(e => e.Originallessonid).HasColumnName("originallessonid");
+                .HasColumnName("no_show_action");
+            entity.Property(e => e.Originallessonid).HasColumnName("original_lesson_id");
             entity.Property(e => e.Createdat)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnType("timestamp without time zone")
-                .HasColumnName("createdat");
+                .HasColumnName("created_at");
             entity.Property(e => e.Parentackat)
                 .HasColumnType("timestamp without time zone")
-                .HasColumnName("parentackat");
+                .HasColumnName("parent_ack_at");
             entity.Property(e => e.Realend)
                 .HasColumnType("timestamp without time zone")
-                .HasColumnName("realend");
+                .HasColumnName("real_end");
             entity.Property(e => e.Realstart)
                 .HasColumnType("timestamp without time zone")
-                .HasColumnName("realstart");
+                .HasColumnName("real_start");
             entity.Property(e => e.Receiptsentat)
                 .HasColumnType("timestamp without time zone")
-                .HasColumnName("receiptsentat");
+                .HasColumnName("receipt_sent_at");
             entity.Property(e => e.Scheduledend)
                 .HasColumnType("timestamp without time zone")
-                .HasColumnName("scheduledend");
+                .HasColumnName("scheduled_end");
             entity.Property(e => e.Scheduledstart)
                 .HasColumnType("timestamp without time zone")
-                .HasColumnName("scheduledstart");
+                .HasColumnName("scheduled_start");
             entity.Property(e => e.Status)
                 .HasMaxLength(30)
                 .HasDefaultValueSql("'scheduled'::character varying")
                 .HasColumnName("status");
             entity.Property(e => e.Studentid)
                 .HasMaxLength(50)
-                .HasColumnName("studentid");
+                .HasColumnName("student_id");
             entity.Property(e => e.Submittedat)
                 .HasColumnType("timestamp without time zone")
-                .HasColumnName("submittedat");
+                .HasColumnName("submitted_at");
             entity.Property(e => e.Isearlysubmission)
-                .HasColumnName("isearlysubmission");
+                .HasColumnName("is_early_submission");
             entity.Property(e => e.Tutorid)
                 .HasMaxLength(50)
-                .HasColumnName("tutorid");
-            entity.Property(e => e.Tutornotes).HasColumnName("tutornotes");
+                .HasColumnName("tutor_id");
+            entity.Property(e => e.Tutornotes).HasColumnName("tutor_notes");
 
             entity.HasOne(d => d.Booking).WithMany(p => p.Lessons)
                 .HasForeignKey(d => d.Bookingid)
@@ -989,25 +995,25 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
         {
             entity.HasKey(e => e.Reportid).HasName("lessonreports_pkey");
 
-            entity.ToTable("lessonreports");
+            entity.ToTable("lesson_reports");
 
             entity.HasIndex(e => e.Lessonid, "lessonreports_lessonid_key").IsUnique();
 
-            entity.Property(e => e.Reportid).HasColumnName("reportid");
+            entity.Property(e => e.Reportid).HasColumnName("report_id");
             entity.Property(e => e.Attachments)
                 .HasColumnType("jsonb")
                 .HasColumnName("attachments");
-            entity.Property(e => e.Contentcovered).HasColumnName("contentcovered");
+            entity.Property(e => e.Contentcovered).HasColumnName("content_covered");
             entity.Property(e => e.Createdat)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnType("timestamp without time zone")
-                .HasColumnName("createdat");
+                .HasColumnName("created_at");
             entity.Property(e => e.Createdbytutorid)
                 .HasMaxLength(50)
-                .HasColumnName("createdbytutorid");
-            entity.Property(e => e.Homeworkassigned).HasColumnName("homeworkassigned");
-            entity.Property(e => e.Lessonid).HasColumnName("lessonid");
-            entity.Property(e => e.Studentperformancerating).HasColumnName("studentperformancerating");
+                .HasColumnName("created_by_tutor_id");
+            entity.Property(e => e.Homeworkassigned).HasColumnName("homework_assigned");
+            entity.Property(e => e.Lessonid).HasColumnName("lesson_id");
+            entity.Property(e => e.Studentperformancerating).HasColumnName("student_performance_rating");
 
             entity.HasOne(d => d.Createdbytutor).WithMany(p => p.Lessonreports)
                 .HasForeignKey(d => d.Createdbytutorid)
@@ -1027,7 +1033,7 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
 
             entity.HasIndex(e => new { e.Userid, e.Isread }, "idx_notifications_user");
 
-            entity.Property(e => e.Notificationid).HasColumnName("notificationid");
+            entity.Property(e => e.Notificationid).HasColumnName("notification_id");
             entity.Property(e => e.Channel)
                 .HasMaxLength(30)
                 .HasDefaultValueSql("'app'::character varying")
@@ -1035,17 +1041,17 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
             entity.Property(e => e.Createdat)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnType("timestamp without time zone")
-                .HasColumnName("createdat");
+                .HasColumnName("created_at");
             entity.Property(e => e.Deliverystatus)
                 .HasMaxLength(20)
-                .HasColumnName("deliverystatus");
+                .HasColumnName("delivery_status");
             entity.Property(e => e.Isread)
                 .HasDefaultValue(false)
-                .HasColumnName("isread");
+                .HasColumnName("is_read");
             entity.Property(e => e.Message).HasColumnName("message");
             entity.Property(e => e.Referenceid)
                 .HasMaxLength(50)
-                .HasColumnName("referenceid");
+                .HasColumnName("reference_id");
             entity.Property(e => e.Title)
                 .HasMaxLength(200)
                 .HasColumnName("title");
@@ -1054,10 +1060,10 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
                 .HasColumnName("type");
             entity.Property(e => e.Userid)
                 .HasMaxLength(50)
-                .HasColumnName("userid");
+                .HasColumnName("user_id");
             entity.Property(e => e.Zaborequestid)
                 .HasMaxLength(100)
-                .HasColumnName("zaborequestid");
+                .HasColumnName("zabo_request_id");
 
             entity.HasOne(d => d.User).WithMany(p => p.Notifications)
                 .HasForeignKey(d => d.Userid)
@@ -1069,29 +1075,29 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
         {
             entity.HasKey(e => e.Suspensionid).HasName("profilesuspensions_pkey");
 
-            entity.ToTable("profilesuspensions");
+            entity.ToTable("profile_suspensions");
 
-            entity.Property(e => e.Suspensionid).HasColumnName("suspensionid");
+            entity.Property(e => e.Suspensionid).HasColumnName("suspension_id");
             entity.Property(e => e.Createdby)
                 .HasMaxLength(50)
-                .HasColumnName("createdby");
+                .HasColumnName("created_by");
             entity.Property(e => e.Enddate)
                 .HasColumnType("timestamp without time zone")
-                .HasColumnName("enddate");
+                .HasColumnName("end_date");
             entity.Property(e => e.Isactive)
                 .HasDefaultValue(true)
-                .HasColumnName("isactive");
+                .HasColumnName("is_active");
             entity.Property(e => e.Reason).HasColumnName("reason");
             entity.Property(e => e.Startdate)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnType("timestamp without time zone")
-                .HasColumnName("startdate");
+                .HasColumnName("start_date");
             entity.Property(e => e.Suspensiontype)
                 .HasMaxLength(30)
-                .HasColumnName("suspensiontype");
+                .HasColumnName("suspension_type");
             entity.Property(e => e.Userid)
                 .HasMaxLength(50)
-                .HasColumnName("userid");
+                .HasColumnName("user_id");
 
             entity.HasOne(d => d.CreatedbyNavigation).WithMany(p => p.ProfilesuspensionCreatedbyNavigations)
                 .HasForeignKey(d => d.Createdby)
@@ -1115,40 +1121,40 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
 
             entity.Property(e => e.Promotionid)
                 .UseIdentityByDefaultColumn()
-                .HasColumnName("promotionid");
+                .HasColumnName("promotion_id");
             entity.Property(e => e.Code)
                 .HasMaxLength(50)
                 .HasColumnName("code");
             entity.Property(e => e.Createdat)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnType("timestamp without time zone")
-                .HasColumnName("createdat");
+                .HasColumnName("created_at");
             entity.Property(e => e.Description).HasColumnName("description");
             entity.Property(e => e.Discounttype)
                 .HasMaxLength(20)
-                .HasColumnName("discounttype");
+                .HasColumnName("discount_type");
             entity.Property(e => e.Discountvalue)
                 .HasPrecision(12, 2)
-                .HasColumnName("discountvalue");
+                .HasColumnName("discount_value");
             entity.Property(e => e.Enddate)
                 .HasColumnType("timestamp without time zone")
-                .HasColumnName("enddate");
+                .HasColumnName("end_date");
             entity.Property(e => e.Isactive)
                 .HasDefaultValue(true)
-                .HasColumnName("isactive");
+                .HasColumnName("is_active");
             entity.Property(e => e.Maxdiscountamount)
                 .HasPrecision(12, 2)
-                .HasColumnName("maxdiscountamount");
+                .HasColumnName("max_discount_amount");
             entity.Property(e => e.Minordervalue)
                 .HasPrecision(12, 2)
-                .HasColumnName("minordervalue");
+                .HasColumnName("min_order_value");
             entity.Property(e => e.Startdate)
                 .HasColumnType("timestamp without time zone")
-                .HasColumnName("startdate");
+                .HasColumnName("start_date");
             entity.Property(e => e.Usagecount)
                 .HasDefaultValue(0)
-                .HasColumnName("usagecount");
-            entity.Property(e => e.Usagelimit).HasColumnName("usagelimit");
+                .HasColumnName("usage_count");
+            entity.Property(e => e.Usagelimit).HasColumnName("usage_limit");
         });
 
 
@@ -1157,40 +1163,40 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
         {
             entity.HasKey(e => e.Gradeid).HasName("studentgrades_pkey");
 
-            entity.ToTable("studentgrades");
+            entity.ToTable("student_grades");
 
             entity.HasIndex(e => e.Bookingid, "idx_studentgrades_booking");
 
             entity.HasIndex(e => e.Studentid, "idx_studentgrades_student");
 
-            entity.Property(e => e.Gradeid).HasColumnName("gradeid");
-            entity.Property(e => e.Bookingid).HasColumnName("bookingid");
+            entity.Property(e => e.Gradeid).HasColumnName("grade_id");
+            entity.Property(e => e.Bookingid).HasColumnName("booking_id");
             entity.Property(e => e.Createdat)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnType("timestamp without time zone")
-                .HasColumnName("createdat");
-            entity.Property(e => e.Examdate).HasColumnName("examdate");
+                .HasColumnName("created_at");
+            entity.Property(e => e.Examdate).HasColumnName("exam_date");
             entity.Property(e => e.Examname)
                 .HasMaxLength(200)
-                .HasColumnName("examname");
+                .HasColumnName("exam_name");
             entity.Property(e => e.Examtype)
                 .HasMaxLength(50)
-                .HasColumnName("examtype");
+                .HasColumnName("exam_type");
             entity.Property(e => e.Maxscore)
                 .HasPrecision(5, 2)
                 .HasDefaultValueSql("10")
-                .HasColumnName("maxscore");
+                .HasColumnName("max_score");
             entity.Property(e => e.Notes).HasColumnName("notes");
             entity.Property(e => e.Score)
                 .HasPrecision(5, 2)
                 .HasColumnName("score");
             entity.Property(e => e.Studentid)
                 .HasMaxLength(50)
-                .HasColumnName("studentid");
-            entity.Property(e => e.Subjectid).HasColumnName("subjectid");
+                .HasColumnName("student_id");
+            entity.Property(e => e.Subjectid).HasColumnName("subject_id");
             entity.Property(e => e.Tutorid)
                 .HasMaxLength(50)
-                .HasColumnName("tutorid");
+                .HasColumnName("tutor_id");
 
             entity.HasOne(d => d.Booking).WithMany(p => p.Studentgrades)
                 .HasForeignKey(d => d.Bookingid)
@@ -1215,7 +1221,7 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
         {
             entity.HasKey(e => e.Studentid).HasName("studentprofiles_pkey");
 
-            entity.ToTable("studentprofiles");
+            entity.ToTable("student_profiles");
 
             entity.HasIndex(e => e.Studentcode, "idx_studentprofiles_code");
 
@@ -1223,38 +1229,38 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
 
             entity.Property(e => e.Studentid)
                 .HasMaxLength(50)
-                .HasColumnName("studentid");
+                .HasColumnName("student_id");
             entity.Property(e => e.Avatarurl)
                 .HasMaxLength(1000)
-                .HasColumnName("avatarurl");
-            entity.Property(e => e.Birthdate).HasColumnName("birthdate");
+                .HasColumnName("avatar_url");
+            entity.Property(e => e.Birthdate).HasColumnName("birth_date");
             entity.Property(e => e.Createdat)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnType("timestamp without time zone")
-                .HasColumnName("createdat");
+                .HasColumnName("created_at");
             entity.Property(e => e.Fullname)
                 .HasMaxLength(100)
-                .HasColumnName("fullname");
-            entity.Property(e => e.Gradelevelid).HasColumnName("gradelevelid");
-            entity.Property(e => e.Learninggoals).HasColumnName("learninggoals");
+                .HasColumnName("full_name");
+            entity.Property(e => e.Gradelevelid).HasColumnName("grade_level_id");
+            entity.Property(e => e.Learninggoals).HasColumnName("learning_goals");
             entity.Property(e => e.Linkeduserid)
                 .HasMaxLength(50)
-                .HasColumnName("linkeduserid");
+                .HasColumnName("linked_user_id");
             entity.Property(e => e.Parentid)
                 .HasMaxLength(50)
-                .HasColumnName("parentid");
+                .HasColumnName("parent_id");
             entity.Property(e => e.School)
                 .HasMaxLength(255)
                 .HasColumnName("school");
             entity.Property(e => e.Studentcode)
                 .HasMaxLength(20)
-                .HasColumnName("studentcode");
+                .HasColumnName("student_code");
             entity.Property(e => e.Studentcodeexpiresat)
                 .HasColumnType("timestamp without time zone")
-                .HasColumnName("studentcodeexpiresat");
+                .HasColumnName("student_code_expires_at");
             entity.Property(e => e.Deletedat)
                 .HasColumnType("timestamp without time zone")
-                .HasColumnName("deletedat");
+                .HasColumnName("deleted_at");
 
             entity.HasOne(d => d.Linkeduser).WithMany(p => p.StudentprofileLinkedusers)
                 .HasForeignKey(d => d.Linkeduserid)
@@ -1279,34 +1285,34 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
 
             entity.HasIndex(e => e.Subjectname, "subjects_subjectname_key").IsUnique();
 
-            entity.Property(e => e.Subjectid).HasColumnName("subjectid");
+            entity.Property(e => e.Subjectid).HasColumnName("subject_id");
             entity.Property(e => e.Description).HasColumnName("description");
             entity.Property(e => e.Subjectname)
                 .HasMaxLength(100)
-                .HasColumnName("subjectname");
+                .HasColumnName("subject_name");
         });
 
         modelBuilder.Entity<Systemconfig>(entity =>
         {
             entity.HasKey(e => e.Configid).HasName("systemconfigs_pkey");
 
-            entity.ToTable("systemconfigs");
+            entity.ToTable("system_configs");
 
             entity.HasIndex(e => e.Configkey, "systemconfigs_configkey_key").IsUnique();
 
-            entity.Property(e => e.Configid).HasColumnName("configid");
+            entity.Property(e => e.Configid).HasColumnName("config_id");
             entity.Property(e => e.Configkey)
                 .HasMaxLength(100)
-                .HasColumnName("configkey");
-            entity.Property(e => e.Configvalue).HasColumnName("configvalue");
+                .HasColumnName("config_key");
+            entity.Property(e => e.Configvalue).HasColumnName("config_value");
             entity.Property(e => e.Description).HasColumnName("description");
             entity.Property(e => e.Updatedat)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnType("timestamp without time zone")
-                .HasColumnName("updatedat");
+                .HasColumnName("updated_at");
             entity.Property(e => e.Updatedby)
                 .HasMaxLength(50)
-                .HasColumnName("updatedby");
+                .HasColumnName("updated_by");
 
             entity.HasOne(d => d.UpdatedbyNavigation).WithMany(p => p.Systemconfigs)
                 .HasForeignKey(d => d.Updatedby)
@@ -1317,19 +1323,19 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
         {
             entity.HasKey(e => e.Availabilityid).HasName("tutoravailability_pkey");
 
-            entity.ToTable("tutoravailability");
+            entity.ToTable("tutor_availability");
 
-            entity.Property(e => e.Availabilityid).HasColumnName("availabilityid");
+            entity.Property(e => e.Availabilityid).HasColumnName("availability_id");
             entity.Property(e => e.Createdat)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnType("timestamp without time zone")
-                .HasColumnName("createdat");
-            entity.Property(e => e.Dayofweek).HasColumnName("dayofweek");
-            entity.Property(e => e.Endtime).HasColumnName("endtime");
-            entity.Property(e => e.Starttime).HasColumnName("starttime");
+                .HasColumnName("created_at");
+            entity.Property(e => e.Dayofweek).HasColumnName("day_of_week");
+            entity.Property(e => e.Endtime).HasColumnName("end_time");
+            entity.Property(e => e.Starttime).HasColumnName("start_time");
             entity.Property(e => e.Tutorid)
                 .HasMaxLength(50)
-                .HasColumnName("tutorid");
+                .HasColumnName("tutor_id");
 
             entity.HasOne(d => d.Tutor).WithMany(p => p.Tutoravailabilities)
                 .HasForeignKey(d => d.Tutorid)
@@ -1341,53 +1347,53 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
         {
             entity.HasKey(e => e.Certificateid).HasName("tutorcertificates_pkey");
 
-            entity.ToTable("tutorcertificates");
+            entity.ToTable("tutor_certificates");
 
             entity.HasIndex(e => e.Tutorid, "idx_tutorcertificate_tutorid");
 
             entity.Property(e => e.Certificateid)
                 .HasMaxLength(36)
                 .HasDefaultValueSql("gen_random_uuid()")
-                .HasColumnName("certificateid");
+                .HasColumnName("certificate_id");
             entity.Property(e => e.Certificatefileurl)
                 .HasMaxLength(2000)
-                .HasColumnName("certificatefileurl");
+                .HasColumnName("certificate_file_url");
             entity.Property(e => e.Certificatename)
                 .HasMaxLength(200)
-                .HasColumnName("certificatename");
+                .HasColumnName("certificate_name");
             entity.Property(e => e.Certificatetype)
                 .HasMaxLength(50)
-                .HasColumnName("certificatetype");
+                .HasColumnName("certificate_type");
             entity.Property(e => e.Createdat)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnType("timestamp without time zone")
-                .HasColumnName("createdat");
+                .HasColumnName("created_at");
             entity.Property(e => e.Credentialid)
                 .HasMaxLength(100)
-                .HasColumnName("credentialid");
+                .HasColumnName("credential_id");
             entity.Property(e => e.Credentialurl)
                 .HasMaxLength(2000)
-                .HasColumnName("credentialurl");
+                .HasColumnName("credential_url");
             entity.Property(e => e.Issuingorganization)
                 .HasMaxLength(200)
-                .HasColumnName("issuingorganization");
+                .HasColumnName("issuing_organization");
             entity.Property(e => e.Tutorid)
                 .HasMaxLength(36)
-                .HasColumnName("tutorid");
+                .HasColumnName("tutor_id");
             entity.Property(e => e.Updatedat)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnType("timestamp without time zone")
-                .HasColumnName("updatedat");
-            entity.Property(e => e.Yearissued).HasColumnName("yearissued");
+                .HasColumnName("updated_at");
+            entity.Property(e => e.Yearissued).HasColumnName("year_issued");
 
             // Thêm các thuộc tính mới ở đây
             entity.Property(e => e.Verificationstatus)
                 .HasMaxLength(50)
                 .HasDefaultValueSql("'pending_review'::character varying")
-                .HasColumnName("verificationstatus");
+                .HasColumnName("verification_status");
 
             entity.Property(e => e.Verificationnote)
-                .HasColumnName("verificationnote");
+                .HasColumnName("verification_note");
 
             entity.HasOne(d => d.Tutor).WithMany(p => p.Tutorcertificates)
                 .HasForeignKey(d => d.Tutorid)
@@ -1398,103 +1404,103 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
         {
             entity.HasKey(e => e.Tutorid).HasName("tutorprofiles_pkey");
 
-            entity.ToTable("tutorprofiles");
+            entity.ToTable("tutor_profiles");
 
             entity.HasIndex(e => new { e.Isbankverified, e.Bankverifiedat }, "idx_tutorprofiles_bankverified")
-                .HasFilter("isbankverified = true");
+                .HasFilter("is_bank_verified = true");
 
             entity.HasIndex(e => e.Bankverifycode, "idx_tutorprofiles_bankverifycode")
-                .HasFilter("bankverifycode IS NOT NULL");
+                .HasFilter("bank_verify_code IS NOT NULL");
 
             entity.Property(e => e.Tutorid)
                 .HasMaxLength(50)
-                .HasColumnName("tutorid");
+                .HasColumnName("tutor_id");
             // map the CLR property to the exact DB column name (lowercase)
-            entity.Property(p => p.Reviewedat).HasColumnName("reviewedat");
-            entity.Property(p => p.Reviewedby).HasColumnName("reviewedby");
+            entity.Property(p => p.Reviewedat).HasColumnName("reviewed_at");
+            entity.Property(p => p.Reviewedby).HasColumnName("reviewed_by");
             // map other properties as needed
             entity.Property(e => e.Averagerating)
                 .HasDefaultValueSql("0.0")
-                .HasColumnName("averagerating");
+                .HasColumnName("average_rating");
             entity.Property(e => e.Bio).HasColumnName("bio");
             entity.Property(e => e.Completedhours)
                 .HasDefaultValue(0)
-                .HasColumnName("completedhours");
+                .HasColumnName("completed_hours");
             entity.Property(e => e.Createdat)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnType("timestamp without time zone")
-                .HasColumnName("createdat");
+                .HasColumnName("created_at");
             entity.Property(e => e.Education)
                 .HasMaxLength(255)
                 .HasColumnName("education");
             entity.Property(e => e.Experience).HasColumnName("experience");
             entity.Property(e => e.Gpa).HasColumnName("gpa");
-            entity.Property(e => e.Gpascale).HasColumnName("gpascale");
+            entity.Property(e => e.Gpascale).HasColumnName("gpa_scale");
             entity.Property(e => e.Headline)
                 .HasMaxLength(200)
                 .HasColumnName("headline");
 
             entity.Property(e => e.Ispublic)
                 .HasDefaultValue(false)
-                .HasColumnName("ispublic");
+                .HasColumnName("is_public");
             entity.Property(e => e.Profilestatus)
                 .HasMaxLength(30)
                 .HasDefaultValueSql("'draft'::character varying")
-                .HasColumnName("profilestatus");
-            entity.Property(e => e.Rejectionnote).HasColumnName("rejectionnote");
+                .HasColumnName("profile_status");
+            entity.Property(e => e.Rejectionnote).HasColumnName("rejection_note");
             entity.Property(e => e.Subscriptiontype)
                 .HasMaxLength(30)
                 .HasDefaultValueSql("'free'::character varying")
-                .HasColumnName("subscriptiontype");
+                .HasColumnName("subscription_type");
             entity.Property(e => e.Teachingareacity)
                 .HasMaxLength(50)
-                .HasColumnName("teachingareacity");
+                .HasColumnName("teaching_area_city");
             entity.Property(e => e.Teachingareadistrict)
                 .HasMaxLength(50)
-                .HasColumnName("teachingareadistrict");
+                .HasColumnName("teaching_area_district");
             entity.Property(e => e.Totalreviews)
                 .HasDefaultValue(0)
-                .HasColumnName("totalreviews");
+                .HasColumnName("total_reviews");
             entity.Property(e => e.Updatedat)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnType("timestamp without time zone")
-                .HasColumnName("updatedat");
+                .HasColumnName("updated_at");
             entity.Property(e => e.Deletedat)
                 .HasColumnType("timestamp without time zone")
-                .HasColumnName("deletedat");
+                .HasColumnName("deleted_at");
             entity.Property(e => e.Videointrourl)
                 .HasMaxLength(1000)
-                .HasColumnName("videointrourl");
+                .HasColumnName("video_intro_url");
             entity.Property(e => e.Bankname)
                 .HasMaxLength(100)
-                .HasColumnName("bankname");
+                .HasColumnName("bank_name");
             entity.Property(e => e.Bankaccountnumber)
                 .HasMaxLength(50)
-                .HasColumnName("bankaccountnumber");
+                .HasColumnName("bank_account_number");
             entity.Property(e => e.Bankaccountname)
                 .HasMaxLength(100)
-                .HasColumnName("bankaccountname");
+                .HasColumnName("bank_account_name");
             entity.Property(e => e.Isbankverified)
                 .HasDefaultValue(false)
-                .HasColumnName("isbankverified");
+                .HasColumnName("is_bank_verified");
             entity.Property(e => e.Bankchangedat)
                 .HasColumnType("timestamp without time zone")
-                .HasColumnName("bankchangedat");
+                .HasColumnName("bank_changed_at");
             entity.Property(e => e.Bankverifycode)
                 .HasMaxLength(50)
-                .HasColumnName("bankverifycode");
+                .HasColumnName("bank_verify_code");
             entity.Property(e => e.Bankverifystatus)
                 .HasMaxLength(30)
-                .HasColumnName("bankverifystatus");
+                .HasColumnName("bank_verify_status");
             entity.Property(e => e.Bankverifyrequested)
                 .HasColumnType("timestamp without time zone")
-                .HasColumnName("bankverifyrequested");
+                .HasColumnName("bank_verify_requested");
             entity.Property(e => e.Bankverifiedat)
                 .HasColumnType("timestamp without time zone")
-                .HasColumnName("bankverifiedat");
+                .HasColumnName("bank_verified_at");
             entity.Property(e => e.Bankverifyattempts)
                 .HasDefaultValue(0)
-                .HasColumnName("bankverifyattempts");
+                .HasColumnName("bank_verify_attempts");
 
             entity.HasOne(d => d.Tutor).WithOne(p => p.Tutorprofile)
                 .HasForeignKey<Tutorprofile>(d => d.Tutorid)
@@ -1505,27 +1511,27 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
         {
             entity.HasKey(e => e.Gradelevelid).HasName("gradelevels_pkey");
 
-            entity.ToTable("gradelevels");
+            entity.ToTable("grade_levels");
 
             entity.HasIndex(e => e.Levelorder, "uq_gradelevels_levelorder").IsUnique();
             entity.HasIndex(e => e.Gradename, "uq_gradelevels_gradename").IsUnique();
 
-            entity.Property(e => e.Gradelevelid).HasColumnName("gradelevelid");
+            entity.Property(e => e.Gradelevelid).HasColumnName("grade_level_id");
             entity.Property(e => e.Gradename)
                 .HasMaxLength(100)
-                .HasColumnName("gradename");
-            entity.Property(e => e.Levelorder).HasColumnName("levelorder");
+                .HasColumnName("grade_name");
+            entity.Property(e => e.Levelorder).HasColumnName("level_order");
             entity.Property(e => e.Createdat)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnType("timestamp without time zone")
-                .HasColumnName("createdat");
+                .HasColumnName("created_at");
         });
 
         modelBuilder.Entity<Tutorsubjectgradeprice>(entity =>
         {
             entity.HasKey(e => e.Id).HasName("tutorsubjectgradeprices_pkey");
 
-            entity.ToTable("tutorsubjectgradeprices");
+            entity.ToTable("tutor_subject_grade_prices");
 
             entity.HasIndex(e => new { e.Tutorid, e.Subjectid, e.Gradelevelid }, "uq_tutorsubjectgradeprices_tutor_subject_grade").IsUnique();
 
@@ -1537,28 +1543,28 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
             entity.Property(e => e.Createdat)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnType("timestamp without time zone")
-                .HasColumnName("createdat");
-            entity.Property(e => e.Gradelevelid).HasColumnName("gradelevelid");
+                .HasColumnName("created_at");
+            entity.Property(e => e.Gradelevelid).HasColumnName("grade_level_id");
             entity.Property(e => e.Isactive)
                 .HasDefaultValue(true)
-                .HasColumnName("isactive");
+                .HasColumnName("is_active");
             entity.Property(e => e.Priceperhour)
                 .HasPrecision(12, 2)
-                .HasColumnName("priceperhour");
-            entity.Property(e => e.Subjectid).HasColumnName("subjectid");
+                .HasColumnName("price_per_hour");
+            entity.Property(e => e.Subjectid).HasColumnName("subject_id");
             entity.Property(e => e.Tutorid)
                 .HasMaxLength(50)
-                .HasColumnName("tutorid");
+                .HasColumnName("tutor_id");
             entity.Property(e => e.Updatedat)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnType("timestamp without time zone")
-                .HasColumnName("updatedat");
+                .HasColumnName("updated_at");
             entity.Property(e => e.Durationminutespersession)
                 .HasDefaultValue(60)
-                .HasColumnName("durationminutespersession");
+                .HasColumnName("duration_minutes_per_session");
             entity.Property(e => e.Sessionsperweek)
                 .HasDefaultValue(1)
-                .HasColumnName("sessionsperweek");
+                .HasColumnName("sessions_per_week");
 
             entity.HasOne(d => d.Gradelevel).WithMany(p => p.Tutorsubjectgradeprices)
                 .HasForeignKey(d => d.Gradelevelid)
@@ -1579,27 +1585,27 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
         {
             entity.HasKey(e => e.Packageid).HasName("tutorpackages_pkey");
 
-            entity.ToTable("tutorpackages");
+            entity.ToTable("tutor_packages");
 
-            entity.Property(e => e.Packageid).HasColumnName("packageid");
-            entity.Property(e => e.Packagetype).HasColumnName("packagetype");
+            entity.Property(e => e.Packageid).HasColumnName("package_id");
+            entity.Property(e => e.Packagetype).HasColumnName("package_type");
             entity.Property(e => e.Createdat)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnType("timestamp without time zone")
-                .HasColumnName("createdat");
+                .HasColumnName("created_at");
             entity.Property(e => e.Isactive)
                 .HasDefaultValue(true)
-                .HasColumnName("isactive");
+                .HasColumnName("is_active");
             entity.Property(e => e.Name)
                 .HasMaxLength(255)
                 .HasColumnName("name");
             entity.Property(e => e.Tutorid)
                 .HasMaxLength(50)
-                .HasColumnName("tutorid");
+                .HasColumnName("tutor_id");
             entity.Property(e => e.Updatedat)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnType("timestamp without time zone")
-                .HasColumnName("updatedat");
+                .HasColumnName("updated_at");
 
             entity.HasOne(d => d.Tutor).WithMany(p => p.Tutorpackages)
                 .HasForeignKey(d => d.Tutorid)
@@ -1611,17 +1617,17 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
         {
             entity.HasKey(e => e.Fixedslotid).HasName("tutorpackagefixedslots_pkey");
 
-            entity.ToTable("tutorpackagefixedslots");
+            entity.ToTable("tutor_package_fixed_slots");
 
-            entity.Property(e => e.Fixedslotid).HasColumnName("fixedslotid");
-            entity.Property(e => e.Packageid).HasColumnName("packageid");
+            entity.Property(e => e.Fixedslotid).HasColumnName("fixed_slot_id");
+            entity.Property(e => e.Packageid).HasColumnName("package_id");
             entity.Property(e => e.Createdat)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnType("timestamp without time zone")
-                .HasColumnName("createdat");
-            entity.Property(e => e.Dayofweek).HasColumnName("dayofweek");
-            entity.Property(e => e.Endtime).HasColumnName("endtime");
-            entity.Property(e => e.Starttime).HasColumnName("starttime");
+                .HasColumnName("created_at");
+            entity.Property(e => e.Dayofweek).HasColumnName("day_of_week");
+            entity.Property(e => e.Endtime).HasColumnName("end_time");
+            entity.Property(e => e.Starttime).HasColumnName("start_time");
 
             entity.HasOne(d => d.Package).WithMany(p => p.Tutorpackagefixedslots)
                 .HasForeignKey(d => d.Packageid)
@@ -1633,32 +1639,32 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
         {
             entity.HasKey(e => e.Subscriptionid).HasName("tutorsubscriptions_pkey");
 
-            entity.ToTable("tutorsubscriptions");
+            entity.ToTable("tutor_subscriptions");
 
-            entity.Property(e => e.Subscriptionid).HasColumnName("subscriptionid");
+            entity.Property(e => e.Subscriptionid).HasColumnName("subscription_id");
             entity.Property(e => e.Enddate)
                 .HasColumnType("timestamp without time zone")
-                .HasColumnName("enddate");
+                .HasColumnName("end_date");
             entity.Property(e => e.Isactive)
                 .HasDefaultValue(true)
-                .HasColumnName("isactive");
+                .HasColumnName("is_active");
             entity.Property(e => e.Packagetype)
                 .HasMaxLength(30)
-                .HasColumnName("packagetype");
+                .HasColumnName("package_type");
             entity.Property(e => e.Paymentstatus)
                 .HasMaxLength(20)
                 .HasDefaultValueSql("'pending'::character varying")
-                .HasColumnName("paymentstatus");
+                .HasColumnName("payment_status");
             entity.Property(e => e.Price)
                 .HasPrecision(12, 2)
                 .HasColumnName("price");
             entity.Property(e => e.Startdate)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnType("timestamp without time zone")
-                .HasColumnName("startdate");
+                .HasColumnName("start_date");
             entity.Property(e => e.Tutorid)
                 .HasMaxLength(50)
-                .HasColumnName("tutorid");
+                .HasColumnName("tutor_id");
 
             entity.HasOne(d => d.Tutor).WithMany(p => p.Tutorsubscriptions)
                 .HasForeignKey(d => d.Tutorid)
@@ -1670,17 +1676,17 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
         {
             entity.HasKey(e => e.Topuprequestid).HasName("topuprequests_pkey");
 
-            entity.ToTable("topuprequests");
+            entity.ToTable("topup_requests");
 
             entity.HasIndex(e => e.Ordercode, "topuprequests_ordercode_key").IsUnique();
 
             entity.HasIndex(e => new { e.Userid, e.Status }, "idx_topuprequests_userid_status");
 
-            entity.Property(e => e.Topuprequestid).HasColumnName("topuprequestid");
-            entity.Property(e => e.Ordercode).HasColumnName("ordercode");
+            entity.Property(e => e.Topuprequestid).HasColumnName("topup_request_id");
+            entity.Property(e => e.Ordercode).HasColumnName("order_code");
             entity.Property(e => e.Userid)
                 .HasMaxLength(50)
-                .HasColumnName("userid");
+                .HasColumnName("user_id");
             entity.Property(e => e.Amount)
                 .HasPrecision(15, 2)
                 .HasColumnName("amount");
@@ -1690,17 +1696,17 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
                 .HasColumnName("status");
             entity.Property(e => e.Paymentlinkid)
                 .HasMaxLength(255)
-                .HasColumnName("paymentlinkid");
+                .HasColumnName("payment_link_id");
             entity.Property(e => e.Createdat)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnType("timestamp without time zone")
-                .HasColumnName("createdat");
+                .HasColumnName("created_at");
             entity.Property(e => e.Completedat)
                 .HasColumnType("timestamp without time zone")
-                .HasColumnName("completedat");
+                .HasColumnName("completed_at");
             entity.Property(e => e.Expiresat)
                 .HasColumnType("timestamp without time zone")
-                .HasColumnName("expiresat");
+                .HasColumnName("expires_at");
 
             entity.HasOne(d => d.User).WithMany(p => p.Topuprequests)
                 .HasForeignKey(d => d.Userid)
@@ -1727,62 +1733,53 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
 
             entity.Property(e => e.Userid)
                 .HasMaxLength(50)
-                .HasColumnName("userid");
+                .HasColumnName("user_id");
             entity.Property(e => e.Address)
                 .HasMaxLength(255)
                 .HasColumnName("address");
             entity.Property(e => e.Avatarurl)
                 .HasMaxLength(1000)
-                .HasColumnName("avatarurl");
-            entity.Property(e => e.Birthdate).HasColumnName("birthdate");
+                .HasColumnName("avatar_url");
+            entity.Property(e => e.Birthdate).HasColumnName("birth_date");
             entity.Property(e => e.Createdat)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnType("timestamp without time zone")
-                .HasColumnName("createdat");
-            entity.Property(e => e.Ekycrawdata).HasColumnName("ekycrawdata");
+                .HasColumnName("created_at");
+            entity.Property(e => e.Ekycrawdata).HasColumnName("ekyc_raw_data");
             entity.Property(e => e.Email)
                 .HasMaxLength(100)
                 .HasColumnName("email");
             entity.Property(e => e.Fullname)
                 .HasMaxLength(100)
-                .HasColumnName("fullname");
+                .HasColumnName("full_name");
             entity.Property(e => e.Gender)
                 .HasColumnName("gender")
                 .HasConversion<short>();
-            entity.Property(e => e.Googlecalendartoken).HasColumnName("googlecalendartoken");
+            entity.Property(e => e.Googlecalendartoken).HasColumnName("google_calendar_token");
             entity.Property(e => e.Fcmtoken)
                 .HasMaxLength(500)
-                .HasColumnName("fcmtoken");
+                .HasColumnName("fcm_token");
             entity.Property(e => e.Idcardbackurl)
                 .HasMaxLength(1000)
-                .HasColumnName("idcardbackurl");
+                .HasColumnName("id_card_back_url");
             entity.Property(e => e.Idcardfronturl)
                 .HasMaxLength(1000)
-                .HasColumnName("idcardfronturl");
+                .HasColumnName("id_card_front_url");
             entity.Property(e => e.Identitynumber)
                 .HasMaxLength(50)
-                .HasColumnName("identitynumber");
+                .HasColumnName("identity_number");
             entity.Property(e => e.Isemailverified)
                 .HasDefaultValue(false)
-                .HasColumnName("isemailverified");
+                .HasColumnName("is_email_verified");
             entity.Property(e => e.Isidentityverified)
                 .HasDefaultValue(false)
-                .HasColumnName("isidentityverified");
+                .HasColumnName("is_identity_verified");
             entity.Property(e => e.Isphoneverified)
                 .HasDefaultValue(false)
-                .HasColumnName("isphoneverified");
+                .HasColumnName("is_phone_verified");
             entity.Property(e => e.Lastloginat)
                 .HasColumnType("timestamp without time zone")
-                .HasColumnName("lastloginat");
-            entity.Property(e => e.Otpattempts)
-                .HasDefaultValue(0)
-                .HasColumnName("otpattempts");
-            entity.Property(e => e.Otpcode)
-                .HasMaxLength(10)
-                .HasColumnName("otpcode");
-            entity.Property(e => e.Otpexpiresat)
-                .HasColumnType("timestamp without time zone")
-                .HasColumnName("otpexpiresat");
+                .HasColumnName("last_login_at");
             entity.Property(e => e.Password)
                 .HasMaxLength(255)
                 .HasColumnName("password");
@@ -1791,7 +1788,7 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
                 .HasColumnName("phone");
             entity.Property(e => e.Primaryrole)
                 .HasMaxLength(20)
-                .HasColumnName("primaryrole");
+                .HasColumnName("primary_role");
             entity.Property(e => e.Status)
                 .HasDefaultValue(1)
                 .HasColumnName("status");
@@ -1800,29 +1797,29 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
                 .HasColumnName("username");
             entity.Property(e => e.Zabornotifyenabled)
                 .HasDefaultValue(true)
-                .HasColumnName("zabornotifyenabled");
+                .HasColumnName("zabo_notify_enabled");
             entity.Property(e => e.Zalouserid)
                 .HasMaxLength(100)
-                .HasColumnName("zalouserid");
+                .HasColumnName("zalo_user_id");
             entity.Property(e => e.Parentcode)
                 .HasMaxLength(10)
-                .HasColumnName("parentcode");
+                .HasColumnName("parent_code");
             entity.Property(e => e.Parentcodeexpiresat)
                 .HasColumnType("timestamp without time zone")
-                .HasColumnName("parentcodeexpiresat");
+                .HasColumnName("parent_code_expires_at");
             entity.Property(e => e.Hascompletedtour)
                 .HasDefaultValue(false)
-                .HasColumnName("hascompletedtour");
+                .HasColumnName("has_completed_tour");
             entity.Property(e => e.Isdeactivated)
                 .HasDefaultValue(false)
-                .HasColumnName("isdeactivated");
+                .HasColumnName("is_deactivated");
             entity.Property(e => e.Deactivatedat)
                 .HasColumnType("timestamp without time zone")
-                .HasColumnName("deactivatedat");
+                .HasColumnName("deactivated_at");
 
             entity.HasIndex(e => e.Parentcode, "users_parentcode_key")
                 .IsUnique()
-                .HasFilter("parentcode IS NOT NULL");
+                .HasFilter("parent_code IS NOT NULL");
         });
 
 
@@ -1831,24 +1828,24 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
         {
             entity.HasKey(e => e.Warningid).HasName("userwarnings_pkey");
 
-            entity.ToTable("userwarnings");
+            entity.ToTable("user_warnings");
 
             entity.HasIndex(e => e.Userid, "idx_userwarnings_user");
 
-            entity.Property(e => e.Warningid).HasColumnName("warningid");
+            entity.Property(e => e.Warningid).HasColumnName("warning_id");
             entity.Property(e => e.Createdat)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnType("timestamp without time zone")
-                .HasColumnName("createdat");
+                .HasColumnName("created_at");
             entity.Property(e => e.Issuedby)
                 .HasMaxLength(50)
-                .HasColumnName("issuedby");
+                .HasColumnName("issued_by");
             entity.Property(e => e.Reason).HasColumnName("reason");
-            entity.Property(e => e.Relatedbookingid).HasColumnName("relatedbookingid");
+            entity.Property(e => e.Relatedbookingid).HasColumnName("related_booking_id");
             entity.Property(e => e.Userid)
                 .HasMaxLength(50)
-                .HasColumnName("userid");
-            entity.Property(e => e.Warninglevel).HasColumnName("warninglevel");
+                .HasColumnName("user_id");
+            entity.Property(e => e.Warninglevel).HasColumnName("warning_level");
 
             entity.HasOne(d => d.IssuedbyNavigation).WithMany(p => p.UserwarningIssuedbyNavigations)
                 .HasForeignKey(d => d.Issuedby)
@@ -1872,7 +1869,7 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
 
             entity.HasIndex(e => e.Userid, "wallets_userid_key").IsUnique();
 
-            entity.Property(e => e.Walletid).HasColumnName("walletid");
+            entity.Property(e => e.Walletid).HasColumnName("wallet_id");
             entity.Property(e => e.Balance)
                 .HasPrecision(15, 2)
                 .HasDefaultValueSql("0")
@@ -1880,14 +1877,14 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
             entity.Property(e => e.Frozenbalance)
                 .HasPrecision(15, 2)
                 .HasDefaultValueSql("0")
-                .HasColumnName("frozenbalance");
+                .HasColumnName("frozen_balance");
             entity.Property(e => e.Lastupdated)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnType("timestamp without time zone")
-                .HasColumnName("lastupdated");
+                .HasColumnName("last_updated");
             entity.Property(e => e.Userid)
                 .HasMaxLength(50)
-                .HasColumnName("userid");
+                .HasColumnName("user_id");
 
             entity.HasOne(d => d.User).WithOne(p => p.Wallet)
                 .HasForeignKey<Wallet>(d => d.Userid)
@@ -1898,26 +1895,26 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
         {
             entity.HasKey(e => e.Transactionid).HasName("wallettransactions_pkey");
 
-            entity.ToTable("wallettransactions");
+            entity.ToTable("wallet_transactions");
 
-            entity.Property(e => e.Transactionid).HasColumnName("transactionid");
+            entity.Property(e => e.Transactionid).HasColumnName("transaction_id");
             entity.Property(e => e.Amount)
                 .HasPrecision(15, 2)
                 .HasColumnName("amount");
             entity.Property(e => e.Createdat)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnType("timestamp without time zone")
-                .HasColumnName("createdat");
+                .HasColumnName("created_at");
             entity.Property(e => e.Description).HasColumnName("description");
-            entity.Property(e => e.Ordercode).HasColumnName("ordercode");
-            entity.Property(e => e.Referenceid).HasColumnName("referenceid");
+            entity.Property(e => e.Ordercode).HasColumnName("order_code");
+            entity.Property(e => e.Referenceid).HasColumnName("reference_id");
             entity.Property(e => e.Referencetable)
                 .HasMaxLength(50)
-                .HasColumnName("referencetable");
+                .HasColumnName("reference_table");
             entity.Property(e => e.Transactiontype)
                 .HasMaxLength(50)
-                .HasColumnName("transactiontype");
-            entity.Property(e => e.Walletid).HasColumnName("walletid");
+                .HasColumnName("transaction_type");
+            entity.Property(e => e.Walletid).HasColumnName("wallet_id");
 
             entity.HasOne(d => d.Wallet).WithMany(p => p.Wallettransactions)
                 .HasForeignKey(d => d.Walletid)
@@ -1928,53 +1925,53 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
         {
             entity.HasKey(e => e.Withdrawalid).HasName("withdrawalrequests_pkey");
 
-            entity.ToTable("withdrawalrequests");
+            entity.ToTable("withdrawal_requests");
 
-            entity.Property(e => e.Withdrawalid).HasColumnName("withdrawalid");
+            entity.Property(e => e.Withdrawalid).HasColumnName("withdrawal_id");
             entity.Property(e => e.Accountholdername)
                 .HasMaxLength(100)
-                .HasColumnName("accountholdername");
+                .HasColumnName("account_holder_name");
             entity.Property(e => e.Accountnumber)
                 .HasMaxLength(50)
-                .HasColumnName("accountnumber");
+                .HasColumnName("account_number");
             entity.Property(e => e.Amount)
                 .HasPrecision(15, 2)
                 .HasColumnName("amount");
             entity.Property(e => e.Bankname)
                 .HasMaxLength(100)
-                .HasColumnName("bankname");
+                .HasColumnName("bank_name");
             entity.Property(e => e.Processedat)
                 .HasColumnType("timestamp without time zone")
-                .HasColumnName("processedat");
+                .HasColumnName("processed_at");
             entity.Property(e => e.Requestedat)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnType("timestamp without time zone")
-                .HasColumnName("requestedat");
+                .HasColumnName("requested_at");
             entity.Property(e => e.Status)
                 .HasMaxLength(20)
                 .HasColumnName("status");
             entity.Property(e => e.Userid)
                 .HasMaxLength(50)
-                .HasColumnName("userid");
+                .HasColumnName("user_id");
 
             // PayOS tracking fields
             entity.Property(e => e.Payostransactionid)
                 .HasMaxLength(255)
-                .HasColumnName("payostransactionid");
+                .HasColumnName("payos_transaction_id");
             entity.Property(e => e.Payosstatus)
                 .HasMaxLength(50)
-                .HasColumnName("payosstatus");
+                .HasColumnName("payos_status");
             entity.Property(e => e.Payosresponsecode)
                 .HasMaxLength(50)
-                .HasColumnName("payosresponsecode");
+                .HasColumnName("payos_response_code");
             entity.Property(e => e.Payoserror)
-                .HasColumnName("payoserror");
+                .HasColumnName("payos_error");
             entity.Property(e => e.Retrycount)
                 .HasDefaultValue(0)
-                .HasColumnName("retrycount");
+                .HasColumnName("retry_count");
             entity.Property(e => e.Lastretryat)
                 .HasColumnType("timestamp without time zone")
-                .HasColumnName("lastretryat");
+                .HasColumnName("last_retry_at");
 
             // Decision tracking fields
             entity.Property(e => e.Decision)
@@ -1982,7 +1979,7 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
                 .HasColumnName("decision");
             entity.Property(e => e.Processedby)
                 .HasMaxLength(50)
-                .HasColumnName("processedby");
+                .HasColumnName("processed_by");
 
             entity.HasOne(d => d.User).WithMany(p => p.Withdrawalrequests)
                 .HasForeignKey(d => d.Userid)
@@ -1993,9 +1990,9 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
         {
             entity.HasKey(e => e.Alertid).HasName("systemalerts_pkey");
 
-            entity.ToTable("systemalerts");
+            entity.ToTable("system_alerts");
 
-            entity.Property(e => e.Alertid).HasColumnName("alertid");
+            entity.Property(e => e.Alertid).HasColumnName("alert_id");
             entity.Property(e => e.Type)
                 .HasMaxLength(50)
                 .HasColumnName("type");
@@ -2012,21 +2009,21 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
                 .HasColumnName("resolved");
             entity.Property(e => e.Resolvedat)
                 .HasColumnType("timestamp without time zone")
-                .HasColumnName("resolvedat");
+                .HasColumnName("resolved_at");
             entity.Property(e => e.Resolvedby)
                 .HasMaxLength(50)
-                .HasColumnName("resolvedby");
+                .HasColumnName("resolved_by");
             entity.Property(e => e.Createdat)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnType("timestamp without time zone")
-                .HasColumnName("createdat");
+                .HasColumnName("created_at");
         });
 
         modelBuilder.Entity<RefreshToken>(entity =>
         {
             entity.HasKey(e => e.Id).HasName("refreshtokens_pkey");
 
-            entity.ToTable("refreshtokens");
+            entity.ToTable("refresh_tokens");
 
             entity.HasIndex(e => e.Tokenhash).IsUnique().HasDatabaseName("idx_refreshtokens_tokenhash");
             entity.HasIndex(e => e.Userid).HasDatabaseName("idx_refreshtokens_userid");
@@ -2034,20 +2031,20 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
             entity.HasIndex(e => e.Expiresat).HasDatabaseName("idx_refreshtokens_expiresat");
 
             entity.Property(e => e.Id).HasMaxLength(50).HasColumnName("id");
-            entity.Property(e => e.Tokenhash).HasMaxLength(128).HasColumnName("tokenhash");
-            entity.Property(e => e.Userid).HasMaxLength(50).HasColumnName("userid");
-            entity.Property(e => e.Tokenfamily).HasMaxLength(50).HasColumnName("tokenfamily");
+            entity.Property(e => e.Tokenhash).HasMaxLength(128).HasColumnName("token_hash");
+            entity.Property(e => e.Userid).HasMaxLength(50).HasColumnName("user_id");
+            entity.Property(e => e.Tokenfamily).HasMaxLength(50).HasColumnName("token_family");
             entity.Property(e => e.Expiresat)
                 .HasColumnType("timestamp without time zone")
-                .HasColumnName("expiresat");
+                .HasColumnName("expires_at");
             entity.Property(e => e.Createdat)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnType("timestamp without time zone")
-                .HasColumnName("createdat");
+                .HasColumnName("created_at");
             entity.Property(e => e.Revokedat)
                 .HasColumnType("timestamp without time zone")
-                .HasColumnName("revokedat");
-            entity.Property(e => e.Replacedbytokenhash).HasMaxLength(128).HasColumnName("replacedbytokenhash");
+                .HasColumnName("revoked_at");
+            entity.Property(e => e.Replacedbytokenhash).HasMaxLength(128).HasColumnName("replaced_by_token_hash");
 
             entity.HasOne(d => d.User).WithMany(p => p.RefreshTokens)
                 .HasForeignKey(d => d.Userid)

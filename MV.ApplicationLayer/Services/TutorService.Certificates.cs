@@ -4,7 +4,6 @@ using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO.RequestModel;
 using MV.DomainLayer.DTO.ResponseModel;
 using MV.DomainLayer.Entities;
-using MV.DomainLayer.Helpers;
 
 namespace MV.ApplicationLayer.Services
 {
@@ -14,163 +13,46 @@ namespace MV.ApplicationLayer.Services
 
         public async Task<CertificateUploadResponse> AddCertificateAsync(string tutorId, AddCertificateRequest request)
         {
-            // Validate tutor exists
-            var profile = await _unitOfWork.TutorRepository.GetTutorProfileByIdAsync(tutorId);
-            if (profile == null)
-            {
-                throw new ArgumentException("Không tìm thấy hồ sơ gia sư");
-            }
+            var profile = await _unitOfWork.TutorRepository.GetTutorProfileByIdAsync(tutorId)
+                ?? throw new ArgumentException("Không tìm thấy hồ sơ gia sư");
 
-            // Get user info for name comparison
-            var user = await _unitOfWork.UserRepository.GetUserByIdAsync(tutorId);
-            if (user == null)
-            {
-                throw new ArgumentException("Không tìm thấy người dùng");
-            }
-
-            // Validate certificate file
             ValidateCertificateFile(request.CertificateFile);
 
-            // Validate year issued (if provided)
             if (request.YearIssued.HasValue)
             {
                 var currentYear = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow.Year;
                 if (request.YearIssued < 1900 || request.YearIssued > currentYear)
-                {
                     throw new ArgumentException($"Năm cấp phải nằm trong khoảng 1900 đến {currentYear}");
-                }
             }
 
-            // Upload certificate file to Storage
             var certificateFileUrl = await _storageService.UploadFileAsync(
-                CertificateBucket,
-                tutorId,
-                request.CertificateFile);
+                CertificateBucket, tutorId, request.CertificateFile);
 
-            // Create certificate entity
             var certificate = new Tutorcertificate
             {
-                Certificateid = Guid.NewGuid().ToString(),
-                Tutorid = tutorId,
-                Certificatename = request.CertificateName,
-                Certificatetype = request.CertificateType,
+                Certificateid       = Guid.NewGuid().ToString(),
+                Tutorid             = tutorId,
+                Certificatename     = request.CertificateName,
+                Certificatetype     = request.CertificateType,
                 Issuingorganization = request.IssuingOrganization,
-                Yearissued = request.YearIssued,
-                Credentialid = request.CredentialId,
-                Credentialurl = request.CredentialUrl,
-                Certificatefileurl = certificateFileUrl,
-                Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow,
-                Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
+                Yearissued          = request.YearIssued,
+                Credentialid        = request.CredentialId,
+                Credentialurl       = request.CredentialUrl,
+                Certificatefileurl  = certificateFileUrl,
+                Verificationstatus  = CertificateStatus.PendingReview,
+                Createdat           = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow,
+                Updatedat           = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
             };
 
-            // Save certificate to DB first
             await _unitOfWork.TutorRepository.AddCertificateAsync(certificate);
             await _unitOfWork.SaveChangesAsync();
 
-            // Auto-check certificate (chỉ trả về result, KHÔNG lưu vào DB)
-            var validationSummary = new CertificateValidationSummary
-            {
-                IsValid = true,
-                Errors = new List<string>(),
-                Checks = new ValidationCheckResults()
-            };
-
-            try
-            {
-                using var certificateStream = request.CertificateFile.OpenReadStream();
-                var fileExtension = Path.GetExtension(request.CertificateFile.FileName).ToLowerInvariant();
-
-                Stream streamForOcr = certificateStream;
-                string fileNameForOcr = request.CertificateFile.FileName;
-                MemoryStream? convertedImageStream = null;
-
-                // Nếu là PDF, convert sang image trước
-                if (fileExtension == ".pdf")
-                {
-                    convertedImageStream = await ConvertPdfToImageAsync(certificateStream);
-                    streamForOcr = convertedImageStream;
-                    fileNameForOcr = Path.ChangeExtension(request.CertificateFile.FileName, ".png");
-                }
-
-                try
-                {
-                    var validationResult = await _certificateVerificationService.AutoValidateCertificateAsync(
-                        certificate,
-                        user.Fullname ?? "",
-                        streamForOcr,
-                        fileNameForOcr);
-
-                    // Map to summary
-                    validationSummary.IsValid = validationResult.IsAutoVerified;
-                    validationSummary.Errors = validationResult.Details?.Errors ?? new List<string>();
-                    validationSummary.Checks = new ValidationCheckResults
-                    {
-                        NameMatched = validationResult.Details?.NameMatched ?? false,
-                        NameSimilarity = validationResult.Details?.NameSimilarity ?? 0,
-                        IssuerValidByAi = validationResult.Details?.IssuerValidByAi ?? false,
-                        IssuerMatchesUserInput = validationResult.Details?.IssuerMatchesUserInput ?? false,
-                        IssuerValidationPassed = validationResult.Details?.IssuerValidationPassed ?? false,
-                        ExtractedDateIsValid = validationResult.Details?.ExtractedDateIsValid ?? false,
-                        YearMatchesUserInput = validationResult.Details?.YearMatchesUserInput ?? false,
-                        UserInputYearIsValid = validationResult.Details?.UserInputYearIsValid ?? false,
-                        DateValidationPassed = validationResult.Details?.DateValidationPassed ?? false,
-                        OcrSuccess = validationResult.Details?.OcrSuccess ?? false,
-                        OcrConfidence = validationResult.Details?.OcrConfidence ?? 0
-                    };
-
-                    _logger.LogInformation(
-                        "Certificate {CertificateId} auto-check result: IsValid={IsValid}",
-                        certificate.Certificateid, validationSummary.IsValid);
-                }
-                finally
-                {
-                    convertedImageStream?.Dispose();
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Auto-check failed for certificate, treating as invalid");
-                validationSummary.IsValid = false;
-                validationSummary.Errors.Add($"Auto-check error: {ex.Message}");
-            }
-
-            // Lưu verification status vào certificate
-            certificate.Verificationstatus = validationSummary.IsValid
-                ? CertificateStatus.Verified
-                : CertificateStatus.PendingReview;
-            certificate.Verificationnote = validationSummary.IsValid
-                ? "Auto-verified by system"
-                : string.Join("; ", validationSummary.Errors);
-            certificate.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
-
-            await _unitOfWork.SaveChangesAsync();
-
-            // Nếu valid → check required fields và set Active
-            bool isProfileActivated = false;
-            if (validationSummary.IsValid)
-            {
-                var subjects = await _unitOfWork.TutorRepository.GetTutorSubjectsByTutorIdAsync(tutorId);
-                var prices = await _unitOfWork.TutorRepository.GetTutorSubjectGradePricesAsync(tutorId);
-                bool hasRequiredFields = CheckRequiredFields(profile, user, subjects, prices);
-                bool identityVerified = user.Isidentityverified ?? false;
-
-                if (hasRequiredFields && identityVerified)
-                {
-                    profile.Profilestatus = TutorProfileStatus.Active;
-                    profile.Ispublic = true;
-                    profile.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
-                    await _unitOfWork.SaveChangesAsync();
-                    isProfileActivated = true;
-
-                    _logger.LogInformation("Profile {TutorId} activated after valid certificate upload", tutorId);
-                }
-            }
+            _logger.LogInformation("Certificate {CertId} uploaded for tutor {TutorId}, awaiting admin review",
+                certificate.Certificateid, tutorId);
 
             return new CertificateUploadResponse
             {
-                Certificate = MapToCertificateResponse(certificate),
-                ValidationResult = validationSummary,
-                IsProfileActivated = isProfileActivated
+                Certificate = MapToCertificateResponse(certificate)
             };
         }
 
@@ -267,21 +149,5 @@ namespace MV.ApplicationLayer.Services
             };
         }
 
-        /// <summary>Convert first page of PDF to PNG stream for OCR.</summary>
-        private static async Task<MemoryStream> ConvertPdfToImageAsync(Stream pdfStream)
-        {
-            var outputStream = new MemoryStream();
-            pdfStream.Position = 0;
-
-            var options = new PDFtoImage.RenderOptions(
-                Dpi: 300,
-                WithAnnotations: true,
-                WithFormFill: true
-            );
-
-            PDFtoImage.Conversion.SavePng(outputStream, pdfStream, page: 0, options: options);
-            outputStream.Position = 0;
-            return await Task.FromResult(outputStream);
-        }
     }
 }

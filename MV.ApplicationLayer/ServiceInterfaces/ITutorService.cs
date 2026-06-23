@@ -14,7 +14,7 @@ namespace MV.ApplicationLayer.ServiceInterfaces
         /// <summary>
         /// Upload and replace the tutor's profile avatar image.
         /// </summary>
-        Task<bool> UpdateTutorAvatarAsync(string userId, IFormFile avatarFile);
+        Task<string?> UpdateTutorAvatarAsync(string userId, IFormFile avatarFile);
 
         /// <summary>
         /// Upload CCCD (citizen ID card) front and back images to Cloudinary.
@@ -64,6 +64,11 @@ namespace MV.ApplicationLayer.ServiceInterfaces
         /// </summary>
         Task<bool> DeleteCertificateAsync(string tutorId, string certificateId);
 
+        /// <summary>
+        /// Admin: danh sách chứng chỉ có lọc/tìm kiếm/phân trang.
+        /// </summary>
+        Task<PagedList<PendingCertificateResponse>> GetAdminCertificatesAsync(CertificateParameters parameters);
+
         // ── Pricing ───────────────────────────────────────────────────────
 
         /// <summary>
@@ -92,9 +97,25 @@ namespace MV.ApplicationLayer.ServiceInterfaces
         // ── Profile submission ─────────────────────────────────────────────
 
         /// <summary>
-        /// Tutor submits their completed profile for admin review.
-        /// Sets status to Pending and notifies admins.
+        /// Returns completion status for each of the 6 required profile sections.
+        /// FE dùng để hiển thị progress bar (1/6, 2/6...).
         /// </summary>
-        Task<bool> SubmitForAdminReviewAsync(string tutorId);
+        Task<ProfileCompletionResponse> GetProfileCompletionAsync(string tutorId);
+
+        /// <summary>
+        /// Kiểm tra nếu đủ 6/6 mục và status cho phép → tự động chuyển sang PendingApproval.
+        /// Được gọi tự động sau mỗi lần Tutor cập nhật một trong 6 mục.
+        /// </summary>
+        Task TryAutoSubmitAsync(string tutorId);
+
+        // ── Admin certificate management ───────────────────────────────────
+
+        /// <summary>
+        /// Admin duyệt hoặc từ chối một chứng chỉ của gia sư.
+        /// Nếu duyệt: set Verified + re-evaluate profile status (có thể kích hoạt Active).
+        /// Nếu từ chối: set Rejected + gửi notification cho gia sư.
+        /// </summary>
+        Task<AdminVerifyCertificateResponse> AdminVerifyCertificateAsync(
+            string tutorId, string certId, AdminVerifyCertificateRequest request, string adminId);
     }
 }

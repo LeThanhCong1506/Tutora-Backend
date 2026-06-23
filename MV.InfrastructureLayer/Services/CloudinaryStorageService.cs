@@ -46,10 +46,13 @@ namespace MV.InfrastructureLayer.Services
 
             using var stream = file.OpenReadStream();
             var extension = Path.GetExtension(file.FileName).ToLowerInvariant();
-            var isImage = new[] { ".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".tiff" }.Contains(extension);
+            // PDF upload dưới dạng image để tránh Cloudinary chặn raw delivery
+            var isImage = new[] { ".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".tiff", ".pdf" }.Contains(extension);
             var isVideo = new[] { ".mp4", ".mov", ".avi", ".wmv", ".flv", ".webm" }.Contains(extension);
 
             UploadResult uploadResult;
+
+            var publicId = $"{Guid.NewGuid()}_{Path.GetFileNameWithoutExtension(file.FileName)}";
 
             if (isImage)
             {
@@ -57,7 +60,8 @@ namespace MV.InfrastructureLayer.Services
                 {
                     File = new FileDescription(file.FileName, stream),
                     Folder = folderPath,
-                    PublicId = $"{Guid.NewGuid()}_{Path.GetFileNameWithoutExtension(file.FileName)}"
+                    PublicId = publicId,
+                    AccessMode = "public"
                 };
                 uploadResult = await _cloudinary.UploadAsync(uploadParams);
             }
@@ -67,7 +71,8 @@ namespace MV.InfrastructureLayer.Services
                 {
                     File = new FileDescription(file.FileName, stream),
                     Folder = folderPath,
-                    PublicId = $"{Guid.NewGuid()}_{Path.GetFileNameWithoutExtension(file.FileName)}"
+                    PublicId = publicId,
+                    AccessMode = "public"
                 };
                 uploadResult = await _cloudinary.UploadAsync(uploadParams);
             }
@@ -77,7 +82,8 @@ namespace MV.InfrastructureLayer.Services
                 {
                     File = new FileDescription(file.FileName, stream),
                     Folder = folderPath,
-                    PublicId = $"{Guid.NewGuid()}_{Path.GetFileNameWithoutExtension(file.FileName)}"
+                    PublicId = publicId,
+                    AccessMode = "public"
                 };
                 uploadResult = await _cloudinary.UploadAsync(uploadParams);
             }
@@ -89,6 +95,51 @@ namespace MV.InfrastructureLayer.Services
             }
 
             return uploadResult.SecureUrl.ToString();
+        }
+
+        public async Task<string> UploadPrivateFileAsync(string bucketName, string userId, IFormFile file)
+        {
+            if (file == null || file.Length == 0)
+                throw new ArgumentException("File is empty or null.");
+
+            var folderPath = string.IsNullOrWhiteSpace(userId) ? bucketName : $"{bucketName}/{userId}";
+
+            using var stream = file.OpenReadStream();
+            var publicId = $"{Guid.NewGuid()}_{Path.GetFileNameWithoutExtension(file.FileName)}";
+
+            var uploadParams = new ImageUploadParams
+            {
+                File       = new FileDescription(file.FileName, stream),
+                Folder     = folderPath,
+                PublicId   = publicId,
+                AccessMode = "authenticated"   // private — không ai truy cập trực tiếp được
+            };
+
+            var uploadResult = await _cloudinary.UploadAsync(uploadParams);
+
+            if (uploadResult.Error != null)
+            {
+                _logger.LogError("Cloudinary private upload failed: {Error}", uploadResult.Error.Message);
+                throw new Exception($"Cloudinary upload failed: {uploadResult.Error.Message}");
+            }
+
+            // Lưu PublicId (không có chữ ký) — SecureUrl chứa s--...-- có thể truy cập trực tiếp
+            // GenerateSignedUrl sẽ tạo signed URL tạm thời khi Admin cần xem
+            return uploadResult.PublicId;
+        }
+
+        public string GenerateSignedUrl(string publicIdOrUrl, int expiresInMinutes = 15)
+        {
+            var publicId = publicIdOrUrl.Contains("/upload/")
+                ? ExtractPublicIdFromUrl(publicIdOrUrl)
+                : publicIdOrUrl;
+
+            var signedUrl = _cloudinary.Api.UrlImgUp
+                .Signed(true)
+                .Secure(true)
+                .BuildUrl(publicId);
+
+            return signedUrl;
         }
 
         public async Task<bool> DeleteFileAsync(string bucketName, string userId, string filePathOrUrl)
@@ -120,14 +171,9 @@ namespace MV.InfrastructureLayer.Services
 
         private string ExtractPublicIdFromUrl(string url)
         {
-            // Regex to extract public ID from Cloudinary URL
-            var match = Regex.Match(url, @"/upload/(?:v\d+/)?(.+?)(?:\.[^.]+)?$");
-            if (match.Success)
-            {
-                return match.Groups[1].Value;
-            }
-
-            return url;
+            // Skip: s--signature-- (authenticated URL prefix) + v1234567 (version), then capture public ID without extension
+            var match = Regex.Match(url, @"/upload/(?:s--[^/]+--/)?(?:v\d+/)?(.+?)(?:\.[^.]+)?$");
+            return match.Success ? match.Groups[1].Value : url;
         }
     }
 }

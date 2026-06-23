@@ -40,7 +40,7 @@ AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
 
 var builder = WebApplication.CreateBuilder(args);
 
-var redisConnectionString = $"{builder.Configuration.GetConnectionString(ConfigurationKeys.ConnectionStrings.RedisConnection)},abortConnect=false,connectTimeout=3000,syncTimeout=2000,asyncTimeout=2000,connectRetry=2";
+var redisConnectionString = builder.Configuration.GetConnectionString(ConfigurationKeys.ConnectionStrings.RedisConnection)!;
 
 builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
     ConnectionMultiplexer.Connect(redisConnectionString));
@@ -295,7 +295,6 @@ builder.Services.AddScoped<ITutorSearchRepository, TutorSearchRepository>();
 
 // Service injection
 builder.Services.AddScoped<ITutorVerificationService, TutorVerificationService>();
-builder.Services.AddScoped<ICertificateVerificationService, CertificateVerificationService>(); // NEW: Certificate auto-validation
 builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<ILoginService, LoginService>();
 builder.Services.AddScoped<ITutorService, TutorService>();

@@ -145,42 +145,6 @@ namespace MV.ApplicationLayer.Services
                 var normalizedText = NormalizeVietnameseText(textContent.ToLower());
                 var violations = new List<ModerationViolation>();
 
-                // Check với danh sách từ cấm tiếng Việt
-                var bannedWords = GetVietnameseBannedWords();
-                foreach (var word in bannedWords)
-                {
-                    var index = normalizedText.IndexOf(word, StringComparison.OrdinalIgnoreCase);
-                    if (index >= 0)
-                    {
-                        violations.Add(new ModerationViolation
-                        {
-                            Category = ModerationConstants.Category.Profanity,
-                            Severity = ModerationConstants.Severity.High,
-                            MatchedText = MaskWord(word),
-                            StartIndex = index,
-                            EndIndex = index + word.Length
-                        });
-                    }
-                }
-
-                // Check từ khóa nhạy cảm
-                var sensitiveWords = GetSensitiveWords();
-                foreach (var word in sensitiveWords)
-                {
-                    var index = normalizedText.IndexOf(word, StringComparison.OrdinalIgnoreCase);
-                    if (index >= 0)
-                    {
-                        violations.Add(new ModerationViolation
-                        {
-                            Category = ModerationConstants.Category.SensitiveContent,
-                            Severity = ModerationConstants.Severity.Medium,
-                            MatchedText = MaskWord(word),
-                            StartIndex = index,
-                            EndIndex = index + word.Length
-                        });
-                    }
-                }
-
                 // Check thông tin cá nhân nhạy cảm (số điện thoại, email trong bio)
                 CheckPersonalInfoLeakage(textContent, violations);
 
@@ -222,32 +186,6 @@ namespace MV.ApplicationLayer.Services
                 .Replace("$", "s");
 
             return normalized;
-        }
-
-        private List<string> GetVietnameseBannedWords()
-        {
-            // Danh sách từ cấm tiếng Việt (chỉ giữ những từ thật sự xúc phạm)
-            return new List<string>
-            {
-                // Từ tục tiếng Việt phổ biến (đã encode để tránh hiển thị trực tiếp)
-                // "dmm", "vcl", "vkl", "dkm", "clm", "cmm",
-                // "dit", "lon", "cac", "buoi", "du ma",
-                // "ngu", "dien", "khung",
-                // Thêm các từ khác theo nhu cầu
-            };
-        }
-
-        private List<string> GetSensitiveWords()
-        {
-            return new List<string>
-            {
-                // Từ khóa nhạy cảm liên quan đến lừa đảo, spam
-                "chuyen tien", "so tai khoan", "mat khau",
-                "trung thuong", "mien phi 100%", "kiem tien nhanh",
-                "dau tu sinh loi", "bitcoin", "crypto",
-                // Từ khóa liên quan đến nội dung không phù hợp cho giáo dục
-                "casino", "ca cuoc", "sex", "18+"
-            };
         }
 
         private void CheckPersonalInfoLeakage(string text, List<ModerationViolation> violations)

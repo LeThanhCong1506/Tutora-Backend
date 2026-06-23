@@ -1,11 +1,11 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using MV.ApplicationLayer.ServiceInterfaces;
+using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO;
 using MV.DomainLayer.DTO.RequestModel;
 using MV.DomainLayer.DTO.ResponseModel;
 using System.Security.Claims;
-using MV.DomainLayer.Constants;
 
 namespace MV.PresentationLayer.Controllers
 {
@@ -60,9 +60,9 @@ namespace MV.PresentationLayer.Controllers
         /// <summary>
         /// Upload CCCD (citizen ID card) 2 mặt — mặt trước và mặt sau.
         /// Chấp nhận JPG, JPEG, PNG — tối đa 5MB mỗi ảnh.
-        /// Lưu URL vào user.Idcardfronturl và user.Idcardbackurl.
+        /// Gọi FPT.AI OCR trực tiếp bằng bytes, lưu PublicId (private) vào DB.
         /// </summary>
-        [HttpPut("{id}/profile/cccd")]
+        [HttpPost("{id}/profile/cccd")]
         [RequestSizeLimit(10_485_760)]
         [RequestFormLimits(MultipartBodyLengthLimit = 10_485_760)]
         public async Task<IActionResult> UploadCccd([FromRoute] string id, [FromForm] UploadCccdRequest request)
@@ -75,6 +75,11 @@ namespace MV.PresentationLayer.Controllers
             {
                 var result = await _tutorService.UploadCccdImagesAsync(id, request);
                 return Ok(APIResponse<CccdUploadResponse>.Success(result, "Upload ảnh CCCD thành công."));
+            }
+            catch (InvalidOperationException ex)
+            {
+                // Tên CCCD không khớp với hồ sơ
+                return UnprocessableEntity(APIResponse.Fail(ex.Message, 422));
             }
             catch (ArgumentException ex)
             {
@@ -96,14 +101,14 @@ namespace MV.PresentationLayer.Controllers
 
             try
             {
-                var result = await _tutorService.UpdateTutorAvatarAsync(id, request.AvatarFile);
+                var avatarUrl = await _tutorService.UpdateTutorAvatarAsync(id, request.AvatarFile);
 
-                if (!result)
+                if (avatarUrl == null)
                 {
                     return NotFound(APIResponse.Fail(ApiMessages.UserNotFound, 404));
                 }
 
-                return Ok(APIResponse.Success("Cập nhật ảnh đại diện thành công."));
+                return Ok(APIResponse<object>.Success(new { avatarUrl }, "Cập nhật ảnh đại diện thành công."));
             }
             catch (ArgumentException ex)
             {
@@ -226,12 +231,8 @@ namespace MV.PresentationLayer.Controllers
             try
             {
                 var result = await _tutorService.AddCertificateAsync(id, request);
-
-                // Trả về response với validation result để FE xử lý
-                return Ok(APIResponse<CertificateUploadResponse>.Success(result,
-                    result.IsProfileActivated
-                        ? "Thêm chứng chỉ và kích hoạt hồ sơ thành công."
-                        : "Thêm chứng chỉ thành công. Vui lòng kiểm tra kết quả xác thực."));
+                return Ok(APIResponse<CertificateUploadResponse>.Success(
+                    result, "Thêm chứng chỉ thành công. Chứng chỉ đang chờ admin xét duyệt."));
             }
             catch (ArgumentException ex)
             {
@@ -240,33 +241,19 @@ namespace MV.PresentationLayer.Controllers
         }
 
         /// <summary>
-        /// Submit profile for admin review when certificate auto-check fails
-        /// User chọn gửi Admin thay vì upload lại
+        /// GET /api/tutors/{id}/profile-completion
+        /// Trả về trạng thái hoàn thành 6 mục hồ sơ. FE dùng để hiển thị progress bar.
+        /// Khi đủ 6/6 mục, profile tự động chuyển sang PendingApproval.
         /// </summary>
-        [HttpPost("{id}/submit-for-review")]
-        public async Task<IActionResult> SubmitForAdminReview([FromRoute] string id)
+        [HttpGet("{id}/profile-completion")]
+        public async Task<IActionResult> GetProfileCompletion([FromRoute] string id)
         {
             var currentUserId = User.FindFirstValue(ClaimTypes.NameIdentifier);
             if (currentUserId != id)
-            {
                 return StatusCode(403, APIResponse.Fail(ApiMessages.Forbidden, 403));
-            }
 
-            try
-            {
-                var result = await _tutorService.SubmitForAdminReviewAsync(id);
-
-                if (!result)
-                {
-                    return NotFound(APIResponse.Fail(ApiMessages.TutorProfileNotFound, 404));
-                }
-
-                return Ok(APIResponse.Success("Đã gửi hồ sơ để admin xét duyệt. Trạng thái chuyển sang chờ phê duyệt."));
-            }
-            catch (Exception ex)
-            {
-                return BadRequest(APIResponse.Fail(ex.Message, 400));
-            }
+            var result = await _tutorService.GetProfileCompletionAsync(id);
+            return Ok(APIResponse<ProfileCompletionResponse>.Success(result, "Lấy tiến trình hoàn thiện hồ sơ thành công."));
         }
 
         /// <summary>
@@ -347,24 +334,8 @@ namespace MV.PresentationLayer.Controllers
         //    return Ok(APIResponse<TutorProfilePreviewResponse>.Success(result, "Get tutor profile preview successfully."));
         //}
 
-        [HttpPost("verification/submit")]
-        public async Task<IActionResult> SubmitVerification([FromBody] SubmitVerificationRequest request)
-        {
-            // Sử dụng ClaimTypes.NameIdentifier thay vì "UserId" 
-            // vì trong AuthenticationRepository đã dùng: new Claim(ClaimTypes.NameIdentifier, loginResponse.Userid!)
-            var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
-            if (string.IsNullOrEmpty(userId))
-                return Unauthorized(APIResponse.Fail("Token không hợp lệ."));
-
-            var result = await _verificationService.VerifyAndSaveTutorDataAsync(
-                userId,
-                request.FrontImgPath,
-                request.BackImgPath
-            );
-
-            if (result.StatusCode != 200) return BadRequest(result);
-            return Ok(result);
-        }
+        // [DEPRECATED] POST verification/submit — đã thay thế bởi POST {id}/profile/cccd
+        // Endpoint cũ nhận URL ảnh rồi download. Flow mới upload file trực tiếp + OCR trong 1 request.
 
         /// <summary>
         /// Get tutor pricing information (hourly rate, trial lesson price, allow negotiation)

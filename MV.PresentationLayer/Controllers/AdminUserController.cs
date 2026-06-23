@@ -96,6 +96,29 @@ public class AdminUserController : ControllerBase
         }
     }
 
+    /// <summary>
+    /// PUT /api/admin/users/{id}/reactivate
+    /// Mở khóa tài khoản người dùng đã bị deactivate.
+    /// Nếu là gia sư và profile đang Active → khôi phục Ispublic = true.
+    /// </summary>
+    [HttpPut("{id}/reactivate")]
+    public async Task<IActionResult> ReactivateUser(string id)
+    {
+        try
+        {
+            await _userService.AdminReactivateUserAsync(id);
+            return Ok(APIResponse<object>.Success(null!, "Mở khóa tài khoản người dùng thành công."));
+        }
+        catch (UserNotFoundException ex)
+        {
+            return NotFound(APIResponse<object>.Fail(ex.Message, 404));
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(500, APIResponse<object>.Fail(ApiMessages.GenericErrorPrefix + ex.Message, 500));
+        }
+    }
+
     [HttpDelete("{id}")]
     public async Task<IActionResult> DeleteUser(string id)
     {

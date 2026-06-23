@@ -15,7 +15,7 @@ namespace MV.ApplicationLayer.Services
         private readonly IUnitOfWork _unitOfWork;
         private readonly IFileStorageService _storageService;
         private readonly IFptAiService _fptAiService;
-        private readonly ICertificateVerificationService _certificateVerificationService;
+        private readonly INotificationService _notificationService;
         private readonly ILogger<TutorService> _logger;
 
         // Storage buckets
@@ -32,13 +32,13 @@ namespace MV.ApplicationLayer.Services
             IUnitOfWork unitOfWork,
             IFileStorageService storageService,
             IFptAiService fptAiService,
-            ICertificateVerificationService certificateVerificationService,
+            INotificationService notificationService,
             ILogger<TutorService> logger)
         {
             _unitOfWork = unitOfWork;
             _storageService = storageService;
             _fptAiService = fptAiService;
-            _certificateVerificationService = certificateVerificationService;
+            _notificationService = notificationService;
             _logger = logger;
         }
 
@@ -89,7 +89,7 @@ namespace MV.ApplicationLayer.Services
 
 
             await _unitOfWork.SaveChangesAsync();
-            await TryAutoActivateProfileAsync(userId);
+            await AutoSubmitIfCompleteAsync(userId);
             return true;
         }
 
@@ -133,7 +133,7 @@ namespace MV.ApplicationLayer.Services
             profile.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 
             await _unitOfWork.SaveChangesAsync();
-            await TryAutoActivateProfileAsync(userId);
+            await AutoSubmitIfCompleteAsync(userId);
             return true;
         }
 
@@ -151,7 +151,7 @@ namespace MV.ApplicationLayer.Services
                 MapSubjectGradePriceRequests(userId, request.SubjectGradePrices));
 
             await _unitOfWork.SaveChangesAsync();
-            await TryAutoActivateProfileAsync(userId);
+            await AutoSubmitIfCompleteAsync(userId);
             return true;
         }
 
@@ -187,7 +187,7 @@ namespace MV.ApplicationLayer.Services
                 MapSubjectGradePriceRequests(tutorId, request.SubjectGradePrices));
 
             await _unitOfWork.SaveChangesAsync();
-            await TryAutoActivateProfileAsync(tutorId);
+            await AutoSubmitIfCompleteAsync(tutorId);
             return true;
         }
 
@@ -228,12 +228,12 @@ namespace MV.ApplicationLayer.Services
             profile.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
             
             await _unitOfWork.SaveChangesAsync();
-            await TryAutoActivateProfileAsync(tutorId);
 
             // Reload to get navigation properties
             var created = await _unitOfWork.TutorRepository.GetTutorSubjectGradePriceAsync(
                 tutorId, request.SubjectId, request.GradeLevelId);
 
+            await AutoSubmitIfCompleteAsync(tutorId);
             return MapSubjectGradePriceResponse(created!);
         }
 
@@ -308,77 +308,91 @@ namespace MV.ApplicationLayer.Services
 
         // ─── Status Management ────────────────────────────────────────────────
 
-        /// <summary>Tutor manually submits profile for admin review.</summary>
-        public async Task<bool> SubmitForAdminReviewAsync(string tutorId)
+        /// <summary>
+        /// Trả về trạng thái hoàn thành 6 mục hồ sơ gia sư.
+        /// FE dùng để hiển thị progress bar và bật/tắt nút Submit.
+        /// </summary>
+        public async Task<ProfileCompletionResponse> GetProfileCompletionAsync(string tutorId)
         {
-            var profile = await _unitOfWork.TutorRepository.GetTutorProfileByIdAsync(tutorId);
-            if (profile == null) return false;
+            var profile        = await _unitOfWork.TutorRepository.GetTutorProfileByIdAsync(tutorId);
+            var user           = await _unitOfWork.UserRepository.GetUserByIdAsync(tutorId);
+            var subjects       = await _unitOfWork.TutorRepository.GetTutorSubjectsByTutorIdAsync(tutorId);
+            var prices         = await _unitOfWork.TutorRepository.GetTutorSubjectGradePricesAsync(tutorId);
+            var availabilities = await _unitOfWork.TutorRepository.GetAvailabilitiesByTutorIdAsync(tutorId);
 
-            if (!string.Equals(profile.Profilestatus, TutorProfileStatus.Draft, StringComparison.OrdinalIgnoreCase) &&
-                !string.Equals(profile.Profilestatus, TutorProfileStatus.Rejected, StringComparison.OrdinalIgnoreCase))
+            bool hasBasicInfo    = profile != null
+                                   && !string.IsNullOrWhiteSpace(profile.Headline)
+                                   && !string.IsNullOrWhiteSpace(profile.Teachingareacity);
+            bool hasIntroduction = profile != null
+                                   && !string.IsNullOrWhiteSpace(profile.Bio)
+                                   && !string.IsNullOrWhiteSpace(profile.Education);
+            bool hasSubjects     = subjects != null && subjects.Count > 0
+                                   && prices != null && prices.Any(p => p.Isactive && p.Priceperhour > 0);
+            bool hasAvailability = availabilities != null && availabilities.Count > 0;
+            bool hasIdentity     = user?.Isidentityverified ?? false;
+
+            var sections = new List<ProfileSection>
             {
-                throw new InvalidOperationException(
-                    $"Cannot submit for review. Current status is '{profile.Profilestatus}'.");
-            }
+                new() { Key = "basic_info",    Name = "Thông tin cơ bản",     IsComplete = hasBasicInfo,
+                    MissingReason = hasBasicInfo    ? null : "Cần điền Tiêu đề và Khu vực dạy học" },
+                new() { Key = "introduction",  Name = "Giới thiệu bản thân",   IsComplete = hasIntroduction,
+                    MissingReason = hasIntroduction ? null : "Cần điền Bio và Học vấn" },
+                new() { Key = "subjects",      Name = "Môn học & Bảng giá",    IsComplete = hasSubjects,
+                    MissingReason = hasSubjects     ? null : "Cần chọn ít nhất 1 môn học và thiết lập giá" },
+                new() { Key = "availability",  Name = "Lịch rảnh",             IsComplete = hasAvailability,
+                    MissingReason = hasAvailability ? null : "Cần thiết lập ít nhất 1 khung giờ rảnh" },
+                new() { Key = "identity",      Name = "Xác minh CCCD",         IsComplete = hasIdentity,
+                    MissingReason = hasIdentity     ? null : "Cần upload CCCD và chờ xác minh" },
+            };
 
-            profile.Profilestatus = TutorProfileStatus.PendingApproval;
-            profile.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
+            int completedCount = sections.Count(s => s.IsComplete);
+            bool canSubmit = completedCount == 5
+                             && profile != null
+                             && (string.Equals(profile.Profilestatus, TutorProfileStatus.Draft,    StringComparison.OrdinalIgnoreCase)
+                              || string.Equals(profile.Profilestatus, TutorProfileStatus.Rejected, StringComparison.OrdinalIgnoreCase));
 
-            await _unitOfWork.SaveChangesAsync();
-            _logger.LogInformation("Profile {TutorId} submitted for admin review", tutorId);
-            return true;
+            return new ProfileCompletionResponse
+            {
+                CompletedSections = completedCount,
+                TotalSections     = 5,
+                CanSubmit         = canSubmit,
+                ProfileStatus     = profile?.Profilestatus ?? TutorProfileStatus.Draft,
+                Sections          = sections
+            };
         }
 
-        /// <summary>Check and auto-activate profile if all conditions are met.</summary>
-        public async Task<bool> TryAutoActivateProfileAsync(string tutorId)
+        /// <summary>
+        /// Public entry point cho TutorAvailabilityService (service khác) gọi sau khi lưu availability.
+        /// </summary>
+        public Task TryAutoSubmitAsync(string tutorId) => AutoSubmitIfCompleteAsync(tutorId);
+
+        /// <summary>
+        /// Nếu đủ 6/6 mục VÀ status đang Draft hoặc Rejected → tự động chuyển sang PendingApproval.
+        /// Được gọi sau mỗi lần Tutor cập nhật một trong 6 mục. Silent — không throw exception.
+        /// </summary>
+        private async Task AutoSubmitIfCompleteAsync(string tutorId)
         {
-            var profile = await _unitOfWork.TutorRepository.GetTutorProfileByIdAsync(tutorId);
-            var user = await _unitOfWork.UserRepository.GetUserByIdAsync(tutorId);
-            var subjects = await _unitOfWork.TutorRepository.GetTutorSubjectsByTutorIdAsync(tutorId);
-            var prices = await _unitOfWork.TutorRepository.GetTutorSubjectGradePricesAsync(tutorId);
-            var certificates = await _unitOfWork.TutorRepository.GetCertificatesByTutorIdAsync(tutorId);
-
-            if (profile == null || user == null) return false;
-
-            // Only check when still in Draft
-            if (!string.Equals(profile.Profilestatus, TutorProfileStatus.Draft, StringComparison.OrdinalIgnoreCase)) return false;
-
-            bool identityVerified = user.Isidentityverified ?? false;
-            bool hasRequiredFields = CheckRequiredFields(profile, user, subjects, prices);
-
-            bool hasVerifiedCertificate = certificates != null &&
-                certificates.Any(c => string.Equals(c.Verificationstatus, CertificateStatus.Verified, StringComparison.OrdinalIgnoreCase));
-
-            if (identityVerified && hasRequiredFields && hasVerifiedCertificate)
+            try
             {
-                profile.Profilestatus = TutorProfileStatus.Active;
-                profile.Ispublic = true;
-                profile.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
+                var completion = await GetProfileCompletionAsync(tutorId);
+                if (!completion.CanSubmit) return;
+
+                var profile = await _unitOfWork.TutorRepository.GetTutorProfileByIdAsync(tutorId);
+                if (profile == null) return;
+
+                profile.Profilestatus = TutorProfileStatus.PendingApproval;
+                profile.Updatedat     = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
                 await _unitOfWork.SaveChangesAsync();
 
-                _logger.LogInformation("Profile {TutorId} auto-activated", tutorId);
-                return true;
+                _logger.LogInformation("Profile {TutorId} auto-submitted for admin review (6/6 complete)", tutorId);
             }
-
-            return false;
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "AutoSubmitIfCompleteAsync failed for tutor {TutorId}", tutorId);
+            }
         }
 
         // ─── Private helpers ─────────────────────────────────────────────────
-
-        private static bool CheckRequiredFields(
-            Tutorprofile profile,
-            User user,
-            List<Tutorsubject>? subjects,
-            List<Tutorsubjectgradeprice>? prices)
-        {
-            return !string.IsNullOrWhiteSpace(profile.Headline) &&
-                   !string.IsNullOrWhiteSpace(profile.Teachingareacity) &&
-                   subjects != null && subjects.Count > 0 &&
-                   !string.IsNullOrWhiteSpace(profile.Bio) &&
-                   !string.IsNullOrWhiteSpace(profile.Education) &&
-                   prices != null && prices.Any(p => p.Isactive && p.Priceperhour > 0) &&
-                   !string.IsNullOrWhiteSpace(user.Avatarurl);
-        }
 
         private async Task ValidateSubjectGradePricesAsync(string tutorId, List<TutorSubjectGradePriceRequest> prices)
         {

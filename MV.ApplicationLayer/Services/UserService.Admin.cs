@@ -153,5 +153,51 @@ namespace MV.ApplicationLayer.Services
 
             await _unitOfWork.SaveChangesAsync();
         }
+
+        public async Task AdminReactivateUserAsync(string userId)
+        {
+            var user = await _unitOfWork.UserRepository.GetUserByIdAsync(userId)
+                ?? throw new UserNotFoundException(userId);
+
+            user.Status = 1;
+            await _unitOfWork.UserRepository.UpdateUserAsync(user);
+
+            // Nếu là gia sư và profile đang Active → khôi phục hiển thị công khai
+            var tutorProfile = await _unitOfWork.UserRepository.GetTutorProfileByIdAsync(userId);
+            if (tutorProfile != null &&
+                string.Equals(tutorProfile.Profilestatus, TutorProfileStatus.Active, StringComparison.OrdinalIgnoreCase))
+            {
+                tutorProfile.Ispublic = true;
+                await _unitOfWork.UserRepository.UpdateTutorProfileAsync(tutorProfile);
+            }
+
+            await _unitOfWork.SaveChangesAsync();
+        }
+
+        // ─── Admin: xem ảnh CCCD (signed URL, có hiệu lực 10 phút) ──────────────
+
+        public async Task<TutorCccdUrlsResponse> GetTutorCccdUrlsAsync(string tutorId)
+        {
+            var user = await _unitOfWork.UserRepository.GetUserByIdAsync(tutorId)
+                ?? throw new UserNotFoundException(tutorId);
+
+            // URL lưu trong DB là authenticated (private). Phải tạo signed URL mới xem được.
+            var frontSigned = !string.IsNullOrEmpty(user.Idcardfronturl)
+                ? _storage.GenerateSignedUrl(user.Idcardfronturl)
+                : null;
+
+            var backSigned = !string.IsNullOrEmpty(user.Idcardbackurl)
+                ? _storage.GenerateSignedUrl(user.Idcardbackurl)
+                : null;
+
+            return new TutorCccdUrlsResponse
+            {
+                TutorId            = user.Userid,
+                TutorFullName      = user.Fullname,
+                FrontImageUrl      = frontSigned,
+                BackImageUrl       = backSigned,
+                IsIdentityVerified = user.Isidentityverified ?? false
+            };
+        }
     }
 }

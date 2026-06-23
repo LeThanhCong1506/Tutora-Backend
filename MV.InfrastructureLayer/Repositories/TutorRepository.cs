@@ -1,6 +1,8 @@
 using System.Linq;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using MV.DomainLayer.Constants;
+using MV.DomainLayer.DTO.RequestModel;
 using MV.DomainLayer.Entities;
 using MV.InfrastructureLayer.DBContext;
 using MV.ApplicationLayer.RepositoryInterfaces;
@@ -271,6 +273,40 @@ namespace MV.InfrastructureLayer.Repositories
         public void DeleteCertificate(Tutorcertificate certificate)
         {
             _context.Tutorcertificates.Remove(certificate);
+        }
+
+        public Task<PagedList<Tutorcertificate>> GetAdminCertificatesAsync(CertificateParameters parameters)
+        {
+            var query = _context.Tutorcertificates
+                .Include(c => c.Tutor)
+                    .ThenInclude(p => p.Tutor)
+                .AsNoTracking()
+                .AsQueryable();
+
+            // Status filter
+            var status = parameters.Status?.Trim().ToLower();
+            if (status != "all")
+                query = query.Where(c => c.Verificationstatus == (status ?? CertificateStatus.PendingReview));
+
+            // SearchTerm: tên hoặc email gia sư
+            if (!string.IsNullOrWhiteSpace(parameters.SearchTerm))
+            {
+                var term = parameters.SearchTerm.Trim().ToLower();
+                query = query.Where(c =>
+                    (c.Tutor.Tutor.Fullname != null && c.Tutor.Tutor.Fullname.ToLower().Contains(term)) ||
+                    (c.Tutor.Tutor.Email != null && c.Tutor.Tutor.Email.ToLower().Contains(term)));
+            }
+
+            // OrderBy
+            query = parameters.OrderBy?.Trim().ToLower() switch
+            {
+                "createdat_asc"   => query.OrderBy(c => c.Createdat),
+                "tutorname_asc"   => query.OrderBy(c => c.Tutor.Tutor.Fullname),
+                "tutorname_desc"  => query.OrderByDescending(c => c.Tutor.Tutor.Fullname),
+                _                 => query.OrderByDescending(c => c.Createdat)
+            };
+
+            return Task.FromResult(PagedList<Tutorcertificate>.ToPagedList(query, parameters.PageNumber, parameters.PageSize));
         }
 
         public async Task UpdateTutorProfileStatusAsync(Tutorprofile profile)

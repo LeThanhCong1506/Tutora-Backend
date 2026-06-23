@@ -39,6 +39,18 @@ namespace MV.DomainLayer.DTO.ResponseModel
         public double? AverageRating { get; set; }
         public int? TotalReviews { get; set; }
 
+        /// <summary>
+        /// Total number of lessons (buổi học) this tutor has. Shown next to the rating on the card.
+        /// </summary>
+        public int TotalLessons { get; set; }
+
+        // === Pricing ===
+        /// <summary>
+        /// Lowest active price-per-hour across all of the tutor's subjects/grades.
+        /// Displayed on the card as "Từ {MinPricePerHour}đ/giờ".
+        /// </summary>
+        public decimal? MinPricePerHour { get; set; }
+
         // === Experience (Thâm niên) ===
         /// <summary>
         /// Years of teaching experience (Thâm niên: X Năm)
@@ -113,6 +125,11 @@ namespace MV.DomainLayer.DTO.ResponseModel
     {
         public int SubjectId { get; set; }
         public string? SubjectName { get; set; }
+
+        /// <summary>
+        /// Price per hour for this subject/grade offering (VND).
+        /// </summary>
+        public decimal? PricePerHour { get; set; }
 
         /// <summary>
         /// Grade levels this subject covers

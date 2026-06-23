@@ -34,7 +34,7 @@ namespace MV.ApplicationLayer.ServiceInterfaces
         /// <summary>
         /// Admin approves or rejects a tutor's profile submission.
         /// </summary>
-        Task<ApproveTutorResponse> ApproveTutorProfileAsync(string tutorId, ApproveTutorRequest request);
+        Task<ApproveTutorResponse> ApproveTutorProfileAsync(string tutorId, ApproveTutorRequest request, string adminId);
 
         /// <summary>
         /// All student profiles belonging to a parent account.
@@ -89,9 +89,15 @@ namespace MV.ApplicationLayer.ServiceInterfaces
         Task AdminUpdateUserAsync(string userId, AdminUpdateUserRequest request);
 
         /// <summary>
-        /// Admin: soft-deactivate a user account.
+        /// Admin: soft-deactivate a user account (status = 0).
         /// </summary>
         Task AdminDeactivateUserAsync(string userId);
+
+        /// <summary>
+        /// Admin: reactivate a previously deactivated user account (status = 1).
+        /// Nếu là gia sư và profile đang Active → khôi phục Ispublic = true.
+        /// </summary>
+        Task AdminReactivateUserAsync(string userId);
 
         /// <summary>
         /// Admin: change a user's role. Only roles in <see cref="UserRole.AssignableByAdmin"/> are permitted.
@@ -109,5 +115,11 @@ namespace MV.ApplicationLayer.ServiceInterfaces
         /// Lưu thời điểm thay đổi trạng thái vào <c>Deactivatedat</c>.
         /// </summary>
         Task<DeactivationStatusResponse> ToggleDeactivationAsync(string userId);
+
+        /// <summary>
+        /// Admin only: lấy signed URL có thời hạn 15 phút để xem ảnh CCCD của gia sư.
+        /// URL lưu trong DB là private/authenticated — không thể truy cập trực tiếp.
+        /// </summary>
+        Task<TutorCccdUrlsResponse> GetTutorCccdUrlsAsync(string tutorId);
     }
 }

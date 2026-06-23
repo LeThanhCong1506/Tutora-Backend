@@ -13,13 +13,13 @@ namespace MV.ApplicationLayer.Services
     public class TutorAvailabilityService : ITutorAvailabilityService
     {
         private readonly IAppDbContext _context;
+        private readonly ITutorService _tutorService;
         private const string DefaultFlexiblePackageName = "Gói lịch rảnh linh hoạt";
 
-
-
-        public TutorAvailabilityService(IAppDbContext context)
+        public TutorAvailabilityService(IAppDbContext context, ITutorService tutorService)
         {
             _context = context;
+            _tutorService = tutorService;
         }
 
         /// <summary>
@@ -68,6 +68,7 @@ namespace MV.ApplicationLayer.Services
             await EnsureFlexiblePackageAsync(tutorId);
             await _context.SaveChangesAsync();
 
+            await _tutorService.TryAutoSubmitAsync(tutorId);
             return MapToResponse(availability);
         }
 
@@ -140,9 +141,9 @@ namespace MV.ApplicationLayer.Services
             await EnsureFlexiblePackageAsync(tutorId);
             await _context.SaveChangesAsync();
 
-            // Map to response
-            results = newSlots.Select(MapToResponse).ToList();
+            await _tutorService.TryAutoSubmitAsync(tutorId);
 
+            results = newSlots.Select(MapToResponse).ToList();
             return results;
         }
 

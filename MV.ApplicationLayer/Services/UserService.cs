@@ -100,7 +100,6 @@ namespace MV.ApplicationLayer.Services
                     Status = u.Status,
                     Createdat = u.Createdat,
                     ProfileStatus = u.Tutorprofile?.Profilestatus,
-                    RejectionNote = u.Tutorprofile?.Rejectionnote,
                     ProfileCreatedAt = u.Tutorprofile?.Createdat.HasValue == true ? u.Tutorprofile.Createdat.Value : (DateTime?)null,
                     ProfileUpdatedAt = u.Tutorprofile?.Updatedat.HasValue == true ? u.Tutorprofile.Updatedat.Value : (DateTime?)null,
                     Sections = progress?.Sections ?? new VerificationSections()

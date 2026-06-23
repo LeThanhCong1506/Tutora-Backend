@@ -114,7 +114,7 @@ namespace MV.ApplicationLayer.Services
             await _unitOfWork.SaveChangesAsync();
         }
 
-        public async Task<ApproveTutorResponse> ApproveTutorProfileAsync(string tutorId, ApproveTutorRequest request)
+        public async Task<ApproveTutorResponse> ApproveTutorProfileAsync(string tutorId, ApproveTutorRequest request, string adminId)
         {
             var profile = await _unitOfWork.UserRepository.GetTutorProfileByIdAsync(tutorId)
                 ?? throw new KeyNotFoundException("Không tìm thấy hồ sơ gia sư.");
@@ -126,10 +126,10 @@ namespace MV.ApplicationLayer.Services
             if (request.IsApproved)
             {
                 profile.Rejectionnote = null;
-                profile.Reviewedby = ApprovalStatusText.AdminReviewer;
+                profile.Reviewedby = adminId;
                 profile.Reviewedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 
-                // Approve all pending certificates
+                // Approve all pending certificates in bulk
                 var certificates = await _unitOfWork.TutorRepository.GetCertificatesByTutorIdAsync(tutorId);
                 if (certificates != null)
                 {
@@ -142,29 +142,18 @@ namespace MV.ApplicationLayer.Services
                     }
                 }
 
-                var subjects = await _unitOfWork.TutorRepository.GetTutorSubjectsByTutorIdAsync(tutorId);
-                var prices = await _unitOfWork.TutorRepository.GetTutorSubjectGradePricesAsync(tutorId);
-                bool identityVerified = user.Isidentityverified ?? false;
-                bool hasRequiredFields = CheckTutorRequiredFields(profile, user, subjects, prices);
-
-                if (identityVerified && hasRequiredFields)
-                {
-                    profile.Profilestatus = TutorProfileStatus.Active;
-                    profile.Ispublic = true;
-                    statusText = ApprovalStatusText.Approved;
-                }
-                else
-                {
-                    profile.Profilestatus = TutorProfileStatus.Draft;
-                    profile.Ispublic = false;
-                    statusText = ApprovalStatusText.ApprovedPendingProfile;
-                }
+                // Admin explicitly approved → always activate, no secondary check
+                profile.Profilestatus = TutorProfileStatus.Active;
+                profile.Ispublic = true;
+                statusText = ApprovalStatusText.Approved;
             }
             else
             {
                 profile.Profilestatus = TutorProfileStatus.Rejected;
                 profile.Ispublic = false;
                 profile.Rejectionnote = request.Reason;
+                profile.Reviewedby = adminId;
+                profile.Reviewedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
                 statusText = ApprovalStatusText.Rejected;
             }
 
