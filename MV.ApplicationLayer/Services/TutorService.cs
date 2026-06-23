@@ -89,6 +89,7 @@ namespace MV.ApplicationLayer.Services
 
 
             await _unitOfWork.SaveChangesAsync();
+            await AutoSubmitIfCompleteAsync(userId);
             return true;
         }
 
@@ -132,6 +133,7 @@ namespace MV.ApplicationLayer.Services
             profile.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 
             await _unitOfWork.SaveChangesAsync();
+            await AutoSubmitIfCompleteAsync(userId);
             return true;
         }
 
@@ -149,6 +151,7 @@ namespace MV.ApplicationLayer.Services
                 MapSubjectGradePriceRequests(userId, request.SubjectGradePrices));
 
             await _unitOfWork.SaveChangesAsync();
+            await AutoSubmitIfCompleteAsync(userId);
             return true;
         }
 
@@ -184,6 +187,7 @@ namespace MV.ApplicationLayer.Services
                 MapSubjectGradePriceRequests(tutorId, request.SubjectGradePrices));
 
             await _unitOfWork.SaveChangesAsync();
+            await AutoSubmitIfCompleteAsync(tutorId);
             return true;
         }
 
@@ -229,6 +233,7 @@ namespace MV.ApplicationLayer.Services
             var created = await _unitOfWork.TutorRepository.GetTutorSubjectGradePriceAsync(
                 tutorId, request.SubjectId, request.GradeLevelId);
 
+            await AutoSubmitIfCompleteAsync(tutorId);
             return MapSubjectGradePriceResponse(created!);
         }
 
@@ -364,37 +369,34 @@ namespace MV.ApplicationLayer.Services
         }
 
         /// <summary>
-        /// Tutor nộp hồ sơ để admin/staff xét duyệt.
-        /// Chỉ được phép khi đã hoàn thành đủ 6 mục và đang ở trạng thái Draft hoặc Rejected.
+        /// Public entry point cho TutorAvailabilityService (service khác) gọi sau khi lưu availability.
         /// </summary>
-        public async Task<bool> SubmitForAdminReviewAsync(string tutorId)
+        public Task TryAutoSubmitAsync(string tutorId) => AutoSubmitIfCompleteAsync(tutorId);
+
+        /// <summary>
+        /// Nếu đủ 6/6 mục VÀ status đang Draft hoặc Rejected → tự động chuyển sang PendingApproval.
+        /// Được gọi sau mỗi lần Tutor cập nhật một trong 6 mục. Silent — không throw exception.
+        /// </summary>
+        private async Task AutoSubmitIfCompleteAsync(string tutorId)
         {
-            var completion = await GetProfileCompletionAsync(tutorId);
-
-            if (completion.CompletedSections < 6)
+            try
             {
-                var missing = completion.Sections
-                    .Where(s => !s.IsComplete)
-                    .Select(s => s.Name)
-                    .ToList();
-                throw new InvalidOperationException(
-                    $"Hồ sơ chưa hoàn chỉnh ({completion.CompletedSections}/6). " +
-                    $"Các mục còn thiếu: {string.Join(", ", missing)}.");
-            }
+                var completion = await GetProfileCompletionAsync(tutorId);
+                if (!completion.CanSubmit) return;
 
-            if (!completion.CanSubmit)
+                var profile = await _unitOfWork.TutorRepository.GetTutorProfileByIdAsync(tutorId);
+                if (profile == null) return;
+
+                profile.Profilestatus = TutorProfileStatus.PendingApproval;
+                profile.Updatedat     = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
+                await _unitOfWork.SaveChangesAsync();
+
+                _logger.LogInformation("Profile {TutorId} auto-submitted for admin review (6/6 complete)", tutorId);
+            }
+            catch (Exception ex)
             {
-                throw new InvalidOperationException(
-                    $"Không thể nộp hồ sơ ở trạng thái hiện tại ({completion.ProfileStatus}).");
+                _logger.LogError(ex, "AutoSubmitIfCompleteAsync failed for tutor {TutorId}", tutorId);
             }
-
-            var profile = await _unitOfWork.TutorRepository.GetTutorProfileByIdAsync(tutorId);
-            profile!.Profilestatus = TutorProfileStatus.PendingApproval;
-            profile.Updatedat      = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
-
-            await _unitOfWork.SaveChangesAsync();
-            _logger.LogInformation("Profile {TutorId} submitted for admin review (6/6 sections complete)", tutorId);
-            return true;
         }
 
         // ─── Private helpers ─────────────────────────────────────────────────
