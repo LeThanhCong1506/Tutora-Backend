@@ -17,16 +17,23 @@ namespace MV.PresentationLayer.Controllers
         }
 
         /// <summary>
-        /// Đăng nhập bằng Zalo Mini App.
-        /// Nhận Zalo access token, verify với Zalo API, tìm/tạo user, trả về Tutora JWT.
+        /// Đăng nhập bằng Zalo Login v4 (Web OAuth).
+        /// FE redirect sang Zalo, nhận authorization code, gửi { code, codeVerifier, redirectUri }.
+        /// Backend đổi code lấy access token, verify, tìm/tạo user, trả Tutora JWT.
         /// </summary>
-        [HttpPost("zalo/login")]
-        public async Task<IActionResult> LoginWithZalo([FromBody] ZaloLoginRequest request)
+        [HttpPost("zalo")]
+        public async Task<IActionResult> LoginWithZalo([FromBody] ZaloWebLoginRequest request)
         {
-            if (string.IsNullOrEmpty(request.ZaloAccessToken))
-                return BadRequest(APIResponse<object>.Fail("ZaloAccessToken không được để trống.", 400));
+            if (!ModelState.IsValid)
+                return BadRequest(new APIResponse<object>(400, "Dữ liệu không hợp lệ.", null));
 
-            var result = await _zaloAuthService.LoginWithZaloAsync(request);
+            var result = await _zaloAuthService.LoginWithZaloCodeAsync(request);
+
+            // User mới chưa chọn vai trò → FE cần hiện màn chọn role rồi đăng nhập lại
+            if (result.RequiresRoleSelection)
+            {
+                return Ok(new { requiresRoleSelection = true, message = result.ErrorMessage });
+            }
 
             if (!string.IsNullOrEmpty(result.ErrorMessage))
                 return BadRequest(new APIResponse<object>(400, result.ErrorMessage, null));
