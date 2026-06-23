@@ -98,15 +98,15 @@ namespace MV.ApplicationLayer.ServiceInterfaces
 
         /// <summary>
         /// Returns completion status for each of the 6 required profile sections.
-        /// FE uses this to show a progress bar and enable/disable the Submit button.
+        /// FE dùng để hiển thị progress bar (1/6, 2/6...).
         /// </summary>
         Task<ProfileCompletionResponse> GetProfileCompletionAsync(string tutorId);
 
         /// <summary>
-        /// Tutor submits their completed profile for admin review.
-        /// Throws InvalidOperationException if not all 6 sections are complete.
+        /// Kiểm tra nếu đủ 6/6 mục và status cho phép → tự động chuyển sang PendingApproval.
+        /// Được gọi tự động sau mỗi lần Tutor cập nhật một trong 6 mục.
         /// </summary>
-        Task<bool> SubmitForAdminReviewAsync(string tutorId);
+        Task TryAutoSubmitAsync(string tutorId);
 
         // ── Admin certificate management ───────────────────────────────────
 

@@ -153,6 +153,9 @@ namespace MV.ApplicationLayer.Services
             _logger.LogInformation("CCCD uploaded for user {UserId}, OCR={OcrSuccess}, Verified={Verified}",
                 userId, ocrResult != null, user.Isidentityverified);
 
+            if (user.Isidentityverified == true)
+                await AutoSubmitIfCompleteAsync(userId);
+
             return new CccdUploadResponse
             {
                 OcrSuccess     = ocrResult != null,

@@ -89,6 +89,7 @@ namespace MV.ApplicationLayer.Services
 
 
             await _unitOfWork.SaveChangesAsync();
+            await AutoSubmitIfCompleteAsync(userId);
             return true;
         }
 
@@ -132,6 +133,7 @@ namespace MV.ApplicationLayer.Services
             profile.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 
             await _unitOfWork.SaveChangesAsync();
+            await AutoSubmitIfCompleteAsync(userId);
             return true;
         }
 
@@ -149,6 +151,7 @@ namespace MV.ApplicationLayer.Services
                 MapSubjectGradePriceRequests(userId, request.SubjectGradePrices));
 
             await _unitOfWork.SaveChangesAsync();
+            await AutoSubmitIfCompleteAsync(userId);
             return true;
         }
 
@@ -184,6 +187,7 @@ namespace MV.ApplicationLayer.Services
                 MapSubjectGradePriceRequests(tutorId, request.SubjectGradePrices));
 
             await _unitOfWork.SaveChangesAsync();
+            await AutoSubmitIfCompleteAsync(tutorId);
             return true;
         }
 
@@ -229,6 +233,7 @@ namespace MV.ApplicationLayer.Services
             var created = await _unitOfWork.TutorRepository.GetTutorSubjectGradePriceAsync(
                 tutorId, request.SubjectId, request.GradeLevelId);
 
+            await AutoSubmitIfCompleteAsync(tutorId);
             return MapSubjectGradePriceResponse(created!);
         }
 
@@ -309,11 +314,10 @@ namespace MV.ApplicationLayer.Services
         /// </summary>
         public async Task<ProfileCompletionResponse> GetProfileCompletionAsync(string tutorId)
         {
-            var profile      = await _unitOfWork.TutorRepository.GetTutorProfileByIdAsync(tutorId);
-            var user         = await _unitOfWork.UserRepository.GetUserByIdAsync(tutorId);
-            var subjects     = await _unitOfWork.TutorRepository.GetTutorSubjectsByTutorIdAsync(tutorId);
-            var prices       = await _unitOfWork.TutorRepository.GetTutorSubjectGradePricesAsync(tutorId);
-            var certificates = await _unitOfWork.TutorRepository.GetCertificatesByTutorIdAsync(tutorId);
+            var profile        = await _unitOfWork.TutorRepository.GetTutorProfileByIdAsync(tutorId);
+            var user           = await _unitOfWork.UserRepository.GetUserByIdAsync(tutorId);
+            var subjects       = await _unitOfWork.TutorRepository.GetTutorSubjectsByTutorIdAsync(tutorId);
+            var prices         = await _unitOfWork.TutorRepository.GetTutorSubjectGradePricesAsync(tutorId);
             var availabilities = await _unitOfWork.TutorRepository.GetAvailabilitiesByTutorIdAsync(tutorId);
 
             bool hasBasicInfo    = profile != null
@@ -326,29 +330,23 @@ namespace MV.ApplicationLayer.Services
                                    && prices != null && prices.Any(p => p.Isactive && p.Priceperhour > 0);
             bool hasAvailability = availabilities != null && availabilities.Count > 0;
             bool hasIdentity     = user?.Isidentityverified ?? false;
-            bool hasCertificate  = certificates != null
-                                   && certificates.Any(c => string.Equals(
-                                       c.Verificationstatus, CertificateStatus.Verified,
-                                       StringComparison.OrdinalIgnoreCase));
 
             var sections = new List<ProfileSection>
             {
-                new() { Key = "basic_info",    Name = "Thông tin cơ bản",          IsComplete = hasBasicInfo,
+                new() { Key = "basic_info",    Name = "Thông tin cơ bản",     IsComplete = hasBasicInfo,
                     MissingReason = hasBasicInfo    ? null : "Cần điền Tiêu đề và Khu vực dạy học" },
-                new() { Key = "introduction",  Name = "Giới thiệu bản thân",        IsComplete = hasIntroduction,
+                new() { Key = "introduction",  Name = "Giới thiệu bản thân",   IsComplete = hasIntroduction,
                     MissingReason = hasIntroduction ? null : "Cần điền Bio và Học vấn" },
-                new() { Key = "subjects",      Name = "Môn học & Bảng giá",         IsComplete = hasSubjects,
+                new() { Key = "subjects",      Name = "Môn học & Bảng giá",    IsComplete = hasSubjects,
                     MissingReason = hasSubjects     ? null : "Cần chọn ít nhất 1 môn học và thiết lập giá" },
-                new() { Key = "availability",  Name = "Lịch rảnh",                  IsComplete = hasAvailability,
+                new() { Key = "availability",  Name = "Lịch rảnh",             IsComplete = hasAvailability,
                     MissingReason = hasAvailability ? null : "Cần thiết lập ít nhất 1 khung giờ rảnh" },
-                new() { Key = "identity",      Name = "Xác minh CCCD",              IsComplete = hasIdentity,
+                new() { Key = "identity",      Name = "Xác minh CCCD",         IsComplete = hasIdentity,
                     MissingReason = hasIdentity     ? null : "Cần upload CCCD và chờ xác minh" },
-                new() { Key = "certificate",   Name = "Chứng chỉ",                  IsComplete = hasCertificate,
-                    MissingReason = hasCertificate  ? null : "Cần ít nhất 1 chứng chỉ được xác minh" },
             };
 
             int completedCount = sections.Count(s => s.IsComplete);
-            bool canSubmit = completedCount == 6
+            bool canSubmit = completedCount == 5
                              && profile != null
                              && (string.Equals(profile.Profilestatus, TutorProfileStatus.Draft,    StringComparison.OrdinalIgnoreCase)
                               || string.Equals(profile.Profilestatus, TutorProfileStatus.Rejected, StringComparison.OrdinalIgnoreCase));
@@ -356,7 +354,7 @@ namespace MV.ApplicationLayer.Services
             return new ProfileCompletionResponse
             {
                 CompletedSections = completedCount,
-                TotalSections     = 6,
+                TotalSections     = 5,
                 CanSubmit         = canSubmit,
                 ProfileStatus     = profile?.Profilestatus ?? TutorProfileStatus.Draft,
                 Sections          = sections
@@ -364,37 +362,34 @@ namespace MV.ApplicationLayer.Services
         }
 
         /// <summary>
-        /// Tutor nộp hồ sơ để admin/staff xét duyệt.
-        /// Chỉ được phép khi đã hoàn thành đủ 6 mục và đang ở trạng thái Draft hoặc Rejected.
+        /// Public entry point cho TutorAvailabilityService (service khác) gọi sau khi lưu availability.
         /// </summary>
-        public async Task<bool> SubmitForAdminReviewAsync(string tutorId)
+        public Task TryAutoSubmitAsync(string tutorId) => AutoSubmitIfCompleteAsync(tutorId);
+
+        /// <summary>
+        /// Nếu đủ 6/6 mục VÀ status đang Draft hoặc Rejected → tự động chuyển sang PendingApproval.
+        /// Được gọi sau mỗi lần Tutor cập nhật một trong 6 mục. Silent — không throw exception.
+        /// </summary>
+        private async Task AutoSubmitIfCompleteAsync(string tutorId)
         {
-            var completion = await GetProfileCompletionAsync(tutorId);
-
-            if (completion.CompletedSections < 6)
+            try
             {
-                var missing = completion.Sections
-                    .Where(s => !s.IsComplete)
-                    .Select(s => s.Name)
-                    .ToList();
-                throw new InvalidOperationException(
-                    $"Hồ sơ chưa hoàn chỉnh ({completion.CompletedSections}/6). " +
-                    $"Các mục còn thiếu: {string.Join(", ", missing)}.");
-            }
+                var completion = await GetProfileCompletionAsync(tutorId);
+                if (!completion.CanSubmit) return;
 
-            if (!completion.CanSubmit)
+                var profile = await _unitOfWork.TutorRepository.GetTutorProfileByIdAsync(tutorId);
+                if (profile == null) return;
+
+                profile.Profilestatus = TutorProfileStatus.PendingApproval;
+                profile.Updatedat     = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
+                await _unitOfWork.SaveChangesAsync();
+
+                _logger.LogInformation("Profile {TutorId} auto-submitted for admin review (6/6 complete)", tutorId);
+            }
+            catch (Exception ex)
             {
-                throw new InvalidOperationException(
-                    $"Không thể nộp hồ sơ ở trạng thái hiện tại ({completion.ProfileStatus}).");
+                _logger.LogError(ex, "AutoSubmitIfCompleteAsync failed for tutor {TutorId}", tutorId);
             }
-
-            var profile = await _unitOfWork.TutorRepository.GetTutorProfileByIdAsync(tutorId);
-            profile!.Profilestatus = TutorProfileStatus.PendingApproval;
-            profile.Updatedat      = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
-
-            await _unitOfWork.SaveChangesAsync();
-            _logger.LogInformation("Profile {TutorId} submitted for admin review (6/6 sections complete)", tutorId);
-            return true;
         }
 
         // ─── Private helpers ─────────────────────────────────────────────────
