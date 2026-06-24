@@ -19,7 +19,8 @@ namespace MV.PresentationLayer.Controllers
         /// <summary>
         /// Đăng nhập bằng Zalo Login v4 (Web OAuth).
         /// FE redirect sang Zalo, nhận authorization code, gửi { code, codeVerifier, redirectUri }.
-        /// Backend đổi code lấy access token, verify, tìm/tạo user, trả Tutora JWT.
+        /// User chưa verify phone sẽ nhận socialRegistrationToken để hoàn tất OTP,
+        /// không gọi lại authorization code lần hai.
         /// </summary>
         [HttpPost("zalo")]
         public async Task<IActionResult> LoginWithZalo([FromBody] ZaloWebLoginRequest request)
@@ -29,10 +30,18 @@ namespace MV.PresentationLayer.Controllers
 
             var result = await _zaloAuthService.LoginWithZaloCodeAsync(request);
 
-            // User mới chưa chọn vai trò → FE cần hiện màn chọn role rồi đăng nhập lại
-            if (result.RequiresRoleSelection)
+            if (result.RequiresRoleSelection || result.RequiresPhoneInput)
             {
-                return Ok(new { requiresRoleSelection = true, message = result.ErrorMessage });
+                return Ok(new
+                {
+                    requiresRoleSelection = result.RequiresRoleSelection,
+                    requiresPhoneInput = result.RequiresPhoneInput,
+                    socialRegistrationToken = result.SocialRegistrationToken,
+                    phone = result.Phone,
+                    message = result.RequiresRoleSelection
+                        ? "Vui lòng chọn vai trò và nhập số điện thoại để hoàn tất đăng ký."
+                        : "Vui lòng nhập số điện thoại để tiếp tục."
+                });
             }
 
             if (!string.IsNullOrEmpty(result.ErrorMessage))

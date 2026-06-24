@@ -22,6 +22,9 @@ public class ZaloWebLoginRequest
     /// </summary>
     public string? RedirectUri { get; set; }
 
-    /// <summary>Vai trò khi đăng ký mới (Parent/Student/Tutor). Không cần khi đã có tài khoản.</summary>
+    /// <summary>
+    /// Vai trò tùy chọn khi bắt đầu đăng ký mới. FE cũng có thể gửi role cùng phone
+    /// ở endpoint social/complete-registration.
+    /// </summary>
     public string? Role { get; set; }
 }

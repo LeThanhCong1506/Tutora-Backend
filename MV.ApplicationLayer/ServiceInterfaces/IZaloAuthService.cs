@@ -7,7 +7,7 @@ namespace MV.ApplicationLayer.ServiceInterfaces
     {
         /// <summary>
         /// Zalo Login v4 (Web OAuth): đổi authorization code lấy access token,
-        /// lấy profile, tìm/tạo user, cấp Tutora JWT.
+        /// lấy profile và tạo phiên hoàn tất role/phone OTP nếu cần.
         /// </summary>
         Task<TokenResponse> LoginWithZaloCodeAsync(ZaloWebLoginRequest request);
     }

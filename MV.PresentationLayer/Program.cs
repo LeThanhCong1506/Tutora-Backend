@@ -309,6 +309,7 @@ builder.Services.AddScoped<IFileStorageService, CloudinaryStorageService>();
 builder.Services.AddScoped<ISimpleAuthService, SimpleAuthService>();
 // OTP sender cho verify số điện thoại. STUB (log) — thay bằng SMS/ZNS thật cho production.
 builder.Services.AddScoped<IOtpSender, LoggingOtpSender>();
+builder.Services.AddScoped<ISocialRegistrationService, SocialRegistrationService>();
 builder.Services.AddScoped<IZaloAuthService, ZaloAuthService>();
 builder.Services.AddScoped<IRefreshTokenService, RefreshTokenService>();
 builder.Services.AddScoped<ITutorAvailabilityService, TutorAvailabilityService>();
