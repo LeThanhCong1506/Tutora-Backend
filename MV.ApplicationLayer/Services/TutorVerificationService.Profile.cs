@@ -169,7 +169,6 @@ namespace MV.ApplicationLayer.Services
                 TeachingAreaCity = profile.Teachingareacity,
                 TeachingAreaDistrict = profile.Teachingareadistrict,
                 TeachingMode = TeachingMode.Online,
-                Subjects = subjects.Select(MapSubjectInfo).ToList(),
                 SubjectGradePrices = subjects
                     .Where(s => s.Isactive)
                     .Select(MapSubjectGradePrice)
