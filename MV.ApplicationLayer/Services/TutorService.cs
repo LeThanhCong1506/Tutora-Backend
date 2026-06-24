@@ -16,6 +16,7 @@ namespace MV.ApplicationLayer.Services
         private readonly IFileStorageService _storageService;
         private readonly IFptAiService _fptAiService;
         private readonly INotificationService _notificationService;
+        private readonly IEncryptionService _encryption;
         private readonly ILogger<TutorService> _logger;
 
         // Storage buckets
@@ -33,11 +34,13 @@ namespace MV.ApplicationLayer.Services
             IFileStorageService storageService,
             IFptAiService fptAiService,
             INotificationService notificationService,
+            IEncryptionService encryption,
             ILogger<TutorService> logger)
         {
             _unitOfWork = unitOfWork;
             _storageService = storageService;
             _fptAiService = fptAiService;
+            _encryption = encryption;
             _notificationService = notificationService;
             _logger = logger;
         }

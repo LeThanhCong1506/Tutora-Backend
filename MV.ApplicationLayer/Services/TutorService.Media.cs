@@ -99,13 +99,17 @@ namespace MV.ApplicationLayer.Services
                             $"(độ tương đồng: {similarity:P0}). Vui lòng cập nhật đúng họ tên trước khi xác minh CCCD.");
                 }
 
-                // 5. Kiểm tra số CCCD trùng với tài khoản khác
-                if (!string.IsNullOrEmpty(ocrResult.Id) && ocrResult.Id != user.Identitynumber)
+                // 5. Kiểm tra số CCCD trùng với tài khoản khác (so sánh bản mã hóa)
+                if (!string.IsNullOrEmpty(ocrResult.Id))
                 {
-                    var isUnique = await _unitOfWork.UserRepository.IsIdentityNumberUniqueAsync(ocrResult.Id);
-                    if (!isUnique)
-                        throw new InvalidOperationException(
-                            "Số CCCD này đã được xác minh bởi tài khoản khác. Vui lòng liên hệ hỗ trợ nếu đây là nhầm lẫn.");
+                    var encryptedId = _encryption.Encrypt(ocrResult.Id);
+                    if (encryptedId != user.Identitynumber)
+                    {
+                        var isUnique = await _unitOfWork.UserRepository.IsIdentityNumberUniqueAsync(encryptedId);
+                        if (!isUnique)
+                            throw new InvalidOperationException(
+                                "Số CCCD này đã được xác minh bởi tài khoản khác. Vui lòng liên hệ hỗ trợ nếu đây là nhầm lẫn.");
+                    }
                 }
             }
 
@@ -121,8 +125,8 @@ namespace MV.ApplicationLayer.Services
 
             if (ocrResult != null)
             {
-                // 7. Lưu số CCCD + raw OCR data
-                user.Identitynumber = ocrResult.Id;
+                // 7. Lưu số CCCD đã mã hóa + raw OCR data
+                user.Identitynumber = _encryption.Encrypt(ocrResult.Id);
                 user.Ekycrawdata    = JsonSerializer.Serialize(new
                 {
                     OcrResult = new { id = ocrResult.Id, name = ocrResult.Name, dob = ocrResult.Dob, sex = ocrResult.Sex, address = ocrResult.Address },

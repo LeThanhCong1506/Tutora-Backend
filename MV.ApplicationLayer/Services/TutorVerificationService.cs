@@ -16,6 +16,7 @@ namespace MV.ApplicationLayer.Services
         private readonly IFptAiService _fptAiService;
         private readonly IDistributedCache _cache;
         private readonly IAppDbContext _dbContext;
+        private readonly IEncryptionService _encryption;
         private readonly ILogger<TutorVerificationService> _logger;
 
         private const string CacheKeyPrefix = "tutor_preview:";
@@ -34,12 +35,14 @@ namespace MV.ApplicationLayer.Services
             IFptAiService fptAiService,
             IDistributedCache cache,
             IAppDbContext dbContext,
+            IEncryptionService encryption,
             ILogger<TutorVerificationService> logger)
         {
             _unitOfWork = unitOfWork;
             _fptAiService = fptAiService;
             _cache = cache;
             _dbContext = dbContext;
+            _encryption = encryption;
             _logger = logger;
         }
 

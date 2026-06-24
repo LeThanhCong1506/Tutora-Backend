@@ -56,6 +56,8 @@ builder.Services.Configure<TrustScoringSettings>(builder.Configuration.GetSectio
 builder.Services.Configure<MV.DomainLayer.Settings.PayoutSettings>(builder.Configuration.GetSection(MV.DomainLayer.Settings.PayoutSettings.SectionName));
 builder.Services.Configure<ZaloOAConfig>(builder.Configuration.GetSection(ConfigurationKeys.ZaloOA.SectionName));
 builder.Services.Configure<CloudinarySettings>(builder.Configuration.GetSection("Cloudinary"));
+builder.Services.Configure<EncryptionSettings>(builder.Configuration.GetSection("Encryption"));
+builder.Services.AddSingleton<IEncryptionService, AesEncryptionService>();
 // builder.Services.Configure<InternalApiSettings>(builder.Configuration.GetSection(InternalApiSettings.SectionName));
 
 builder.Services.AddKeyedSingleton<PayOSClient>(ServiceKeys.PayOS.Checkout, (sp, _) =>

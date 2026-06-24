@@ -106,11 +106,16 @@ namespace MV.ApplicationLayer.Services
             };
         }
 
-        private static IdentityCardSection BuildIdentityCardSection(User user)
+        private IdentityCardSection BuildIdentityCardSection(User user)
         {
             var isVerified = user.Isidentityverified ?? false;
             var hasIdentity = !string.IsNullOrWhiteSpace(user.Identitynumber);
             var isComplete = hasIdentity && isVerified;
+
+            // Decrypt số CCCD từ DB để hiển thị dạng masked
+            var decryptedIdentityNumber = hasIdentity
+                ? _encryption.Decrypt(user.Identitynumber!)
+                : null;
 
             // Parse Ekycrawdata để lấy thông tin CCCD
             string? fullName = null;
@@ -147,7 +152,7 @@ namespace MV.ApplicationLayer.Services
             {
                 Status = isComplete ? SectionStatus.Updated : SectionStatus.InProgress,
                 UpdatedAt = isComplete ? user.Createdat : null,
-                IdentityNumberMasked = MaskIdentityNumber(user.Identitynumber),
+                IdentityNumberMasked = MaskIdentityNumber(decryptedIdentityNumber),
                 FullName = fullName,
                 DateOfBirth = dateOfBirth,
                 Gender = gender,
