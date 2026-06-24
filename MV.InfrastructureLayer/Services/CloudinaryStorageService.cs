@@ -134,12 +134,16 @@ namespace MV.InfrastructureLayer.Services
                 ? ExtractPublicIdFromUrl(publicIdOrUrl)
                 : publicIdOrUrl;
 
-            var signedUrl = _cloudinary.Api.UrlImgUp
-                .Signed(true)
-                .Secure(true)
-                .BuildUrl(publicId);
+            var expireAt = DateTimeOffset.UtcNow.AddMinutes(expiresInMinutes).ToUnixTimeSeconds();
 
-            return signedUrl;
+            // DownloadPrivate tạo signed URL có thời hạn cho authenticated resources
+            return _cloudinary.DownloadPrivate(
+                publicId:     publicId,
+                attachment:   null,
+                format:       null,
+                type:         "authenticated",
+                expiresAt:    expireAt,
+                resourceType: "image");
         }
 
         public async Task<bool> DeleteFileAsync(string bucketName, string userId, string filePathOrUrl)
