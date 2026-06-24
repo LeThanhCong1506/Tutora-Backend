@@ -112,6 +112,9 @@ public partial class BookingService(
             Platformfee = fees.PlatformFee,
             Parentfee = fees.ParentFee,
             Tutorfee = fees.TutorReceivable,
+            Depositamount = totalSessions > 0
+                ? Math.Floor(fees.FinalPrice / totalSessions)
+                : fees.FinalPrice,
             Status = BookingStatus.PendingPayment,
             Paymentstatus = PaymentStatus.Pending,
             Paymentdueat = TimeZoneHelper.UtcNow.AddMinutes(30),
