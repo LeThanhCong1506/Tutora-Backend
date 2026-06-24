@@ -36,6 +36,9 @@ namespace MV.PresentationLayer.Controllers
             try
             {
                 var user = await _userService.GetUserByIdAsync(currentUserId);
+                user.Ekycrawdata = null;
+                user.Idcardfronturl = null;
+                user.Idcardbackurl = null;
                 return Ok(APIResponse<UserResponse>.Success(user, "Lấy thông tin người dùng thành công."));
             }
             catch (UserNotFoundException)
