@@ -26,6 +26,11 @@ public interface IPaymentService
     Task ConfirmPaymentByAdminAsync(int bookingId, AdminConfirmPaymentRequest request, CancellationToken ct = default);
 
     /// <summary>
+    /// Test helper: admin confirms the current unpaid booking phase without manually passing the amount.
+    /// </summary>
+    Task<TestConfirmBookingPaymentResponse> ConfirmCurrentBookingPaymentForTestAsync(int bookingId, string? transactionId = null, CancellationToken ct = default);
+
+    /// <summary>
     /// Deduct the booking amount from the user's in-app wallet balance.
     /// </summary>
     Task PayWithWalletAsync(int bookingId, string userId, CancellationToken ct = default);

@@ -24,7 +24,6 @@ public partial class PaymentService(
     IOptions<PaymentSettings> paymentSettings,
     [FromKeyedServices(ServiceKeys.PayOS.Checkout)] PayOSClient payOS,
     INotificationService notificationService,
-    ILessonService lessonService,
     ILogger<PaymentService> logger) : IPaymentService
 {
     //fix link
@@ -88,6 +87,47 @@ public partial class PaymentService(
             orderCode = OrderCodeHelper.GenerateRemainingOrderCode(bookingId);
 
         await ConfirmPaymentInternalAsync(orderCode, (int)request.Amount, txId, ct);
+    }
+
+    public async Task<TestConfirmBookingPaymentResponse> ConfirmCurrentBookingPaymentForTestAsync(
+        int bookingId,
+        string? transactionId = null,
+        CancellationToken ct = default)
+    {
+        var booking = await bookingRepo.FindTrackedAsync(bookingId, ct)
+            ?? throw new BookingException(BookingErrorCodes.BookingNotFound, ApiMessages.BookingNotFound, 404);
+
+        EnsureDepositAmountsCalculated(booking);
+
+        if (booking.Paymentstatus == Escrowed || booking.Status == BookingStatus.Paid || booking.Remainingpaidat != null)
+            throw new BookingException(BookingErrorCodes.BookingAlreadyPaid, "Booking đã được thanh toán rồi", 409);
+
+        var isDepositPhase = booking.Depositpaidat == null;
+        var phase = isDepositPhase ? PaymentPhase.Deposit : PaymentPhase.Remaining;
+        var amount = isDepositPhase
+            ? booking.Depositamount ?? 0
+            : booking.Remainingamount ?? 0;
+
+        if (amount <= 0)
+            throw new BookingException(BookingErrorCodes.BookingAlreadyPaid, "Booking đã được thanh toán rồi", 409);
+
+        var txId = string.IsNullOrWhiteSpace(transactionId)
+            ? $"test-admin-{bookingId}-{(isDepositPhase ? PaymentPhase.DepositShort : PaymentPhase.RemainingShort)}-{MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow:yyyyMMddHHmmss}"
+            : transactionId.Trim();
+
+        var orderCode = isDepositPhase
+            ? OrderCodeHelper.GenerateBookingOrderCode(bookingId)
+            : OrderCodeHelper.GenerateRemainingOrderCode(bookingId);
+
+        await ConfirmPaymentInternalAsync(orderCode, (int)amount, txId, ct);
+
+        return new TestConfirmBookingPaymentResponse
+        {
+            BookingId = bookingId,
+            Phase = phase,
+            Amount = amount,
+            TransactionId = txId
+        };
     }
 
     public async Task<PaymentStatusResponse> GetPaymentStatusAsync(int bookingId, string userId)
@@ -225,21 +265,23 @@ public partial class PaymentService(
             if (booking.Status != BookingStatus.Accepted && booking.Status != BookingStatus.PendingPayment)
                 throw new BookingException(BookingErrorCodes.InvalidBookingStatus, "Booking không đũ điều kiện nhận tiền cọc", 409);
 
-            // Update booking for deposit paid
-            booking.Status = BookingStatus.DepositPaid;
+            // Parent has paid the first lesson/deposit. The booking now waits for tutor approval.
+            booking.Status = BookingStatus.PendingTutor;
             booking.Paymentstatus = DepositEscrowed;
             booking.Paymentdueat = null; // Clear deposit deadline
             booking.Depositpaidat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
+            booking.Responsedeadline = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow.AddHours(24);
             booking.Escrowstatus = Holding;
             booking.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 
-            // Escrow 50% of tutor receivable to frozen balance
+            // Escrow first-lesson share of tutor receivable to frozen balance
+            var sessions = booking.Totalsessions ?? 1;
             if (!string.IsNullOrWhiteSpace(booking.Tutorid))
             {
                 var wallet = await walletRepo.GetOrCreateForUpdateAsync(booking.Tutorid, ct);
 
                 var totalEscrow = booking.Tutorfee ?? 0;
-                var depositEscrow = Math.Round(totalEscrow * 0.5m, 2);
+                var depositEscrow = Math.Round(totalEscrow / sessions, 2);
                 wallet.Frozenbalance = (wallet.Frozenbalance ?? 0) + depositEscrow;
                 wallet.Lastupdated = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 
@@ -255,6 +297,13 @@ public partial class PaymentService(
                 });
             }
 
+            // Single-session booking: the full amount is already escrowed, but tutor still must accept.
+            if ((booking.Remainingamount ?? 0) <= 0)
+            {
+                booking.Paymentstatus = Escrowed;
+                booking.Remainingpaidat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
+            }
+
             await context.SaveChangesAsync(ct);
             await tx.CommitAsync(ct);
 
@@ -262,24 +311,6 @@ public partial class PaymentService(
 
             await SendPaymentPhaseNotificationsAsync(booking, isDepositPhase: true);
 
-            // Auto-create lessons after deposit (so tutor can teach first lesson)
-            try
-            {
-                await lessonService.AutoCreateLessonsAsync(bookingId, ct);
-            }
-            catch (Exception ex)
-            {
-                logger.LogError(ex, "Failed to auto-create lessons for booking {BookingId}, retrying...", bookingId);
-                try
-                {
-                    await Task.Delay(1000, ct);
-                    await lessonService.AutoCreateLessonsAsync(bookingId, ct);
-                }
-                catch (Exception retryEx)
-                {
-                    logger.LogError(retryEx, "Retry failed for auto-create lessons booking {BookingId}", bookingId);
-                }
-            }
         }
         catch
         {
@@ -328,13 +359,14 @@ public partial class PaymentService(
             booking.Paymentdueat = null; // Clear remaining deadline
             booking.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 
-            // Escrow remaining 50% of tutor receivable to frozen balance
+            // Escrow remaining lessons' share of tutor receivable to frozen balance
             if (!string.IsNullOrWhiteSpace(booking.Tutorid))
             {
                 var wallet = await walletRepo.GetOrCreateForUpdateAsync(booking.Tutorid, ct);
 
                 var totalEscrow = booking.Tutorfee ?? 0;
-                var depositEscrow = Math.Round(totalEscrow * 0.5m, 2);
+                var remainingSessions = booking.Totalsessions ?? 1;
+                var depositEscrow = Math.Round(totalEscrow / remainingSessions, 2);
                 var remainingEscrow = totalEscrow - depositEscrow;
                 wallet.Frozenbalance = (wallet.Frozenbalance ?? 0) + remainingEscrow;
                 wallet.Lastupdated = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
@@ -369,8 +401,10 @@ public partial class PaymentService(
     {
         if (booking.Depositamount == null || booking.Depositamount == 0)
         {
-            booking.Depositamount = Math.Ceiling((booking.Finalprice ?? 0) * 0.5m);
-            booking.Remainingamount = (booking.Finalprice ?? 0) - booking.Depositamount.Value;
+            var sessions = booking.Totalsessions ?? 1;
+            var firstLesson = Math.Round((booking.Finalprice ?? 0) / sessions, 0, MidpointRounding.AwayFromZero);
+            booking.Depositamount = firstLesson;
+            booking.Remainingamount = (booking.Finalprice ?? 0) - firstLesson;
         }
     }
 

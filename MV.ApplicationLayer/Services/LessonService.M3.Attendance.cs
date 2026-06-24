@@ -37,7 +37,7 @@ public partial class LessonService
 
             if (hasCompletedLesson)
                 throw new LessonException(BookingErrorCodes.RemainingNotPaid,
-                    "Phụ huynh chưa thanh toán 50% còn lại. Vui lòng đợi thanh toán trước khi bắt đầu buổi tiếp theo.", 400);
+                    "Phụ huynh chưa thanh toán các buổi học còn lại. Vui lòng đợi thanh toán trước khi bắt đầu buổi tiếp theo.", 400);
         }
 
         var now = TimeZoneHelper.UtcNow;
@@ -294,9 +294,9 @@ public partial class LessonService
                     await _notificationService.CreateNotificationAsync(new NotificationRequest
                     {
                         Userid = parentId,
-                        Title = "Sắp cần thanh toán 50% còn lại",
+                        Title = "Sắp cần thanh toán các buổi học còn lại",
                         Message = $"Buổi học đầu tiên của booking #{lesson.Bookingid} đã hoàn thành. " +
-                            $"Sau 24h xác nhận, bạn sẽ cần thanh toán 50% còn lại ({lesson.Booking.Remainingamount:N0}đ) để tiếp tục các buổi học sau.",
+                            $"Sau 24h xác nhận, bạn sẽ cần thanh toán {lesson.Booking.Remainingamount:N0}đ cho các buổi còn lại để tiếp tục học.",
                         Type = NotificationType.PaymentRemainingRequired,
                         Referenceid = lesson.Bookingid.ToString()
                     });

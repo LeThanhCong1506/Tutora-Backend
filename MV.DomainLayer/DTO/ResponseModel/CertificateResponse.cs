@@ -11,15 +11,11 @@ namespace MV.DomainLayer.DTO.ResponseModel
         public string? CredentialUrl { get; set; }
         public string CertificateFileUrl { get; set; } = string.Empty;
         public DateTime CreatedAt { get; set; }
-        
-        /// <summary>
-        /// Certificate verification status: "verified", "pending_review", "rejected"
-        /// </summary>
+
+        /// <summary>Trạng thái duyệt: "pending_review" | "verified" | "rejected"</summary>
         public string? VerificationStatus { get; set; }
-        
-        /// <summary>
-        /// Admin note or auto-check result details
-        /// </summary>
+
+        /// <summary>Ghi chú của Admin khi duyệt hoặc từ chối</summary>
         public string? VerificationNote { get; set; }
     }
 

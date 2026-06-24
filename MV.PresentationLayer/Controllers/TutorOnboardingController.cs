@@ -242,8 +242,8 @@ namespace MV.PresentationLayer.Controllers
 
         /// <summary>
         /// GET /api/tutors/{id}/profile-completion
-        /// Trả về trạng thái hoàn thành 6 mục hồ sơ. FE dùng để hiển thị progress bar
-        /// và bật/tắt nút "Nộp hồ sơ".
+        /// Trả về trạng thái hoàn thành 6 mục hồ sơ. FE dùng để hiển thị progress bar.
+        /// Khi đủ 6/6 mục, profile tự động chuyển sang PendingApproval.
         /// </summary>
         [HttpGet("{id}/profile-completion")]
         public async Task<IActionResult> GetProfileCompletion([FromRoute] string id)
@@ -254,35 +254,6 @@ namespace MV.PresentationLayer.Controllers
 
             var result = await _tutorService.GetProfileCompletionAsync(id);
             return Ok(APIResponse<ProfileCompletionResponse>.Success(result, "Lấy tiến trình hoàn thiện hồ sơ thành công."));
-        }
-
-        /// <summary>
-        /// Submit profile for admin review — yêu cầu hoàn thành đủ 6/6 mục.
-        /// </summary>
-        [HttpPost("{id}/submit-for-review")]
-        public async Task<IActionResult> SubmitForAdminReview([FromRoute] string id)
-        {
-            var currentUserId = User.FindFirstValue(ClaimTypes.NameIdentifier);
-            if (currentUserId != id)
-            {
-                return StatusCode(403, APIResponse.Fail(ApiMessages.Forbidden, 403));
-            }
-
-            try
-            {
-                var result = await _tutorService.SubmitForAdminReviewAsync(id);
-
-                if (!result)
-                {
-                    return NotFound(APIResponse.Fail(ApiMessages.TutorProfileNotFound, 404));
-                }
-
-                return Ok(APIResponse.Success("Đã gửi hồ sơ để admin xét duyệt. Trạng thái chuyển sang chờ phê duyệt."));
-            }
-            catch (Exception ex)
-            {
-                return BadRequest(APIResponse.Fail(ex.Message, 400));
-            }
         }
 
         /// <summary>

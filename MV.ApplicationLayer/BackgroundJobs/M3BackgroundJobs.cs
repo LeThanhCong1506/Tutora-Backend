@@ -416,9 +416,9 @@ public class RemainingPaymentTriggerJob : BackgroundService
                     await notificationService.CreateNotificationAsync(new NotificationRequest
                     {
                         Userid = parentId,
-                        Title = "Thanh toán 50% còn lại",
+                        Title = "Thanh toán các buổi học còn lại",
                         Message = $"Buổi học đầu tiên của booking #{booking.Bookingid} đã được xác nhận thành công. " +
-                            $"Vui lòng thanh toán {booking.Remainingamount:N0}đ còn lại trong vòng 48h để tiếp tục các buổi học.",
+                            $"Vui lòng thanh toán {booking.Remainingamount:N0}đ cho các buổi còn lại trong vòng 48h để tiếp tục học.",
                         Type = NotificationType.PaymentRemainingRequired,
                         Referenceid = booking.Bookingid.ToString()
                     });
@@ -430,7 +430,7 @@ public class RemainingPaymentTriggerJob : BackgroundService
                     {
                         Userid = booking.Tutorid,
                         Title = "Đang chờ thanh toán phần còn lại",
-                        Message = $"Hệ thống đã yêu cầu phụ huynh thanh toán 50% còn lại cho booking #{booking.Bookingid}.",
+                        Message = $"Hệ thống đã yêu cầu phụ huynh thanh toán các buổi học còn lại cho booking #{booking.Bookingid}.",
                         Type = NotificationType.PaymentRemainingRequired,
                         Referenceid = booking.Bookingid.ToString()
                     });

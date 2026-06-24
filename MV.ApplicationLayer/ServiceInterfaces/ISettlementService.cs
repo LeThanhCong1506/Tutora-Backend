@@ -27,4 +27,10 @@ public interface ISettlementService
     /// Get pending settlements (lessons ready for auto-confirm)
     /// </summary>
     Task<List<PendingLessonResponse>> GetPendingSettlementsAsync();
+
+    /// <summary>
+    /// Finalize booking early (parent chose not to pay for remaining sessions).
+    /// Releases escrow for completed lessons, cancels remaining lessons, marks booking Completed.
+    /// </summary>
+    Task FinalizeBookingEarlyAsync(int bookingId, CancellationToken ct = default);
 }
