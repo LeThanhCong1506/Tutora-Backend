@@ -1748,6 +1748,7 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
             entity.Property(e => e.Ekycrawdata).HasColumnName("ekyc_raw_data");
             entity.Property(e => e.Email)
                 .HasMaxLength(100)
+                .IsRequired(false)
                 .HasColumnName("email");
             entity.Property(e => e.Fullname)
                 .HasMaxLength(100)

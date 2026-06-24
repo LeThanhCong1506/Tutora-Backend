@@ -24,6 +24,12 @@ namespace MV.PresentationLayer.Controllers
         {
             var result = await _simpleAuthService.SimpleLoginAsync(request);
 
+            // Chưa xác thực số điện thoại → FE chuyển sang màn nhập OTP (không phải lỗi sai mật khẩu)
+            if (result.RequiresPhoneVerification)
+            {
+                return Ok(new APIResponse<object>(200, result.ErrorMessage, new { requiresPhoneVerification = true, phone = result.Phone }));
+            }
+
             if (!string.IsNullOrEmpty(result.ErrorMessage))
             {
                 return BadRequest(new APIResponse<object>(400, result.ErrorMessage, null));
@@ -33,7 +39,7 @@ namespace MV.PresentationLayer.Controllers
         }
 
         /// <summary>
-        /// Simple register without Supabase. Email registrations require OTP verification before returning JWT tokens.
+        /// Đăng ký bằng số điện thoại + mật khẩu. Phải xác thực OTP phone trước khi nhận JWT.
         /// </summary>
         [HttpPost("register")]
         public async Task<IActionResult> Register([FromBody] SimpleRegisterRequest request)
@@ -45,50 +51,51 @@ namespace MV.PresentationLayer.Controllers
                 return BadRequest(new APIResponse<object>(400, result.ErrorMessage, null));
             }
 
-            return Ok(new APIResponse<object>(200, "Đăng ký thành công. Vui lòng kiểm tra email để xác thực tài khoản.", new
+            return Ok(new APIResponse<object>(200, "Đăng ký thành công. Vui lòng nhập mã OTP gửi tới số điện thoại để xác thực.", new
             {
-                requiresEmailVerification = result.RequiresEmailVerification,
-                email = result.Email
+                requiresPhoneVerification = result.RequiresPhoneVerification,
+                phone = result.Phone
             }));
         }
 
         /// <summary>
-        /// Verify email by OTP sent through SMTP.
+        /// Xác thực số điện thoại bằng OTP. Thành công sẽ trả JWT.
         /// </summary>
-        [HttpPost("verify-email")]
-        public async Task<IActionResult> VerifyEmail([FromBody] VerifyOtpRequest request)
+        [HttpPost("verify-phone")]
+        public async Task<IActionResult> VerifyPhone([FromBody] VerifyPhoneOtpRequest request)
         {
-            var result = await _simpleAuthService.VerifyEmailOtpAsync(request);
+            var result = await _simpleAuthService.VerifyPhoneOtpAsync(request);
 
             if (!string.IsNullOrEmpty(result.ErrorMessage))
             {
                 return BadRequest(new APIResponse<object>(400, result.ErrorMessage, null));
             }
 
-            return Ok(new APIResponse<object>(200, "Xac thuc email thanh cong.", new { token = result.AccessToken, refreshToken = result.RefreshToken }));
+            return Ok(new APIResponse<object>(200, "Xác thực số điện thoại thành công.", new { token = result.AccessToken, refreshToken = result.RefreshToken }));
         }
 
         /// <summary>
-        /// Resend email verification OTP through SMTP.
+        /// Gửi lại mã OTP xác thực số điện thoại.
         /// </summary>
-        [HttpPost("resend-verification-email")]
-        public async Task<IActionResult> ResendVerificationEmail([FromBody] ResendVerificationEmailRequest request)
+        [HttpPost("resend-phone-otp")]
+        public async Task<IActionResult> ResendPhoneOtp([FromBody] ResendPhoneOtpRequest request)
         {
-            var result = await _simpleAuthService.ResendVerificationEmailAsync(request);
+            var result = await _simpleAuthService.ResendPhoneOtpAsync(request);
 
             if (!string.IsNullOrEmpty(result.ErrorMessage))
             {
                 return BadRequest(new APIResponse<object>(400, result.ErrorMessage, null));
             }
 
-            return Ok(new APIResponse<object>(200, "Da gui lai ma xac thuc email.", new
+            return Ok(new APIResponse<object>(200, "Đã gửi lại mã OTP.", new
             {
-                requiresEmailVerification = result.RequiresEmailVerification,
-                email = result.Email
+                requiresPhoneVerification = result.RequiresPhoneVerification,
+                phone = result.Phone
             }));
         }
+
         /// <summary>
-        /// Request a password reset email link.
+        /// Quên mật khẩu: gửi mã OTP tới số điện thoại để đặt lại mật khẩu.
         /// </summary>
         [HttpPost("forgot-password")]
         public async Task<IActionResult> ForgotPassword([FromBody] ForgotPasswordRequest request)
@@ -100,11 +107,12 @@ namespace MV.PresentationLayer.Controllers
                 return BadRequest(new APIResponse<object>(400, result.ErrorMessage, null));
             }
 
-            return Ok(new APIResponse<object>(200, "Đường link khôi phục mật khẩu đã được gửi vào email của bạn.", null));
+            // Luôn trả success kể cả khi số không tồn tại (tránh dò số điện thoại).
+            return Ok(new APIResponse<object>(200, "Nếu số điện thoại tồn tại, mã OTP đặt lại mật khẩu đã được gửi.", new { phone = result.Phone }));
         }
 
         /// <summary>
-        /// Reset password using token from email link.
+        /// Đặt lại mật khẩu bằng OTP gửi tới số điện thoại.
         /// </summary>
         [HttpPost("reset-password")]
         public async Task<IActionResult> ResetPassword([FromBody] ResetPasswordRequest request)
