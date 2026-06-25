@@ -43,4 +43,7 @@ public class DashboardPendingActions
     public decimal PendingWithdrawalAmount { get; set; }
     public int OpenDisputes { get; set; }
     public int PendingWarnings { get; set; }
+
+    /// <summary>Tutor certificates awaiting admin review (verificationstatus = pending_review).</summary>
+    public int PendingCertificates { get; set; }
 }
