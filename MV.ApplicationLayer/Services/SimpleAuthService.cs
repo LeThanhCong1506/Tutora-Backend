@@ -107,10 +107,16 @@ namespace MV.ApplicationLayer.Services
                     return new TokenResponse { ErrorMessage = "Tài khoản đã bị khóa." };
                 }
 
-                // Gate: chỉ chặn tài khoản ĐĂNG KÝ BẰNG PHONE mà chưa verify OTP.
-                // Tài khoản không có phone (admin/staff, student do phụ huynh tạo, user email cũ,
-                // Google/Zalo) KHÔNG bị chặn — tránh khóa nhầm.
-                if (!string.IsNullOrEmpty(user.Phone) && user.Isphoneverified != true)
+                if (string.IsNullOrWhiteSpace(user.Phone))
+                {
+                    return new TokenResponse
+                    {
+                        ErrorMessage = "Tài khoản chưa có số điện thoại. Vui lòng bổ sung và xác thực số điện thoại trước khi đăng nhập.",
+                        RequiresPhoneInput = true
+                    };
+                }
+
+                if (user.Isphoneverified != true)
                 {
                     return new TokenResponse
                     {
@@ -443,6 +449,17 @@ namespace MV.ApplicationLayer.Services
 
         private async Task<TokenResponse> CreateTokenResponseAsync(User user)
         {
+            if (string.IsNullOrWhiteSpace(user.Phone) || user.Isphoneverified != true)
+            {
+                return new TokenResponse
+                {
+                    ErrorMessage = "Tài khoản phải có số điện thoại đã xác thực trước khi nhận token.",
+                    RequiresPhoneInput = string.IsNullOrWhiteSpace(user.Phone),
+                    RequiresPhoneVerification = !string.IsNullOrWhiteSpace(user.Phone),
+                    Phone = user.Phone
+                };
+            }
+
             var role = await _unitOfWork.UserRepository.GetUserRoleByIdAsync(user.Userid);
             if (string.IsNullOrEmpty(role))
             {

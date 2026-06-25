@@ -372,6 +372,17 @@ public class SocialRegistrationService : ISocialRegistrationService
 
     private async Task<TokenResponse> CreateTokenResponseAsync(User user)
     {
+        if (string.IsNullOrWhiteSpace(user.Phone) || user.Isphoneverified != true)
+        {
+            return new TokenResponse
+            {
+                ErrorMessage = "Tài khoản phải có số điện thoại đã xác thực trước khi nhận token.",
+                RequiresPhoneInput = string.IsNullOrWhiteSpace(user.Phone),
+                RequiresPhoneVerification = !string.IsNullOrWhiteSpace(user.Phone),
+                Phone = user.Phone
+            };
+        }
+
         var role = await _unitOfWork.UserRepository.GetUserRoleByIdAsync(user.Userid)
             ?? user.Primaryrole;
         if (string.IsNullOrWhiteSpace(role))

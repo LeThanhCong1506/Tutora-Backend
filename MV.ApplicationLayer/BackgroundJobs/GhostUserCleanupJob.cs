@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using MV.ApplicationLayer.Interfaces;
+using MV.DomainLayer.Constants;
 using MV.DomainLayer.Helpers;
 
 namespace MV.ApplicationLayer.BackgroundJobs;
@@ -37,9 +38,9 @@ public class GhostUserCleanupJob(IServiceProvider sp, ILogger<GhostUserCleanupJo
         var db = scope.ServiceProvider.GetRequiredService<IAppDbContext>();
         
         // Quét những đăng ký bằng phone CHƯA verify OTP và đã tạo quá 12h.
-        // Phải loại trừ tài khoản hợp lệ khác cũng đang is_phone_verified=false:
-        //   - Google: is_email_verified=true        → giữ
-        //   - Zalo:   zalouserid != null             → giữ
+        // Phone là kênh xác thực chính. Chỉ loại trừ các tài khoản không thuộc
+        // luồng đăng ký phone còn dang dở:
+        //   - Zalo không phải Student: zalouserid != null → giữ
         //   - Tài khoản con do phụ huynh tạo: không có phone → giữ
         var thresholdTime = TimeZoneHelper.UtcNow.AddHours(-12);
 
@@ -49,8 +50,7 @@ public class GhostUserCleanupJob(IServiceProvider sp, ILogger<GhostUserCleanupJo
             .Include(u => u.StudentprofileLinkedusers)
             .Where(u => u.Isphoneverified == false
                      && u.Phone != null
-                     && u.Zalouserid == null
-                     && u.Isemailverified != true
+                     && (u.Primaryrole == UserRole.Student || u.Zalouserid == null)
                      && u.Createdat != null
                      && u.Createdat < thresholdTime
                      && !u.StudentprofileLinkedusers.Any(s => s.Bookings.Any()) // Không xóa nếu học viên đã có Booking
