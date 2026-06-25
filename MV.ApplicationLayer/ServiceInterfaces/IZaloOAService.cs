@@ -5,6 +5,11 @@ namespace MV.ApplicationLayer.ServiceInterfaces;
 public interface IZaloOAService
 {
     /// <summary>
+    /// Send an OTP through ZNS using the verified phone number.
+    /// </summary>
+    Task<ZaloSendResult> SendZnsOtpAsync(string phone, string otp);
+
+    /// <summary>
     /// Send a post-lesson report notification to the student's parent via Zalo OA template.
     /// </summary>
     Task<ZaloSendResult> SendLessonReportAsync(int lessonId);

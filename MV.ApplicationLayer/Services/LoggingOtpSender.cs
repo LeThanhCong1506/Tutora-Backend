@@ -4,9 +4,7 @@ using MV.ApplicationLayer.ServiceInterfaces;
 namespace MV.ApplicationLayer.Services
 {
     /// <summary>
-    /// Stub OTP sender: chỉ ghi mã OTP ra log (dùng cho dev khi CHƯA tích hợp kênh gửi thật).
-    /// ⚠️ PRODUCTION: thay class này bằng implementation gửi SMS hoặc Zalo ZNS
-    /// (xem ZaloOAService.SendZnsTemplateAsync) rồi đổi đăng ký DI trong Program.cs.
+    /// Sender dự phòng chỉ ghi mã OTP ra log, dùng khi cần tách khỏi ZNS để debug.
     /// </summary>
     public class LoggingOtpSender : IOtpSender
     {

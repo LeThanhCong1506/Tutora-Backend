@@ -1,8 +1,7 @@
 namespace MV.ApplicationLayer.ServiceInterfaces
 {
     /// <summary>
-    /// Gửi mã OTP tới số điện thoại. Tách interface để dễ thay kênh gửi
-    /// (SMS provider / Zalo ZNS) mà không sửa logic xác thực.
+    /// Gửi mã OTP tới số điện thoại qua kênh đã cấu hình.
     /// </summary>
     public interface IOtpSender
     {
