@@ -40,16 +40,17 @@ public partial class BookingService
         if (booking.Depositpaidat == null)
             throw new BookingException(BookingErrorCodes.InvalidBookingStatus, "Booking chưa được thanh toán cọc", 409);
 
-        booking.Status = booking.Remainingpaidat != null || booking.Paymentstatus == PaymentStatus.Escrowed
+        // Không tính lại Depositamount — parent đã trả thực tế theo số đó rồi.
+        // Chỉ bổ sung Remainingamount nếu còn null (safety net cho data cũ).
+        EnsureRemainingAmountCalculated(booking);
+
+        // Booking 1 buổi (Remaining = 0): sau khi trả deposit là xong → Paid.
+        // Booking N buổi (Remaining > 0): chờ parent trả phần còn lại → DepositPaid.
+        booking.Status = (booking.Remainingamount ?? 0) == 0 || booking.Remainingpaidat != null
             ? BookingStatus.Paid
             : BookingStatus.DepositPaid;
         booking.Updatedat = TimeZoneHelper.UtcNow;
         booking.Responsedeadline = null;
-
-        var sessions = booking.Totalsessions ?? 1;
-        var firstLesson = Math.Round((booking.Finalprice ?? 0) / sessions, 0, MidpointRounding.AwayFromZero);
-        booking.Depositamount = firstLesson;
-        booking.Remainingamount = (booking.Finalprice ?? 0) - firstLesson;
 
         var scheduledLessons = booking.Lessons
             .Where(lesson => lesson.Status == LessonStatus.Reserved)
@@ -242,5 +243,29 @@ public partial class BookingService
 
         booking.Refundamount = refundAmount;
         booking.Refundstatus = RefundStatus.Refunded;
+    }
+
+    /// <summary>
+    /// Bổ sung Remainingamount nếu còn null — không overwrite Depositamount đã được confirm thanh toán.
+    /// </summary>
+    private static void EnsureRemainingAmountCalculated(Booking booking)
+    {
+        if (booking.Remainingamount != null) return;
+
+        var finalPrice = booking.Finalprice ?? 0;
+        var deposit = booking.Depositamount ?? 0;
+
+        // Depositamount chưa có — tính lại cả hai từ đầu
+        if (deposit == 0)
+        {
+            var sessions = booking.Totalsessions ?? 1;
+            var (d, r) = BookingFeeCalculator.CalculatePaymentPhases(finalPrice, sessions);
+            booking.Depositamount = d;
+            booking.Remainingamount = r;
+        }
+        else
+        {
+            booking.Remainingamount = finalPrice - deposit;
+        }
     }
 }

@@ -93,6 +93,9 @@ public partial class BookingService(
         }
 
         var fees = BookingFeeCalculator.Calculate(totalAmount - discountApplied);
+        var (depositAmount, remainingAmount) = BookingFeeCalculator.CalculatePaymentPhases(
+            fees.FinalPrice, totalSessions);
+
         var booking = new Booking
         {
             Parentid = userRole == UserRole.Parent ? userId : student.Parentid,
@@ -112,9 +115,8 @@ public partial class BookingService(
             Platformfee = fees.PlatformFee,
             Parentfee = fees.ParentFee,
             Tutorfee = fees.TutorReceivable,
-            Depositamount = totalSessions > 0
-                ? Math.Floor(fees.FinalPrice / totalSessions)
-                : fees.FinalPrice,
+            Depositamount = depositAmount,
+            Remainingamount = remainingAmount,
             Status = BookingStatus.PendingPayment,
             Paymentstatus = PaymentStatus.Pending,
             Paymentdueat = TimeZoneHelper.UtcNow.AddMinutes(30),
