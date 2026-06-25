@@ -40,15 +40,12 @@ public partial class BookingService
         if (booking.Depositpaidat == null)
             throw new BookingException(BookingErrorCodes.InvalidBookingStatus, "Booking chưa được thanh toán cọc", 409);
 
-        // Không tính lại Depositamount — parent đã trả thực tế theo số đó rồi.
-        // Chỉ bổ sung Remainingamount nếu còn null (safety net cho data cũ).
-        EnsureRemainingAmountCalculated(booking);
+        // Safety net: bổ sung Remainingamount nếu null (data cũ), KHÔNG ghi đè Depositamount
+        // vì parent đã trả theo số đó rồi.
+        if (booking.Remainingamount == null)
+            booking.Remainingamount = (booking.Finalprice ?? 0) - (booking.Depositamount ?? 0);
 
-        // Booking 1 buổi (Remaining = 0): sau khi trả deposit là xong → Paid.
-        // Booking N buổi (Remaining > 0): chờ parent trả phần còn lại → DepositPaid.
-        booking.Status = (booking.Remainingamount ?? 0) == 0 || booking.Remainingpaidat != null
-            ? BookingStatus.Paid
-            : BookingStatus.DepositPaid;
+        booking.Status = BookingStatus.DepositPaid;
         booking.Updatedat = TimeZoneHelper.UtcNow;
         booking.Responsedeadline = null;
 

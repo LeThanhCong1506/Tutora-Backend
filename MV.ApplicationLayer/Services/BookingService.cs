@@ -466,15 +466,15 @@ public partial class BookingService(
         if (package.Packagetype == Tutorpackage.FlexiblePackageType)
         {
             var count = dto.FlexibleSlots?.Count ?? 0;
-            if (count <= 0)
-                throw new BookingException(BookingErrorCodes.InvalidSchedule, "Package flexible yêu cầu chọn ít nhất một buổi học", 400);
+            if (count <= 3)
+                throw new BookingException(BookingErrorCodes.InvalidSchedule, "Package flexible yêu cầu chọn ít nhất 4 buổi học", 400);
             if (dto.TotalSessions.HasValue && dto.TotalSessions.Value != count)
                 throw new BookingException(BookingErrorCodes.InvalidSchedule, "TotalSessions phải bằng số lượng flexibleSlots", 400);
             return count;
         }
 
-        if (!dto.TotalSessions.HasValue || dto.TotalSessions.Value <= 0)
-            throw new BookingException(BookingErrorCodes.InvalidSchedule, "Package fixed yêu cầu TotalSessions lớn hơn 0", 400);
+        if (!dto.TotalSessions.HasValue || dto.TotalSessions.Value <= 3)
+            throw new BookingException(BookingErrorCodes.InvalidSchedule, "Package fixed yêu cầu TotalSessions ít nhất 4 buổi", 400);
 
         return dto.TotalSessions.Value;
     }

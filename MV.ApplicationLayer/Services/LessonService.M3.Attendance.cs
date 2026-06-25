@@ -261,13 +261,28 @@ public partial class LessonService
             };
             _context.Lessonreports.Add(report);
 
+            // Phát hiện buổi đầu tiên của booking deposit_paid TRƯỚC khi save,
+            // để cập nhật booking status trong cùng transaction.
+            var parentId = lesson.Booking?.Student?.Parentid;
+            var isFirstLessonReport = lesson.Booking != null
+                && lesson.Booking.Status == BookingStatus.DepositPaid
+                && lesson.Booking.Remainingpaidat == null
+                && !await _context.Lessons.AnyAsync(
+                    l => l.Bookingid == lesson.Bookingid && l.Lessonid != lessonId
+                    && (l.Status == PendingConfirmation || l.Status == Completed));
+
+            if (isFirstLessonReport)
+            {
+                lesson.Booking!.Status = BookingStatus.PendingRemainingPayment;
+                lesson.Booking.Paymentdueat = now.AddHours(48);
+            }
+
             await _context.SaveChangesAsync();
             await tx.CommitAsync();
 
             _logger.LogInformation("Tutor {TutorId} submitted report for lesson {LessonId}", tutorId, lessonId);
 
-            // Notify Parent
-            var parentId = lesson.Booking?.Student?.Parentid;
+            // Notify Parent — báo cáo buổi học
             if (!string.IsNullOrEmpty(parentId))
             {
                 await _notificationService.CreateNotificationAsync(new NotificationRequest
@@ -280,27 +295,19 @@ public partial class LessonService
                 });
             }
 
-            // If this is the first lesson report for a deposit-only booking,
-            // notify parent that remaining 50% will be required after 24h confirmation period
-            if (lesson.Booking != null && lesson.Booking.Status == BookingStatus.DepositPaid
-                && lesson.Booking.Remainingpaidat == null && !string.IsNullOrEmpty(parentId))
+            // Notify Parent — yêu cầu thanh toán remaining trong 48h
+            if (isFirstLessonReport && !string.IsNullOrEmpty(parentId))
             {
-                var isFirstReport = !await _context.Lessons.AnyAsync(
-                    l => l.Bookingid == lesson.Bookingid && l.Lessonid != lessonId
-                    && (l.Status == PendingConfirmation || l.Status == Completed));
-
-                if (isFirstReport)
+                await _notificationService.CreateNotificationAsync(new NotificationRequest
                 {
-                    await _notificationService.CreateNotificationAsync(new NotificationRequest
-                    {
-                        Userid = parentId,
-                        Title = "Sắp cần thanh toán các buổi học còn lại",
-                        Message = $"Buổi học đầu tiên của booking #{lesson.Bookingid} đã hoàn thành. " +
-                            $"Sau 24h xác nhận, bạn sẽ cần thanh toán {lesson.Booking.Remainingamount:N0}đ cho các buổi còn lại để tiếp tục học.",
-                        Type = NotificationType.PaymentRemainingRequired,
-                        Referenceid = lesson.Bookingid.ToString()
-                    });
-                }
+                    Userid = parentId,
+                    Title = "Cần thanh toán các buổi học còn lại",
+                    Message = $"Buổi học đầu tiên của booking #{lesson.Bookingid} đã hoàn thành. " +
+                        $"Bạn có 48h để thanh toán {lesson.Booking!.Remainingamount:N0}đ cho các buổi còn lại. " +
+                        $"Nếu không thanh toán đúng hạn, booking sẽ bị hủy tự động.",
+                    Type = NotificationType.PaymentRemainingRequired,
+                    Referenceid = lesson.Bookingid.ToString()
+                });
             }
 
             return (await GetTutorLessonDetailAsync(lessonId, tutorId))!;

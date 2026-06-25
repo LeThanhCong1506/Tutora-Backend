@@ -18,6 +18,15 @@ namespace MV.InfrastructureLayer.Repositories
     {
         private readonly AgoraDbContext _context;
 
+        private static readonly string[] PaidBookingStatuses =
+        [
+            BookingStatus.DepositPaid,
+            BookingStatus.PendingRemainingPayment,
+            BookingStatus.Paid,
+            BookingStatus.Ongoing,
+            BookingStatus.Completed
+        ];
+
         // Category to Subject mapping (for category tabs)
         private static readonly Dictionary<string, List<string>> CategorySubjectMapping = new()
         {
@@ -186,12 +195,24 @@ namespace MV.InfrastructureLayer.Repositories
                 .Take(parameters.PageSize)
                 .ToListAsync();
 
-            // ==================== LESSON COUNTS (cho trang hiện tại) ====================
-            // Đếm tổng số buổi học theo từng gia sư bằng 1 query gộp, tránh Include toàn bộ Lessons.
+            // ==================== LESSON & STUDENT COUNTS (cho trang hiện tại) ====================
             var tutorIds = items.Select(u => u.Userid).ToList();
+
             var lessonCounts = await _context.Lessons
-                .Where(l => l.Tutorid != null && tutorIds.Contains(l.Tutorid))
+                .Where(l => l.Tutorid != null && tutorIds.Contains(l.Tutorid)
+                    && l.Status != LessonStatus.Cancelled
+                    && l.Status != LessonStatus.CancelledNoshow
+                    && l.Booking != null && PaidBookingStatuses.Contains(l.Booking.Status!))
                 .GroupBy(l => l.Tutorid!)
+                .Select(g => new { TutorId = g.Key, Count = g.Count() })
+                .ToDictionaryAsync(x => x.TutorId, x => x.Count);
+
+            var studentCounts = await _context.Bookings
+                .Where(b => b.Tutorid != null && tutorIds.Contains(b.Tutorid)
+                    && PaidBookingStatuses.Contains(b.Status!))
+                .Select(b => new { b.Tutorid, b.Studentid })
+                .Distinct()
+                .GroupBy(b => b.Tutorid!)
                 .Select(g => new { TutorId = g.Key, Count = g.Count() })
                 .ToDictionaryAsync(x => x.TutorId, x => x.Count);
 
@@ -200,6 +221,7 @@ namespace MV.InfrastructureLayer.Repositories
             {
                 var dto = MapToSearchResult(u);
                 dto.TotalLessons = lessonCounts.TryGetValue(u.Userid, out var lessonCount) ? lessonCount : 0;
+                dto.TotalStudents = studentCounts.TryGetValue(u.Userid, out var studentCount) ? studentCount : 0;
                 return dto;
             }).ToList();
             // Grade Level filter is now applied at database level (before pagination)
