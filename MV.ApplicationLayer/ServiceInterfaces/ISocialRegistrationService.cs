@@ -10,8 +10,7 @@ public interface ISocialRegistrationService
         string providerUserId,
         string? email,
         string? fullName,
-        string? avatarUrl,
-        string? requestedRole);
+        string? avatarUrl);
 
     Task<TokenResponse> CompleteRegistrationAsync(CompleteSocialRegistrationRequest request);
     Task<TokenResponse> VerifyPhoneOtpAsync(VerifySocialPhoneOtpRequest request);

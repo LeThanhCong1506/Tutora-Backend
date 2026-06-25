@@ -21,10 +21,4 @@ public class ZaloWebLoginRequest
     /// bước đổi token (PKCE thay thế việc verify này), nên backend chỉ nhận để tham khảo/log.
     /// </summary>
     public string? RedirectUri { get; set; }
-
-    /// <summary>
-    /// Vai trò tùy chọn khi bắt đầu đăng ký mới. FE cũng có thể gửi role cùng phone
-    /// ở endpoint social/complete-registration.
-    /// </summary>
-    public string? Role { get; set; }
 }

@@ -8,6 +8,6 @@ namespace MV.ApplicationLayer.ServiceInterfaces
         /// Validate a Google ID token. Users without a verified phone continue through
         /// the social registration token and phone OTP flow before receiving a JWT.
         /// </summary>
-        Task<TokenResponse> AuthenticateGoogleUserAsync(string idToken, string? role);
+        Task<TokenResponse> AuthenticateGoogleUserAsync(string idToken);
     }
 }

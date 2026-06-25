@@ -54,8 +54,7 @@ namespace MV.ApplicationLayer.Services
                     profile.ZaloId,
                     null,
                     profile.Name,
-                    profile.Avatar,
-                    request.Role);
+                    profile.Avatar);
             }
             catch (Exception ex)
             {

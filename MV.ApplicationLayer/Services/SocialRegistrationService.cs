@@ -55,8 +55,7 @@ public class SocialRegistrationService : ISocialRegistrationService
         string providerUserId,
         string? email,
         string? fullName,
-        string? avatarUrl,
-        string? requestedRole)
+        string? avatarUrl)
     {
         if (!IsSupportedProvider(provider))
             return new TokenResponse { ErrorMessage = "Nhà cung cấp đăng nhập không hợp lệ." };
@@ -84,11 +83,6 @@ public class SocialRegistrationService : ISocialRegistrationService
                 return await CreateTokenResponseAsync(user);
             }
         }
-        else if (!string.IsNullOrWhiteSpace(requestedRole) &&
-                 NormalizeRole(requestedRole) == null)
-        {
-            return new TokenResponse { ErrorMessage = "Vai trò không hợp lệ." };
-        }
 
         var sessionToken = GenerateSessionToken();
         var session = new SocialRegistrationSession
@@ -99,7 +93,7 @@ public class SocialRegistrationService : ISocialRegistrationService
             Email = email,
             FullName = fullName,
             AvatarUrl = avatarUrl,
-            Role = user?.Primaryrole ?? NormalizeRole(requestedRole),
+            Role = user?.Primaryrole,
             Phone = user?.Phone,
             ExpiresAtUtc = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow.AddMinutes(SessionExpiryMinutes)
         };

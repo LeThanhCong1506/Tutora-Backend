@@ -25,7 +25,7 @@ namespace MV.PresentationLayer.Controllers
                 return BadRequest(new { message = "Google ID Token là bắt buộc." });
             }
 
-            var result = await _loginService.AuthenticateGoogleUserAsync(request.IdToken, request.Role);
+            var result = await _loginService.AuthenticateGoogleUserAsync(request.IdToken);
 
             if (result.RequiresRoleSelection || result.RequiresPhoneInput)
             {

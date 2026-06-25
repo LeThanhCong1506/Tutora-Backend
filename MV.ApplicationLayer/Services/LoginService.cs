@@ -25,7 +25,7 @@ namespace MV.ApplicationLayer.Services
             _socialRegistrationService = socialRegistrationService;
         }
 
-        public async Task<TokenResponse> AuthenticateGoogleUserAsync(string idToken, string? role)
+        public async Task<TokenResponse> AuthenticateGoogleUserAsync(string idToken)
         {
             try
             {
@@ -51,8 +51,7 @@ namespace MV.ApplicationLayer.Services
                     payload.Subject ?? email,
                     email,
                     payload.Name,
-                    payload.Picture,
-                    role);
+                    payload.Picture);
             }
             catch (Exception ex)
             {
