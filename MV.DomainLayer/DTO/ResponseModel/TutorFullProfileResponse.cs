@@ -19,7 +19,6 @@ namespace MV.DomainLayer.DTO.ResponseModel
         public string? TeachingAreaCity { get; set; }
         public string? TeachingAreaDistrict { get; set; }
         public string? TeachingMode { get; set; }
-        public List<SubjectInfo>? Subjects { get; set; }
         public List<TutorSubjectGradePriceResponse>? SubjectGradePrices { get; set; }
 
         // --- Introduction ---
@@ -29,7 +28,7 @@ namespace MV.DomainLayer.DTO.ResponseModel
         public double? GpaScale { get; set; }
         public string? Experience { get; set; }
 
-        // --- Certificates ---
+        // --- Certificates (chỉ trả về verified) ---
         public List<CertificateResponse>? Certificates { get; set; }
 
         // --- Schedule (Tutor Availability) ---
@@ -45,22 +44,11 @@ namespace MV.DomainLayer.DTO.ResponseModel
         // --- Feedback List ---
         public List<FeedbackItemResponse>? Feedbacks { get; set; }
 
-        // --- Active Classes ---
-        public int TotalActiveClasses { get; set; }
-        public List<ActiveClassSummary>? ActiveClasses { get; set; }
-    }
-
-    /// <summary>
-    /// Summary of an active class (booking) for public tutor profile display
-    /// </summary>
-    public class ActiveClassSummary
-    {
-        public int BookingId { get; set; }
-        public string? SubjectName { get; set; }
-        public string? StudentName { get; set; }
+        // --- Teaching Stats ---
+        /// <summary>Tổng số buổi gia sư đã và đang dạy (không tính buổi bị hủy).</summary>
         public int TotalLessons { get; set; }
-        public int CompletedLessons { get; set; }
-        public string? Status { get; set; }
-        public DateTime? StartDate { get; set; }
+
+        /// <summary>Tổng số học sinh gia sư đã và đang dạy (distinct, không tính booking bị hủy).</summary>
+        public int TotalStudents { get; set; }
     }
 }

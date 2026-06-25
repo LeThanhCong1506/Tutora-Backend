@@ -82,6 +82,10 @@ public class AdminDashboardService(
             .Select(d => new { d.Status })
             .ToListAsync(ct);
 
+        var pendingCertificates = await context.Tutorcertificates
+            .AsNoTracking()
+            .CountAsync(c => c.Verificationstatus == CertificateStatus.PendingReview, ct);
+
         var warningsCount = await context.Userwarnings
             .AsNoTracking()
             .CountAsync(ct);
@@ -154,7 +158,8 @@ public class AdminDashboardService(
                 PendingWithdrawals = pendingWithdrawals.Count,
                 PendingWithdrawalAmount = pendingWithdrawals.Sum(w => w.Amount ?? 0),
                 OpenDisputes = openDisputes,
-                PendingWarnings = warningsCount
+                PendingWarnings = warningsCount,
+                PendingCertificates = pendingCertificates
             }
         };
     }
@@ -435,6 +440,10 @@ public class AdminDashboardService(
             .Select(t => new { t.Profilestatus })
             .ToListAsync(ct);
 
+        var pendingCertificatesCount = await context.Tutorcertificates
+            .AsNoTracking()
+            .CountAsync(c => c.Verificationstatus == CertificateStatus.PendingReview, ct);
+
         var unresolvedAlerts = await context.Systemalerts
             .AsNoTracking()
             .CountAsync(a => !a.Resolved, ct);
@@ -468,7 +477,7 @@ public class AdminDashboardService(
         var openDisputes = disputes.Count(d =>
             d.Status is DisputeStatus.Pending or DisputeStatus.Investigating);
         var overdueCount = withdrawals.Count(w => w.Status == WithdrawalStatus.Delayed);
-        var actionsTotal = tutorApprovals + withdrawalReviews + openDisputes + unresolvedAlerts + overdueCount;
+        var actionsTotal = tutorApprovals + pendingCertificatesCount + withdrawalReviews + openDisputes + unresolvedAlerts + overdueCount;
 
         return new AdminDashboardSummaryResponse
         {
@@ -492,12 +501,13 @@ public class AdminDashboardService(
             },
             PendingActions = new SummaryPendingActions
             {
-                Total             = actionsTotal,
-                TutorApprovals    = tutorApprovals,
-                WithdrawalReviews = withdrawalReviews,
-                OpenDisputes      = openDisputes,
-                UnresolvedAlerts  = unresolvedAlerts,
-                OverdueCount      = overdueCount
+                Total                = actionsTotal,
+                TutorApprovals       = tutorApprovals,
+                PendingCertificates  = pendingCertificatesCount,
+                WithdrawalReviews    = withdrawalReviews,
+                OpenDisputes         = openDisputes,
+                UnresolvedAlerts     = unresolvedAlerts,
+                OverdueCount         = overdueCount
             }
         };
     }

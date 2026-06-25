@@ -43,6 +43,9 @@ public class SummaryPendingActions
     /// <summary>Tutor profiles awaiting approval (status = PendingApproval).</summary>
     public int TutorApprovals { get; set; }
 
+    /// <summary>Tutor certificates awaiting admin review (verificationstatus = pending_review).</summary>
+    public int PendingCertificates { get; set; }
+
     /// <summary>Withdrawal requests awaiting admin review (status = Pending or PendingReview).</summary>
     public int WithdrawalReviews { get; set; }
 
