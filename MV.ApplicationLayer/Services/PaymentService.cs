@@ -135,6 +135,12 @@ public partial class PaymentService(
         var booking = await bookingRepo.FindForPaymentByUserAsync(bookingId, userId)
             ?? throw new BookingException(BookingErrorCodes.BookingNotFound, ApiMessages.BookingNotFound, 404);
 
+        var now = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
+        bool isExpired = booking.Status == BookingStatus.PaymentTimeout
+            || (booking.Paymentdueat != null && booking.Paymentdueat <= now);
+        bool refundedToWallet = booking.Refundstatus == RefundStatus.Refunded && (booking.Refundamount ?? 0) > 0;
+        decimal refundAmount = booking.Refundamount ?? 0;
+
         var baseResponse = new PaymentStatusResponse
         {
             BookingId = bookingId,
@@ -144,7 +150,10 @@ public partial class PaymentService(
             DepositAmount = booking.Depositamount ?? 0,
             RemainingAmount = booking.Remainingamount ?? 0,
             IsDepositPaid = booking.Depositpaidat != null,
-            IsRemainingPaid = booking.Remainingpaidat != null
+            IsRemainingPaid = booking.Remainingpaidat != null,
+            IsExpired = isExpired,
+            RefundedToWallet = refundedToWallet,
+            RefundAmount = refundAmount
         };
 
         if (string.IsNullOrWhiteSpace(booking.Paymentcode))
@@ -208,7 +217,10 @@ public partial class PaymentService(
                 DepositAmount = booking.Depositamount ?? 0,
                 RemainingAmount = booking.Remainingamount ?? 0,
                 IsDepositPaid = booking.Depositpaidat != null,
-                IsRemainingPaid = booking.Remainingpaidat != null
+                IsRemainingPaid = booking.Remainingpaidat != null,
+                IsExpired = isExpired,
+                RefundedToWallet = refundedToWallet,
+                RefundAmount = refundAmount
             };
         }
         catch (Exception ex)
@@ -248,7 +260,22 @@ public partial class PaymentService(
             }
 
             if (booking.Paymentdueat.HasValue && booking.Paymentdueat.Value <= MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow)
-                throw new BookingException(BookingErrorCodes.BookingExpired, "Booking payment expired", 409);
+            {
+                await RefundOrphanPaymentToWalletAsync(booking, amount, txId, ct);
+                await context.SaveChangesAsync(ct);
+                await tx.CommitAsync(ct);
+                logger.LogInformation("Orphan deposit refunded to wallet for expired booking {Id}, amount {Amount}.", bookingId, amount);
+                if (!string.IsNullOrWhiteSpace(booking.Parentid))
+                    await notificationService.CreateNotificationAsync(new NotificationRequest
+                    {
+                        Userid = booking.Parentid,
+                        Title = "Hoàn tiền thanh toán",
+                        Message = "Mã thanh toán đã hết hạn. Số tiền đã được hoàn vào ví của bạn.",
+                        Type = NotificationType.PaymentRefundSuccess,
+                        Referenceid = booking.Bookingid.ToString()
+                    });
+                return;
+            }
 
             // Ensure deposit amounts calculated
             EnsureDepositAmountsCalculated(booking);
@@ -339,6 +366,30 @@ public partial class PaymentService(
             if (booking.Depositpaidat == null)
                 throw new BookingException(BookingErrorCodes.InvalidBookingStatus, "Chưa thanh toán cọc", 409);
 
+            // Late webhook after remaining deadline expired → refund to wallet
+            var isExpiredOrFinalized = (booking.Paymentdueat.HasValue && booking.Paymentdueat.Value <= MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow)
+                || (booking.Status != BookingStatus.DepositPaid
+                    && booking.Status != BookingStatus.PendingRemainingPayment
+                    && booking.Status != BookingStatus.Ongoing);
+
+            if (isExpiredOrFinalized)
+            {
+                await RefundOrphanPaymentToWalletAsync(booking, amount, txId, ct);
+                await context.SaveChangesAsync(ct);
+                await tx.CommitAsync(ct);
+                logger.LogInformation("Orphan remaining payment refunded to wallet for expired booking {Id}, amount {Amount}.", bookingId, amount);
+                if (!string.IsNullOrWhiteSpace(booking.Parentid))
+                    await notificationService.CreateNotificationAsync(new NotificationRequest
+                    {
+                        Userid = booking.Parentid,
+                        Title = "Hoàn tiền thanh toán",
+                        Message = "Mã thanh toán đã hết hạn. Số tiền đã được hoàn vào ví của bạn.",
+                        Type = NotificationType.PaymentRefundSuccess,
+                        Referenceid = booking.Bookingid.ToString()
+                    });
+                return;
+            }
+
             if (amount != (int)(booking.Remainingamount ?? 0))
                 throw new BookingException(BookingErrorCodes.AmountMismatch, "Số tiền không khớp", 409);
 
@@ -406,6 +457,43 @@ public partial class PaymentService(
             booking.Depositamount = firstLesson;
             booking.Remainingamount = (booking.Finalprice ?? 0) - firstLesson;
         }
+    }
+
+    // Called when PayOS confirms payment AFTER the booking deadline has already passed.
+    // Refunds the received amount to the parent's wallet instead of escrowing.
+    // Idempotent: safe to call multiple times for the same txId (PayOS webhook retry).
+    private async Task RefundOrphanPaymentToWalletAsync(Booking booking, int amount, string txId, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(booking.Parentid))
+        {
+            logger.LogWarning("RefundOrphan: booking {Id} has no parentId, skipping.", booking.Bookingid);
+            return;
+        }
+
+        if (await walletRepo.HasTransactionByDescriptionAsync(txId, ReferenceTable.Booking, ct))
+        {
+            logger.LogWarning("RefundOrphan: duplicate txId {TxId} for booking {Id}, skipping.", txId, booking.Bookingid);
+            return;
+        }
+
+        var wallet = await walletRepo.GetOrCreateForUpdateAsync(booking.Parentid, ct);
+        wallet.Balance = (wallet.Balance ?? 0) + amount;
+        wallet.Lastupdated = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
+
+        walletRepo.AddTransaction(new Wallettransaction
+        {
+            Wallet = wallet,
+            Amount = amount,
+            Transactiontype = TransactionType.Refund,
+            Referencetable = ReferenceTable.Booking,
+            Referenceid = booking.Bookingid,
+            Description = txId,
+            Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
+        });
+
+        booking.Refundamount = (booking.Refundamount ?? 0) + amount;
+        booking.Refundstatus = RefundStatus.Refunded;
+        booking.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
     }
 
     public async Task<ZaloPayBookingInfoResponse?> GetBookingForZaloPayAsync(int bookingId, string userId)
