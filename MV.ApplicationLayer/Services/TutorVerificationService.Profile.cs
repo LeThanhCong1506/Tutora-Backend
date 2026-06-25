@@ -10,6 +10,15 @@ namespace MV.ApplicationLayer.Services
 {
     public partial class TutorVerificationService
     {
+        private static readonly string[] PaidBookingStatuses =
+        [
+            BookingStatus.DepositPaid,
+            BookingStatus.PendingRemainingPayment,
+            BookingStatus.Paid,
+            BookingStatus.Ongoing,
+            BookingStatus.Completed
+        ];
+
         // ─── Tutor Public Profile ─────────────────────────────────────────────
 
         /// <summary>
@@ -288,14 +297,12 @@ namespace MV.ApplicationLayer.Services
                 .AsNoTracking()
                 .CountAsync(l => l.Tutorid == tutorId
                     && l.Status != LessonStatus.Cancelled
-                    && l.Status != LessonStatus.CancelledNoshow);
+                    && l.Status != LessonStatus.CancelledNoshow
+                    && l.Booking != null && PaidBookingStatuses.Contains(l.Booking.Status!));
 
             var totalStudents = await _dbContext.Bookings
                 .AsNoTracking()
-                .Where(b => b.Tutorid == tutorId
-                    && b.Status != BookingStatus.Cancelled
-                    && b.Status != BookingStatus.CancelledNoshow
-                    && b.Status != BookingStatus.PaymentTimeout)
+                .Where(b => b.Tutorid == tutorId && PaidBookingStatuses.Contains(b.Status!))
                 .Select(b => b.Studentid)
                 .Distinct()
                 .CountAsync();
