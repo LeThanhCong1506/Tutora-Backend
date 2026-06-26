@@ -40,6 +40,9 @@ public partial class Tutorprofile
 
     public bool? Ispublic { get; set; }
 
+    /// <summary>Tutor tự bật/tắt nhận booking mới. false = ẩn khỏi marketplace + chặn booking mới.</summary>
+    public bool Isacceptingbookings { get; set; } = true;
+
     public double? Averagerating { get; set; }
 
     public int? Totalreviews { get; set; }

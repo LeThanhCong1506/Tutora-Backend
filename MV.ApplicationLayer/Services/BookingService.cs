@@ -58,6 +58,8 @@ public partial class BookingService(
             ?? throw new BookingException(BookingErrorCodes.TutorNotFound, "Không tìm thấy gia sư", 404);
         if (!string.Equals(tutor.Profilestatus, TutorProfileStatus.Active, StringComparison.OrdinalIgnoreCase) || tutor.Ispublic != true)
             throw new BookingException(BookingErrorCodes.TutorNotAvailable, "Gia sư chưa được duyệt hoặc chưa hiển thị công khai", 409);
+        if (!tutor.Isacceptingbookings)
+            throw new BookingException(BookingErrorCodes.TutorNotAvailable, "Gia sư hiện đang tạm dừng nhận booking mới.", 409);
 
         var price = await context.Tutorsubjectgradeprices
             .Include(p => p.Subject)
