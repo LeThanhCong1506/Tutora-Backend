@@ -396,25 +396,27 @@ namespace MV.ApplicationLayer.Services
         {
             ValidateBirthdate(request.Birthdate);
 
+            // Load cả 2 entity trước khi modify
             var student = await _unitOfWork.StudentRepository.FindByStudentOrLinkedUserAsync(studentUserId)
                 ?? throw new StudentNotFoundException();
 
+            var linkedUser = await _unitOfWork.UserRepository.GetUserByIdAsync(studentUserId);
+
+            // Cập nhật Studentprofile
             student.Fullname = request.Fullname;
             student.Birthdate = request.Birthdate;
             student.School = request.School;
             student.Gradelevelid = request.GradeLevelId;
             student.Learninggoals = request.Learninggoals;
-            _unitOfWork.StudentRepository.Update(student);
 
-            // Đồng bộ tên và ngày sinh vào User
-            var linkedUser = await _unitOfWork.UserRepository.GetUserByIdAsync(studentUserId);
+            // Đồng bộ Fullname + Birthdate sang bảng Users
             if (linkedUser != null)
             {
                 linkedUser.Fullname = request.Fullname;
                 linkedUser.Birthdate = request.Birthdate;
-                await _unitOfWork.UserRepository.UpdateUserAsync(linkedUser);
             }
 
+            // EF change tracking tự detect thay đổi — không cần gọi Update() thủ công
             await _unitOfWork.SaveChangesAsync();
 
             return MapToResponse(student);

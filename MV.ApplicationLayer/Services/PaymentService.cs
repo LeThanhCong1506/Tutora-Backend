@@ -450,12 +450,20 @@ public partial class PaymentService(
 
     private static void EnsureDepositAmountsCalculated(Booking booking)
     {
+        var sessions = booking.Totalsessions ?? 1;
+        var finalPrice = booking.Finalprice ?? 0;
+
         if (booking.Depositamount == null || booking.Depositamount == 0)
         {
-            var sessions = booking.Totalsessions ?? 1;
-            var firstLesson = Math.Round((booking.Finalprice ?? 0) / sessions, 0, MidpointRounding.AwayFromZero);
-            booking.Depositamount = firstLesson;
-            booking.Remainingamount = (booking.Finalprice ?? 0) - firstLesson;
+            // Chưa tính gì — tính cả hai từ đầu
+            var (deposit, remaining) = BookingFeeCalculator.CalculatePaymentPhases(finalPrice, sessions);
+            booking.Depositamount = deposit;
+            booking.Remainingamount = remaining;
+        }
+        else if (booking.Remainingamount == null)
+        {
+            // Deposit đã có nhưng Remaining chưa được lưu (data cũ bị bug) — bổ sung Remaining
+            booking.Remainingamount = finalPrice - booking.Depositamount.Value;
         }
     }
 

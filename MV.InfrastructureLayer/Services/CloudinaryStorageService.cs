@@ -134,12 +134,10 @@ namespace MV.InfrastructureLayer.Services
                 ? ExtractPublicIdFromUrl(publicIdOrUrl)
                 : publicIdOrUrl;
 
-            var signedUrl = _cloudinary.Api.UrlImgUp
-                .Signed(true)
-                .Secure(true)
-                .BuildUrl(publicId);
-
-            return signedUrl;
+            // SDK v1.27.8 không có Url.Expires() — dùng DownloadPrivate với type="upload" + expiresAt
+            // Cloudinary API endpoint tự xử lý expiry, URL hết hạn sau expiresInMinutes phút
+            var expiresAt = DateTimeOffset.UtcNow.AddMinutes(expiresInMinutes).ToUnixTimeSeconds();
+            return _cloudinary.DownloadPrivate(publicId, false, null, "upload", expiresAt, "image");
         }
 
         public async Task<bool> DeleteFileAsync(string bucketName, string userId, string filePathOrUrl)

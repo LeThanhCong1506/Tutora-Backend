@@ -1,4 +1,5 @@
 ﻿using Microsoft.Extensions.Logging;
+using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO.ResponseModel;
 using MV.DomainLayer.Entities;
@@ -27,7 +28,7 @@ namespace MV.ApplicationLayer.Services
                     BasicInfo = BuildBasicInfoSection(profile, user),
                     Introduction = BuildIntroductionSection(profile),
                     Certificates = BuildCertificatesSection(certificates, profile),
-                    IdentityCard = BuildIdentityCardSection(user)
+                    IdentityCard = BuildIdentityCardSection(user, _encryption)
                 }
             };
         }
@@ -106,7 +107,7 @@ namespace MV.ApplicationLayer.Services
             };
         }
 
-        private static IdentityCardSection BuildIdentityCardSection(User user)
+        private static IdentityCardSection BuildIdentityCardSection(User user, IEncryptionService encryption)
         {
             var isVerified = user.Isidentityverified ?? false;
             var hasIdentity = !string.IsNullOrWhiteSpace(user.Identitynumber);
@@ -118,11 +119,12 @@ namespace MV.ApplicationLayer.Services
             string? gender = null;
             string? permanentAddress = null;
 
-            if (!string.IsNullOrWhiteSpace(user.Ekycrawdata))
+            var rawEkyc = encryption.Decrypt(user.Ekycrawdata);
+            if (!string.IsNullOrWhiteSpace(rawEkyc))
             {
                 try
                 {
-                    using var doc = JsonDocument.Parse(user.Ekycrawdata);
+                    using var doc = JsonDocument.Parse(rawEkyc);
                     if (doc.RootElement.TryGetProperty("OcrResult", out var ocr))
                     {
                         fullName = ocr.TryGetProperty("name", out var n) ? n.GetString() : null;
@@ -147,7 +149,7 @@ namespace MV.ApplicationLayer.Services
             {
                 Status = isComplete ? SectionStatus.Updated : SectionStatus.InProgress,
                 UpdatedAt = isComplete ? user.Createdat : null,
-                IdentityNumberMasked = MaskIdentityNumber(user.Identitynumber),
+                IdentityNumberMasked = MaskIdentityNumber(encryption.Decrypt(user.Identitynumber)),
                 FullName = fullName,
                 DateOfBirth = dateOfBirth,
                 Gender = gender,

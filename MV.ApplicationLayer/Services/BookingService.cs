@@ -95,6 +95,9 @@ public partial class BookingService(
         }
 
         var fees = BookingFeeCalculator.Calculate(totalAmount - discountApplied);
+        var (depositAmount, remainingAmount) = BookingFeeCalculator.CalculatePaymentPhases(
+            fees.FinalPrice, totalSessions);
+
         var booking = new Booking
         {
             Parentid = userRole == UserRole.Parent ? userId : student.Parentid,
@@ -114,6 +117,8 @@ public partial class BookingService(
             Platformfee = fees.PlatformFee,
             Parentfee = fees.ParentFee,
             Tutorfee = fees.TutorReceivable,
+            Depositamount = depositAmount,
+            Remainingamount = remainingAmount,
             Status = BookingStatus.PendingPayment,
             Paymentstatus = PaymentStatus.Pending,
             Paymentdueat = TimeZoneHelper.UtcNow.AddMinutes(30),
@@ -463,15 +468,15 @@ public partial class BookingService(
         if (package.Packagetype == Tutorpackage.FlexiblePackageType)
         {
             var count = dto.FlexibleSlots?.Count ?? 0;
-            if (count <= 0)
-                throw new BookingException(BookingErrorCodes.InvalidSchedule, "Package flexible yêu cầu chọn ít nhất một buổi học", 400);
+            if (count <= 3)
+                throw new BookingException(BookingErrorCodes.InvalidSchedule, "Package flexible yêu cầu chọn ít nhất 4 buổi học", 400);
             if (dto.TotalSessions.HasValue && dto.TotalSessions.Value != count)
                 throw new BookingException(BookingErrorCodes.InvalidSchedule, "TotalSessions phải bằng số lượng flexibleSlots", 400);
             return count;
         }
 
-        if (!dto.TotalSessions.HasValue || dto.TotalSessions.Value <= 0)
-            throw new BookingException(BookingErrorCodes.InvalidSchedule, "Package fixed yêu cầu TotalSessions lớn hơn 0", 400);
+        if (!dto.TotalSessions.HasValue || dto.TotalSessions.Value <= 3)
+            throw new BookingException(BookingErrorCodes.InvalidSchedule, "Package fixed yêu cầu TotalSessions ít nhất 4 buổi", 400);
 
         return dto.TotalSessions.Value;
     }
@@ -628,7 +633,10 @@ public partial class BookingService(
             // Pattern này đúng cả local lẫn cloud deployment.
             CreatedAt = b.Createdat,
             PaymentDueAt = b.Paymentdueat,
-            DepositAmount = b.Depositamount,
+            DepositAmount = b.Depositamount
+                ?? (b.Finalprice.HasValue && b.Totalsessions.HasValue && b.Totalsessions > 0
+                    ? Math.Floor(b.Finalprice.Value / b.Totalsessions.Value)
+                    : (decimal?)null),
             RemainingAmount = b.Remainingamount,
             DepositPaidAt = b.Depositpaidat,
             RemainingPaidAt = b.Remainingpaidat,
