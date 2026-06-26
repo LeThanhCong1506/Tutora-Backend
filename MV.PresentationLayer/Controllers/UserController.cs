@@ -6,7 +6,6 @@ using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.DTO;
 using MV.DomainLayer.DTO.RequestModel;
 using MV.DomainLayer.DTO.ResponseModel;
-using MV.DomainLayer.Entities;
 using MV.ApplicationLayer.Interfaces;
 using System.Security.Claims;
 
@@ -36,9 +35,6 @@ namespace MV.PresentationLayer.Controllers
             try
             {
                 var user = await _userService.GetUserByIdAsync(currentUserId);
-                user.Ekycrawdata = null;
-                user.Idcardfronturl = null;
-                user.Idcardbackurl = null;
                 return Ok(APIResponse<UserResponse>.Success(user, "Lấy thông tin người dùng thành công."));
             }
             catch (UserNotFoundException)
@@ -54,7 +50,8 @@ namespace MV.PresentationLayer.Controllers
             var user = await _unitOfWork.UserRepository.GetUserByEmailAsync(email);
             if (user == null)
                 return NotFound(APIResponse<object>.Fail(ApiMessages.UserNotFound, 404));
-            return Ok(APIResponse<User>.Success(user, "Lấy thông tin người dùng thành công."));
+            var response = await _userService.GetUserByIdAsync(user.Userid);
+            return Ok(APIResponse<UserResponse>.Success(response, "Lấy thông tin người dùng thành công."));
         }
 
         [HttpGet("staffs")]

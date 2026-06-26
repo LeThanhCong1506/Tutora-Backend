@@ -134,13 +134,10 @@ namespace MV.InfrastructureLayer.Services
                 ? ExtractPublicIdFromUrl(publicIdOrUrl)
                 : publicIdOrUrl;
 
-            // access_mode=authenticated dùng standard signed URL: s--sig-- embedded trong path
-            // Đã test xác nhận: DownloadPrivate trả 404 cho access_mode=authenticated resources
-            // .Signed(true) → 200 OK (confirmed qua live test)
-            return _cloudinary.Api.UrlImgUp
-                .Signed(true)
-                .Secure(true)
-                .BuildUrl(publicId);
+            // SDK v1.27.8 không có Url.Expires() — dùng DownloadPrivate với type="upload" + expiresAt
+            // Cloudinary API endpoint tự xử lý expiry, URL hết hạn sau expiresInMinutes phút
+            var expiresAt = DateTimeOffset.UtcNow.AddMinutes(expiresInMinutes).ToUnixTimeSeconds();
+            return _cloudinary.DownloadPrivate(publicId, false, null, "upload", expiresAt, "image");
         }
 
         public async Task<bool> DeleteFileAsync(string bucketName, string userId, string filePathOrUrl)

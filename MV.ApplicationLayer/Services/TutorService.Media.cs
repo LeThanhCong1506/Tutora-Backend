@@ -100,9 +100,9 @@ namespace MV.ApplicationLayer.Services
                 }
 
                 // 5. Kiểm tra số CCCD trùng với tài khoản khác
-                if (!string.IsNullOrEmpty(ocrResult.Id) && ocrResult.Id != user.Identitynumber)
+                if (!string.IsNullOrEmpty(ocrResult.Id) && ocrResult.Id != _encryption.Decrypt(user.Identitynumber))
                 {
-                    var isUnique = await _unitOfWork.UserRepository.IsIdentityNumberUniqueAsync(ocrResult.Id);
+                    var isUnique = await _unitOfWork.UserRepository.IsIdentityNumberUniqueAsync(_encryption.Encrypt(ocrResult.Id));
                     if (!isUnique)
                         throw new InvalidOperationException(
                             "Số CCCD này đã được xác minh bởi tài khoản khác. Vui lòng liên hệ hỗ trợ nếu đây là nhầm lẫn.");
@@ -121,13 +121,13 @@ namespace MV.ApplicationLayer.Services
 
             if (ocrResult != null)
             {
-                // 7. Lưu số CCCD + raw OCR data
-                user.Identitynumber = ocrResult.Id;
-                user.Ekycrawdata    = JsonSerializer.Serialize(new
+                // 7. Lưu số CCCD + raw OCR data (AES-256-CBC encrypted)
+                user.Identitynumber = _encryption.Encrypt(ocrResult.Id);
+                user.Ekycrawdata    = _encryption.Encrypt(JsonSerializer.Serialize(new
                 {
                     OcrResult = new { id = ocrResult.Id, name = ocrResult.Name, dob = ocrResult.Dob, sex = ocrResult.Sex, address = ocrResult.Address },
                     VerifiedAt = TimeZoneHelper.UtcNow.ToString("o")
-                });
+                }));
 
                 // 8. Mark identity verified nếu OCR đạt ngưỡng tin cậy
                 user.Isidentityverified = ocrResult.Probability >= 90.0;
@@ -159,7 +159,7 @@ namespace MV.ApplicationLayer.Services
             return new CccdUploadResponse
             {
                 OcrSuccess     = ocrResult != null,
-                IdentityNumber = ocrResult?.Id,
+                IdentityNumber = MaskIdentityNumber(ocrResult?.Id),
                 FullName       = ocrResult?.Name,
                 DateOfBirth    = ocrResult?.Dob,
                 Gender         = ocrResult?.Sex,
@@ -215,6 +215,15 @@ namespace MV.ApplicationLayer.Services
                 throw new ArgumentException($"Ảnh CCCD {side} chỉ chấp nhận định dạng JPG, JPEG hoặc PNG.");
             if (file.Length > 5 * 1024 * 1024)
                 throw new ArgumentException($"Ảnh CCCD {side} phải nhỏ hơn 5MB.");
+        }
+
+        private static string? MaskIdentityNumber(string? number)
+        {
+            if (string.IsNullOrWhiteSpace(number) || number.Length < 6) return null;
+            var visible = Math.Min(3, number.Length);
+            var tail = Math.Min(4, number.Length - visible);
+            var masked = new string('*', number.Length - visible - tail);
+            return number[..visible] + masked + number[^tail..];
         }
     }
 }
