@@ -10,8 +10,8 @@ namespace MV.ApplicationLayer.ServiceInterfaces
     {
         Task<TokenResponse> SimpleLoginAsync(SimpleLoginRequest request);
         Task<TokenResponse> SimpleRegisterAsync(SimpleRegisterRequest request);
-        Task<TokenResponse> VerifyEmailOtpAsync(VerifyOtpRequest request);
-        Task<TokenResponse> ResendVerificationEmailAsync(ResendVerificationEmailRequest request);
+        Task<TokenResponse> VerifyPhoneOtpAsync(VerifyPhoneOtpRequest request);
+        Task<TokenResponse> ResendPhoneOtpAsync(ResendPhoneOtpRequest request);
         Task<TokenResponse> ForgotPasswordAsync(ForgotPasswordRequest request);
         Task<TokenResponse> ResetPasswordAsync(ResetPasswordRequest request);
     }

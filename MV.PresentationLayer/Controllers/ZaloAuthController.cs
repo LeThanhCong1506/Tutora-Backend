@@ -17,16 +17,32 @@ namespace MV.PresentationLayer.Controllers
         }
 
         /// <summary>
-        /// Đăng nhập bằng Zalo Mini App.
-        /// Nhận Zalo access token, verify với Zalo API, tìm/tạo user, trả về Tutora JWT.
+        /// Đăng nhập bằng Zalo Login v4 (Web OAuth).
+        /// FE redirect sang Zalo, nhận authorization code, gửi { code, codeVerifier, redirectUri }.
+        /// User chưa verify phone sẽ nhận socialRegistrationToken để hoàn tất OTP,
+        /// không gọi lại authorization code lần hai.
         /// </summary>
-        [HttpPost("zalo/login")]
-        public async Task<IActionResult> LoginWithZalo([FromBody] ZaloLoginRequest request)
+        [HttpPost("zalo")]
+        public async Task<IActionResult> LoginWithZalo([FromBody] ZaloWebLoginRequest request)
         {
-            if (string.IsNullOrEmpty(request.ZaloAccessToken))
-                return BadRequest(APIResponse<object>.Fail("ZaloAccessToken không được để trống.", 400));
+            if (!ModelState.IsValid)
+                return BadRequest(new APIResponse<object>(400, "Dữ liệu không hợp lệ.", null));
 
-            var result = await _zaloAuthService.LoginWithZaloAsync(request);
+            var result = await _zaloAuthService.LoginWithZaloCodeAsync(request);
+
+            if (result.RequiresRoleSelection || result.RequiresPhoneInput)
+            {
+                return Ok(new
+                {
+                    requiresRoleSelection = result.RequiresRoleSelection,
+                    requiresPhoneInput = result.RequiresPhoneInput,
+                    socialRegistrationToken = result.SocialRegistrationToken,
+                    phone = result.Phone,
+                    message = result.RequiresRoleSelection
+                        ? "Vui lòng chọn vai trò và nhập số điện thoại để hoàn tất đăng ký."
+                        : "Vui lòng nhập số điện thoại để tiếp tục."
+                });
+            }
 
             if (!string.IsNullOrEmpty(result.ErrorMessage))
                 return BadRequest(new APIResponse<object>(400, result.ErrorMessage, null));

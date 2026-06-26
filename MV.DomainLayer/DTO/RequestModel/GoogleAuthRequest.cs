@@ -6,7 +6,5 @@ namespace MV.DomainLayer.DTO.RequestModel
     {
         [Required(ErrorMessage = "Google ID Token is required.")]
         public string IdToken { get; set; } = string.Empty;
-
-        public string? Role { get; set; }
     }
 }

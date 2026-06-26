@@ -308,6 +308,9 @@ builder.Services.AddScoped<IUserTestService, UserTestService>();
 builder.Services.AddScoped<IFileStorageService, CloudinaryStorageService>();
 builder.Services.AddSingleton<IEncryptionService, AesEncryptionService>();
 builder.Services.AddScoped<ISimpleAuthService, SimpleAuthService>();
+// ZNS OTP dùng số điện thoại đã được xác thực của tài khoản.
+builder.Services.AddScoped<IOtpSender, ZnsOtpSender>();
+builder.Services.AddScoped<ISocialRegistrationService, SocialRegistrationService>();
 builder.Services.AddScoped<IZaloAuthService, ZaloAuthService>();
 builder.Services.AddScoped<IRefreshTokenService, RefreshTokenService>();
 builder.Services.AddScoped<ITutorAvailabilityService, TutorAvailabilityService>();

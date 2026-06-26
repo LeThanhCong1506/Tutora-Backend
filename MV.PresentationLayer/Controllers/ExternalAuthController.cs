@@ -16,7 +16,7 @@ namespace MV.PresentationLayer.Controllers
         }
 
         //------------------------------------- GOOGLE DIRECT FLOW -------------------------------------
-        // Endpoint duy nhất để Đăng nhập hoặc Tự động Đăng ký bằng Google ID Token
+        // Xác thực Google; user chưa verify phone sẽ tiếp tục bằng socialRegistrationToken.
         [HttpPost("google")]
         public async Task<IActionResult> GoogleAuth([FromBody] GoogleAuthRequest request)
         {
@@ -25,7 +25,22 @@ namespace MV.PresentationLayer.Controllers
                 return BadRequest(new { message = "Google ID Token là bắt buộc." });
             }
 
-            var result = await _loginService.AuthenticateGoogleUserAsync(request.IdToken, request.Role);
+            var result = await _loginService.AuthenticateGoogleUserAsync(request.IdToken);
+
+            if (result.RequiresRoleSelection || result.RequiresPhoneInput)
+            {
+                return Ok(new
+                {
+                    requiresRoleSelection = result.RequiresRoleSelection,
+                    requiresPhoneInput = result.RequiresPhoneInput,
+                    socialRegistrationToken = result.SocialRegistrationToken,
+                    email = result.Email,
+                    phone = result.Phone,
+                    message = result.RequiresRoleSelection
+                        ? "Vui lòng chọn vai trò và nhập số điện thoại để hoàn tất đăng ký."
+                        : "Vui lòng nhập số điện thoại để tiếp tục."
+                });
+            }
 
             if (!string.IsNullOrEmpty(result.ErrorMessage))
             {
