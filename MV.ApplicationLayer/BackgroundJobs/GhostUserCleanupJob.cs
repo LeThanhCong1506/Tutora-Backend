@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using MV.ApplicationLayer.Interfaces;
+using MV.DomainLayer.Constants;
 using MV.DomainLayer.Helpers;
 
 namespace MV.ApplicationLayer.BackgroundJobs;
@@ -10,7 +11,6 @@ namespace MV.ApplicationLayer.BackgroundJobs;
 public class GhostUserCleanupJob(IServiceProvider sp, ILogger<GhostUserCleanupJob> logger) : BackgroundService
 {
     private readonly TimeSpan _interval = TimeSpan.FromHours(12);
-    private const string InternalStudentEmailDomain = "@noemail.agora.local";
 
     protected override async Task ExecuteAsync(CancellationToken ct)
     {
@@ -37,21 +37,22 @@ public class GhostUserCleanupJob(IServiceProvider sp, ILogger<GhostUserCleanupJo
         using var scope = sp.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<IAppDbContext>();
         
-        // Quét những User chưa verify email và đã tạo quá 12h
+        // Quét những đăng ký bằng phone CHƯA verify OTP và đã tạo quá 12h.
+        // Phone là kênh xác thực chính. Chỉ loại trừ các tài khoản không thuộc
+        // luồng đăng ký phone còn dang dở:
+        //   - Zalo không phải Student: zalouserid != null → giữ
+        //   - Tài khoản con do phụ huynh tạo: không có phone → giữ
         var thresholdTime = TimeZoneHelper.UtcNow.AddHours(-12);
 
         var ghostUsers = await db.Users
             .Include(u => u.Wallet)
             .Include(u => u.Tutorprofile)
             .Include(u => u.StudentprofileLinkedusers)
-            .Where(u => u.Isemailverified == false
+            .Where(u => u.Isphoneverified == false
+                     && u.Phone != null
+                     && (u.Primaryrole == UserRole.Student || u.Zalouserid == null)
                      && u.Createdat != null
                      && u.Createdat < thresholdTime
-                     // Parent-created child accounts use an internal placeholder email and should not be
-                     // treated as abandoned registrations awaiting email verification.
-                     && !u.StudentprofileLinkedusers.Any(s =>
-                         s.Parentid != null &&
-                         u.Email.EndsWith(InternalStudentEmailDomain))
                      && !u.StudentprofileLinkedusers.Any(s => s.Bookings.Any()) // Không xóa nếu học viên đã có Booking
                      && (u.Tutorprofile == null || !u.Tutorprofile.Bookings.Any())) // Không xóa nếu gia sư đã có Booking
             .ToListAsync(ct);

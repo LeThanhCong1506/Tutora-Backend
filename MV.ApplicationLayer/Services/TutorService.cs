@@ -17,6 +17,7 @@ namespace MV.ApplicationLayer.Services
         private readonly IFptAiService _fptAiService;
         private readonly INotificationService _notificationService;
         private readonly ILogger<TutorService> _logger;
+        private readonly IEncryptionService _encryption;
 
         // Storage buckets
         private const string CertificateBucket = StorageBucket.CertificateFiles;
@@ -33,13 +34,15 @@ namespace MV.ApplicationLayer.Services
             IFileStorageService storageService,
             IFptAiService fptAiService,
             INotificationService notificationService,
-            ILogger<TutorService> logger)
+            ILogger<TutorService> logger,
+            IEncryptionService encryption)
         {
             _unitOfWork = unitOfWork;
             _storageService = storageService;
             _fptAiService = fptAiService;
             _notificationService = notificationService;
             _logger = logger;
+            _encryption = encryption;
         }
 
         // ─── Profile Queries ─────────────────────────────────────────────────
@@ -59,7 +62,8 @@ namespace MV.ApplicationLayer.Services
                 GpaScale = tutorEntity.Gpascale,
                 VideoIntroUrl = tutorEntity.Videointrourl,
                 TeachingAreaCity = tutorEntity.Teachingareacity,
-                TeachingAreaDistrict = tutorEntity.Teachingareadistrict
+                TeachingAreaDistrict = tutorEntity.Teachingareadistrict,
+                IsAcceptingBookings = tutorEntity.Isacceptingbookings
             };
         }
 
@@ -370,6 +374,16 @@ namespace MV.ApplicationLayer.Services
         /// Nếu đủ 6/6 mục VÀ status đang Draft hoặc Rejected → tự động chuyển sang PendingApproval.
         /// Được gọi sau mỗi lần Tutor cập nhật một trong 6 mục. Silent — không throw exception.
         /// </summary>
+        public async Task<bool> SetAcceptingBookingsAsync(string userId, bool accepting)
+        {
+            var profile = await _unitOfWork.TutorRepository.GetTutorProfileByIdAsync(userId);
+            if (profile == null) return false;
+            profile.Isacceptingbookings = accepting;
+            profile.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
+            await _unitOfWork.SaveChangesAsync();
+            return true;
+        }
+
         private async Task AutoSubmitIfCompleteAsync(string tutorId)
         {
             try

@@ -19,6 +19,7 @@ namespace MV.ApplicationLayer.Services
         private readonly ITutorVerificationService _verificationService;
         private readonly IFileStorageService _storage;
         private readonly INotificationService _notificationService;
+        private readonly IEncryptionService _encryption;
         private const string UserAvatarBucket = StorageBucket.Avatars;
 
         public UserService(
@@ -26,13 +27,15 @@ namespace MV.ApplicationLayer.Services
             IPasswordRepository passwordRepository,
             ITutorVerificationService verificationService,
             IFileStorageService storage,
-            INotificationService notificationService)
+            INotificationService notificationService,
+            IEncryptionService encryption)
         {
             _unitOfWork = unitOfWork;
             _passwordRepository = passwordRepository;
             _verificationService = verificationService;
             _storage = storage;
             _notificationService = notificationService;
+            _encryption = encryption;
         }
 
         // ─── Queries ──────────────────────────────────────────────────────────
@@ -50,8 +53,6 @@ namespace MV.ApplicationLayer.Services
                 Fullname = user.Fullname,
                 Phone = user.Phone,
                 Isidentityverified = user.Isidentityverified,
-                Idcardfronturl = user.Idcardfronturl,
-                Idcardbackurl = user.Idcardbackurl,
                 Birthdate = user.Birthdate,
                 Address = user.Address,
                 Gender = user.Gender,
@@ -59,8 +60,7 @@ namespace MV.ApplicationLayer.Services
                 Status = user.Status,
                 Createdat = user.Createdat,
                 LastLoginAt = user.Lastloginat,
-                Role = user.Primaryrole,
-                Ekycrawdata = user.Ekycrawdata
+                Role = user.Primaryrole
             };
         }
 
@@ -144,7 +144,7 @@ namespace MV.ApplicationLayer.Services
                 throw new EmailAlreadyExistsException();
             if (!await _unitOfWork.UserRepository.IsUsernameUniqueAsync(request.Username))
                 throw new UsernameAlreadyExistsException();
-            if (!await _unitOfWork.UserRepository.IsIdentityNumberUniqueAsync(request.IdentityNumber))
+            if (!await _unitOfWork.UserRepository.IsIdentityNumberUniqueAsync(_encryption.Encrypt(request.IdentityNumber)))
                 throw new IdentityNumberAlreadyExistsException();
             if (!string.IsNullOrEmpty(request.Phone) && !await _unitOfWork.UserRepository.IsPhoneUniqueAsync(request.Phone))
                 throw new PhoneAlreadyExistsException();
@@ -159,7 +159,7 @@ namespace MV.ApplicationLayer.Services
                 Email = request.Email,
                 Password = _passwordRepository.HashPassword(request.Password),
                 Fullname = request.Fullname,
-                Identitynumber = request.IdentityNumber,
+                Identitynumber = _encryption.Encrypt(request.IdentityNumber),
                 Phone = request.Phone,
                 Birthdate = request.Birthdate,
                 Address = request.Address,
@@ -320,10 +320,7 @@ namespace MV.ApplicationLayer.Services
             Createdat = user.Createdat,
             LastLoginAt = user.Lastloginat,
             Role = user.Primaryrole,
-            Ekycrawdata = user.Ekycrawdata,
-            Isidentityverified = user.Isidentityverified,
-            Idcardfronturl = user.Idcardfronturl,
-            Idcardbackurl = user.Idcardbackurl
+            Isidentityverified = user.Isidentityverified
         };
     }
 }

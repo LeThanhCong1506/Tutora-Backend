@@ -84,6 +84,19 @@ namespace MV.ApplicationLayer.Services
                     return new TokenResponse { ErrorMessage = "Tài khoản không tồn tại hoặc đã bị khóa." };
                 }
 
+                if (string.IsNullOrWhiteSpace(user.Phone) || user.Isphoneverified != true)
+                {
+                    await _unitOfWork.RefreshTokenRepository.RevokeAllByUserIdAsync(userId);
+                    await _unitOfWork.SaveChangesAsync();
+                    return new TokenResponse
+                    {
+                        ErrorMessage = "Tài khoản phải có số điện thoại đã xác thực. Vui lòng đăng nhập lại và hoàn tất xác thực OTP.",
+                        RequiresPhoneInput = string.IsNullOrWhiteSpace(user.Phone),
+                        RequiresPhoneVerification = !string.IsNullOrWhiteSpace(user.Phone),
+                        Phone = user.Phone
+                    };
+                }
+
                 // 7. Lấy role
                 var role = await _unitOfWork.UserRepository.GetUserRoleByIdAsync(userId);
                 if (string.IsNullOrEmpty(role))

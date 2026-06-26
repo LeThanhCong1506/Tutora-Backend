@@ -17,4 +17,7 @@ public class PaymentStatusResponse
     public decimal RemainingAmount { get; set; }
     public bool IsDepositPaid { get; set; }
     public bool IsRemainingPaid { get; set; }
+    public bool IsExpired { get; set; }
+    public bool RefundedToWallet { get; set; }
+    public decimal RefundAmount { get; set; }
 }

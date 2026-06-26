@@ -10,8 +10,6 @@ namespace MV.DomainLayer.DTO.ResponseModel
         public string Fullname { get; set; } = null!;
         public string? Phone { get; set; }
         public bool? Isidentityverified { get; set; }
-        public string? Idcardfronturl { get; set; }
-        public string? Idcardbackurl { get; set; }
         public DateOnly? Birthdate { get; set; }
         public string? Address { get; set; }
         public Gender? Gender { get; set; }
@@ -20,7 +18,5 @@ namespace MV.DomainLayer.DTO.ResponseModel
         public DateTime? Createdat { get; set; }
         public DateTime? LastLoginAt { get; set; }
         public string? Role { get; set; }
-        public string? Ekycrawdata { get; set; }
-
     }
 }
