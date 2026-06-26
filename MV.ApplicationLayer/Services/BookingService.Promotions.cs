@@ -70,23 +70,38 @@ public partial class BookingService
             return null;
         }
 
+        if (!string.IsNullOrEmpty(booking.Paymentcode))
+        {
+            throw new BookingException(
+                BookingErrorCodes.InvalidBookingStatus,
+                "Không thể áp dụng khuyến mãi sau khi đã tạo link thanh toán. Vui lòng áp dụng mã trước khi mở thông tin thanh toán.",
+                409);
+        }
+
         var price = booking.Totalamount ?? 0;
+        var previousPromotionId = booking.Promotionid;
         var promoResult = await ResolvePromotionAsync(promotionCode, price);
         if (promoResult.PromotionId == null)
             return null;
 
         booking.Promotionid = promoResult.PromotionId;
         booking.Discountapplied = promoResult.DiscountAmount;
-        var baseAmount = price - promoResult.DiscountAmount;
+        var baseAmount = Math.Max(price - promoResult.DiscountAmount, 0);
         var fees = BookingFeeCalculator.Calculate(baseAmount);
+        var totalSessions = ResolvePaymentPhaseSessionCount(booking);
+        var (depositAmount, remainingAmount) = BookingFeeCalculator.CalculatePaymentPhases(
+            fees.FinalPrice, totalSessions);
+
         booking.Finalprice = fees.FinalPrice;
         booking.Platformfee = fees.PlatformFee;
         booking.Parentfee = fees.ParentFee;
         booking.Tutorfee = fees.TutorReceivable;
+        booking.Depositamount = depositAmount;
+        booking.Remainingamount = remainingAmount;
         booking.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
+        ClearCachedPayosLink(booking);
 
-        var promo = await context.Promotions.FirstAsync(p => p.Promotionid == promoResult.PromotionId);
-        promo.Usagecount = (promo.Usagecount ?? 0) + 1;
+        await UpdatePromotionUsageCountAsync(previousPromotionId, promoResult.PromotionId.Value);
 
         await context.SaveChangesAsync();
         return MapToResponse(booking, booking.Student, booking.Tutor, booking.Tutorsubjectgradeprice?.Subject);
@@ -299,5 +314,41 @@ public partial class BookingService
         if (promo.Maxdiscountamount.HasValue && discount > promo.Maxdiscountamount.Value)
             discount = promo.Maxdiscountamount.Value;
         return (promo.Promotionid, Math.Round(discount, 2));
+    }
+
+    private static int ResolvePaymentPhaseSessionCount(Booking booking)
+    {
+        if (booking.Totalsessions.GetValueOrDefault() > 0)
+            return booking.Totalsessions!.Value;
+
+        return booking.Lessons.Count > 0 ? booking.Lessons.Count : 1;
+    }
+
+    private static void ClearCachedPayosLink(Booking booking)
+    {
+        booking.Paymentcode = null;
+        booking.Payosbin = null;
+        booking.Payosaccountnumber = null;
+        booking.Payosaccountname = null;
+        booking.Payosdescription = null;
+        booking.Payoscheckouturl = null;
+        booking.Payosqrcode = null;
+    }
+
+    private async Task UpdatePromotionUsageCountAsync(int? previousPromotionId, int newPromotionId)
+    {
+        if (previousPromotionId == newPromotionId)
+            return;
+
+        if (previousPromotionId.HasValue)
+        {
+            var previousPromo = await context.Promotions
+                .FirstOrDefaultAsync(p => p.Promotionid == previousPromotionId.Value);
+            if (previousPromo != null)
+                previousPromo.Usagecount = Math.Max((previousPromo.Usagecount ?? 0) - 1, 0);
+        }
+
+        var newPromo = await context.Promotions.FirstAsync(p => p.Promotionid == newPromotionId);
+        newPromo.Usagecount = (newPromo.Usagecount ?? 0) + 1;
     }
 }
