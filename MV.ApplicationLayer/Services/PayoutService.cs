@@ -98,7 +98,7 @@ public class PayoutService(
                 ToBin = bank.Bin,
                 ToAccountNumber = tutorProfile.Bankaccountnumber,
                 Description = $"Withdrawal {withdrawalId}",
-                Reference = $"WD-{withdrawalId}-{Guid.NewGuid():N}"
+                Reference = $"WD-{withdrawalId}"
             };
 
             logger.LogInformation("Creating payout for withdrawal {WithdrawalId}, Amount={Amount}",
@@ -129,6 +129,29 @@ public class PayoutService(
                 {
                     IsSuccess = true,
                     PayosTransactionId = response.TransactionId
+                };
+            }
+
+            // DuplicateOrder with our own stable reference (WD-{id}) means the transfer was already
+            // accepted by PayOS in a previous attempt but we crashed before saving txid.
+            // Keep Status=Pending — do NOT reject or refund — and alert admin to reconcile manually.
+            if (response.ErrorCode == PayoutConstants.ErrorCodes.DuplicateOrder)
+            {
+                logger.LogWarning(
+                    "DuplicateOrder for withdrawal {WithdrawalId} with stable reference WD-{WithdrawalId} — " +
+                    "transfer likely in-flight from prior attempt. Keeping Pending, alerting admin.",
+                    withdrawalId, withdrawalId);
+                withdrawal.Payosresponsecode = response.ErrorCode;
+                withdrawal.Payosstatus = PayoutConstants.PayOSStatus.Processing;
+                withdrawal.Payoserror = "Transfer may already be in flight; admin must look up PayOS dashboard and record the txid.";
+                await context.SaveChangesAsync(ct);
+                await CreateStuckPayoutAlertAsync(withdrawalId, withdrawal.Amount ?? 0, ct);
+                return new PayoutResult
+                {
+                    IsSuccess = false,
+                    ErrorCode = PayoutConstants.ErrorCodes.DuplicateOrder,
+                    ErrorMessage = "Transfer may already be in flight",
+                    ShouldRetry = false
                 };
             }
 
@@ -261,6 +284,10 @@ public class PayoutService(
                                 Title = "Rút tiền thất bại",
                                 Message = $"{GetUserFriendlyErrorMessage(result.ErrorCode ?? PayoutConstants.ErrorCodes.Unknown)} Đã thử {_settings.MaxRetries} lần."
                             });
+
+                            // Auto-refund wallet — balance was deducted at withdrawal creation
+                            await RefundWithdrawalToWalletAsync(withdrawal.Withdrawalid,
+                                $"Hết số lần retry ({_settings.MaxRetries}): {result.ErrorMessage}", ct);
                         }
                         else
                         {
@@ -293,7 +320,9 @@ public class PayoutService(
         withdrawal.Payoserror = errorMessage;
         withdrawal.Payosstatus = PayoutConstants.PayOSStatus.Failed;
 
-        if (!ShouldRetryError(errorCode))
+        var isTerminal = !ShouldRetryError(errorCode);
+
+        if (isTerminal)
         {
             withdrawal.Status = WithdrawalStatus.Rejected;
             withdrawal.Processedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
@@ -309,6 +338,22 @@ public class PayoutService(
         }
 
         await context.SaveChangesAsync(ct);
+
+        // Auto-refund on terminal failure. Wrapped so a refund failure can't bubble into
+        // CreatePayoutAsync's generic catch (which would re-run this handler with a misleading code).
+        if (isTerminal)
+        {
+            try
+            {
+                await RefundWithdrawalToWalletAsync(withdrawal.Withdrawalid, errorMessage, ct);
+            }
+            catch (Exception ex)
+            {
+                logger.LogCritical(ex,
+                    "Failed to auto-refund wallet for terminally-rejected withdrawal {WithdrawalId}; manual refund required",
+                    withdrawal.Withdrawalid);
+            }
+        }
     }
 
     private async Task CreateInsufficientBalanceAlertAsync(int withdrawalId, decimal amount, CancellationToken ct)
@@ -426,4 +471,133 @@ public class PayoutService(
         PayoutConstants.ErrorCodes.MaxRetriesExceeded => PayoutConstants.ErrorMessages.MaxRetriesExceeded,
         _ => PayoutConstants.ErrorMessages.Unknown
     };
+
+    public async Task<bool> RefundWithdrawalToWalletAsync(int withdrawalId, string reason, CancellationToken ct = default)
+    {
+        await using var tx = await context.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, ct);
+        try
+        {
+            var withdrawal = await context.Withdrawalrequests
+                .AsNoTracking()
+                .FirstOrDefaultAsync(w => w.Withdrawalid == withdrawalId, ct);
+
+            if (withdrawal is null)
+            {
+                logger.LogWarning("RefundWithdrawalToWallet: withdrawal {WithdrawalId} not found", withdrawalId);
+                await tx.RollbackAsync(ct);
+                return false;
+            }
+
+            // Guard: transfer already succeeded — never refund if money was sent
+            if (withdrawal.Payosstatus == PayoutConstants.PayOSStatus.Success
+                || withdrawal.Status == WithdrawalStatus.Approved
+                || withdrawal.Status == WithdrawalStatus.Completed)
+            {
+                logger.LogWarning(
+                    "RefundWithdrawalToWallet: withdrawal {WithdrawalId} already succeeded " +
+                    "(status={Status}, payosstatus={PayosStatus}), skipping refund",
+                    withdrawalId, withdrawal.Status, withdrawal.Payosstatus);
+                await tx.RollbackAsync(ct);
+                return false;
+            }
+
+            // Guard: idempotent — skip if a refund transaction already exists
+            var alreadyRefunded = await context.Wallettransactions
+                .AnyAsync(wt => wt.Referencetable == ReferenceTable.Withdrawal
+                    && wt.Referenceid == withdrawalId
+                    && wt.Transactiontype == TransactionType.Refund, ct);
+
+            if (alreadyRefunded)
+            {
+                logger.LogWarning("RefundWithdrawalToWallet: withdrawal {WithdrawalId} already refunded, skipping", withdrawalId);
+                await tx.RollbackAsync(ct);
+                return false;
+            }
+
+            var wallet = await context.Wallets
+                .FromSqlRaw(SqlQueries.LockWalletByUserId, withdrawal.Userid)
+                .FirstOrDefaultAsync(ct);
+
+            if (wallet is null)
+            {
+                logger.LogError("RefundWithdrawalToWallet: wallet not found for user {UserId}, withdrawal {WithdrawalId}",
+                    withdrawal.Userid, withdrawalId);
+                await tx.RollbackAsync(ct);
+                return false;
+            }
+
+            var amount = withdrawal.Amount ?? 0;
+            wallet.Balance = (wallet.Balance ?? 0) + amount;
+            wallet.Lastupdated = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
+
+            context.Wallettransactions.Add(new Wallettransaction
+            {
+                Walletid = wallet.Walletid,
+                Amount = amount,
+                Transactiontype = TransactionType.Refund,
+                Referencetable = ReferenceTable.Withdrawal,
+                Referenceid = withdrawalId,
+                Description = $"Auto-refund for failed withdrawal #{withdrawalId}: {reason}",
+                Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
+            });
+
+            await context.SaveChangesAsync(ct);
+            await tx.CommitAsync(ct);
+
+            logger.LogInformation("Refunded {Amount} VND to wallet for withdrawal {WithdrawalId}: {Reason}",
+                amount, withdrawalId, reason);
+
+            // Best-effort: refund is already committed; a notification failure must NOT throw
+            // (it would trigger a rollback of the committed tx and falsely signal refund failure).
+            try
+            {
+                await notificationService.CreateNotificationAsync(new MV.DomainLayer.DTO.RequestModel.NotificationRequest
+                {
+                    Userid = withdrawal.Userid!,
+                    Title = "Rút tiền thất bại — Đã hoàn tiền về ví",
+                    Message = $"Yêu cầu rút tiền {amount:N0} VND không thể xử lý. Số tiền đã được hoàn về ví của bạn."
+                });
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Refund succeeded but failed to notify user for withdrawal {WithdrawalId}", withdrawalId);
+            }
+
+            return true;
+        }
+        catch
+        {
+            await tx.RollbackAsync(ct);
+            throw;
+        }
+    }
+
+    private async Task CreateStuckPayoutAlertAsync(int withdrawalId, decimal amount, CancellationToken ct)
+    {
+        var existingAlert = await context.Systemalerts
+            .AnyAsync(a => a.Type == PayoutConstants.AlertTypes.StuckPayout
+                && a.Metadata!.Contains(withdrawalId.ToString())
+                && !a.Resolved, ct);
+
+        if (existingAlert)
+        {
+            logger.LogDebug("Skipping duplicate StuckPayout alert for withdrawal {WithdrawalId}", withdrawalId);
+            return;
+        }
+
+        var alert = new Systemalert
+        {
+            Type = PayoutConstants.AlertTypes.StuckPayout,
+            Severity = PayoutConstants.AlertSeverity.Critical,
+            Message = $"Rút tiền #{withdrawalId} có thể đã được gửi đến PayOS nhưng txid chưa được lưu (DuplicateOrder). Admin cần tra PayOS dashboard và cập nhật txid thủ công.",
+            Metadata = JsonSerializer.Serialize(new { withdrawalId, amount }),
+            Resolved = false,
+            Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
+        };
+
+        context.Systemalerts.Add(alert);
+        await context.SaveChangesAsync(ct);
+
+        logger.LogError("StuckPayout alert created for withdrawal {WithdrawalId}", withdrawalId);
+    }
 }

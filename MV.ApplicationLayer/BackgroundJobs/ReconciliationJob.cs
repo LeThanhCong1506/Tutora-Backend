@@ -114,6 +114,7 @@ public class ReconciliationJob : BackgroundService
 
         // Update local status based on PayOS status
         var statusChanged = false;
+        var needsRefund = false;
 
         if (statusResult.Status == PayoutConstants.PayOSStatus.Success && withdrawal.Status != WithdrawalStatus.Approved)
         {
@@ -128,6 +129,7 @@ public class ReconciliationJob : BackgroundService
             withdrawal.Payosstatus = PayoutConstants.PayOSStatus.Failed;
             withdrawal.Payoserror = statusResult.ErrorMessage;
             statusChanged = true;
+            needsRefund = true;
         }
 
         if (statusChanged)
@@ -135,6 +137,12 @@ public class ReconciliationJob : BackgroundService
             await context.SaveChangesAsync(ct);
             _logger.LogInformation("Thông tin rút tiền được cập nhật {WithdrawalId} trạng thái thành {Status}.",
                 withdrawal.Withdrawalid, withdrawal.Status);
+
+            if (needsRefund)
+                await payoutService.RefundWithdrawalToWalletAsync(
+                    withdrawal.Withdrawalid,
+                    $"PayOS báo Failed trong đối soát: {statusResult.ErrorMessage}",
+                    ct);
         }
 
         // Check if stuck for > 4 hours, create system alert

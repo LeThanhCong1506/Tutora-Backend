@@ -21,4 +21,11 @@ public interface IPayoutService
     /// Get PayOS balance
     /// </summary>
     Task<MV.DomainLayer.DTO.ResponseModel.Admin.PayOSBalanceResponse?> GetPayOSBalanceAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// Refund a failed/rejected withdrawal back to the tutor's wallet.
+    /// Idempotent: safe to call multiple times for the same withdrawal.
+    /// Returns false (without throwing) if the withdrawal was already paid out or already refunded.
+    /// </summary>
+    Task<bool> RefundWithdrawalToWalletAsync(int withdrawalId, string reason, CancellationToken ct = default);
 }

@@ -266,6 +266,7 @@ public class TutorFinanceService(
         }
 
         await using var transaction = await context.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, ct);
+        var committed = false;
 
         try
         {
@@ -281,7 +282,9 @@ public class TutorFinanceService(
 
             var pendingWithdrawal = await context.Withdrawalrequests
                 .AnyAsync(w => w.Userid == tutorId
-                               && (w.Status == WithdrawalStatus.Pending || w.Status == WithdrawalStatus.Delayed), ct);
+                               && (w.Status == WithdrawalStatus.Pending
+                                   || w.Status == WithdrawalStatus.Delayed
+                                   || w.Status == WithdrawalStatus.PendingReview), ct);
 
             if (pendingWithdrawal)
                 throw new PendingWithdrawalException();
@@ -303,7 +306,7 @@ public class TutorFinanceService(
             {
                 TrustScoringConstants.Decisions.AutoApprove => WithdrawalStatus.Pending,
                 TrustScoringConstants.Decisions.Delayed => WithdrawalStatus.Delayed,
-                TrustScoringConstants.Decisions.ManualReview => WithdrawalStatus.Pending,
+                TrustScoringConstants.Decisions.ManualReview => WithdrawalStatus.PendingReview,
                 _ => WithdrawalStatus.Pending
             };
 
@@ -336,6 +339,11 @@ public class TutorFinanceService(
 
             await trustScoringService.SaveScoreAsync(withdrawal.Withdrawalid, tutorId, trustScore, approvalDecision, ct);
 
+            await transaction.CommitAsync(ct);
+            committed = true;
+
+            // Enqueue AFTER commit so Hangfire workers always see the committed row.
+            // Do this first among post-commit steps so a later failure can't skip the payout job.
             if (approvalDecision.Decision == TrustScoringConstants.Decisions.AutoApprove)
             {
                 BackgroundJob.Enqueue<PayoutJobHandler>(handler =>
@@ -352,9 +360,16 @@ public class TutorFinanceService(
                 logger.LogInformation("Scheduled delayed payout job for withdrawal {WithdrawalId} (2h delay)", withdrawal.Withdrawalid);
             }
 
-            await transaction.CommitAsync(ct);
-
-            await fraudDetectionService.LogFraudCheckAsync(tutorId, withdrawal.Withdrawalid, fraudCheck, ct);
+            // Best-effort: withdrawal is already committed, so a fraud-log failure must not
+            // bubble up and trigger a rollback of an already-committed transaction.
+            try
+            {
+                await fraudDetectionService.LogFraudCheckAsync(tutorId, withdrawal.Withdrawalid, fraudCheck, ct);
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Failed to log fraud check for withdrawal {WithdrawalId}", withdrawal.Withdrawalid);
+            }
 
             var notificationMessage = approvalDecision.Decision switch
             {
@@ -395,7 +410,9 @@ public class TutorFinanceService(
         }
         catch
         {
-            await transaction.RollbackAsync(ct);
+            // Only roll back if we have NOT committed yet; rolling back a committed tx throws.
+            if (!committed)
+                await transaction.RollbackAsync(ct);
             throw;
         }
     }
