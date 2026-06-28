@@ -1,5 +1,7 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using MV.ApplicationLayer.Helpers;
+using MV.ApplicationLayer.Interfaces;
 using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO.RequestModel;
@@ -7,7 +9,6 @@ using MV.DomainLayer.DTO.ResponseModel;
 using MV.DomainLayer.Entities;
 using MV.DomainLayer.Exceptions;
 using MV.DomainLayer.Helpers;
-using MV.ApplicationLayer.Interfaces;
 using static MV.DomainLayer.Constants.LessonStatus;
 namespace MV.ApplicationLayer.Services;
 
@@ -241,63 +242,57 @@ public class SettlementService : ISettlementService
         if (lesson.Issettled == true)
             throw new LessonException(LessonErrorCodes.LessonAlreadyConfirmed, "Buổi học này đã được xác nhận rồi", 400);
 
-        await using var tx = await _context.Database.BeginTransactionAsync();
+        await using var tx = await _context.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable);
         try
         {
-            var lessonPrice = lesson.Lessonprice ?? 0;
-            var refundAmount = lessonPrice * refundPercentage / 100;
-            var tutorAmount = lessonPrice - refundAmount;
+            var booking = lesson.Booking
+                ?? throw new LessonException(LessonErrorCodes.LessonNotFound, "Buổi học không có thông tin booking để tính hoàn tiền", 400);
+            var parentRefundPerSession = LessonRefundCalculator.ParentRefundPerSession(booking);
+            var tutorEscrowPerSession = LessonRefundCalculator.TutorEscrowPerSession(booking);
+            var refundAmount = Math.Round(parentRefundPerSession * refundPercentage / 100m, 2);
+            var tutorAmount = Math.Round(tutorEscrowPerSession * (100 - refundPercentage) / 100m, 2);
             var parentId = lesson.Booking?.Parentid;
             var tutorId = lesson.Tutorid;
 
-            // Get wallets
+            // Get wallets (with row lock for concurrency safety)
             var tutorWallet = await _context.Wallets
                 .FromSqlRaw(SqlQueries.LockWalletByUserId, tutorId)
-                            .FirstOrDefaultAsync();
+                .FirstOrDefaultAsync();
 
             var parentWallet = parentId != null
                 ? await _context.Wallets
-                .FromSqlRaw(SqlQueries.LockWalletByUserId, parentId)
+                    .FromSqlRaw(SqlQueries.LockWalletByUserId, parentId)
                     .FirstOrDefaultAsync()
                 : null;
 
-            // Deduct from frozen balance
+            // Release exactly one session's worth of escrow from tutor frozen balance
             if (tutorWallet != null)
             {
-                if ((tutorWallet.Frozenbalance ?? 0) < lessonPrice)
-                    _logger.LogWarning("Tutor {TutorId} frozen balance {Frozen} is less than lesson price {Price} for refund lesson {LessonId}",
-                        tutorId, tutorWallet.Frozenbalance, lessonPrice, lesson.Lessonid);
-                tutorWallet.Frozenbalance = (tutorWallet.Frozenbalance ?? 0) - lessonPrice;
+                if ((tutorWallet.Frozenbalance ?? 0) < tutorEscrowPerSession)
+                    _logger.LogWarning(
+                        "Tutor {TutorId} frozen balance {Frozen} less than escrow per session {Escrow} for lesson {LessonId}",
+                        tutorId, tutorWallet.Frozenbalance, tutorEscrowPerSession, lesson.Lessonid);
+                tutorWallet.Frozenbalance = Math.Max(0, (tutorWallet.Frozenbalance ?? 0) - tutorEscrowPerSession);
                 if (tutorAmount > 0)
-                {
                     tutorWallet.Balance += tutorAmount;
-                }
                 tutorWallet.Lastupdated = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
             }
 
-            // Add refund to parent's balance
+            // Credit parent wallet with what they actually paid (Finalprice-based, not Lessonprice)
             if (parentWallet != null && refundAmount > 0)
             {
                 parentWallet.Balance += refundAmount;
                 parentWallet.Lastupdated = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 
-                // Create refund transaction
-                var refundTx = new Wallettransaction
+                _context.Wallettransactions.Add(new Wallettransaction
                 {
                     Walletid = parentWallet.Walletid,
                     Amount = refundAmount,
                     Transactiontype = TransactionType.Refund,
+                    Referencetable = ReferenceTable.Booking,
+                    Referenceid = lesson.Bookingid,
                     Description = $"Hoàn tiền buổi học #{lesson.Lessonid} ({refundPercentage}%)",
                     Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
-                };
-                _context.Wallettransactions.Add(refundTx);
-
-                // Notify Parent
-                await _notificationService.CreateNotificationAsync(new NotificationRequest
-                {
-                    Userid = parentId!,
-                    Title = "Hoàn tiền buổi học",
-                    Message = $"Bạn đã nhận được hoàn tiền {refundAmount:N0}đ ({refundPercentage}%) cho buổi học #{lesson.Lessonid}. Số dư ví: {parentWallet.Balance:N0}đ"
                 });
             }
 
@@ -317,6 +312,21 @@ public class SettlementService : ISettlementService
             await _context.SaveChangesAsync();
             await tx.CommitAsync();
 
+            // Notify parent after commit (best-effort — must not roll back committed tx)
+            try
+            {
+                if (parentId != null && refundAmount > 0)
+                {
+                    await _notificationService.CreateNotificationAsync(new NotificationRequest
+                    {
+                        Userid = parentId,
+                        Title = "Hoàn tiền buổi học",
+                        Message = $"Bạn đã nhận được hoàn tiền {refundAmount:N0}đ ({refundPercentage}%) cho buổi học #{lesson.Lessonid}. Số dư ví: {parentWallet?.Balance:N0}đ"
+                    });
+                }
+            }
+            catch (Exception ex) { _logger.LogWarning(ex, "Failed to send refund notification for lesson {LessonId}", lesson.Lessonid); }
+
             var settlementType = refundPercentage switch
             {
                 100 => SettlementType.FullRefund,
@@ -324,8 +334,8 @@ public class SettlementService : ISettlementService
                 _ => $"refund_{refundPercentage}"
             };
 
-            _logger.LogInformation("Processed refund for lesson {LessonId}: {RefundPercent}% ({RefundAmount})",
-                lesson.Lessonid, refundPercentage, refundAmount);
+            _logger.LogInformation("Processed refund for lesson {LessonId}: {RefundPercent}% (parent refund {RefundAmount}, tutor earns {TutorAmount})",
+                lesson.Lessonid, refundPercentage, refundAmount, tutorAmount);
 
             return new SettlementResultResponse
             {

@@ -1,5 +1,6 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using MV.ApplicationLayer.Helpers;
 using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO.RequestModel;
 using MV.DomainLayer.DTO.ResponseModel;
@@ -68,6 +69,7 @@ public partial class LessonService
 
     public async Task<NoShowActionResultResponse> ProcessNoShowActionAsync(int lessonId, string parentId, NoShowActionRequest request)
     {
+        // Pre-tx: ownership + fast-fail status check (stale read OK here)
         var studentIds = await _context.Studentprofiles
             .Where(s => s.Parentid == parentId)
             .Select(s => s.Studentid)
@@ -83,9 +85,36 @@ public partial class LessonService
 
         var result = new NoShowActionResultResponse { LessonId = lessonId, ActionType = request.ActionType, Success = true };
 
-        await using var tx = await _context.Database.BeginTransactionAsync();
+        await using var tx = await _context.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable);
         try
         {
+            // Lock wallets FIRST to serialize concurrent calls (FOR UPDATE row lock)
+            var tutorWallet = await _context.Wallets
+                .FromSqlRaw(SqlQueries.LockWalletByUserId, lesson.Tutorid)
+                .FirstOrDefaultAsync();
+            var parentWallet = await _context.Wallets
+                .FromSqlRaw(SqlQueries.LockWalletByUserId, parentId)
+                .FirstOrDefaultAsync();
+
+            // Fresh DB read inside tx — AsNoTracking bypasses EF identity map, picks up concurrent commits
+            var freshState = await _context.Lessons
+                .AsNoTracking()
+                .Where(l => l.Lessonid == lessonId)
+                .Select(l => new { l.Issettled, l.Status })
+                .FirstOrDefaultAsync();
+
+            if (freshState?.Issettled == true)
+                throw new LessonException(LessonErrorCodes.LessonAlreadyConfirmed, "Buổi học này đã được xử lý rồi", 400);
+            if (freshState?.Status != NoShow)
+                throw new LessonException(LessonErrorCodes.InvalidLessonStatus, "Buổi học không còn ở trạng thái no-show", 400);
+
+            var booking = lesson.Booking
+                ?? throw new InvalidOperationException($"Booking for lesson {lessonId} not found");
+
+            var parentRefundPerSession = LessonRefundCalculator.ParentRefundPerSession(booking);
+            var tutorEscrowPerSession = LessonRefundCalculator.TutorEscrowPerSession(booking);
+            var now = TimeZoneHelper.UtcNow;
+
             lesson.Noshowaction = request.ActionType;
 
             switch (request.ActionType)
@@ -94,37 +123,39 @@ public partial class LessonService
                     lesson.Status = Cancelled;
                     lesson.Issettled = true;
 
-                    // Hoàn tiền 100% vào wallet parent, trừ từ tutor frozen balance
-                    var refundAmount = lesson.Lessonprice ?? 0;
-                    if (refundAmount > 0)
+                    if (tutorWallet != null && tutorEscrowPerSession > 0)
                     {
-                        // Trừ frozen balance từ tutor wallet (tiền escrow nằm ở tutor)
-                        var tutorWalletFree = await _context.Wallets.FirstOrDefaultAsync(w => w.Userid == lesson.Tutorid);
-                        if (tutorWalletFree != null)
+                        tutorWallet.Frozenbalance = Math.Max(0, (tutorWallet.Frozenbalance ?? 0) - tutorEscrowPerSession);
+                        tutorWallet.Lastupdated = now;
+                        _context.Wallettransactions.Add(new Wallettransaction
                         {
-                            tutorWalletFree.Frozenbalance = (tutorWalletFree.Frozenbalance ?? 0) - refundAmount;
-                            tutorWalletFree.Lastupdated = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
-                        }
-
-                        // Cộng tiền hoàn vào parent wallet
-                        var parentWallet = await _context.Wallets.FirstOrDefaultAsync(w => w.Userid == parentId);
-                        if (parentWallet != null)
-                        {
-                            parentWallet.Balance += refundAmount;
-                            parentWallet.Lastupdated = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
-
-                            _context.Wallettransactions.Add(new Wallettransaction
-                            {
-                                Walletid = parentWallet.Walletid,
-                                Amount = refundAmount,
-                                Transactiontype = TransactionType.Refund,
-                                Description = $"Hoàn tiền no-show lesson #{lessonId}",
-                                Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
-                            });
-                        }
+                            Walletid = tutorWallet.Walletid,
+                            Amount = tutorEscrowPerSession,
+                            Transactiontype = TransactionType.EscrowRelease,
+                            Referencetable = ReferenceTable.Booking,
+                            Referenceid = lesson.Bookingid,
+                            Description = $"Giải phóng escrow no-show lesson #{lessonId}",
+                            Createdat = now
+                        });
                     }
 
-                    result.AmountRefunded = refundAmount;
+                    if (parentWallet != null && parentRefundPerSession > 0)
+                    {
+                        parentWallet.Balance += parentRefundPerSession;
+                        parentWallet.Lastupdated = now;
+                        _context.Wallettransactions.Add(new Wallettransaction
+                        {
+                            Walletid = parentWallet.Walletid,
+                            Amount = parentRefundPerSession,
+                            Transactiontype = TransactionType.Refund,
+                            Referencetable = ReferenceTable.Booking,
+                            Referenceid = lesson.Bookingid,
+                            Description = $"Hoàn tiền no-show lesson #{lessonId}",
+                            Createdat = now
+                        });
+                    }
+
+                    result.AmountRefunded = parentRefundPerSession;
                     result.Message = "Buổi học đã được hủy và hoàn tiền 100%";
                     break;
 
@@ -132,73 +163,121 @@ public partial class LessonService
                     if (!request.NewScheduledStart.HasValue)
                         throw new LessonException(LessonErrorCodes.MakeupTimeRequired, "Vui lòng cung cấp thời gian học bù mới", 400);
                     var makeupLesson = await CreateMakeupLessonAsync(lessonId, request.NewScheduledStart.Value, lesson.Tutorid!);
+                    // Mark original resolved so a repeated no-show-action is blocked by the idempotency guard.
+                    // Escrow of the original stays frozen until the makeup is settled (known issue #10).
+                    lesson.Issettled = true;
                     result.MakeupLessonId = makeupLesson.LessonId;
                     result.Message = $"Buổi học bù đã được tạo vào {request.NewScheduledStart:dd/MM/yyyy HH:mm}";
                     break;
 
                 case NoShowActionTypes.ChangeTutor:
                     lesson.Status = Cancelled;
-                    if (lesson.Booking != null)
+                    lesson.Issettled = true;
+
+                    var remaining = booking.Sessionsremaining ?? 0;
+
+                    // Clamp parent refund against what was actually paid minus any prior booking refunds
+                    decimal totalPaidByParent = booking.Remainingpaidat.HasValue
+                        ? (booking.Finalprice ?? 0)
+                        : (booking.Depositpaidat.HasValue ? (booking.Depositamount ?? 0) : 0m);
+                    var totalAlreadyRefunded = await _context.Wallettransactions
+                        .Where(wt => wt.Referencetable == ReferenceTable.Booking
+                                  && wt.Referenceid == lesson.Bookingid
+                                  && wt.Transactiontype == TransactionType.Refund)
+                        .SumAsync(wt => wt.Amount ?? 0);
+                    var maxParentRefund = Math.Max(0, totalPaidByParent - totalAlreadyRefunded);
+                    var parentTotalRefund = Math.Round(Math.Min(remaining * parentRefundPerSession, maxParentRefund), 2);
+
+                    // Clamp tutor escrow release against actual frozen balance
+                    var tutorEscrowRelease = Math.Round(
+                        Math.Min(remaining * tutorEscrowPerSession, Math.Max(0, tutorWallet?.Frozenbalance ?? 0)), 2);
+
+                    if (tutorWallet != null && tutorEscrowRelease > 0)
                     {
-                        var remaining = lesson.Booking.Sessionsremaining ?? 0;
-                        var totalRefund = remaining * (lesson.Lessonprice ?? 0);
-
-                        // Hoàn tiền các buổi còn lại: trừ tutor frozen, cộng parent balance
-                        if (totalRefund > 0)
+                        tutorWallet.Frozenbalance = Math.Max(0, (tutorWallet.Frozenbalance ?? 0) - tutorEscrowRelease);
+                        tutorWallet.Lastupdated = now;
+                        _context.Wallettransactions.Add(new Wallettransaction
                         {
-                            // Trừ frozen balance từ tutor wallet
-                            var tutorWalletChange = await _context.Wallets.FirstOrDefaultAsync(w => w.Userid == lesson.Tutorid);
-                            if (tutorWalletChange != null)
-                            {
-                                tutorWalletChange.Frozenbalance = (tutorWalletChange.Frozenbalance ?? 0) - totalRefund;
-                                tutorWalletChange.Lastupdated = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
-                            }
-
-                            // Cộng tiền hoàn vào parent wallet
-                            var parentWalletForChange = await _context.Wallets.FirstOrDefaultAsync(w => w.Userid == parentId);
-                            if (parentWalletForChange != null)
-                            {
-                                parentWalletForChange.Balance += totalRefund;
-                                parentWalletForChange.Lastupdated = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
-
-                                _context.Wallettransactions.Add(new Wallettransaction
-                                {
-                                    Walletid = parentWalletForChange.Walletid,
-                                    Amount = totalRefund,
-                                    Transactiontype = TransactionType.Refund,
-                                    Description = $"Hoàn tiền change tutor - booking #{lesson.Bookingid} ({remaining} buổi còn lại)",
-                                    Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
-                                });
-                            }
-                        }
-
-                        result.AmountRefunded = totalRefund;
-                        lesson.Booking.Status = BookingStatus.CancelledNoshow;
+                            Walletid = tutorWallet.Walletid,
+                            Amount = tutorEscrowRelease,
+                            Transactiontype = TransactionType.EscrowRelease,
+                            Referencetable = ReferenceTable.Booking,
+                            Referenceid = lesson.Bookingid,
+                            Description = $"Giải phóng escrow no-show change tutor - booking #{lesson.Bookingid} ({remaining} buổi còn lại)",
+                            Createdat = now
+                        });
                     }
+
+                    if (parentWallet != null && parentTotalRefund > 0)
+                    {
+                        parentWallet.Balance += parentTotalRefund;
+                        parentWallet.Lastupdated = now;
+                        _context.Wallettransactions.Add(new Wallettransaction
+                        {
+                            Walletid = parentWallet.Walletid,
+                            Amount = parentTotalRefund,
+                            Transactiontype = TransactionType.Refund,
+                            Referencetable = ReferenceTable.Booking,
+                            Referenceid = lesson.Bookingid,
+                            Description = $"Hoàn tiền no-show change tutor - booking #{lesson.Bookingid} ({remaining} buổi còn lại)",
+                            Createdat = now
+                        });
+                    }
+
+                    // Cancel all other Scheduled/Reserved lessons in this booking
+                    var futureLessons = await _context.Lessons
+                        .Where(l => l.Bookingid == lesson.Bookingid
+                                 && l.Lessonid != lessonId
+                                 && (l.Status == Scheduled || l.Status == LessonStatus.Reserved))
+                        .ToListAsync();
+                    foreach (var fl in futureLessons)
+                        fl.Status = Cancelled;
+
+                    booking.Status = BookingStatus.CancelledNoshow;
+                    booking.Sessionsremaining = 0;
+
+                    result.AmountRefunded = parentTotalRefund;
                     result.Message = "Đã hủy booking và hoàn tiền các buổi còn lại";
                     break;
             }
 
-            var warning = new Userwarning
+            _context.Userwarnings.Add(new Userwarning
             {
                 Userid = lesson.Tutorid,
                 Warninglevel = 1,
                 Reason = "Tutor no-show for lesson",
                 Relatedbookingid = lesson.Bookingid,
-                Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
-            };
-            _context.Userwarnings.Add(warning);
+                Createdat = now
+            });
             result.WarningCreated = true;
 
             await _context.SaveChangesAsync();
             await tx.CommitAsync();
-            return result;
         }
         catch
         {
             await tx.RollbackAsync();
             throw;
         }
+
+        // Notify tutor after commit (best-effort)
+        try
+        {
+            if (!string.IsNullOrEmpty(lesson.Tutorid))
+            {
+                await _notificationService.CreateNotificationAsync(new NotificationRequest
+                {
+                    Userid = lesson.Tutorid,
+                    Title = "Xử lý vắng mặt",
+                    Message = $"Phụ huynh đã chọn '{request.ActionType}' cho buổi học #{lessonId} bị vắng mặt."
+                });
+            }
+        }
+        catch (Exception ex) { _logger.LogWarning(ex, "Failed to notify tutor for no-show action lesson {LessonId}", lessonId); }
+
+        _logger.LogInformation("NoShow action {ActionType} processed for lesson {LessonId} by parent {ParentId}",
+            request.ActionType, lessonId, parentId);
+        return result;
     }
 
     public async Task<LessonDetailResponse> CreateMakeupLessonAsync(int originalLessonId, DateTime newScheduledStart, string tutorId)

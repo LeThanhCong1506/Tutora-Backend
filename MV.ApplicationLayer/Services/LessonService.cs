@@ -386,40 +386,9 @@ public partial class LessonService : ILessonService
                 throw new UnauthorizedAccessException("Bạn không có quyền hủy buổi học này.");
         }
 
-        // Only scheduled lessons can be cancelled
-        if (lesson.Status != Scheduled)
-            throw new InvalidOperationException(
-                $"Không thể hủy buổi học ở trạng thái '{lesson.Status}'. Chỉ có thể hủy buổi học đang được lên lịch.");
-
-        lesson.Status = Cancelled;
-        await _lessonRepo.SaveChangesAsync();
-
-        // Notify the other party
-        var lessonTimeVn = lesson.Scheduledstart.ToString("dd/MM/yyyy HH:mm");
-        var reasonSuffix = string.IsNullOrWhiteSpace(reason) ? "" : $" Lý do: {reason}";
-
-        if (userRole != UserRole.Tutor && lesson.Tutorid != null)
-        {
-            await _notificationService.CreateNotificationAsync(new NotificationRequest
-            {
-                Userid  = lesson.Tutorid,
-                Title   = "Buổi học bị hủy",
-                Message = $"Phụ huynh/Học sinh đã hủy buổi học ngày {lessonTimeVn}.{reasonSuffix}"
-            });
-        }
-
-        if (userRole == UserRole.Tutor && lesson.Booking?.Parentid != null)
-        {
-            await _notificationService.CreateNotificationAsync(new NotificationRequest
-            {
-                Userid  = lesson.Booking.Parentid,
-                Title   = "Buổi học bị hủy",
-                Message = $"Gia sư đã hủy buổi học ngày {lessonTimeVn}.{reasonSuffix}"
-            });
-        }
-
-        _logger.LogInformation("Lesson {LessonId} cancelled by {UserId} ({Role})", lessonId, userId, userRole);
-        return MapToLessonResponse(lesson);
+        // Single-lesson cancel is blocked: escrow release requires full booking cancel.
+        throw new InvalidOperationException(
+            "Không hỗ trợ hủy từng buổi học. Vui lòng hủy toàn bộ booking để nhận hoàn tiền tương ứng.");
     }
 
     public async Task<(IReadOnlyList<StudentLessonSummaryResponse> Items, int TotalCount)> GetStudentLessonsAsync(
