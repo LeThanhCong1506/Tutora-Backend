@@ -236,6 +236,9 @@ public partial class LessonService
                     booking.Status = BookingStatus.CancelledNoshow;
                     booking.Sessionsremaining = 0;
 
+                    // Return the promotion usage consumed at booking creation (booking is being cancelled)
+                    await MV.ApplicationLayer.Helpers.PromotionUsageHelper.ReturnUsageAsync(_context, booking.Promotionid);
+
                     result.AmountRefunded = parentTotalRefund;
                     result.Message = "Đã hủy booking và hoàn tiền các buổi còn lại";
                     break;

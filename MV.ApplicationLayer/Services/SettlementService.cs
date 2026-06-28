@@ -88,15 +88,37 @@ public class SettlementService : ISettlementService
         return await SettleLessonInternalAsync(lesson, confirmedBy, SettlementType.Manual);
     }
 
+    /// <summary>
+    /// Settle a lesson as part of admin dispute resolution (Release / side-with-tutor).
+    /// Unlike <see cref="SettleLessonAsync"/> this does NOT require PendingConfirmation/Completed status —
+    /// a Disputed or NoShow lesson is allowed (admin override). Still refuses an already-settled lesson.
+    /// </summary>
+    public async Task<SettlementResultResponse> SettleDisputedLessonAsync(int lessonId, string? confirmedBy = null)
+    {
+        var lesson = await _context.Lessons
+            .Include(l => l.Booking)
+            .FirstOrDefaultAsync(l => l.Lessonid == lessonId)
+            ?? throw new LessonException(LessonErrorCodes.LessonNotFound, "Không tìm thấy buổi học", 404);
+
+        if (lesson.Issettled == true)
+            throw new LessonException(LessonErrorCodes.LessonAlreadyConfirmed, "Buổi học này đã được xử lý rồi", 400);
+
+        return await SettleLessonInternalAsync(lesson, confirmedBy, SettlementType.Manual);
+    }
+
     private async Task<SettlementResultResponse> SettleLessonInternalAsync(Lesson lesson, string? confirmedBy, string settlementType)
     {
-        await using var tx = await _context.Database.BeginTransactionAsync();
+        // Reuse an ambient transaction if the caller already opened one (e.g. dispute resolution),
+        // otherwise own a fresh Serializable transaction. Prevents nested-BeginTransaction failures.
+        var ownsTx = _context.Database.CurrentTransaction is null;
+        await using var tx = ownsTx
+            ? await _context.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable)
+            : null;
         try
         {
             var tutorId = lesson.Tutorid;
-            var lessonPrice = lesson.Lessonprice ?? 0;
 
-            // Get tutor's wallet
+            // Get tutor's wallet (row lock)
             var tutorWallet = await _context.Wallets
                 .FromSqlRaw(SqlQueries.LockWalletByUserId, tutorId)
                             .FirstOrDefaultAsync();
@@ -118,89 +140,48 @@ public class SettlementService : ISettlementService
             lesson.Issettled = true;
             lesson.Parentackat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 
-            bool isBookingCompleted = false;
-            // Update booking sessions remaining
+            // Decrement remaining sessions; release held escrow if the booking just completed.
             if (lesson.Booking != null && (lesson.Booking.Sessionsremaining ?? 0) > 0)
-            {
                 lesson.Booking.Sessionsremaining -= 1;
-                if (lesson.Booking.Sessionsremaining <= 0)
-                {
-                    lesson.Booking.Status = BookingStatus.Completed;
-                    isBookingCompleted = true;
-                }
-            }
 
-            decimal amountReleasedNow = 0;
-            long? transactionId = null;
-
-            if (isBookingCompleted)
-            {
-                var previousEarned = await _context.Lessons
-                    .Where(l => l.Bookingid == lesson.Bookingid && l.Lessonid != lesson.Lessonid && l.Status == Completed)
-                    .SumAsync(l => l.Lessonprice ?? 0);
-                var totalEarned = previousEarned + lessonPrice;
-                var currentFrozen = tutorWallet.Frozenbalance ?? 0;
-                if (currentFrozen < totalEarned)
-                {
-                    _logger.LogError(
-                        "Tutor {TutorId} frozen balance {Frozen} is less than total earned {Total} for booking {BookingId}. " +
-                        "Using available frozen balance instead to prevent negative.",
-                        tutorId, currentFrozen, totalEarned, lesson.Bookingid);
-                    // Giải ngân toàn bộ số dư frozen còn lại (không cho âm)
-                    totalEarned = currentFrozen;
-                }
-                tutorWallet.Frozenbalance = Math.Max(0, currentFrozen - totalEarned);
-                tutorWallet.Balance += totalEarned;
-                tutorWallet.Lastupdated = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
-                amountReleasedNow = totalEarned;
-                var transaction = new Wallettransaction
-                {
-                    Walletid = tutorWallet.Walletid,
-                    Amount = totalEarned,
-                    Transactiontype = TransactionType.EscrowRelease,
-                    Description = $"Thanh toán hoàn tất khóa học #{lesson.Bookingid}",
-                    Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
-                };
-                _context.Wallettransactions.Add(transaction);
-                await _context.SaveChangesAsync();
-                transactionId = transaction.Transactionid;
-            }
-            else
-            {
-                _logger.LogInformation("Lesson {LessonId} settled, but funds held in escrow until booking is completed", lesson.Lessonid);
-            }
+            var amountReleasedNow = await ReleaseEscrowIfBookingCompleteAsync(lesson.Booking, tutorWallet);
+            var isBookingCompleted = lesson.Booking?.Status == BookingStatus.Completed;
 
             await _context.SaveChangesAsync();
-            await tx.CommitAsync();
+            if (tx is not null) await tx.CommitAsync();
 
             _logger.LogInformation("Settled lesson {LessonId}, amount {Amount} released to tutor {TutorId}",
                 lesson.Lessonid, amountReleasedNow, tutorId);
 
-            // Send notification
-            try
+            // Notification only when this method owns the transaction. When called inside a dispute's
+            // transaction the outer caller hasn't committed yet and sends its own notifications.
+            if (ownsTx)
             {
-                if (isBookingCompleted)
+                try
                 {
-                    await _notificationService.CreateNotificationAsync(new NotificationRequest
+                    if (isBookingCompleted)
                     {
-                        Userid = tutorId,
-                        Title = "Giải ngân khóa học thành công",
-                        Message = $"Khóa học #{lesson.Bookingid} đã hoàn thành. Bạn đã nhận được tổng cộng {amountReleasedNow:N0}đ. Số dư ví hiện tại: {tutorWallet.Balance:N0}đ"
-                    });
+                        await _notificationService.CreateNotificationAsync(new NotificationRequest
+                        {
+                            Userid = tutorId,
+                            Title = "Giải ngân khóa học thành công",
+                            Message = $"Khóa học #{lesson.Bookingid} đã hoàn thành. Bạn đã nhận được tổng cộng {amountReleasedNow:N0}đ. Số dư ví hiện tại: {tutorWallet.Balance:N0}đ"
+                        });
+                    }
+                    else
+                    {
+                        await _notificationService.CreateNotificationAsync(new NotificationRequest
+                        {
+                            Userid = tutorId,
+                            Title = "Xác nhận buổi học",
+                            Message = $"Buổi học #{lesson.Lessonid} đã được xác nhận. Tiền học sẽ được giải ngân khi hoàn thành toàn bộ khóa học."
+                        });
+                    }
                 }
-                else
+                catch (Exception ex)
                 {
-                    await _notificationService.CreateNotificationAsync(new NotificationRequest
-                    {
-                        Userid = tutorId,
-                        Title = "Xác nhận buổi học",
-                        Message = $"Buổi học #{lesson.Lessonid} đã được xác nhận. Tiền học sẽ được giải ngân khi hoàn thành toàn bộ khóa học."
-                    });
+                    _logger.LogWarning(ex, "Failed to send settlement notification for lesson {LessonId}", lesson.Lessonid);
                 }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to send settlement notification for lesson {LessonId}", lesson.Lessonid);
             }
 
             return new SettlementResultResponse
@@ -214,16 +195,62 @@ public class SettlementService : ISettlementService
                 AmountReleased = amountReleasedNow,
                 AmountRefunded = 0,
                 SettlementType = isBookingCompleted ? SettlementType.FullRelease : SettlementType.LessonConfirmed,
-                TransactionId = transactionId ?? 0,
+                TransactionId = 0,
                 NewTutorBalance = tutorWallet.Balance,
                 SessionsRemaining = lesson.Booking?.Sessionsremaining
             };
         }
         catch
         {
-            await tx.RollbackAsync();
+            if (tx is not null) await tx.RollbackAsync();
             throw;
         }
+    }
+
+    /// <summary>
+    /// When a booking's last session is resolved (Sessionsremaining reaches 0), release the escrow
+    /// still held for delivered sessions. NET-based (Tutorfee/Totalsessions) and makeup-aware:
+    /// counts lessons in Completed status, so a settled makeup releases the original no-show's escrow.
+    /// Clamped to the tutor's frozen balance so it can never go negative or release another booking's escrow.
+    /// Returns the amount released (0 if the booking is not yet complete).
+    /// </summary>
+    private async Task<decimal> ReleaseEscrowIfBookingCompleteAsync(Booking? booking, Wallet tutorWallet)
+    {
+        if (booking == null || (booking.Sessionsremaining ?? 0) > 0)
+            return 0;
+        // Already terminal (completed elsewhere, or cancelled) → never release twice.
+        if (booking.Status is BookingStatus.Completed or BookingStatus.Cancelled or BookingStatus.CancelledNoshow)
+            return 0;
+
+        booking.Status = BookingStatus.Completed;
+
+        // Flush pending lesson status changes so the Completed count below reflects them.
+        await _context.SaveChangesAsync();
+
+        var deliveredCount = await _context.Lessons
+            .CountAsync(l => l.Bookingid == booking.Bookingid && l.Status == Completed);
+        var totalSessions = booking.Totalsessions ?? deliveredCount;
+        var perSession = LessonRefundCalculator.TutorEscrowPerSession(booking);
+        var target = Math.Round(perSession * Math.Min(deliveredCount, totalSessions), 2);
+        var release = Math.Min(target, tutorWallet.Frozenbalance ?? 0);
+
+        if (release > 0)
+        {
+            tutorWallet.Frozenbalance = Math.Max(0, (tutorWallet.Frozenbalance ?? 0) - release);
+            tutorWallet.Balance = (tutorWallet.Balance ?? 0) + release;
+            tutorWallet.Lastupdated = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
+            _context.Wallettransactions.Add(new Wallettransaction
+            {
+                Walletid = tutorWallet.Walletid,
+                Amount = release,
+                Transactiontype = TransactionType.EscrowRelease,
+                Referencetable = ReferenceTable.Booking,
+                Referenceid = booking.Bookingid,
+                Description = $"Giải ngân hoàn tất khóa học #{booking.Bookingid}",
+                Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
+            });
+        }
+        return release;
     }
 
     /// <summary>
@@ -242,7 +269,10 @@ public class SettlementService : ISettlementService
         if (lesson.Issettled == true)
             throw new LessonException(LessonErrorCodes.LessonAlreadyConfirmed, "Buổi học này đã được xác nhận rồi", 400);
 
-        await using var tx = await _context.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable);
+        var ownsTx = _context.Database.CurrentTransaction is null;
+        await using var tx = ownsTx
+            ? await _context.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable)
+            : null;
         try
         {
             var booking = lesson.Booking
@@ -251,7 +281,7 @@ public class SettlementService : ISettlementService
             var tutorEscrowPerSession = LessonRefundCalculator.TutorEscrowPerSession(booking);
             var refundAmount = Math.Round(parentRefundPerSession * refundPercentage / 100m, 2);
             var tutorAmount = Math.Round(tutorEscrowPerSession * (100 - refundPercentage) / 100m, 2);
-            var parentId = lesson.Booking?.Parentid;
+            var parentId = booking.Parentid;
             var tutorId = lesson.Tutorid;
 
             // Get wallets (with row lock for concurrency safety)
@@ -296,36 +326,42 @@ public class SettlementService : ISettlementService
                 });
             }
 
-            // Update lesson
+            // Update lesson: cancelled on a full refund, completed (delivered but disputed) otherwise.
             bool isLessonCancelled = refundPercentage == 100;
             lesson.Status = isLessonCancelled ? Cancelled : Completed;
             lesson.Issettled = true;
 
-            if (isLessonCancelled && lesson.Booking != null)
-            {
-                lesson.Booking.Sessionsremaining = (lesson.Booking.Sessionsremaining ?? 0) + 1;
-                _logger.LogInformation(
-                    "Restored 1 session to booking {BookingId}. New sessionsremaining: {Count}",
-                    lesson.Bookingid, lesson.Booking.Sessionsremaining);
-            }
+            // The session is resolved either way → remove it from the booking's countdown
+            // (previously a 100% refund INCREMENTED Sessionsremaining, which prevented the booking
+            // from ever completing and left the remaining escrow frozen forever).
+            if ((booking.Sessionsremaining ?? 0) > 0)
+                booking.Sessionsremaining -= 1;
+
+            // If this refund is the last unresolved session, release the escrow still held for
+            // the sessions already delivered.
+            if (tutorWallet != null)
+                await ReleaseEscrowIfBookingCompleteAsync(booking, tutorWallet);
 
             await _context.SaveChangesAsync();
-            await tx.CommitAsync();
+            if (tx is not null) await tx.CommitAsync();
 
-            // Notify parent after commit (best-effort — must not roll back committed tx)
-            try
+            // Notify parent only when this method owns the tx (the dispute caller sends its own).
+            if (ownsTx)
             {
-                if (parentId != null && refundAmount > 0)
+                try
                 {
-                    await _notificationService.CreateNotificationAsync(new NotificationRequest
+                    if (parentId != null && refundAmount > 0)
                     {
-                        Userid = parentId,
-                        Title = "Hoàn tiền buổi học",
-                        Message = $"Bạn đã nhận được hoàn tiền {refundAmount:N0}đ ({refundPercentage}%) cho buổi học #{lesson.Lessonid}. Số dư ví: {parentWallet?.Balance:N0}đ"
-                    });
+                        await _notificationService.CreateNotificationAsync(new NotificationRequest
+                        {
+                            Userid = parentId,
+                            Title = "Hoàn tiền buổi học",
+                            Message = $"Bạn đã nhận được hoàn tiền {refundAmount:N0}đ ({refundPercentage}%) cho buổi học #{lesson.Lessonid}. Số dư ví: {parentWallet?.Balance:N0}đ"
+                        });
+                    }
                 }
+                catch (Exception ex) { _logger.LogWarning(ex, "Failed to send refund notification for lesson {LessonId}", lesson.Lessonid); }
             }
-            catch (Exception ex) { _logger.LogWarning(ex, "Failed to send refund notification for lesson {LessonId}", lesson.Lessonid); }
 
             var settlementType = refundPercentage switch
             {
@@ -351,7 +387,7 @@ public class SettlementService : ISettlementService
         }
         catch
         {
-            await tx.RollbackAsync();
+            if (tx is not null) await tx.RollbackAsync();
             throw;
         }
     }

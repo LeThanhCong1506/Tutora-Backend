@@ -19,6 +19,12 @@ public interface ISettlementService
     Task<SettlementResultResponse> SettleLessonAsync(int lessonId, string? confirmedBy = null);
 
     /// <summary>
+    /// Settle a lesson during admin dispute resolution (side-with-tutor / Release).
+    /// Skips the PendingConfirmation/Completed status guard so a Disputed/NoShow lesson can be settled.
+    /// </summary>
+    Task<SettlementResultResponse> SettleDisputedLessonAsync(int lessonId, string? confirmedBy = null);
+
+    /// <summary>
     /// Process refund for a lesson (partial or full)
     /// </summary>
     Task<SettlementResultResponse> ProcessRefundAsync(int lessonId, int refundPercentage, string processedBy);

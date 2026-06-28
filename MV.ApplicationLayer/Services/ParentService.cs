@@ -205,6 +205,11 @@ public class ParentService : IParentService
             .FirstOrDefaultAsync(l => l.Lessonid == lessonId && studentIds.Contains(l.Studentid!))
             ?? throw new LessonException(LessonErrorCodes.LessonNotFound, "Không tìm thấy buổi học hoặc bạn không có quyền truy cập", 404);
 
+        // An already-settled lesson cannot be disputed: a refund would throw on Issettled and a
+        // Release would throw on status → the dispute would deadlock (unresolvable).
+        if (lesson.Issettled == true)
+            throw new LessonException(LessonErrorCodes.LessonAlreadyConfirmed, "Buổi học đã thanh toán, không thể tạo tranh chấp", 400);
+
         if (lesson.Status != PendingConfirmation && lesson.Status != Completed)
             throw new LessonException(LessonErrorCodes.InvalidLessonStatus, "Buổi học không thể tạo tranh chấp ở trạng thái này", 400);
 

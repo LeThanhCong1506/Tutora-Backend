@@ -323,6 +323,9 @@ public partial class BookingService(
                 foreach (var l in booking.Lessons.Where(x => x.Status is Scheduled or Reserved))
                     l.Status = Cancelled;
 
+                // Return the promotion usage consumed at booking creation
+                await MV.ApplicationLayer.Helpers.PromotionUsageHelper.ReturnUsageAsync(context, booking.Promotionid);
+
                 await context.SaveChangesAsync();
                 await tx.CommitAsync();
 
@@ -357,6 +360,9 @@ public partial class BookingService(
 
             foreach (var l in booking.Lessons.Where(x => x.Status is Scheduled or Reserved))
                 l.Status = Cancelled;
+
+            // Return the promotion usage consumed at booking creation
+            await MV.ApplicationLayer.Helpers.PromotionUsageHelper.ReturnUsageAsync(context, booking.Promotionid);
 
             await context.SaveChangesAsync();
         }
