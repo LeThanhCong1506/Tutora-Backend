@@ -402,6 +402,10 @@ builder.Services.AddScoped<IZaloChatbotService, ZaloChatbotService>();
 // Tutor Search Service
 builder.Services.AddScoped<ITutorSearchService, TutorSearchService>();
 
+// Tutor Recommend (SQL filter → AI rank → profile fetch)
+builder.Services.AddScoped<ITutorAiClient, TutorAiClient>();
+builder.Services.AddScoped<ITutorRecommendService, TutorRecommendService>();
+
 //Unit of work
 builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
 
