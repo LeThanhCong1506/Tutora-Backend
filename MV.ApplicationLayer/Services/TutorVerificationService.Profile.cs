@@ -10,6 +10,15 @@ namespace MV.ApplicationLayer.Services
 {
     public partial class TutorVerificationService
     {
+        private static readonly string[] PaidBookingStatuses =
+        [
+            BookingStatus.DepositPaid,
+            BookingStatus.PendingRemainingPayment,
+            BookingStatus.Paid,
+            BookingStatus.Ongoing,
+            BookingStatus.Completed
+        ];
+
         // ─── Tutor Public Profile ─────────────────────────────────────────────
 
         /// <summary>
@@ -142,7 +151,7 @@ namespace MV.ApplicationLayer.Services
 
             var certificates = await _dbContext.Tutorcertificates
                 .AsNoTracking()
-                .Where(c => c.Tutorid == tutorId)
+                .Where(c => c.Tutorid == tutorId && c.Verificationstatus == CertificateStatus.Verified)
                 .OrderByDescending(c => c.Createdat)
                 .Select(c => new CertificateResponse
                 {
@@ -169,7 +178,6 @@ namespace MV.ApplicationLayer.Services
                 TeachingAreaCity = profile.Teachingareacity,
                 TeachingAreaDistrict = profile.Teachingareadistrict,
                 TeachingMode = TeachingMode.Online,
-                Subjects = subjects.Select(MapSubjectInfo).ToList(),
                 SubjectGradePrices = subjects
                     .Where(s => s.Isactive)
                     .Select(MapSubjectGradePrice)
@@ -284,7 +292,20 @@ namespace MV.ApplicationLayer.Services
             }
 
             var feedbacks = await GetTutorFeedbacksAsync(tutorId);
-            var activeBookings = await GetTutorActiveBookingsAsync(tutorId);
+
+            var totalLessons = await _dbContext.Lessons
+                .AsNoTracking()
+                .CountAsync(l => l.Tutorid == tutorId
+                    && l.Status != LessonStatus.Cancelled
+                    && l.Status != LessonStatus.CancelledNoshow
+                    && l.Booking != null && PaidBookingStatuses.Contains(l.Booking.Status!));
+
+            var totalStudents = await _dbContext.Bookings
+                .AsNoTracking()
+                .Where(b => b.Tutorid == tutorId && PaidBookingStatuses.Contains(b.Status!))
+                .Select(b => b.Studentid)
+                .Distinct()
+                .CountAsync();
 
             var totalFeedbacks = feedbacks.Count;
             var averageRating = totalFeedbacks > 0
@@ -300,7 +321,6 @@ namespace MV.ApplicationLayer.Services
                 TeachingAreaCity = profileInfo.TeachingAreaCity,
                 TeachingAreaDistrict = profileInfo.TeachingAreaDistrict,
                 TeachingMode = profileInfo.TeachingMode,
-                Subjects = profileInfo.Subjects,
                 SubjectGradePrices = profileInfo.SubjectGradePrices,
                 Bio = profileInfo.Bio,
                 Education = profileInfo.Education,
@@ -313,8 +333,8 @@ namespace MV.ApplicationLayer.Services
                 TotalFeedbacks = totalFeedbacks,
                 AverageRating = Math.Round(averageRating, 1),
                 Feedbacks = feedbacks,
-                TotalActiveClasses = activeBookings.Count,
-                ActiveClasses = activeBookings.Select(MapActiveClass).ToList()
+                TotalLessons = totalLessons,
+                TotalStudents = totalStudents
             };
 
             CacheResponseWithoutBlocking(cacheKey, response, FullProfileCacheDuration);
@@ -371,27 +391,6 @@ namespace MV.ApplicationLayer.Services
             }).ToList();
         }
 
-        private async Task<List<MV.DomainLayer.Entities.Booking>> GetTutorActiveBookingsAsync(string tutorId)
-        {
-            var activeStatuses = new[]
-            {
-                BookingStatus.Paid,
-                BookingStatus.DepositPaid,
-                BookingStatus.Ongoing,
-                BookingStatus.PendingRemainingPayment
-            };
-
-            return await _dbContext.Bookings
-                .AsNoTracking()
-                .Include(b => b.Tutorsubjectgradeprice)
-                    .ThenInclude(tsgp => tsgp!.Subject)
-                .Include(b => b.Student)
-                .Include(b => b.Lessons)
-                .Where(b => b.Tutorid == tutorId && activeStatuses.Contains(b.Status))
-                .OrderByDescending(b => b.Createdat)
-                .ToListAsync();
-        }
-
         private static SubjectInfo MapSubjectInfo(dynamic subject)
         {
             return new SubjectInfo
@@ -417,20 +416,6 @@ namespace MV.ApplicationLayer.Services
                 SessionsPerWeek = subject.Sessionsperweek,
                 Currency = subject.Currency,
                 IsActive = subject.Isactive
-            };
-        }
-
-        private static ActiveClassSummary MapActiveClass(MV.DomainLayer.Entities.Booking booking)
-        {
-            return new ActiveClassSummary
-            {
-                BookingId = booking.Bookingid,
-                SubjectName = booking.Tutorsubjectgradeprice?.Subject?.Subjectname,
-                StudentName = booking.Student?.Fullname,
-                TotalLessons = booking.Lessons?.Count ?? 0,
-                CompletedLessons = booking.Lessons?.Count(l => l.Status == Completed || l.Status == PendingConfirmation) ?? 0,
-                Status = booking.Status,
-                StartDate = booking.Startdate
             };
         }
 

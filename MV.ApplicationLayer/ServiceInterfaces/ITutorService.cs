@@ -117,5 +117,8 @@ namespace MV.ApplicationLayer.ServiceInterfaces
         /// </summary>
         Task<AdminVerifyCertificateResponse> AdminVerifyCertificateAsync(
             string tutorId, string certId, AdminVerifyCertificateRequest request, string adminId);
+
+        /// <summary>Tutor tự bật/tắt nhận booking mới.</summary>
+        Task<bool> SetAcceptingBookingsAsync(string userId, bool accepting);
     }
 }

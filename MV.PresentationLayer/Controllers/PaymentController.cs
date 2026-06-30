@@ -9,6 +9,7 @@ using MV.DomainLayer.DTO.ResponseModel;
 using MV.DomainLayer.Exceptions;
 using System.Security.Claims;
 using System.Text.Json;
+using Microsoft.AspNetCore.Mvc.ModelBinding;
 
 namespace MV.PresentationLayer.Controllers;
 
@@ -147,6 +148,29 @@ public class PaymentController(
         {
             await paymentService.ConfirmPaymentByAdminAsync(id, request, HttpContext.RequestAborted);
             return Ok(APIResponse.Success("Xác nhận thanh toán thành công."));
+        }
+        catch (BookingException ex)
+        {
+            return StatusCode(ex.HttpStatus, new { errorCode = ex.ErrorCode, message = ex.Message });
+        }
+    }
+
+    [HttpPost("admin/test/bookings/{id}/confirm-payment")]
+    [Authorize(Roles = UserRole.Admin)]
+    public async Task<IActionResult> ConfirmCurrentPaymentForTest(
+        [FromRoute] int id,
+        [FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] TestConfirmBookingPaymentRequest? request)
+    {
+        try
+        {
+            var result = await paymentService.ConfirmCurrentBookingPaymentForTestAsync(
+                id,
+                request?.TransactionId,
+                HttpContext.RequestAborted);
+
+            return Ok(APIResponse<TestConfirmBookingPaymentResponse>.Success(
+                result,
+                "Xác nhận thanh toán test thành công."));
         }
         catch (BookingException ex)
         {

@@ -2,17 +2,17 @@ using System.ComponentModel.DataAnnotations;
 
 namespace MV.DomainLayer.DTO.RequestModel
 {
+    /// <summary>Đặt lại mật khẩu bằng OTP gửi tới số điện thoại.</summary>
     public class ResetPasswordRequest
     {
-        [Required(ErrorMessage = "Email is required")]
-        [EmailAddress(ErrorMessage = "Invalid email format")]
-        public string Email { get; set; } = null!;
+        [Required(ErrorMessage = "Số điện thoại là bắt buộc.")]
+        public string Phone { get; set; } = string.Empty;
 
-        [Required(ErrorMessage = "Token is required")]
-        public string Token { get; set; } = null!;
+        [Required(ErrorMessage = "Mã OTP là bắt buộc.")]
+        public string Otp { get; set; } = string.Empty;
 
-        [Required(ErrorMessage = "New password is required")]
-        [StringLength(100, MinimumLength = 6, ErrorMessage = "Password must be at least 6 characters long")]
-        public string NewPassword { get; set; } = null!;
+        [Required(ErrorMessage = "Mật khẩu mới là bắt buộc.")]
+        [StringLength(100, MinimumLength = 6, ErrorMessage = "Mật khẩu phải có ít nhất 6 ký tự.")]
+        public string NewPassword { get; set; } = string.Empty;
     }
 }

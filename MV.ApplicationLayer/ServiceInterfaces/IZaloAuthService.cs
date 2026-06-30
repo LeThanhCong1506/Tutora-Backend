@@ -6,8 +6,9 @@ namespace MV.ApplicationLayer.ServiceInterfaces
     public interface IZaloAuthService
     {
         /// <summary>
-        /// Verify Zalo access token, find or create user, issue Tutora JWT.
+        /// Zalo Login v4 (Web OAuth): đổi authorization code lấy access token,
+        /// lấy profile và tạo phiên hoàn tất role/phone OTP nếu cần.
         /// </summary>
-        Task<TokenResponse> LoginWithZaloAsync(ZaloLoginRequest request);
+        Task<TokenResponse> LoginWithZaloCodeAsync(ZaloWebLoginRequest request);
     }
 }

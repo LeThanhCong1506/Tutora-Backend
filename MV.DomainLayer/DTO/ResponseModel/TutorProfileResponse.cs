@@ -20,5 +20,6 @@ namespace MV.DomainLayer.DTO.ResponseModel
         public string? TeachingMode { get; set; }
         public string? TeachingAreaCity { get; set; }
         public string? TeachingAreaDistrict { get; set; }
+        public bool IsAcceptingBookings { get; set; }
     }
 }

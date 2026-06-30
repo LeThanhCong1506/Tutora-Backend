@@ -58,6 +58,22 @@ namespace MV.PresentationLayer.Controllers
         }
 
         /// <summary>
+        /// Tutor tự bật/tắt nhận booking mới (ẩn khỏi marketplace khi tắt).
+        /// </summary>
+        [HttpPut("{id}/profile/accepting-bookings")]
+        public async Task<IActionResult> SetAcceptingBookings([FromRoute] string id, [FromBody] SetAcceptingBookingsRequest request)
+        {
+            var currentUserId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (currentUserId != id)
+                return StatusCode(403, APIResponse.Fail("Bạn chỉ có thể cập nhật hồ sơ của chính mình.", 403));
+
+            var ok = await _tutorService.SetAcceptingBookingsAsync(id, request.Accepting);
+            if (!ok) return NotFound(APIResponse.Fail(ApiMessages.TutorProfileNotFound, 404));
+            var msg = request.Accepting ? "Đã mở nhận booking." : "Đã tạm dừng nhận booking.";
+            return Ok(APIResponse<object>.Success(new { accepting = request.Accepting }, msg));
+        }
+
+        /// <summary>
         /// Upload CCCD (citizen ID card) 2 mặt — mặt trước và mặt sau.
         /// Chấp nhận JPG, JPEG, PNG — tối đa 5MB mỗi ảnh.
         /// Gọi FPT.AI OCR trực tiếp bằng bytes, lưu PublicId (private) vào DB.

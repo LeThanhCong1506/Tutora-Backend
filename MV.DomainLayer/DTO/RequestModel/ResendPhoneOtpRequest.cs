@@ -2,8 +2,8 @@ using System.ComponentModel.DataAnnotations;
 
 namespace MV.DomainLayer.DTO.RequestModel
 {
-    /// <summary>Yêu cầu khôi phục mật khẩu — gửi OTP tới số điện thoại.</summary>
-    public class ForgotPasswordRequest
+    /// <summary>Gửi lại mã OTP xác thực số điện thoại.</summary>
+    public class ResendPhoneOtpRequest
     {
         [Required(ErrorMessage = "Số điện thoại là bắt buộc.")]
         public string Phone { get; set; } = string.Empty;

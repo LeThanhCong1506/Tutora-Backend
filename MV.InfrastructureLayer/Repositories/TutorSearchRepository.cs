@@ -18,6 +18,15 @@ namespace MV.InfrastructureLayer.Repositories
     {
         private readonly AgoraDbContext _context;
 
+        private static readonly string[] PaidBookingStatuses =
+        [
+            BookingStatus.DepositPaid,
+            BookingStatus.PendingRemainingPayment,
+            BookingStatus.Paid,
+            BookingStatus.Ongoing,
+            BookingStatus.Completed
+        ];
+
         // Category to Subject mapping (for category tabs)
         private static readonly Dictionary<string, List<string>> CategorySubjectMapping = new()
         {
@@ -63,7 +72,8 @@ namespace MV.InfrastructureLayer.Repositories
                 .Where(u => u.Tutorprofile != null &&
                             u.Status == 1 &&
                             u.Tutorprofile.Profilestatus.ToLower() == TutorProfileStatus.Active &&
-                            u.Tutorprofile.Ispublic == true)
+                            u.Tutorprofile.Ispublic == true &&
+                            u.Tutorprofile.Isacceptingbookings == true)
                 .AsQueryable();
 
             // ==================== APPLY FILTERS ====================
@@ -186,12 +196,24 @@ namespace MV.InfrastructureLayer.Repositories
                 .Take(parameters.PageSize)
                 .ToListAsync();
 
-            // ==================== LESSON COUNTS (cho trang hiện tại) ====================
-            // Đếm tổng số buổi học theo từng gia sư bằng 1 query gộp, tránh Include toàn bộ Lessons.
+            // ==================== LESSON & STUDENT COUNTS (cho trang hiện tại) ====================
             var tutorIds = items.Select(u => u.Userid).ToList();
+
             var lessonCounts = await _context.Lessons
-                .Where(l => l.Tutorid != null && tutorIds.Contains(l.Tutorid))
+                .Where(l => l.Tutorid != null && tutorIds.Contains(l.Tutorid)
+                    && l.Status != LessonStatus.Cancelled
+                    && l.Status != LessonStatus.CancelledNoshow
+                    && l.Booking != null && PaidBookingStatuses.Contains(l.Booking.Status!))
                 .GroupBy(l => l.Tutorid!)
+                .Select(g => new { TutorId = g.Key, Count = g.Count() })
+                .ToDictionaryAsync(x => x.TutorId, x => x.Count);
+
+            var studentCounts = await _context.Bookings
+                .Where(b => b.Tutorid != null && tutorIds.Contains(b.Tutorid)
+                    && PaidBookingStatuses.Contains(b.Status!))
+                .Select(b => new { b.Tutorid, b.Studentid })
+                .Distinct()
+                .GroupBy(b => b.Tutorid!)
                 .Select(g => new { TutorId = g.Key, Count = g.Count() })
                 .ToDictionaryAsync(x => x.TutorId, x => x.Count);
 
@@ -200,6 +222,7 @@ namespace MV.InfrastructureLayer.Repositories
             {
                 var dto = MapToSearchResult(u);
                 dto.TotalLessons = lessonCounts.TryGetValue(u.Userid, out var lessonCount) ? lessonCount : 0;
+                dto.TotalStudents = studentCounts.TryGetValue(u.Userid, out var studentCount) ? studentCount : 0;
                 return dto;
             }).ToList();
             // Grade Level filter is now applied at database level (before pagination)
@@ -227,7 +250,7 @@ namespace MV.InfrastructureLayer.Repositories
             var approvedTutors = _context.Tutorprofiles
                 .AsNoTracking()
                 .Include(tp => tp.Tutorsubjectgradeprices)
-                .Where(tp => tp.Profilestatus.ToLower() == TutorProfileStatus.Active && tp.Ispublic == true);
+                .Where(tp => tp.Profilestatus.ToLower() == TutorProfileStatus.Active && tp.Ispublic == true && tp.Isacceptingbookings == true);
 
             decimal minPrice = 0, maxPrice = 0;
             double minRating = 0, maxRating = 5;
@@ -238,7 +261,8 @@ namespace MV.InfrastructureLayer.Repositories
                     .AsNoTracking()
                     .Where(p => p.Isactive &&
                                 p.Tutor.Profilestatus.ToLower() == TutorProfileStatus.Active &&
-                                p.Tutor.Ispublic == true);
+                                p.Tutor.Ispublic == true &&
+                                p.Tutor.Isacceptingbookings == true);
 
                 if (await activePrices.AnyAsync())
                 {
@@ -286,7 +310,8 @@ namespace MV.InfrastructureLayer.Repositories
                 .Where(s => s.Tutorsubjectgradeprices.Any(ts =>
                     ts.Tutor != null &&
                     ts.Tutor.Profilestatus == TutorProfileStatus.Active &&
-                    ts.Tutor.Ispublic == true))
+                    ts.Tutor.Ispublic == true &&
+                    ts.Tutor.Isacceptingbookings == true))
                 .Select(s => new
                 {
                     s.Subjectid,
@@ -294,7 +319,8 @@ namespace MV.InfrastructureLayer.Repositories
                     TutorCount = s.Tutorsubjectgradeprices.Count(ts =>
                         ts.Tutor != null &&
                         ts.Tutor.Profilestatus == TutorProfileStatus.Active &&
-                        ts.Tutor.Ispublic == true)
+                        ts.Tutor.Ispublic == true &&
+                        ts.Tutor.Isacceptingbookings == true)
                 })
                 .OrderByDescending(s => s.TutorCount)
                 .ThenBy(s => s.Subjectname)
@@ -319,6 +345,7 @@ namespace MV.InfrastructureLayer.Repositories
                 .Where(tp =>
                     tp.Profilestatus.ToLower() == TutorProfileStatus.Active &&
                     tp.Ispublic == true &&
+                    tp.Isacceptingbookings == true &&
                     !string.IsNullOrEmpty(tp.Teachingareacity))
                 .GroupBy(tp => tp.Teachingareacity)
                 .Select(g => new
@@ -348,7 +375,7 @@ namespace MV.InfrastructureLayer.Repositories
             // Get total count for "all" category
             var totalCount = await _context.Tutorprofiles
                 .AsNoTracking()
-                .CountAsync(tp => tp.Profilestatus.ToLower() == TutorProfileStatus.Active && tp.Ispublic == true);
+                .CountAsync(tp => tp.Profilestatus.ToLower() == TutorProfileStatus.Active && tp.Ispublic == true && tp.Isacceptingbookings == true);
 
             categories.Add(new FilterOption { Value = TutorSearchCategory.AllValue, Label = "TẤT CẢ", Count = totalCount });
 
@@ -368,6 +395,7 @@ namespace MV.InfrastructureLayer.Repositories
                             u.Tutorprofile != null &&
                             u.Tutorprofile.Profilestatus.ToLower() == TutorProfileStatus.Active &&
                             u.Tutorprofile.Ispublic == true &&
+                            u.Tutorprofile.Isacceptingbookings == true &&
                             u.Tutorprofile.Tutorsubjectgradeprices.Any(ts =>
                                 ts.Subject != null &&
                                 ts.Subject.Subjectname != null &&
@@ -395,7 +423,8 @@ namespace MV.InfrastructureLayer.Repositories
                     TutorCount = g.Tutorsubjectgradeprices
                         .Where(p => p.Isactive &&
                                     p.Tutor.Profilestatus == TutorProfileStatus.Active &&
-                                    p.Tutor.Ispublic == true)
+                                    p.Tutor.Ispublic == true &&
+                                    p.Tutor.Isacceptingbookings == true)
                         .Select(p => p.Tutorid)
                         .Distinct()
                         .Count()
@@ -422,7 +451,7 @@ namespace MV.InfrastructureLayer.Repositories
             // Single query to get all counts using conditional aggregation
             var counts = await _context.Tutorprofiles
                 .AsNoTracking()
-                .Where(tp => tp.Profilestatus.ToLower() == TutorProfileStatus.Active && tp.Ispublic == true)
+                .Where(tp => tp.Profilestatus.ToLower() == TutorProfileStatus.Active && tp.Ispublic == true && tp.Isacceptingbookings == true)
                 .GroupBy(tp => 1) // Group all into single group
                 .Select(g => new
                 {

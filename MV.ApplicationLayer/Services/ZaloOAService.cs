@@ -5,7 +5,6 @@ using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.DTO.ResponseModel.Zalo;
 using MV.ApplicationLayer.Interfaces;
 using StackExchange.Redis;
-using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using MV.DomainLayer.Constants;
@@ -14,6 +13,8 @@ namespace MV.ApplicationLayer.Services;
 
 public class ZaloOAService : IZaloOAService
 {
+    private static readonly SemaphoreSlim TokenRefreshLock = new(1, 1);
+
     private readonly ILogger<ZaloOAService> _logger;
     private readonly ZaloOAConfig _config;
     private readonly bool _isMockMode;
@@ -44,15 +45,60 @@ public class ZaloOAService : IZaloOAService
         var cached = await db.StringGetAsync("zalo:oa:access_token");
         if (cached.HasValue) return cached!;
 
-        // Use refresh token from Redis (saved from last refresh) or fall back to config
-        var refreshToken = (string?)await db.StringGetAsync("zalo:oa:refresh_token") ?? _config.RefreshToken!;
+        await TokenRefreshLock.WaitAsync();
+        try
+        {
+            // Another request may have refreshed the token while this request waited.
+            cached = await db.StringGetAsync("zalo:oa:access_token");
+            if (cached.HasValue) return cached!;
+
+            var redisRefreshToken = (string?)await db.StringGetAsync("zalo:oa:refresh_token");
+            var configuredRefreshToken = _config.RefreshToken;
+
+            if (string.IsNullOrWhiteSpace(redisRefreshToken) &&
+                string.IsNullOrWhiteSpace(configuredRefreshToken))
+            {
+                throw new InvalidOperationException("Zalo OA refresh token chưa được cấu hình.");
+            }
+
+            try
+            {
+                return await RefreshOAAccessTokenAsync(
+                    db,
+                    redisRefreshToken ?? configuredRefreshToken!);
+            }
+            catch (InvalidOperationException ex) when (
+                !string.IsNullOrWhiteSpace(redisRefreshToken) &&
+                !string.IsNullOrWhiteSpace(configuredRefreshToken) &&
+                !string.Equals(redisRefreshToken, configuredRefreshToken, StringComparison.Ordinal))
+            {
+                _logger.LogWarning(
+                    ex,
+                    "Zalo refresh token trong Redis không hợp lệ; thử token từ cấu hình");
+                await db.KeyDeleteAsync("zalo:oa:refresh_token");
+                return await RefreshOAAccessTokenAsync(db, configuredRefreshToken);
+            }
+        }
+        finally
+        {
+            TokenRefreshLock.Release();
+        }
+    }
+
+    private async Task<string> RefreshOAAccessTokenAsync(IDatabase db, string refreshToken)
+    {
+        var secretKey = _config.AppSecretKey ?? _config.SecretKey;
+        if (string.IsNullOrWhiteSpace(_config.AppId) || string.IsNullOrWhiteSpace(secretKey))
+        {
+            throw new InvalidOperationException("Thiếu Zalo OA AppId hoặc AppSecretKey.");
+        }
 
         var client = _httpClientFactory.CreateClient();
-        client.DefaultRequestHeaders.Add("secret_key", _config.AppSecretKey ?? _config.SecretKey);
+        client.DefaultRequestHeaders.Add("secret_key", secretKey);
         var body = new FormUrlEncodedContent(new[]
         {
             new KeyValuePair<string, string>(OAuthFieldNames.RefreshToken, refreshToken),
-            new KeyValuePair<string, string>(OAuthFieldNames.AppId, _config.AppId!),
+            new KeyValuePair<string, string>(OAuthFieldNames.AppId, _config.AppId),
             new KeyValuePair<string, string>(OAuthFieldNames.GrantType, OAuthGrantTypes.RefreshToken),
         });
 
@@ -60,12 +106,11 @@ public class ZaloOAService : IZaloOAService
         res.EnsureSuccessStatusCode();
         var json = await res.Content.ReadFromJsonAsync<JsonElement>();
 
-        _logger.LogInformation("Zalo token response: {Json}", json.GetRawText());
-
-        // Check for error
         if (json.TryGetProperty("error", out var errEl) && errEl.GetInt32() != 0)
         {
-            var errMsg = json.TryGetProperty("error_name", out var nameEl) ? nameEl.GetString() : DisplayValues.Unknown;
+            var errMsg = json.TryGetProperty("error_name", out var nameEl)
+                ? nameEl.GetString()
+                : DisplayValues.Unknown;
             throw new InvalidOperationException($"Zalo token error: {errMsg} (code {errEl.GetInt32()})");
         }
 
@@ -78,17 +123,16 @@ public class ZaloOAService : IZaloOAService
         await db.StringSetAsync("zalo:oa:access_token", newToken,
             TimeSpan.FromSeconds(Math.Max(expiresIn - 3600, 60)));
 
-        // Save new refresh token (Zalo refresh tokens are one-time use)
         if (json.TryGetProperty(OAuthFieldNames.RefreshToken, out var rtEl))
         {
             var newRefreshToken = rtEl.GetString();
             if (!string.IsNullOrEmpty(newRefreshToken))
             {
                 await db.StringSetAsync("zalo:oa:refresh_token", newRefreshToken);
-                _logger.LogInformation("Saved new Zalo refresh token to Redis");
             }
         }
 
+        _logger.LogInformation("Zalo OA access token refreshed successfully");
         return newToken;
     }
 
@@ -212,6 +256,31 @@ public class ZaloOAService : IZaloOAService
 
     // ─── ZNS / Notifications ─────────────────────────────────────────────────
 
+    public async Task<ZaloSendResult> SendZnsOtpAsync(string phone, string otp)
+    {
+        if (_isMockMode)
+        {
+            _logger.LogInformation("[MOCK] ZNS OTP {Otp} → phone={Phone}", otp, phone);
+            return new ZaloSendResult
+            {
+                Success = true,
+                MessageId = $"mock_{Guid.NewGuid():N}"
+            };
+        }
+
+        if (string.IsNullOrWhiteSpace(_config.ZnsTemplateOtp))
+        {
+            return new ZaloSendResult
+            {
+                Success = false,
+                Error = "OTP template chưa cấu hình"
+            };
+        }
+
+        var templateData = new Dictionary<string, string> { ["otp"] = otp };
+        return await SendZnsTemplateAsync(phone, _config.ZnsTemplateOtp, templateData);
+    }
+
     public async Task<ZaloSendResult> SendLessonReportAsync(int lessonId)
     {
         if (_isMockMode)
@@ -263,42 +332,87 @@ public class ZaloOAService : IZaloOAService
         return await SendZnsTemplateAsync(user.Phone, znsTemplateId, data);
     }
 
-    private async Task<ZaloSendResult> SendZnsTemplateAsync(string phone, string templateId, Dictionary<string, string> templateData)
+    private async Task<ZaloSendResult> SendZnsTemplateAsync(
+        string phone,
+        string templateId,
+        Dictionary<string, string> templateData)
     {
         try
         {
+            var znsPhone = NormalizeVietnamPhoneForZns(phone);
             var token = await GetOAAccessTokenAsync();
             var client = _httpClientFactory.CreateClient(ServiceKeys.HttpClients.ZaloZNS);
-            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(HttpConstants.BearerScheme, token);
+            client.DefaultRequestHeaders.Add(OAuthFieldNames.AccessToken, token);
 
-            var payload = new
+            var payload = new Dictionary<string, object>
             {
-                phone,
-                template_id = templateId,
-                template_data = templateData,
-                tracking_id = Guid.NewGuid().ToString("N")
+                ["phone"] = znsPhone,
+                ["template_id"] = templateId,
+                ["template_data"] = templateData,
+                ["tracking_id"] = Guid.NewGuid().ToString("N")
             };
 
             var res = await client.PostAsJsonAsync("message/template", payload);
-            var body = await res.Content.ReadFromJsonAsync<JsonElement>();
+            var responseBody = await res.Content.ReadAsStringAsync();
+            _logger.LogInformation(
+                "ZNS response: phone={Phone}, status={Status}, body={Body}",
+                znsPhone,
+                (int)res.StatusCode,
+                responseBody);
+
+            using var document = JsonDocument.Parse(responseBody);
+            var body = document.RootElement;
 
             if (res.IsSuccessStatusCode && body.TryGetProperty("error", out var err) && err.GetInt32() == 0)
             {
                 var msgId = body.TryGetProperty("data", out var d)
                     && d.TryGetProperty("msg_id", out var mid) ? mid.GetString() : null;
-                _logger.LogInformation("ZNS sent to {Phone} template {TemplateId}: msg_id={MsgId}", phone, templateId, msgId);
+                _logger.LogInformation(
+                    "ZNS sent to {Phone} template {TemplateId}: msg_id={MsgId}",
+                    znsPhone,
+                    templateId,
+                    msgId);
                 return new ZaloSendResult { Success = true, MessageId = msgId };
             }
 
             var errMsg = body.TryGetProperty("message", out var m) ? m.GetString() : res.StatusCode.ToString();
-            _logger.LogWarning("ZNS failed for {Phone}: {Error}", phone, errMsg);
+            _logger.LogWarning(
+                "ZNS failed for {Phone}: {Error}",
+                znsPhone,
+                errMsg);
             return new ZaloSendResult { Success = false, Error = errMsg };
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "ZNS exception for phone {Phone} template {TemplateId}", phone, templateId);
+            _logger.LogError(
+                ex,
+                "ZNS exception for phone {Phone} template {TemplateId}",
+                phone,
+                templateId);
             return new ZaloSendResult { Success = false, Error = ex.Message };
         }
+    }
+
+    private static string NormalizeVietnamPhoneForZns(string phone)
+    {
+        var digits = new string(phone.Where(char.IsDigit).ToArray());
+
+        if (digits.StartsWith("84", StringComparison.Ordinal))
+        {
+            return digits;
+        }
+
+        if (digits.StartsWith('0'))
+        {
+            return $"84{digits[1..]}";
+        }
+
+        if (digits.Length is 9 or 10)
+        {
+            return $"84{digits}";
+        }
+
+        throw new ArgumentException("Số điện thoại không đúng định dạng Việt Nam.", nameof(phone));
     }
 
     // ─── User Link Status ────────────────────────────────────────────────────
@@ -322,6 +436,7 @@ public class ZaloOAConfig
     public string? RefreshToken { get; set; }
 
     // ZNS Template IDs — điền sau khi Zalo duyệt template
+    public string? ZnsTemplateOtp { get; set; }
     public string? ZnsTemplateLessonReminder { get; set; }
     public string? ZnsTemplateBookingConfirmed { get; set; }
     public string? ZnsTemplateLessonReport { get; set; }

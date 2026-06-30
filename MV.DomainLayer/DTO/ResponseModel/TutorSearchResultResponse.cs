@@ -44,6 +44,11 @@ namespace MV.DomainLayer.DTO.ResponseModel
         /// </summary>
         public int TotalLessons { get; set; }
 
+        /// <summary>
+        /// Total number of distinct students this tutor has taught or is teaching.
+        /// </summary>
+        public int TotalStudents { get; set; }
+
         // === Pricing ===
         /// <summary>
         /// Lowest active price-per-hour across all of the tutor's subjects/grades.
