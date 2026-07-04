@@ -62,9 +62,9 @@ public partial class LessonService
 
         if (isOnlineMode && string.IsNullOrWhiteSpace(lesson.Meetinglink) && lesson.Booking?.Studentid != null)
         {
-            // Tencent RTC: RoomId = lessonId (không cần OAuth, không cần external API)
+            // Agora RTC: channel = lessonId (không cần OAuth, không cần external API)
             lesson.Meetinglink = lessonId.ToString();
-            _logger.LogInformation("Assigned Tencent RTC RoomId {RoomId} for lesson {LessonId}", lessonId, lessonId);
+            _logger.LogInformation("Assigned Agora RTC channel {Channel} for lesson {LessonId}", lessonId, lessonId);
             await _context.SaveChangesAsync();
         }
 
@@ -73,13 +73,13 @@ public partial class LessonService
         var parentId = lesson.Booking?.Parentid;
         var studentProfileId = lesson.Booking?.Studentid; // ProfileId (stu_xxx), KHÔNG phải UserId
         var lessonTimeVn = lesson.Scheduledstart.ToString("dd/MM HH:mm");
-        // hasMeetLink được tính lại SAU khi Tencent RTC RoomId đã được set
+        // hasMeetLink được tính lại SAU khi Agora RTC channel đã được set
         var hasMeetLink = !string.IsNullOrWhiteSpace(lesson.Meetinglink);
         string chatContent;
         string messageType;
         if (hasMeetLink)
         {
-            chatContent = $"🟢 Buổi học đã bắt đầu lúc {lessonTimeVn}!\n\n🔗 Link tham gia (Tencent RTC - Room ID: {lesson.Meetinglink}):\nĐể vào phòng học, vui lòng mở ứng dụng và nhập Room ID: {lesson.Meetinglink}";
+            chatContent = $"🟢 Buổi học đã bắt đầu lúc {lessonTimeVn}!\n\n🔗 Tham gia lớp học trực tuyến (Mã phòng: {lesson.Meetinglink}):\nĐể vào phòng học, vui lòng mở ứng dụng và nhập Mã phòng: {lesson.Meetinglink}";
             messageType = ChatMessageType.MeetLink;
         }
         else
@@ -137,7 +137,7 @@ public partial class LessonService
                     Userid = parentId,
                     Title = "Buổi học đã bắt đầu",
                     Message = "Gia sư đã bắt đầu buổi học." +
-                                  (hasMeetLink ? " Kiểm tra tin nhắn để lấy Room ID tham gia Tencent RTC." : ""),
+                                  (hasMeetLink ? " Kiểm tra tin nhắn để lấy Mã phòng tham gia lớp học trực tuyến." : ""),
                     Type = NotificationType.LessonCheckin,
                     Referenceid = lessonId.ToString()
                 });
@@ -176,7 +176,7 @@ public partial class LessonService
                     Userid = studentLinkedUserId,
                     Title = "Buổi học đã bắt đầu",
                     Message = "Gia sư đã bắt đầu buổi học." +
-                                  (hasMeetLink ? " Kiểm tra tin nhắn để lấy Room ID tham gia Tencent RTC." : ""),
+                                  (hasMeetLink ? " Kiểm tra tin nhắn để lấy Mã phòng tham gia lớp học trực tuyến." : ""),
                     Type = NotificationType.LessonCheckin,
                     Referenceid = lessonId.ToString()
                 });

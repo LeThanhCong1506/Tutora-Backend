@@ -117,8 +117,8 @@ public interface ILessonService
     Task<LessonResponse> CancelLessonAsync(int lessonId, string userId, string userRole, string? reason = null);
 
     /// <summary>
-    /// Gán Tencent RTC RoomId (= lessonId) cho tất cả buổi học online/hybrid sắp tới
-    /// chưa có RoomId, rồi gửi thông báo chat cho parent của từng booking.
+    /// Gán Agora RTC channel (= lessonId) cho tất cả buổi học online/hybrid sắp tới
+    /// chưa có channel, rồi gửi thông báo chat cho parent của từng booking.
     /// Fire-and-forget safe — never throws; logs warnings on individual failures.
     /// </summary>
     Task RefreshMeetLinksForTutorAsync(string tutorId);
