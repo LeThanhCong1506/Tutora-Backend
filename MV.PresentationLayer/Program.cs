@@ -420,6 +420,8 @@ builder.Services.AddHostedService<RemainingPaymentTriggerJob>();
 // M4-T6: Background Jobs - Reconciliation only (Hangfire handles payout jobs)
 builder.Services.AddHostedService<ReconciliationJob>();
 builder.Services.AddHostedService<GhostUserCleanupJob>();
+// Chủ động refresh Zalo OA token trước khi hết hạn.
+builder.Services.AddHostedService<ZaloTokenRefreshJob>();
 
 // Cấu hình Authentication (JWT mặc định, Google/Facebook song song)
 builder.Services.AddAuthentication(options =>
