@@ -211,6 +211,8 @@ builder.Services.AddCors(options =>
                     "https://www.tutora.vn", "https://tutora.vn", "https://tutorahelps.vercel.app",
                     // Vite app sau cutover sang Next (portal + auth)
                     "https://app.tutora.vn",
+                    // Developer app
+                    "https://tutora-developer.vercel.app",
                     // Zalo Mini App domains
                     "https://h5.zalo.me", "https://h5.zadn.vn", "https://h5.zdn.vn", "https://miniapp-cdn.zalo.me")
                   .AllowAnyHeader()
