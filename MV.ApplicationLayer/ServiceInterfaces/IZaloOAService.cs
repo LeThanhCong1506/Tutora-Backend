@@ -36,6 +36,13 @@ public interface IZaloOAService
     /// </summary>
     Task<string> GetOAAccessTokenAsync();
 
+    /// <summary>
+    /// Proactively refresh the access token if it is missing or about to expire.
+    /// Called by a background job so the token never lapses between the lazy
+    /// refresh points (the bot only reads the token, it never triggers a refresh).
+    /// </summary>
+    Task EnsureFreshTokenAsync();
+
     // ── OA Reply API ──────────────────────────────────────────────────────
 
     /// <summary>
