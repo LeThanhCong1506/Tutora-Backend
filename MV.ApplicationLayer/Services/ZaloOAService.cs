@@ -52,32 +52,79 @@ public class ZaloOAService : IZaloOAService
             cached = await db.StringGetAsync("zalo:oa:access_token");
             if (cached.HasValue) return cached!;
 
-            var redisRefreshToken = (string?)await db.StringGetAsync("zalo:oa:refresh_token");
-            var configuredRefreshToken = _config.RefreshToken;
+            return await RefreshWithFallbackAsync(db);
+        }
+        finally
+        {
+            TokenRefreshLock.Release();
+        }
+    }
 
-            if (string.IsNullOrWhiteSpace(redisRefreshToken) &&
-                string.IsNullOrWhiteSpace(configuredRefreshToken))
-            {
-                throw new InvalidOperationException("Zalo OA refresh token chưa được cấu hình.");
-            }
+    /// <summary>
+    /// Refresh dùng refresh token trong Redis, fallback sang token cấu hình nếu Redis
+    /// token hỏng.
+    /// </summary>
+    private async Task<string> RefreshWithFallbackAsync(IDatabase db)
+    {
+        var redisRefreshToken = (string?)await db.StringGetAsync("zalo:oa:refresh_token");
+        var configuredRefreshToken = _config.RefreshToken;
 
-            try
-            {
-                return await RefreshOAAccessTokenAsync(
-                    db,
-                    redisRefreshToken ?? configuredRefreshToken!);
-            }
-            catch (InvalidOperationException ex) when (
-                !string.IsNullOrWhiteSpace(redisRefreshToken) &&
-                !string.IsNullOrWhiteSpace(configuredRefreshToken) &&
-                !string.Equals(redisRefreshToken, configuredRefreshToken, StringComparison.Ordinal))
-            {
-                _logger.LogWarning(
-                    ex,
-                    "Zalo refresh token trong Redis không hợp lệ; thử token từ cấu hình");
-                await db.KeyDeleteAsync("zalo:oa:refresh_token");
-                return await RefreshOAAccessTokenAsync(db, configuredRefreshToken);
-            }
+        if (string.IsNullOrWhiteSpace(redisRefreshToken) &&
+            string.IsNullOrWhiteSpace(configuredRefreshToken))
+        {
+            throw new InvalidOperationException("Zalo OA refresh token chưa được cấu hình.");
+        }
+
+        try
+        {
+            return await RefreshOAAccessTokenAsync(
+                db,
+                redisRefreshToken ?? configuredRefreshToken!);
+        }
+        catch (InvalidOperationException ex) when (
+            !string.IsNullOrWhiteSpace(redisRefreshToken) &&
+            !string.IsNullOrWhiteSpace(configuredRefreshToken) &&
+            !string.Equals(redisRefreshToken, configuredRefreshToken, StringComparison.Ordinal))
+        {
+            _logger.LogWarning(ex, "Zalo refresh token trong Redis không hợp lệ; thử token từ cấu hình");
+            await db.KeyDeleteAsync("zalo:oa:refresh_token");
+            return await RefreshOAAccessTokenAsync(db, configuredRefreshToken);
+        }
+    }
+
+    // Ngưỡng refresh chủ động: refresh khi access token còn dưới bấy nhiêu thời gian
+    // sống. 
+    private static readonly TimeSpan ProactiveRefreshThreshold = TimeSpan.FromHours(3);
+
+    public async Task EnsureFreshTokenAsync()
+    {
+        if (_isMockMode) return;
+
+        var db = _redis.GetDatabase();
+        var ttl = await db.KeyTimeToLiveAsync("zalo:oa:access_token");
+
+        // Token còn sống thoải mái -> KHÔNG refresh (tránh rotate refresh token vô ích;
+        // mỗi lần refresh Zalo cấp refresh token mới và vô hiệu cái cũ).
+        if (ttl.HasValue && ttl.Value > ProactiveRefreshThreshold)
+            return;
+
+        await TokenRefreshLock.WaitAsync();
+        try
+        {
+            // Double-check dưới lock: instance/request khác có thể vừa refresh xong.
+            ttl = await db.KeyTimeToLiveAsync("zalo:oa:access_token");
+            if (ttl.HasValue && ttl.Value > ProactiveRefreshThreshold)
+                return;
+
+            // Refresh trực tiếp — KHÔNG xoá cache trước. RefreshOAAccessTokenAsync chỉ
+            // ghi đè access token khi Zalo trả về thành công, nên token cũ (còn hạn) vẫn
+            // an toàn nếu refresh fail vì Zalo lỗi tạm thời.
+            await RefreshWithFallbackAsync(db);
+            _logger.LogInformation("Zalo OA token proactively refreshed (ttl was {Ttl}).", ttl);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Proactive Zalo OA token refresh failed.");
         }
         finally
         {
