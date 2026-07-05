@@ -96,6 +96,31 @@ public class ParentController : ControllerBase
     }
 
     /// <summary>
+    /// Create a dispute for a lesson (no_show / quality / payment / other).
+    /// Lesson must be PendingConfirmation or Completed, and not already disputed.
+    /// </summary>
+    [HttpPost("lessons/{id}/dispute")]
+    [Authorize(Roles = UserRole.ParentOrStudent)]
+    public async Task<ActionResult<APIResponse<DisputeDetailResponse>>> CreateDispute(int id, [FromBody] CreateDisputeRequest request)
+    {
+        var userId = UserHelper.GetUserId(User);
+        var role = User.FindFirstValue(ClaimTypes.Role) ?? "";
+        try
+        {
+            var result = await _parentService.CreateDisputeAsync(id, userId, role, request);
+            return Ok(APIResponse<DisputeDetailResponse>.Success(result, "Đã gửi khiếu nại thành công."));
+        }
+        catch (LessonException ex)
+        {
+            return StatusCode(ex.HttpStatus, APIResponse<object>.Fail(ex.Message, ex.HttpStatus));
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(APIResponse<object>.Fail(ex.Message, 400));
+        }
+    }
+
+    /// <summary>
     /// Get parent/student calendar view
     /// </summary>
     [HttpGet("lessons/calendar")]

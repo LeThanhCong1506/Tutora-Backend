@@ -211,6 +211,8 @@ builder.Services.AddCors(options =>
                     "https://www.tutora.vn", "https://tutora.vn", "https://tutorahelps.vercel.app",
                     // Vite app sau cutover sang Next (portal + auth)
                     "https://app.tutora.vn",
+                    // Developer app
+                    "https://tutora-developer.vercel.app",
                     // Zalo Mini App domains
                     "https://h5.zalo.me", "https://h5.zadn.vn", "https://h5.zdn.vn", "https://miniapp-cdn.zalo.me")
                   .AllowAnyHeader()
@@ -402,6 +404,10 @@ builder.Services.AddScoped<IZaloChatbotService, ZaloChatbotService>();
 // Tutor Search Service
 builder.Services.AddScoped<ITutorSearchService, TutorSearchService>();
 
+// Tutor Recommend (SQL filter → AI rank → profile fetch)
+builder.Services.AddScoped<ITutorAiClient, TutorAiClient>();
+builder.Services.AddScoped<ITutorRecommendService, TutorRecommendService>();
+
 //Unit of work
 builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
 
@@ -416,6 +422,8 @@ builder.Services.AddHostedService<RemainingPaymentTriggerJob>();
 // M4-T6: Background Jobs - Reconciliation only (Hangfire handles payout jobs)
 builder.Services.AddHostedService<ReconciliationJob>();
 builder.Services.AddHostedService<GhostUserCleanupJob>();
+// Chủ động refresh Zalo OA token trước khi hết hạn.
+builder.Services.AddHostedService<ZaloTokenRefreshJob>();
 
 // Cấu hình Authentication (JWT mặc định, Google/Facebook song song)
 builder.Services.AddAuthentication(options =>

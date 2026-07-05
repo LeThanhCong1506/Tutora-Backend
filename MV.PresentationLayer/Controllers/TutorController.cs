@@ -18,17 +18,31 @@ namespace MV.PresentationLayer.Controllers
         private readonly IUserService _userService;
         private readonly ITutorVerificationService _verificationService;
         private readonly IFeedbackService _feedbackService;
+        private readonly ITutorRecommendService _recommendService;
 
         public TutorController(
             ITutorService tutorService,
             IUserService userService,
             ITutorVerificationService verificationService,
-            IFeedbackService feedbackService)
+            IFeedbackService feedbackService,
+            ITutorRecommendService recommendService)
         {
             _tutorService = tutorService;
             _userService = userService;
             _verificationService = verificationService;
             _feedbackService = feedbackService;
+            _recommendService = recommendService;
+        }
+
+        // AI-powered tutor recommendation.
+        [AllowAnonymous]
+        [HttpPost("recommend")]
+        public async Task<IActionResult> RecommendTutors(
+            [FromBody] TutorRecommendRequest request,
+            CancellationToken cancellationToken)
+        {
+            var result = await _recommendService.RecommendAsync(request, cancellationToken);
+            return Ok(APIResponse<TutorRecommendResponse>.Success(result, "Gợi ý gia sư thành công."));
         }
 
         // --- PUBLIC / GET ---
