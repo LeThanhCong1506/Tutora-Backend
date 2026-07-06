@@ -1,12 +1,11 @@
 using System;
 using System.Collections.Generic;
-using System.ComponentModel.DataAnnotations.Schema;
 
 namespace MV.DomainLayer.Entities;
 
-public partial class Lesson
+public partial class ClassSession
 {
-    public int Lessonid { get; set; }
+    public int Classsessionid { get; set; }
 
     public int? Bookingid { get; set; }
 
@@ -60,14 +59,7 @@ public partial class Lesson
 
     public bool? Ismakeup { get; set; }
 
-    public int? Originallessonid { get; set; }
-
-    [NotMapped]
-    public int? Originalessonid
-    {
-        get => Originallessonid;
-        set => Originallessonid = value;
-    }
+    public int? Originalsessionid { get; set; }
 
     public string? Noshowaction { get; set; }
 
@@ -81,11 +73,11 @@ public partial class Lesson
 
     public virtual ICollection<Feedback> Feedbacks { get; set; } = new List<Feedback>();
 
-    public virtual ICollection<Lesson> InverseOriginallesson { get; set; } = new List<Lesson>();
+    public virtual ICollection<ClassSession> InverseOriginalsession { get; set; } = new List<ClassSession>();
 
-    public virtual Lessonreport? Lessonreport { get; set; }
+    public virtual ClassSessionReport? ClassSessionReport { get; set; }
 
-    public virtual Lesson? Originallesson { get; set; }
+    public virtual ClassSession? Originalsession { get; set; }
 
     public virtual Studentprofile? Student { get; set; }
 

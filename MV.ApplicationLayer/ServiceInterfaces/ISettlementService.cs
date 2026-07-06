@@ -8,35 +8,35 @@ namespace MV.ApplicationLayer.ServiceInterfaces;
 public interface ISettlementService
 {
     /// <summary>
-    /// Process auto-confirm for lessons past their deadline
+    /// Process auto-confirm for classSessions past their deadline
     /// Called by background job every 5 minutes
     /// </summary>
     Task<int> ProcessAutoConfirmAsync(CancellationToken ct = default);
 
     /// <summary>
-    /// Settle a specific lesson - move money from frozen to balance
+    /// Settle a specific classSession - move money from frozen to balance
     /// </summary>
-    Task<SettlementResultResponse> SettleLessonAsync(int lessonId, string? confirmedBy = null);
+    Task<SettlementResultResponse> SettleClassSessionAsync(int classSessionId, string? confirmedBy = null);
 
     /// <summary>
-    /// Settle a lesson during admin dispute resolution (side-with-tutor / Release).
-    /// Skips the PendingConfirmation/Completed status guard so a Disputed/NoShow lesson can be settled.
+    /// Settle a classSession during admin dispute resolution (side-with-tutor / Release).
+    /// Skips the PendingConfirmation/Completed status guard so a Disputed/NoShow classSession can be settled.
     /// </summary>
-    Task<SettlementResultResponse> SettleDisputedLessonAsync(int lessonId, string? confirmedBy = null);
+    Task<SettlementResultResponse> SettleDisputedClassSessionAsync(int classSessionId, string? confirmedBy = null);
 
     /// <summary>
-    /// Process refund for a lesson (partial or full)
+    /// Process refund for a classSession (partial or full)
     /// </summary>
-    Task<SettlementResultResponse> ProcessRefundAsync(int lessonId, int refundPercentage, string processedBy);
+    Task<SettlementResultResponse> ProcessRefundAsync(int classSessionId, int refundPercentage, string processedBy);
 
     /// <summary>
-    /// Get pending settlements (lessons ready for auto-confirm)
+    /// Get pending settlements (classSessions ready for auto-confirm)
     /// </summary>
-    Task<List<PendingLessonResponse>> GetPendingSettlementsAsync();
+    Task<List<PendingClassSessionResponse>> GetPendingSettlementsAsync();
 
     /// <summary>
     /// Finalize booking early (parent chose not to pay for remaining sessions).
-    /// Releases escrow for completed lessons, cancels remaining lessons, marks booking Completed.
+    /// Releases escrow for completed classSessions, cancels remaining classSessions, marks booking Completed.
     /// </summary>
     Task FinalizeBookingEarlyAsync(int bookingId, CancellationToken ct = default);
 }

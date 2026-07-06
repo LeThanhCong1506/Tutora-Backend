@@ -172,15 +172,15 @@ namespace MV.ApplicationLayer.Services
                 throw new UnauthorizedAccessException(
                     $"Bạn không có quyền cập nhật {unauthorizedSlots.Count} slot(s) lịch học này.");
 
-            // Future-lesson guard: block if any old slot has an upcoming booking
+            // Future-classSession guard: block if any old slot has an upcoming booking
             foreach (var availability in availabilities)
             {
                 var slotDayOfWeek = availability.Dayofweek!.Value;
                 var slotStartTime = availability.Starttime!.Value.ToTimeSpan();
                 var slotEndTime = availability.Endtime!.Value.ToTimeSpan();
 
-                var hasUpcomingLessons = await HasFutureLessonInSlotAsync(tutorId, slotDayOfWeek, slotStartTime, slotEndTime);
-                if (hasUpcomingLessons)
+                var hasUpcomingClassSessions = await HasFutureClassSessionInSlotAsync(tutorId, slotDayOfWeek, slotStartTime, slotEndTime);
+                if (hasUpcomingClassSessions)
                     throw new InvalidOperationException(
                         $"Không thể cập nhật khung giờ {availability.Starttime:HH:mm}-{availability.Endtime:HH:mm} (ngày {availability.Dayofweek}) vì đang có buổi học được đặt lịch. Vui lòng hủy booking trước khi cập nhật.");
             }
@@ -284,9 +284,9 @@ namespace MV.ApplicationLayer.Services
             var slotStartTime = availability.Starttime!.Value.ToTimeSpan();
             var slotEndTime = availability.Endtime!.Value.ToTimeSpan();
 
-            var hasUpcomingLessons = await HasFutureLessonInSlotAsync(tutorId, slotDayOfWeek, slotStartTime, slotEndTime);
+            var hasUpcomingClassSessions = await HasFutureClassSessionInSlotAsync(tutorId, slotDayOfWeek, slotStartTime, slotEndTime);
 
-            if (hasUpcomingLessons)
+            if (hasUpcomingClassSessions)
                 throw new InvalidOperationException(
                     "Không thể xóa khung giờ này vì đang có buổi học được đặt lịch. Vui lòng hủy booking trước khi xóa.");
 
@@ -318,16 +318,16 @@ namespace MV.ApplicationLayer.Services
                     $"Bạn không có quyền xóa {unauthorizedSlots.Count} slot(s) lịch học này.");
             }
 
-            // Check for upcoming lessons in any of the slots
+            // Check for upcoming classSessions in any of the slots
             foreach (var availability in availabilities)
             {
                 var slotDayOfWeek = availability.Dayofweek!.Value;
                 var slotStartTime = availability.Starttime!.Value.ToTimeSpan();
                 var slotEndTime = availability.Endtime!.Value.ToTimeSpan();
 
-                var hasUpcomingLessons = await HasFutureLessonInSlotAsync(tutorId, slotDayOfWeek, slotStartTime, slotEndTime);
+                var hasUpcomingClassSessions = await HasFutureClassSessionInSlotAsync(tutorId, slotDayOfWeek, slotStartTime, slotEndTime);
 
-                if (hasUpcomingLessons)
+                if (hasUpcomingClassSessions)
                 {
                     throw new InvalidOperationException(
                         $"Không thể xóa khung giờ {availability.Starttime:HH:mm}-{availability.Endtime:HH:mm} (ngày {availability.Dayofweek}) vì đang có buổi học được đặt lịch. Vui lòng hủy booking trước khi xóa.");
@@ -377,25 +377,25 @@ namespace MV.ApplicationLayer.Services
             });
         }
 
-        private async Task<bool> HasFutureLessonInSlotAsync(string tutorId, int utcDayOfWeek, TimeSpan utcSlotStart, TimeSpan utcSlotEnd)
+        private async Task<bool> HasFutureClassSessionInSlotAsync(string tutorId, int utcDayOfWeek, TimeSpan utcSlotStart, TimeSpan utcSlotEnd)
         {
-            var lessons = await _context.Lessons
+            var classSessions = await _context.ClassSessions
                 .Where(l => l.Tutorid == tutorId
                     && l.Scheduledstart > TimeZoneHelper.UtcNow
-                    && l.Status != LessonStatus.Cancelled
-                    && l.Status != LessonStatus.CancelledNoshow
-                    && l.Status != LessonStatus.Completed
-                    && l.Status != LessonStatus.NoShow)
+                    && l.Status != ClassSessionStatus.Cancelled
+                    && l.Status != ClassSessionStatus.CancelledNoshow
+                    && l.Status != ClassSessionStatus.Completed
+                    && l.Status != ClassSessionStatus.NoShow)
                 .Select(l => new { l.Scheduledstart, l.Scheduledend })
                 .ToListAsync();
 
-            return lessons.Any(l =>
+            return classSessions.Any(l =>
             {
-                // Lessons are stored in UTC, availability slots are now stored in UTC too
+                // ClassSessions are stored in UTC, availability slots are now stored in UTC too
                 // Convert C# DayOfWeek (0=Sunday, 1=Monday...) to ISO format (1=Monday, 7=Sunday)
-                var lessonIsoDayOfWeek = l.Scheduledstart.DayOfWeek == DayOfWeek.Sunday ? 7 : (int)l.Scheduledstart.DayOfWeek;
+                var classSessionIsoDayOfWeek = l.Scheduledstart.DayOfWeek == DayOfWeek.Sunday ? 7 : (int)l.Scheduledstart.DayOfWeek;
 
-                return lessonIsoDayOfWeek == utcDayOfWeek
+                return classSessionIsoDayOfWeek == utcDayOfWeek
                     && l.Scheduledstart.TimeOfDay < utcSlotEnd
                     && l.Scheduledend.TimeOfDay > utcSlotStart;
             });

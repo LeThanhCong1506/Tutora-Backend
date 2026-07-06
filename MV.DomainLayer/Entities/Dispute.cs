@@ -9,7 +9,7 @@ public partial class Dispute
 
     public int? Bookingid { get; set; }
 
-    public int? Lessonid { get; set; }
+    public int? Classsessionid { get; set; }
 
     public string? Createdby { get; set; }
 
@@ -39,7 +39,9 @@ public partial class Dispute
 
     public virtual User? CreatedbyNavigation { get; set; }
 
-    public virtual Lesson? Lesson { get; set; }
+    public virtual ClassSession? ClassSession { get; set; }
 
     public virtual User? ResolvedbyNavigation { get; set; }
+
+    public virtual ICollection<DisputeEvidence> DisputeEvidences { get; set; } = new List<DisputeEvidence>();
 }

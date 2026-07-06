@@ -9,6 +9,9 @@ public partial class Withdrawalrequest
 
     public string? Userid { get; set; }
 
+    /// <summary>Ví thực tế bị trừ tiền khi rút. FK tới wallets(wallet_id).</summary>
+    public int? Walletid { get; set; }
+
     public decimal? Amount { get; set; }
 
     public string? Bankname { get; set; }
@@ -41,4 +44,6 @@ public partial class Withdrawalrequest
     public string? Processedby { get; set; }
 
     public virtual User? User { get; set; }
+
+    public virtual Wallet? Wallet { get; set; }
 }

@@ -7,7 +7,7 @@ public interface IAdminBookingService
     /// <summary>
     /// Returns a paged list of all bookings across the platform for admin review.
     /// Supports filtering by status, teaching mode, tutor, parent, subject, date range, and keyword search.
-    /// Each item includes party info (tutor/parent/student), financial summary, session progress, and lesson counts.
+    /// Each item includes party info (tutor/parent/student), financial summary, session progress, and classSession counts.
     /// </summary>
     /// <param name="page">1-based page number.</param>
     /// <param name="pageSize">Items per page (max 100).</param>

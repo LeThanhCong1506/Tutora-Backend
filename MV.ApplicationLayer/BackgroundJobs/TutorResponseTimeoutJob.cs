@@ -50,7 +50,7 @@ public class TutorResponseTimeoutJob(IServiceProvider sp, ILogger<TutorResponseT
         // Find bookings in pending_tutor status whose response deadline has passed
         var expired = await db.Bookings
             .Include(b => b.Chatchannels)
-            .Include(b => b.Lessons)
+            .Include(b => b.ClassSessions)
             .Where(b => b.Status == BookingStatus.PendingTutor
                         && b.Responsedeadline != null
                         && b.Responsedeadline < now)
@@ -76,8 +76,8 @@ public class TutorResponseTimeoutJob(IServiceProvider sp, ILogger<TutorResponseT
                 // Close associated chat channels
                 foreach (var ch in b.Chatchannels)
                     ch.Status = ChatChannelStatus.Closed;
-                foreach (var lesson in b.Lessons.Where(l => l.Status == LessonStatus.Reserved))
-                    lesson.Status = LessonStatus.Cancelled;
+                foreach (var classSession in b.ClassSessions.Where(l => l.Status == ClassSessionStatus.Reserved))
+                    classSession.Status = ClassSessionStatus.Cancelled;
 
                 await RefundPaidBookingAsync(db, b, now, ct);
 

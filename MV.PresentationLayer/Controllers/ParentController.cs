@@ -12,7 +12,7 @@ using System.Security.Claims;
 namespace MV.PresentationLayer.Controllers;
 
 /// <summary>
-/// Controller for parent — lesson management and student management
+/// Controller for parent — classSession management and student management
 /// </summary>
 [ApiController]
 [Route("api/parent")]
@@ -21,18 +21,18 @@ public class ParentController : ControllerBase
 {
     private readonly IParentService _parentService;
     private readonly IStudentService _studentService;
-    private readonly ILessonService _lessonService;
+    private readonly IClassSessionService _classSessionService;
     private readonly ILogger<ParentController> _logger;
 
     public ParentController(
         IParentService parentService,
         IStudentService studentService,
-        ILessonService lessonService,
+        IClassSessionService classSessionService,
         ILogger<ParentController> logger)
     {
         _parentService = parentService;
         _studentService = studentService;
-        _lessonService = lessonService;
+        _classSessionService = classSessionService;
         _logger = logger;
     }
 
@@ -44,61 +44,86 @@ public class ParentController : ControllerBase
     // =====================================================================
 
     /// <summary>
-    /// Get lessons pending confirmation
+    /// Get classSessions pending confirmation
     /// </summary>
-    [HttpGet("lessons/pending")]
+    [HttpGet("class-sessions/pending")]
     [Authorize(Roles = UserRole.ParentOrStudent)]
-    public async Task<ActionResult<APIResponse<List<PendingLessonResponse>>>> GetPendingLessons()
+    public async Task<ActionResult<APIResponse<List<PendingClassSessionResponse>>>> GetPendingClassSessions()
     {
         try
         {
             var userId = UserHelper.GetUserId(User);
             var role = User.FindFirstValue(ClaimTypes.Role) ?? "";
-            _logger.LogInformation("GetPendingLessons called for userId: {UserId}, role: {Role}", userId, role);
-            var result = await _parentService.GetPendingLessonsAsync(userId, role);
-            return Ok(APIResponse<List<PendingLessonResponse>>.Success(result, "Lấy danh sách buổi học chờ xác nhận thành công."));
+            _logger.LogInformation("GetPendingClassSessions called for userId: {UserId}, role: {Role}", userId, role);
+            var result = await _parentService.GetPendingClassSessionsAsync(userId, role);
+            return Ok(APIResponse<List<PendingClassSessionResponse>>.Success(result, "Lấy danh sách buổi học chờ xác nhận thành công."));
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "GetPendingLessons FAILED: {Message}", ex.Message);
-            return StatusCode(500, APIResponse<List<PendingLessonResponse>>.Fail($"Lỗi hệ thống: {ex.Message}"));
+            _logger.LogError(ex, "GetPendingClassSessions FAILED: {Message}", ex.Message);
+            return StatusCode(500, APIResponse<List<PendingClassSessionResponse>>.Fail($"Lỗi hệ thống: {ex.Message}"));
         }
     }
 
     /// <summary>
-    /// Get lesson detail
+    /// Get classSession detail
     /// </summary>
-    [HttpGet("lessons/{id}")]
+    [HttpGet("class-sessions/{id}")]
     [Authorize(Roles = UserRole.ParentOrStudent)]
-    public async Task<ActionResult<APIResponse<LessonDetailResponse>>> GetLessonDetail(int id)
+    public async Task<ActionResult<APIResponse<ClassSessionDetailResponse>>> GetClassSessionDetail(int id)
     {
         var userId = UserHelper.GetUserId(User);
         var role = User.FindFirstValue(ClaimTypes.Role) ?? "";
-        var result = await _parentService.GetLessonDetailAsync(id, userId, role);
+        var result = await _parentService.GetClassSessionDetailAsync(id, userId, role);
 
         if (result == null)
-            return NotFound(APIResponse<LessonDetailResponse>.Fail(ApiMessages.LessonNotFound));
+            return NotFound(APIResponse<ClassSessionDetailResponse>.Fail(ApiMessages.ClassSessionNotFound));
 
-        return Ok(APIResponse<LessonDetailResponse>.Success(result, "Lấy chi tiết buổi học thành công."));
+        return Ok(APIResponse<ClassSessionDetailResponse>.Success(result, "Lấy chi tiết buổi học thành công."));
     }
 
     /// <summary>
-    /// Confirm a lesson as completed
+    /// Confirm a classSession as completed
     /// </summary>
-    [HttpPut("lessons/{id}/confirm")]
+    [HttpPut("class-sessions/{id}/confirm")]
     [Authorize(Roles = UserRole.ParentOrStudent)]
-    public async Task<ActionResult<APIResponse<SettlementResultResponse>>> ConfirmLesson(int id)
+    public async Task<ActionResult<APIResponse<SettlementResultResponse>>> ConfirmClassSession(int id)
     {
         var userId = UserHelper.GetUserId(User);
         var role = User.FindFirstValue(ClaimTypes.Role) ?? "";
-        var result = await _parentService.ConfirmLessonAsync(id, userId, role);
+        var result = await _parentService.ConfirmClassSessionAsync(id, userId, role);
         return Ok(APIResponse<SettlementResultResponse>.Success(result, "Xác nhận buổi học thành công."));
+    }
+
+    /// <summary>
+    /// Create a dispute for a classSession (no_show / quality / payment / other).
+    /// ClassSession must be PendingConfirmation or Completed, and not already disputed.
+    /// </summary>
+    [HttpPost("class-sessions/{id}/dispute")]
+    [Authorize(Roles = UserRole.ParentOrStudent)]
+    public async Task<ActionResult<APIResponse<DisputeDetailResponse>>> CreateDispute(int id, [FromBody] CreateDisputeRequest request)
+    {
+        var userId = UserHelper.GetUserId(User);
+        var role = User.FindFirstValue(ClaimTypes.Role) ?? "";
+        try
+        {
+            var result = await _parentService.CreateDisputeAsync(id, userId, role, request);
+            return Ok(APIResponse<DisputeDetailResponse>.Success(result, "Đã gửi khiếu nại thành công."));
+        }
+        catch (ClassSessionException ex)
+        {
+            return StatusCode(ex.HttpStatus, APIResponse<object>.Fail(ex.Message, ex.HttpStatus));
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(APIResponse<object>.Fail(ex.Message, 400));
+        }
     }
 
     /// <summary>
     /// Get parent/student calendar view
     /// </summary>
-    [HttpGet("lessons/calendar")]
+    [HttpGet("class-sessions/calendar")]
     [Authorize(Roles = UserRole.ParentOrStudent)]
     public async Task<ActionResult<APIResponse<List<CalendarDayResponse>>>> GetCalendar(
         [FromQuery] DateTime? startDate,

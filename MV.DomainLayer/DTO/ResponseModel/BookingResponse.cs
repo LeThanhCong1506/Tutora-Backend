@@ -50,14 +50,14 @@ public class BookingPackageResponse
     public int PackageType { get; set; }
 }
 
-public class BookingLessonSlotResponse
+public class BookingClassSessionSlotResponse
 {
-    public int LessonId { get; set; }
+    public int ClassSessionId { get; set; }
     public int SessionIndex { get; set; }
     public DateTime ScheduledStart { get; set; }
     public DateTime ScheduledEnd { get; set; }
     public string? Status { get; set; }
-    public decimal? LessonPrice { get; set; }
+    public decimal? ClassSessionPrice { get; set; }
 }
 
 public class BookingResponse
@@ -85,7 +85,7 @@ public class BookingResponse
     public string? PaymentStatus { get; set; }
     public string? PaymentCode { get; set; }
     public List<ScheduleItemResponse>? Schedule { get; set; }
-    public List<BookingLessonSlotResponse>? Lessons { get; set; }
+    public List<BookingClassSessionSlotResponse>? ClassSessions { get; set; }
     public DateTime? StartDate { get; set; }
     public DateTime? CreatedAt { get; set; }
     public DateTime? PaymentDueAt { get; set; }

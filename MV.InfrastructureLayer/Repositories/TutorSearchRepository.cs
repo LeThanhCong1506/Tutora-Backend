@@ -199,10 +199,10 @@ namespace MV.InfrastructureLayer.Repositories
             // ==================== LESSON & STUDENT COUNTS (cho trang hiện tại) ====================
             var tutorIds = items.Select(u => u.Userid).ToList();
 
-            var lessonCounts = await _context.Lessons
+            var classSessionCounts = await _context.ClassSessions
                 .Where(l => l.Tutorid != null && tutorIds.Contains(l.Tutorid)
-                    && l.Status != LessonStatus.Cancelled
-                    && l.Status != LessonStatus.CancelledNoshow
+                    && l.Status != ClassSessionStatus.Cancelled
+                    && l.Status != ClassSessionStatus.CancelledNoshow
                     && l.Booking != null && PaidBookingStatuses.Contains(l.Booking.Status!))
                 .GroupBy(l => l.Tutorid!)
                 .Select(g => new { TutorId = g.Key, Count = g.Count() })
@@ -221,7 +221,7 @@ namespace MV.InfrastructureLayer.Repositories
             var results = items.Select(u =>
             {
                 var dto = MapToSearchResult(u);
-                dto.TotalLessons = lessonCounts.TryGetValue(u.Userid, out var lessonCount) ? lessonCount : 0;
+                dto.TotalClassSessions = classSessionCounts.TryGetValue(u.Userid, out var classSessionCount) ? classSessionCount : 0;
                 dto.TotalStudents = studentCounts.TryGetValue(u.Userid, out var studentCount) ? studentCount : 0;
                 return dto;
             }).ToList();

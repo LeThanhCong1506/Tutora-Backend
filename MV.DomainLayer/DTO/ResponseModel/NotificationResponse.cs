@@ -8,7 +8,7 @@ namespace MV.DomainLayer.DTO.ResponseModel
         public string Message { get; set; } = null!;
         /// <summary>Notification type — e.g. booking_new, payment_success, warning. See NotificationType constants.</summary>
         public string? Type { get; set; }
-        /// <summary>ID of the referenced entity (bookingId, lessonId, warningId…) for deep-link navigation.</summary>
+        /// <summary>ID of the referenced entity (bookingId, classSessionId, warningId…) for deep-link navigation.</summary>
         public string? Referenceid { get; set; }
         public bool? Isread { get; set; }
         public DateTime? Createdat { get; set; }

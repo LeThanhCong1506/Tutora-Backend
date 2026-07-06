@@ -24,7 +24,7 @@ public class BookingRepository(AgoraDbContext context) : IBookingRepository
             .Include(b => b.Tutorsubjectgradeprice).ThenInclude(p => p!.Subject)
             .Include(b => b.Tutorsubjectgradeprice).ThenInclude(p => p!.Gradelevel)
             .Include(b => b.Package)
-            .Include(b => b.Lessons)
+            .Include(b => b.ClassSessions)
             .FirstOrDefaultAsync(b => b.Bookingid == id);
 
     public Task<Booking?> FindWithSubjectAsync(int id)
@@ -41,7 +41,7 @@ public class BookingRepository(AgoraDbContext context) : IBookingRepository
             .Include(b => b.Tutorsubjectgradeprice).ThenInclude(p => p!.Subject)
             .Include(b => b.Tutorsubjectgradeprice).ThenInclude(p => p!.Gradelevel)
             .Include(b => b.Package)
-            .Include(b => b.Lessons)
+            .Include(b => b.ClassSessions)
             .FirstOrDefaultAsync(b => b.Bookingid == id &&
                 (b.Parentid == userId || b.Studentid == userId || b.Student!.Linkeduserid == userId || b.Tutorid == userId));
 
@@ -56,7 +56,7 @@ public class BookingRepository(AgoraDbContext context) : IBookingRepository
             .Include(b => b.Tutorsubjectgradeprice).ThenInclude(p => p!.Subject)
             .Include(b => b.Tutorsubjectgradeprice).ThenInclude(p => p!.Gradelevel)
             .Include(b => b.Package)
-            .Include(b => b.Lessons)
+            .Include(b => b.ClassSessions)
             .Where(b => b.Parentid == parentId);
 
         if (!string.IsNullOrWhiteSpace(status))
@@ -82,7 +82,7 @@ public class BookingRepository(AgoraDbContext context) : IBookingRepository
             .Include(b => b.Tutorsubjectgradeprice).ThenInclude(p => p!.Subject)
             .Include(b => b.Tutorsubjectgradeprice).ThenInclude(p => p!.Gradelevel)
             .Include(b => b.Package)
-            .Include(b => b.Lessons)
+            .Include(b => b.ClassSessions)
             .Where(b => b.Studentid != null && ids.Contains(b.Studentid));
 
         if (!string.IsNullOrWhiteSpace(status))
@@ -107,7 +107,7 @@ public class BookingRepository(AgoraDbContext context) : IBookingRepository
             .Include(b => b.Tutorsubjectgradeprice).ThenInclude(p => p!.Subject)
             .Include(b => b.Tutorsubjectgradeprice).ThenInclude(p => p!.Gradelevel)
             .Include(b => b.Package)
-            .Include(b => b.Lessons)
+            .Include(b => b.ClassSessions)
             .Where(b => b.Tutorid == tutorId);
 
         if (!string.IsNullOrWhiteSpace(status))

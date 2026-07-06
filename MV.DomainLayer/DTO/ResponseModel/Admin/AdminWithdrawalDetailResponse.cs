@@ -34,7 +34,7 @@ public class TutorInfoResponse
     public string? Email { get; set; }
     public string? Phone { get; set; }
     public int AccountAgeDays { get; set; }
-    public int CompletedLessons { get; set; }
+    public int CompletedClassSessions { get; set; }
     public decimal TotalEarnings { get; set; }
     public DateTime JoinedAt { get; set; }
 }

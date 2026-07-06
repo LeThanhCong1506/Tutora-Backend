@@ -13,19 +13,19 @@ namespace MV.PresentationLayer.Controllers
     [ApiController]
     [Route("api/student")]
     [Authorize(Roles = UserRole.Student)]
-    public class StudentLessonController : ControllerBase
+    public class StudentClassSessionController : ControllerBase
     {
         private readonly ISettlementService _settlementService;
-        private readonly ILessonService _lessonService;
+        private readonly IClassSessionService _classSessionService;
         private readonly IStudentRepository _studentRepository;
 
-        public StudentLessonController(
+        public StudentClassSessionController(
             ISettlementService settlementService,
-            ILessonService lessonService,
+            IClassSessionService classSessionService,
             IStudentRepository studentRepository)
         {
             _settlementService = settlementService;
-            _lessonService = lessonService;
+            _classSessionService = classSessionService;
             _studentRepository = studentRepository;
         }
 
@@ -37,42 +37,42 @@ namespace MV.PresentationLayer.Controllers
             return profile?.Studentid;
         }
 
-        // 1. GET /api/student/lessons
-        [HttpGet("lessons")]
-        public async Task<IActionResult> GetStudentLessons(int page = 1, int pageSize = 10, string? status = null)
+        // 1. GET /api/student/classSessions
+        [HttpGet("class-sessions")]
+        public async Task<IActionResult> GetStudentClassSessions(int page = 1, int pageSize = 10, string? status = null)
         {
             var studentId = await GetMyStudentProfileId();
             if (studentId == null) return NotFound(APIResponse<object>.Fail("Không tìm thấy hồ sơ học sinh.", 404));
 
-            var (items, total) = await _lessonService.GetStudentLessonsAsync(studentId, page, pageSize, status);
+            var (items, total) = await _classSessionService.GetStudentClassSessionsAsync(studentId, page, pageSize, status);
             return Ok(APIResponse<object>.Success(new { items, totalCount = total }));
         }
 
-        // 2. GET /api/student/lessons/{id}
-        [HttpGet("lessons/{id}")]
-        public async Task<IActionResult> GetLessonDetail(int id)
+        // 2. GET /api/student/classSessions/{id}
+        [HttpGet("class-sessions/{id}")]
+        public async Task<IActionResult> GetClassSessionDetail(int id)
         {
             var studentId = await GetMyStudentProfileId();
             if (studentId == null) return NotFound(APIResponse<object>.Fail("Không tìm thấy hồ sơ học sinh.", 404));
 
-            var lesson = await _lessonService.GetStudentLessonDetailAsync(id, studentId);
-            if (lesson == null) return NotFound(APIResponse<object>.Fail(ApiMessages.LessonNotFound, 404));
-            return Ok(APIResponse<object>.Success(lesson));
+            var classSession = await _classSessionService.GetStudentClassSessionDetailAsync(id, studentId);
+            if (classSession == null) return NotFound(APIResponse<object>.Fail(ApiMessages.ClassSessionNotFound, 404));
+            return Ok(APIResponse<object>.Success(classSession));
         }
 
-        // 3. GET /api/student/lessons/pending
-        [HttpGet("lessons/pending")]
-        public async Task<IActionResult> GetPendingLessons()
+        // 3. GET /api/student/classSessions/pending
+        [HttpGet("class-sessions/pending")]
+        public async Task<IActionResult> GetPendingClassSessions()
         {
             var studentId = await GetMyStudentProfileId();
             if (studentId == null) return NotFound(APIResponse<object>.Fail("Không tìm thấy hồ sơ học sinh.", 404));
 
-            var lessons = await _lessonService.GetStudentPendingLessonsAsync(studentId);
-            return Ok(APIResponse<object>.Success(lessons));
+            var classSessions = await _classSessionService.GetStudentPendingClassSessionsAsync(studentId);
+            return Ok(APIResponse<object>.Success(classSessions));
         }
 
-        // 4. GET /api/student/lessons/calendar
-        [HttpGet("lessons/calendar")]
+        // 4. GET /api/student/classSessions/calendar
+        [HttpGet("class-sessions/calendar")]
         public async Task<ActionResult<APIResponse<List<CalendarDayResponse>>>> GetCalendar(
             [FromQuery] DateTime? startDate,
             [FromQuery] DateTime? endDate)
@@ -81,24 +81,24 @@ namespace MV.PresentationLayer.Controllers
             var start = startDate ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow.Date;
             var end = endDate ?? start.AddDays(30);
 
-            var result = await _lessonService.GetStudentCalendarAsync(userId, start, end);
+            var result = await _classSessionService.GetStudentCalendarAsync(userId, start, end);
             return Ok(APIResponse<List<CalendarDayResponse>>.Success(result, "Lấy lịch học thành công."));
         }
 
-        // 5. PUT /api/student/lessons/{id}/confirm
-        [HttpPut("lessons/{id}/confirm")]
-        public async Task<IActionResult> ConfirmLesson(int id)
+        // 5. PUT /api/student/classSessions/{id}/confirm
+        [HttpPut("class-sessions/{id}/confirm")]
+        public async Task<IActionResult> ConfirmClassSession(int id)
         {
             var studentId = await GetMyStudentProfileId();
             if (studentId == null) return NotFound(APIResponse<object>.Fail("Không tìm thấy hồ sơ học sinh.", 404));
 
-            var lesson = await _lessonService.GetStudentLessonDetailAsync(id, studentId);
-            if (lesson == null) return NotFound(APIResponse<object>.Fail(ApiMessages.LessonNotFound, 404));
+            var classSession = await _classSessionService.GetStudentClassSessionDetailAsync(id, studentId);
+            if (classSession == null) return NotFound(APIResponse<object>.Fail(ApiMessages.ClassSessionNotFound, 404));
 
-            if (lesson.Status != LessonStatus.PendingConfirmation)
-                return BadRequest(APIResponse<object>.Fail($"Không thể xác nhận buổi học có trạng thái '{lesson.Status}'. Chỉ buổi học ở trạng thái 'pending_confirmation' mới có thể xác nhận.", 400));
+            if (classSession.Status != ClassSessionStatus.PendingConfirmation)
+                return BadRequest(APIResponse<object>.Fail($"Không thể xác nhận buổi học có trạng thái '{classSession.Status}'. Chỉ buổi học ở trạng thái 'pending_confirmation' mới có thể xác nhận.", 400));
 
-            await _settlementService.SettleLessonAsync(id, UserId ?? "");
+            await _settlementService.SettleClassSessionAsync(id, UserId ?? "");
             return Ok(APIResponse<object>.Success("Xác nhận buổi học thành công."));
         }
     }

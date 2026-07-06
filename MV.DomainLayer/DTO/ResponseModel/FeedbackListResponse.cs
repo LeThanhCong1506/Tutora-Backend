@@ -6,7 +6,7 @@
 public class FeedbackListResponse
 {
     public int FeedbackId { get; set; }
-    public int? LessonId { get; set; }
+    public int? ClassSessionId { get; set; }
     public int? BookingId { get; set; }
 
     public int Rating { get; set; }

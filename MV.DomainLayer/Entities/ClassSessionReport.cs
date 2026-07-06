@@ -3,11 +3,11 @@ using System.Collections.Generic;
 
 namespace MV.DomainLayer.Entities;
 
-public partial class Lessonreport
+public partial class ClassSessionReport
 {
     public int Reportid { get; set; }
 
-    public int? Lessonid { get; set; }
+    public int? Classsessionid { get; set; }
 
     public string? Createdbytutorid { get; set; }
 
@@ -23,5 +23,5 @@ public partial class Lessonreport
 
     public virtual Tutorprofile? Createdbytutor { get; set; }
 
-    public virtual Lesson? Lesson { get; set; }
+    public virtual ClassSession? ClassSession { get; set; }
 }

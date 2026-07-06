@@ -16,4 +16,6 @@ public partial class Gradelevel
     public virtual ICollection<Studentprofile> Studentprofiles { get; set; } = new List<Studentprofile>();
 
     public virtual ICollection<Tutorsubjectgradeprice> Tutorsubjectgradeprices { get; set; } = new List<Tutorsubjectgradeprice>();
+
+    public virtual ICollection<QuestionBank> QuestionBanks { get; set; } = new List<QuestionBank>();
 }

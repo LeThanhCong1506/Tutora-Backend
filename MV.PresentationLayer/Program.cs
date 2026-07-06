@@ -211,6 +211,8 @@ builder.Services.AddCors(options =>
                     "https://www.tutora.vn", "https://tutora.vn", "https://tutorahelps.vercel.app",
                     // Vite app sau cutover sang Next (portal + auth)
                     "https://app.tutora.vn",
+                    // Developer app
+                    "https://tutora-developer.vercel.app",
                     // Zalo Mini App domains
                     "https://h5.zalo.me", "https://h5.zadn.vn", "https://h5.zdn.vn", "https://miniapp-cdn.zalo.me")
                   .AllowAnyHeader()
@@ -285,7 +287,7 @@ builder.Services.AddScoped<IDisputeRepository, DisputeRepository>();
 builder.Services.AddScoped<IWarningRepository, WarningRepository>();
 builder.Services.AddScoped<IChatRepository, ChatRepository>();
 builder.Services.AddScoped<IAiChatRepository, AiChatRepository>();
-builder.Services.AddScoped<ILessonRepository, LessonRepository>();
+builder.Services.AddScoped<IClassSessionRepository, ClassSessionRepository>();
 builder.Services.AddScoped<IWalletRepository, WalletRepository>();
 builder.Services.AddScoped<IWithdrawalRepository, WithdrawalRepository>();
 builder.Services.AddScoped<ITutorRepository, TutorRepository>();
@@ -321,13 +323,13 @@ builder.Services.AddScoped<IChatService, ChatService>();
 builder.Services.AddScoped<IAiChatService, AiChatService>();
 builder.Services.AddScoped<IPaymentService, PaymentService>();
 builder.Services.AddScoped<IWalletService, WalletService>();
-builder.Services.AddScoped<ILessonService, LessonService>();
+builder.Services.AddScoped<IClassSessionService, ClassSessionService>();
 builder.Services.AddScoped<ITencentRTCService, TencentRTCService>();
 builder.Services.AddScoped<ITutorFinanceService, TutorFinanceService>();
 
 builder.Services.AddHttpContextAccessor();
 
-// M3: Lesson Management & Settlement
+// M3: ClassSession Management & Settlement
 builder.Services.AddScoped<ISettlementService, SettlementService>();
 builder.Services.AddScoped<IParentService, ParentService>();
 builder.Services.AddScoped<IDisputeService, DisputeService>();
@@ -413,9 +415,9 @@ builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
 //builder.Services.AddHostedService<EmailConsumerService>();
 builder.Services.AddHostedService<PaymentTimeoutJob>();
 builder.Services.AddHostedService<TutorResponseTimeoutJob>();
-builder.Services.AddHostedService<AutoConfirmLessonJob>();
+builder.Services.AddHostedService<AutoConfirmClassSessionJob>();
 builder.Services.AddHostedService<AutoUnsuspendJob>();
-builder.Services.AddHostedService<LessonReminderJob>();
+builder.Services.AddHostedService<ClassSessionReminderJob>();
 builder.Services.AddHostedService<RemainingPaymentTriggerJob>();
 // M4-T6: Background Jobs - Reconciliation only (Hangfire handles payout jobs)
 builder.Services.AddHostedService<ReconciliationJob>();

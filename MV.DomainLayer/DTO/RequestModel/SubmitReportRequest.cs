@@ -3,12 +3,12 @@ using System.ComponentModel.DataAnnotations;
 namespace MV.DomainLayer.DTO.RequestModel;
 
 /// <summary>
-/// Request for tutor to submit lesson report after class
+/// Request for tutor to submit classSession report after class
 /// </summary>
 public class SubmitReportRequest
 {
     /// <summary>
-    /// Content covered in the lesson
+    /// Content covered in the classSession
     /// </summary>
     [Required(ErrorMessage = "Nội dung buổi học là bắt buộc")]
     [StringLength(2000, ErrorMessage = "Nội dung không được vượt quá 2000 ký tự")]

@@ -189,7 +189,7 @@ public class ChatService(
         return response;
     }
 
-    public async Task SendMeetLinksAsync(int bookingId, List<LessonMiniResponse> lessons)
+    public async Task SendMeetLinksAsync(int bookingId, List<ClassSessionMiniResponse> classSessions)
     {
         var booking = await bookingRepo.FindWithStudentAsync(bookingId);
         if (booking == null) return;
@@ -200,7 +200,7 @@ public class ChatService(
 
                 var senderId = booking.Tutorid ?? SystemActors.System;
 
-        var meetLinks = lessons
+        var meetLinks = classSessions
             .Where(l => !string.IsNullOrWhiteSpace(l.MeetingLink))
             .Select((l, i) => new ChatMessageCreateRequest
             {

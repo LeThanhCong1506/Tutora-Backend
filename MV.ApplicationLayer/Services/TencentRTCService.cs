@@ -70,13 +70,13 @@ public class TencentRTCService(
     }
 
     /// <inheritdoc/>
-    public TRTCRoomInfo GetRoomInfo(int lessonId, string userId)
+    public TRTCRoomInfo GetRoomInfo(int classSessionId, string userId)
     {
         var userSig = GenerateUserSig(userId);
         var expireAt = (int)(DateTimeOffset.UtcNow.ToUnixTimeSeconds() + _settings.TokenExpireSeconds);
 
         return new TRTCRoomInfo(
-            RoomId: lessonId,
+            RoomId: classSessionId,
             UserId: userId,
             UserSig: userSig,
             SdkAppId: _settings.SdkAppId,

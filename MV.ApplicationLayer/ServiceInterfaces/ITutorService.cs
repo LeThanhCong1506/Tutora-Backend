@@ -72,7 +72,7 @@ namespace MV.ApplicationLayer.ServiceInterfaces
         // ── Pricing ───────────────────────────────────────────────────────
 
         /// <summary>
-        /// Tutor's current hourly rate, trial lesson price, and negotiation flag.
+        /// Tutor's current hourly rate, trial classSession price, and negotiation flag.
         /// </summary>
         Task<TutorPricingResponse?> GetTutorPricingAsync(string tutorId);
 

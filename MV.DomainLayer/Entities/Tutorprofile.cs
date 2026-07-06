@@ -102,9 +102,9 @@ public partial class Tutorprofile
 
     public virtual ICollection<Handoversummary> HandoversummaryTotutors { get; set; } = new List<Handoversummary>();
 
-    public virtual ICollection<Lessonreport> Lessonreports { get; set; } = new List<Lessonreport>();
+    public virtual ICollection<ClassSessionReport> ClassSessionReports { get; set; } = new List<ClassSessionReport>();
 
-    public virtual ICollection<Lesson> Lessons { get; set; } = new List<Lesson>();
+    public virtual ICollection<ClassSession> ClassSessions { get; set; } = new List<ClassSession>();
 
     public virtual ICollection<Studentgrade> Studentgrades { get; set; } = new List<Studentgrade>();
 

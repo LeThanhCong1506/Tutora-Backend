@@ -1,9 +1,9 @@
 namespace MV.DomainLayer.DTO.RequestModel;
 
 /// <summary>
-/// Query parameters for tutor lesson list
+/// Query parameters for tutor classSession list
 /// </summary>
-public class TutorLessonQueryRequest
+public class TutorClassSessionQueryRequest
 {
     /// <summary>
     /// Filter by status (scheduled, in_progress, pending_confirmation, completed, cancelled, disputed)

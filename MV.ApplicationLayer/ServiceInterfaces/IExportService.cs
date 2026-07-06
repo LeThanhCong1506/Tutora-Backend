@@ -37,9 +37,9 @@ namespace MV.ApplicationLayer.ServiceInterfaces
         // ── Tutor export methods ───────────────────────────────────────────
 
         /// <summary>
-        /// Export tutor lesson reports to Excel, optionally filtered by date range.
+        /// Export tutor classSession reports to Excel, optionally filtered by date range.
         /// </summary>
-        Task<byte[]> ExportTutorLessonReportsAsync(string tutorId, DateTime? fromDate, DateTime? toDate);
+        Task<byte[]> ExportTutorClassSessionReportsAsync(string tutorId, DateTime? fromDate, DateTime? toDate);
 
         /// <summary>
         /// Export tutor earnings/settlement history to Excel, optionally filtered by date range.

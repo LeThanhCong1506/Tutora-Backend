@@ -12,7 +12,7 @@ public static class ApiMessages
     public const string InvalidRequestData = "Invalid request data";
     public const string GenericErrorPrefix = "An error occurred: ";
     public const string BookingNotFound = "Booking not found";
-    public const string LessonNotFound = "Lesson not found";
+    public const string ClassSessionNotFound = "Class session not found";
     public const string TutorProfileNotFound = "Tutor profile not found";
     public const string UserNotFound = "User not found";
     public const string UserNotFoundWithPeriod = "User not found.";

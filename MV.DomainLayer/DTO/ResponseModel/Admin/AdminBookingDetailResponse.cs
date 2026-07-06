@@ -32,7 +32,7 @@ public class AdminBookingDetailResponse
 
     // ── New fields ───────────────────────────────────────────────────────────
     public List<BookingTimelineEvent> Timeline { get; set; } = new();
-    public List<AdminBookingLessonItem> Lessons { get; set; } = new();
+    public List<AdminBookingClassSessionItem> ClassSessions { get; set; } = new();
     public AdminBookingPaymentBreakdown PaymentBreakdown { get; set; } = new();
 }
 
@@ -90,18 +90,18 @@ public class BookingTimelineEvent
     public DateTime OccurredAt { get; set; }
 }
 
-// ── Lessons ───────────────────────────────────────────────────────────────────
+// ── ClassSessions ───────────────────────────────────────────────────────────────────
 
-public class AdminBookingLessonItem
+public class AdminBookingClassSessionItem
 {
-    public int LessonId { get; set; }
-    public int LessonNumber { get; set; }
+    public int ClassSessionId { get; set; }
+    public int ClassSessionNumber { get; set; }
     public string? Status { get; set; }
     public DateTime ScheduledStart { get; set; }
     public DateTime ScheduledEnd { get; set; }
     public DateTime? RealStart { get; set; }
     public DateTime? RealEnd { get; set; }
-    public decimal? LessonPrice { get; set; }
+    public decimal? ClassSessionPrice { get; set; }
     public bool? IsSettled { get; set; }
     public bool? IsMakeup { get; set; }
     public string? TutorNotes { get; set; }

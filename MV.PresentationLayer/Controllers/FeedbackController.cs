@@ -25,7 +25,7 @@ public class FeedbackController : ControllerBase
     }
 
     /// <summary>
-    /// Create feedback for a lesson (parent)
+    /// Create feedback for a classSession (parent)
     /// </summary>
     [HttpPost]
     public async Task<ActionResult<APIResponse<FeedbackListResponse>>> CreateFeedback([FromBody] CreateFeedbackRequest request)
@@ -74,9 +74,9 @@ public class FeedbackController : ControllerBase
     }
 
     /// <summary>
-    /// Check if user can leave feedback for a lesson
+    /// Check if user can leave feedback for a classSession
     /// </summary>
-    [HttpGet("eligibility/lessons/{id}")]
+    [HttpGet("eligibility/class-sessions/{id}")]
     public async Task<ActionResult<APIResponse<bool>>> CanLeaveFeedback(int id)
     {
         var userId = UserHelper.GetUserId(User);

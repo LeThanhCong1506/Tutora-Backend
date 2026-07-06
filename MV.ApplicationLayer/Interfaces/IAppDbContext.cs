@@ -18,12 +18,15 @@ public interface IAppDbContext
     DbSet<ChatHistory> ChatHistories { get; }
     DbSet<Class> Classes { get; }
     DbSet<Dispute> Disputes { get; }
+    DbSet<DisputeEvidence> DisputeEvidences { get; }
     DbSet<Feedback> Feedbacks { get; }
     DbSet<Handoversummary> Handoversummaries { get; }
     DbSet<Learningmaterial> Learningmaterials { get; }
-    DbSet<Lesson> Lessons { get; }
-    DbSet<Lessonreport> Lessonreports { get; }
+    DbSet<ClassSession> ClassSessions { get; }
+    DbSet<ClassSessionReport> ClassSessionReports { get; }
     DbSet<Notification> Notifications { get; }
+    DbSet<QuestionBank> QuestionBanks { get; }
+    DbSet<AiCreditTransaction> AiCreditTransactions { get; }
     DbSet<Profilesuspension> Profilesuspensions { get; }
     DbSet<Promotion> Promotions { get; }
     DbSet<Gradelevel> Gradelevels { get; }

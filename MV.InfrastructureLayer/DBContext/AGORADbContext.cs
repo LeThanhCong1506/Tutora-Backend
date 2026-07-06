@@ -37,17 +37,23 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
 
     public virtual DbSet<Dispute> Disputes { get; set; }
 
+    public virtual DbSet<DisputeEvidence> DisputeEvidences { get; set; }
+
     public virtual DbSet<Feedback> Feedbacks { get; set; }
 
     public virtual DbSet<Handoversummary> Handoversummaries { get; set; }
 
     public virtual DbSet<Learningmaterial> Learningmaterials { get; set; }
 
-    public virtual DbSet<Lesson> Lessons { get; set; }
+    public virtual DbSet<ClassSession> ClassSessions { get; set; }
 
-    public virtual DbSet<Lessonreport> Lessonreports { get; set; }
+    public virtual DbSet<ClassSessionReport> ClassSessionReports { get; set; }
 
     public virtual DbSet<Notification> Notifications { get; set; }
+
+    public virtual DbSet<QuestionBank> QuestionBanks { get; set; }
+
+    public virtual DbSet<AiCreditTransaction> AiCreditTransactions { get; set; }
 
     public virtual DbSet<Profilesuspension> Profilesuspensions { get; set; }
 
@@ -681,7 +687,7 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
             entity.Property(e => e.Evidence)
                 .HasColumnType("jsonb")
                 .HasColumnName("evidence");
-            entity.Property(e => e.Lessonid).HasColumnName("lesson_id");
+            entity.Property(e => e.Classsessionid).HasColumnName("class_session_id");
             entity.Property(e => e.Reason).HasColumnName("reason");
             entity.Property(e => e.Refundamount)
                 .HasPrecision(12, 2)
@@ -709,13 +715,46 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
                 .HasForeignKey(d => d.Createdby)
                 .HasConstraintName("disputes_createdby_fkey");
 
-            entity.HasOne(d => d.Lesson).WithMany(p => p.Disputes)
-                .HasForeignKey(d => d.Lessonid)
+            entity.HasOne(d => d.ClassSession).WithMany(p => p.Disputes)
+                .HasForeignKey(d => d.Classsessionid)
                 .HasConstraintName("disputes_lessonid_fkey");
 
             entity.HasOne(d => d.ResolvedbyNavigation).WithMany(p => p.DisputeResolvedbyNavigations)
                 .HasForeignKey(d => d.Resolvedby)
                 .HasConstraintName("disputes_resolvedby_fkey");
+        });
+
+        modelBuilder.Entity<DisputeEvidence>(entity =>
+        {
+            entity.HasKey(e => e.Disputeevidenceid).HasName("dispute_evidences_pkey");
+
+            entity.ToTable("dispute_evidences");
+
+            entity.HasIndex(e => e.Disputeid, "idx_dispute_evidences_dispute");
+
+            entity.Property(e => e.Disputeevidenceid).HasColumnName("dispute_evidence_id");
+            entity.Property(e => e.Disputeid).HasColumnName("dispute_id");
+            entity.Property(e => e.Uploadedby)
+                .HasMaxLength(50)
+                .HasColumnName("uploaded_by");
+            entity.Property(e => e.Fileurl).HasColumnName("file_url");
+            entity.Property(e => e.Filetype)
+                .HasMaxLength(50)
+                .HasColumnName("file_type");
+            entity.Property(e => e.Description).HasColumnName("description");
+            entity.Property(e => e.Createdat)
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
+                .HasColumnType("timestamp without time zone")
+                .HasColumnName("created_at");
+
+            entity.HasOne(d => d.Dispute).WithMany(p => p.DisputeEvidences)
+                .HasForeignKey(d => d.Disputeid)
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("dispute_evidences_disputeid_fkey");
+
+            entity.HasOne(d => d.UploadedbyNavigation).WithMany(p => p.DisputeEvidences)
+                .HasForeignKey(d => d.Uploadedby)
+                .HasConstraintName("dispute_evidences_uploadedby_fkey");
         });
 
         modelBuilder.Entity<Feedback>(entity =>
@@ -743,7 +782,7 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
             entity.Property(e => e.Isvisible)
                 .HasDefaultValue(true)
                 .HasColumnName("is_visible");
-            entity.Property(e => e.Lessonid).HasColumnName("lesson_id");
+            entity.Property(e => e.Classsessionid).HasColumnName("class_session_id");
             entity.Property(e => e.Rating).HasColumnName("rating");
             entity.Property(e => e.Repliedat)
                 .HasColumnType("timestamp without time zone")
@@ -773,8 +812,8 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
                 .HasForeignKey(d => d.Fromuserid)
                 .HasConstraintName("feedbacks_fromuserid_fkey");
 
-            entity.HasOne(d => d.Lesson).WithMany(p => p.Feedbacks)
-                .HasForeignKey(d => d.Lessonid)
+            entity.HasOne(d => d.ClassSession).WithMany(p => p.Feedbacks)
+                .HasForeignKey(d => d.Classsessionid)
                 .HasConstraintName("feedbacks_lessonid_fkey");
 
             entity.HasOne(d => d.Touser).WithMany(p => p.FeedbackTousers)
@@ -885,17 +924,17 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
                 .HasConstraintName("learningmaterials_uploadedby_fkey");
         });
 
-        modelBuilder.Entity<Lesson>(entity =>
+        modelBuilder.Entity<ClassSession>(entity =>
         {
-            entity.HasKey(e => e.Lessonid).HasName("lessons_pkey");
+            entity.HasKey(e => e.Classsessionid).HasName("lessons_pkey");
 
-            entity.ToTable("lessons");
+            entity.ToTable("class_sessions");
 
             entity.HasIndex(e => new { e.Istutorpresent, e.Isstudentpresent }, "idx_lessons_attendance");
 
             entity.HasIndex(e => e.Autoreportsent, "idx_lessons_autoreport").HasFilter("(auto_report_sent = false)");
 
-            entity.Property(e => e.Lessonid).HasColumnName("lesson_id");
+            entity.Property(e => e.Classsessionid).HasColumnName("class_session_id");
             entity.Property(e => e.Attendancenote).HasColumnName("attendance_note");
             entity.Property(e => e.Autoreportsent)
                 .HasDefaultValue(false)
@@ -932,7 +971,7 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
             entity.Property(e => e.Noshowaction)
                 .HasMaxLength(30)
                 .HasColumnName("no_show_action");
-            entity.Property(e => e.Originallessonid).HasColumnName("original_lesson_id");
+            entity.Property(e => e.Originalsessionid).HasColumnName("original_session_id");
             entity.Property(e => e.Createdat)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnType("timestamp without time zone")
@@ -972,32 +1011,32 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
                 .HasColumnName("tutor_id");
             entity.Property(e => e.Tutornotes).HasColumnName("tutor_notes");
 
-            entity.HasOne(d => d.Booking).WithMany(p => p.Lessons)
+            entity.HasOne(d => d.Booking).WithMany(p => p.ClassSessions)
                 .HasForeignKey(d => d.Bookingid)
                 .OnDelete(DeleteBehavior.Cascade)
                 .HasConstraintName("lessons_bookingid_fkey");
 
-            entity.HasOne(d => d.Originallesson).WithMany(p => p.InverseOriginallesson)
-                .HasForeignKey(d => d.Originallessonid)
+            entity.HasOne(d => d.Originalsession).WithMany(p => p.InverseOriginalsession)
+                .HasForeignKey(d => d.Originalsessionid)
                 .HasConstraintName("lessons_originallessonid_fkey");
 
-            entity.HasOne(d => d.Student).WithMany(p => p.Lessons)
+            entity.HasOne(d => d.Student).WithMany(p => p.ClassSessions)
                 .HasForeignKey(d => d.Studentid)
                 .OnDelete(DeleteBehavior.Cascade)
                 .HasConstraintName("lessons_studentid_fkey");
 
-            entity.HasOne(d => d.Tutor).WithMany(p => p.Lessons)
+            entity.HasOne(d => d.Tutor).WithMany(p => p.ClassSessions)
                 .HasForeignKey(d => d.Tutorid)
                 .HasConstraintName("lessons_tutorid_fkey");
         });
 
-        modelBuilder.Entity<Lessonreport>(entity =>
+        modelBuilder.Entity<ClassSessionReport>(entity =>
         {
             entity.HasKey(e => e.Reportid).HasName("lessonreports_pkey");
 
-            entity.ToTable("lesson_reports");
+            entity.ToTable("class_session_reports");
 
-            entity.HasIndex(e => e.Lessonid, "lessonreports_lessonid_key").IsUnique();
+            entity.HasIndex(e => e.Classsessionid, "lessonreports_lessonid_key").IsUnique();
 
             entity.Property(e => e.Reportid).HasColumnName("report_id");
             entity.Property(e => e.Attachments)
@@ -1012,15 +1051,15 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
                 .HasMaxLength(50)
                 .HasColumnName("created_by_tutor_id");
             entity.Property(e => e.Homeworkassigned).HasColumnName("homework_assigned");
-            entity.Property(e => e.Lessonid).HasColumnName("lesson_id");
+            entity.Property(e => e.Classsessionid).HasColumnName("class_session_id");
             entity.Property(e => e.Studentperformancerating).HasColumnName("student_performance_rating");
 
-            entity.HasOne(d => d.Createdbytutor).WithMany(p => p.Lessonreports)
+            entity.HasOne(d => d.Createdbytutor).WithMany(p => p.ClassSessionReports)
                 .HasForeignKey(d => d.Createdbytutorid)
                 .HasConstraintName("lessonreports_createdbytutorid_fkey");
 
-            entity.HasOne(d => d.Lesson).WithOne(p => p.Lessonreport)
-                .HasForeignKey<Lessonreport>(d => d.Lessonid)
+            entity.HasOne(d => d.ClassSession).WithOne(p => p.ClassSessionReport)
+                .HasForeignKey<ClassSessionReport>(d => d.Classsessionid)
                 .OnDelete(DeleteBehavior.Cascade)
                 .HasConstraintName("lessonreports_lessonid_fkey");
         });
@@ -1530,6 +1569,49 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
                 .HasColumnName("created_at");
         });
 
+        modelBuilder.Entity<QuestionBank>(entity =>
+        {
+            entity.HasKey(e => e.Questionid).HasName("question_bank_pkey");
+
+            entity.ToTable("question_bank");
+
+            entity.HasIndex(e => new { e.Subjectid, e.Gradelevelid }, "idx_question_bank_subject_grade")
+                .HasFilter("(is_active = true)");
+
+            entity.Property(e => e.Questionid).HasColumnName("question_id");
+            entity.Property(e => e.Subjectid).HasColumnName("subject_id");
+            entity.Property(e => e.Gradelevelid).HasColumnName("grade_level_id");
+            entity.Property(e => e.Content).HasColumnName("content");
+            entity.Property(e => e.Answer).HasColumnName("answer");
+            entity.Property(e => e.Metadata)
+                .HasColumnType("jsonb")
+                .HasColumnName("metadata");
+            entity.Property(e => e.Embedding)
+                .HasColumnType("jsonb")
+                .HasColumnName("embedding");
+            entity.Property(e => e.Isactive)
+                .HasDefaultValue(true)
+                .HasColumnName("is_active");
+            entity.Property(e => e.Createdat)
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
+                .HasColumnType("timestamp without time zone")
+                .HasColumnName("created_at");
+            entity.Property(e => e.Updatedat)
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
+                .HasColumnType("timestamp without time zone")
+                .HasColumnName("updated_at");
+
+            entity.HasOne(d => d.Subject).WithMany(p => p.QuestionBanks)
+                .HasForeignKey(d => d.Subjectid)
+                .OnDelete(DeleteBehavior.SetNull)
+                .HasConstraintName("question_bank_subjectid_fkey");
+
+            entity.HasOne(d => d.Gradelevel).WithMany(p => p.QuestionBanks)
+                .HasForeignKey(d => d.Gradelevelid)
+                .OnDelete(DeleteBehavior.SetNull)
+                .HasConstraintName("question_bank_gradelevelid_fkey");
+        });
+
         modelBuilder.Entity<Tutorsubjectgradeprice>(entity =>
         {
             entity.HasKey(e => e.Id).HasName("tutorsubjectgradeprices_pkey");
@@ -1820,13 +1902,46 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
             entity.Property(e => e.Deactivatedat)
                 .HasColumnType("timestamp without time zone")
                 .HasColumnName("deactivated_at");
+            entity.Property(e => e.AiCreditsBalance)
+                .HasDefaultValue(0)
+                .HasColumnName("ai_credits_balance");
 
             entity.HasIndex(e => e.Parentcode, "users_parentcode_key")
                 .IsUnique()
                 .HasFilter("parent_code IS NOT NULL");
         });
 
+        modelBuilder.Entity<AiCreditTransaction>(entity =>
+        {
+            entity.HasKey(e => e.Transactionid).HasName("ai_credit_transactions_pkey");
 
+            entity.ToTable("ai_credit_transactions");
+
+            entity.HasIndex(e => new { e.Userid, e.Createdat }, "idx_ai_credit_transactions_user_createdat");
+
+            entity.Property(e => e.Transactionid).HasColumnName("transaction_id");
+            entity.Property(e => e.Userid)
+                .HasMaxLength(50)
+                .HasColumnName("user_id");
+            entity.Property(e => e.Amount).HasColumnName("amount");
+            entity.Property(e => e.Balanceafter).HasColumnName("balance_after");
+            entity.Property(e => e.Source)
+                .HasMaxLength(30)
+                .HasColumnName("source");
+            entity.Property(e => e.Referenceid)
+                .HasMaxLength(50)
+                .HasColumnName("reference_id");
+            entity.Property(e => e.Description).HasColumnName("description");
+            entity.Property(e => e.Createdat)
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
+                .HasColumnType("timestamp without time zone")
+                .HasColumnName("created_at");
+
+            entity.HasOne(d => d.User).WithMany(p => p.AiCreditTransactions)
+                .HasForeignKey(d => d.Userid)
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("ai_credit_transactions_userid_fkey");
+        });
 
         modelBuilder.Entity<Userwarning>(entity =>
         {
@@ -1957,6 +2072,7 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
             entity.Property(e => e.Userid)
                 .HasMaxLength(50)
                 .HasColumnName("user_id");
+            entity.Property(e => e.Walletid).HasColumnName("wallet_id");
 
             // PayOS tracking fields
             entity.Property(e => e.Payostransactionid)
@@ -1988,6 +2104,10 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
             entity.HasOne(d => d.User).WithMany(p => p.Withdrawalrequests)
                 .HasForeignKey(d => d.Userid)
                 .HasConstraintName("withdrawalrequests_userid_fkey");
+
+            entity.HasOne(d => d.Wallet).WithMany(p => p.Withdrawalrequests)
+                .HasForeignKey(d => d.Walletid)
+                .HasConstraintName("withdrawal_requests_walletid_fkey");
         });
 
         modelBuilder.Entity<Systemalert>(entity =>
