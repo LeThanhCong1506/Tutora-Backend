@@ -86,13 +86,13 @@ public partial class ClassSessionService : IClassSessionService
 
             if (booking.Tutorid != null && booking.Studentid != null)
             {
-                // Tencent RTC: RoomId = classSessionId (deterministic, không cần tạo link bên ngoài)
+                // Agora RTC: channel = classSessionId (deterministic, không cần tạo link bên ngoài)
                 foreach (var classSession in classSessions.Where(l => string.IsNullOrWhiteSpace(l.Meetinglink)))
                 {
                     classSession.Meetinglink = classSession.Classsessionid.ToString();
                 }
                 await _context.SaveChangesAsync(ct);
-                _logger.LogInformation("Assigned Tencent RTC RoomId for {Count} classSessions in booking {BookingId}",
+                _logger.LogInformation("Assigned Agora RTC channel for {Count} classSessions in booking {BookingId}",
                     classSessions.Count, bookingId);
             }
 
@@ -303,7 +303,7 @@ public partial class ClassSessionService : IClassSessionService
     {
         try
         {
-            // Tencent RTC: assign RoomId = classSessionId cho tất cả classSession online/hybrid sắp tới chưa có RoomId
+            // Agora RTC: assign channel = classSessionId cho tất cả classSession online/hybrid sắp tới chưa có channel
             var classSessions = await _context.ClassSessions
                 .Include(l => l.Booking)
                 .Where(l => l.Tutorid == tutorId
@@ -326,7 +326,7 @@ public partial class ClassSessionService : IClassSessionService
             }
 
             await _context.SaveChangesAsync();
-            _logger.LogInformation("Assigned Tencent RTC RoomId for {Count} classSessions for tutor {TutorId}", onlineClassSessions.Count, tutorId);
+            _logger.LogInformation("Assigned Agora RTC channel for {Count} classSessions for tutor {TutorId}", onlineClassSessions.Count, tutorId);
 
             // Gửi chat message cho từng booking (gom nhóm theo bookingId)
             var byBooking = onlineClassSessions
@@ -351,7 +351,7 @@ public partial class ClassSessionService : IClassSessionService
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "Failed to send Tencent RTC room info chat for booking {BookingId}", group.Key);
+                    _logger.LogWarning(ex, "Failed to send Agora RTC room info chat for booking {BookingId}", group.Key);
                 }
             }
         }

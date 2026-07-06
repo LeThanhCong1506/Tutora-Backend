@@ -48,7 +48,7 @@ builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
 builder.Services.Configure<GoogleGeminiSettings>(builder.Configuration.GetSection(GoogleGeminiSettings.SectionName));
 builder.Services.Configure<PaymentSettings>(builder.Configuration.GetSection(PaymentSettings.SectionName));
 builder.Services.Configure<GoogleSettings>(builder.Configuration.GetSection(GoogleSettings.SectionName));
-builder.Services.Configure<TencentRTCSettings>(builder.Configuration.GetSection(TencentRTCSettings.SectionName));
+builder.Services.Configure<AgoraSettings>(builder.Configuration.GetSection(AgoraSettings.SectionName));
 builder.Services.Configure<BankVerificationSettings>(builder.Configuration.GetSection(BankVerificationSettings.SectionName));
 builder.Services.Configure<VietQRSettings>(builder.Configuration.GetSection(VietQRSettings.SectionName));
 builder.Services.Configure<FraudDetectionSettings>(builder.Configuration.GetSection(FraudDetectionSettings.SectionName));
@@ -324,7 +324,7 @@ builder.Services.AddScoped<IAiChatService, AiChatService>();
 builder.Services.AddScoped<IPaymentService, PaymentService>();
 builder.Services.AddScoped<IWalletService, WalletService>();
 builder.Services.AddScoped<IClassSessionService, ClassSessionService>();
-builder.Services.AddScoped<ITencentRTCService, TencentRTCService>();
+builder.Services.AddScoped<IAgoraRTCService, AgoraRTCService>();
 builder.Services.AddScoped<ITutorFinanceService, TutorFinanceService>();
 
 builder.Services.AddHttpContextAccessor();
