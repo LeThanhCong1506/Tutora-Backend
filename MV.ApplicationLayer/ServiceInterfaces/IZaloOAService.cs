@@ -10,9 +10,9 @@ public interface IZaloOAService
     Task<ZaloSendResult> SendZnsOtpAsync(string phone, string otp);
 
     /// <summary>
-    /// Send a post-lesson report notification to the student's parent via Zalo OA template.
+    /// Send a post-classSession report notification to the student's parent via Zalo OA template.
     /// </summary>
-    Task<ZaloSendResult> SendLessonReportAsync(int lessonId);
+    Task<ZaloSendResult> SendClassSessionReportAsync(int classSessionId);
 
     /// <summary>
     /// Send a generic Zalo OA template message to a user with dynamic data fields.

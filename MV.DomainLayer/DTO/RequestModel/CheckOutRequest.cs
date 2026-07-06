@@ -3,7 +3,7 @@ using System.ComponentModel.DataAnnotations;
 namespace MV.DomainLayer.DTO.RequestModel;
 
 /// <summary>
-/// Request for tutor check-out at lesson end
+/// Request for tutor check-out at classSession end
 /// </summary>
 public class CheckOutRequest
 {

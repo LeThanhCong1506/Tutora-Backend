@@ -8,7 +8,7 @@ public static class FraudRuleConstants
         public const string AmountLimits = "AMOUNT_LIMITS";
         public const string NewAccountRestriction = "NEW_ACCOUNT_RESTRICTION";
         public const string BankChangeCooldown = "BANK_CHANGE_COOLDOWN";
-        public const string LessonRequired = "LESSON_REQUIRED";
+        public const string ClassSessionRequired = "LESSON_REQUIRED";
         public const string PatternDetection = "PATTERN_DETECTION";
     }
 
@@ -31,7 +31,7 @@ public static class FraudRuleConstants
         public const string AmountLimitExceeded = "AMOUNT_LIMIT_EXCEEDED";
         public const string NewAccountRestricted = "NEW_ACCOUNT_RESTRICTED";
         public const string BankChangeCooldownActive = "BANK_CHANGE_COOLDOWN_ACTIVE";
-        public const string NoCompletedLesson = "NO_COMPLETED_LESSON";
+        public const string NoCompletedClassSession = "NO_COMPLETED_LESSON";
         public const string SuspiciousPattern = "SUSPICIOUS_PATTERN";
     }
 
@@ -51,7 +51,7 @@ public static class FraudRuleConstants
         public const string BankChangeCooldown = "You must wait 24 hours after changing bank information before withdrawing funds.";
         public const string BankChangeFrequent = "You have changed bank information too many times this month. Your account will be reviewed.";
 
-        public const string NoCompletedLesson = "You must complete at least 1 lesson before withdrawing funds.";
+        public const string NoCompletedClassSession = "You must complete at least 1 class session before withdrawing funds.";
 
         public const string PatternFullBalance = "Withdrawing nearly all balance (>95%) may require additional review.";
         public const string PatternMultipleIps = "Multiple IP addresses detected in a short period.";

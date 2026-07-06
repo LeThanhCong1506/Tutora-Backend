@@ -9,7 +9,7 @@ namespace MV.ApplicationLayer.ServiceInterfaces;
 public interface IFeedbackService
 {
     /// <summary>
-    /// Create feedback for a lesson
+    /// Create feedback for a classSession
     /// </summary>
     Task<FeedbackListResponse> CreateFeedbackAsync(string fromUserId, CreateFeedbackRequest request);
 
@@ -39,9 +39,9 @@ public interface IFeedbackService
     Task RecalculateTutorRatingAsync(string tutorId);
 
     /// <summary>
-    /// Check if user can leave feedback for lesson
+    /// Check if user can leave feedback for classSession
     /// </summary>
-    Task<bool> CanLeaveFeedbackAsync(int lessonId, string userId);
+    Task<bool> CanLeaveFeedbackAsync(int classSessionId, string userId);
 
     /// <summary>
     /// Check if user can leave early termination feedback for booking

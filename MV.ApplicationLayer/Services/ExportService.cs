@@ -324,9 +324,9 @@ namespace MV.ApplicationLayer.Services
         // =====================================================
 
         /// <summary>
-        /// Export tutor lesson reports to Excel
+        /// Export tutor classSession reports to Excel
         /// </summary>
-        public async Task<byte[]> ExportTutorLessonReportsAsync(string tutorId, DateTime? fromDate, DateTime? toDate)
+        public async Task<byte[]> ExportTutorClassSessionReportsAsync(string tutorId, DateTime? fromDate, DateTime? toDate)
         {
             // Default: last 30 days if not specified
             var endDate = toDate ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
@@ -340,25 +340,25 @@ namespace MV.ApplicationLayer.Services
                 ? endDate 
                 : DateTime.SpecifyKind(endDate, DateTimeKind.Utc);
 
-            var lessons = await _context.Lessons
+            var classSessions = await _context.ClassSessions
                 .Where(l => l.Tutorid == tutorId && l.Scheduledstart >= startUtc && l.Scheduledstart <= endUtc)
                 .Include(l => l.Booking)
                     .ThenInclude(b => b!.Tutorsubjectgradeprice)
                         .ThenInclude(p => p!.Subject)
                 .Include(l => l.Student)
-                .Include(l => l.Lessonreport)
+                .Include(l => l.ClassSessionReport)
                 .OrderByDescending(l => l.Scheduledstart)
                 .ToListAsync();
 
             using (var workbook = new XLWorkbook())
             {
-                var worksheet = workbook.Worksheets.Add("Lesson Reports");
+                var worksheet = workbook.Worksheets.Add("Class Session Reports");
                 worksheet.SheetView.FreezeRows(1);
                 worksheet.TabColor = XLColor.Green;
                 worksheet.Style.Font.FontName = "Calibri";
 
                 // Headers
-                var headers = new[] { "Lesson ID", "Ngày học", "Học sinh", "Môn học", "Check-in", "Check-out",
+                var headers = new[] { "Class Session ID", "Ngày học", "Học sinh", "Môn học", "Check-in", "Check-out",
                     "Nội dung buổi học", "BTVN", "Ghi chú", "HS có mặt", "Trạng thái", "Giá buổi (VND)", "Đã thanh toán" };
 
                 for (int i = 0; i < headers.Length; i++)
@@ -374,22 +374,22 @@ namespace MV.ApplicationLayer.Services
                 headerRange.Style.Border.BottomBorder = XLBorderStyleValues.Medium;
 
                 int row = 2;
-                foreach (var lesson in lessons)
+                foreach (var classSession in classSessions)
                 {
-                    worksheet.Cell(row, 1).Value = lesson.Lessonid;
-                    worksheet.Cell(row, 2).Value = lesson.Scheduledstart.ToString("dd/MM/yyyy HH:mm");
-                    worksheet.Cell(row, 3).Value = lesson.Student?.Fullname ?? DisplayValues.NotAvailable;
-                    worksheet.Cell(row, 4).Value = lesson.Booking?.Subject?.Subjectname ?? DisplayValues.NotAvailable;
-                    worksheet.Cell(row, 5).Value = lesson.Checkintime?.ToString("HH:mm") ?? "-";
-                    worksheet.Cell(row, 6).Value = lesson.Checkouttime?.ToString("HH:mm") ?? "-";
-                    worksheet.Cell(row, 7).Value = lesson.Lessoncontent ?? lesson.Lessonreport?.Contentcovered ?? "";
-                    worksheet.Cell(row, 8).Value = lesson.Homework ?? lesson.Lessonreport?.Homeworkassigned ?? "";
-                    worksheet.Cell(row, 9).Value = lesson.Tutornotes ?? "";
-                    worksheet.Cell(row, 10).Value = lesson.Isstudentpresent == true ? "Có" : "Không";
-                    worksheet.Cell(row, 11).Value = lesson.Status ?? DisplayValues.NotAvailable;
-                    worksheet.Cell(row, 12).Value = lesson.Lessonprice ?? 0;
+                    worksheet.Cell(row, 1).Value = classSession.Classsessionid;
+                    worksheet.Cell(row, 2).Value = classSession.Scheduledstart.ToString("dd/MM/yyyy HH:mm");
+                    worksheet.Cell(row, 3).Value = classSession.Student?.Fullname ?? DisplayValues.NotAvailable;
+                    worksheet.Cell(row, 4).Value = classSession.Booking?.Subject?.Subjectname ?? DisplayValues.NotAvailable;
+                    worksheet.Cell(row, 5).Value = classSession.Checkintime?.ToString("HH:mm") ?? "-";
+                    worksheet.Cell(row, 6).Value = classSession.Checkouttime?.ToString("HH:mm") ?? "-";
+                    worksheet.Cell(row, 7).Value = classSession.Lessoncontent ?? classSession.ClassSessionReport?.Contentcovered ?? "";
+                    worksheet.Cell(row, 8).Value = classSession.Homework ?? classSession.ClassSessionReport?.Homeworkassigned ?? "";
+                    worksheet.Cell(row, 9).Value = classSession.Tutornotes ?? "";
+                    worksheet.Cell(row, 10).Value = classSession.Isstudentpresent == true ? "Có" : "Không";
+                    worksheet.Cell(row, 11).Value = classSession.Status ?? DisplayValues.NotAvailable;
+                    worksheet.Cell(row, 12).Value = classSession.Lessonprice ?? 0;
                     worksheet.Cell(row, 12).Style.NumberFormat.Format = "#,##0";
-                    worksheet.Cell(row, 13).Value = lesson.Issettled == true ? "Đã thanh toán" : "Chưa";
+                    worksheet.Cell(row, 13).Value = classSession.Issettled == true ? "Đã thanh toán" : "Chưa";
                     row++;
                 }
 
@@ -558,7 +558,7 @@ namespace MV.ApplicationLayer.Services
             var feedbacks = await _context.Feedbacks
                 .Where(f => f.Touserid == tutorId && f.Createdat >= startUtc && f.Createdat <= endUtc && f.Isvisible == true)
                 .Include(f => f.Fromuser)
-                .Include(f => f.Lesson)
+                .Include(f => f.ClassSession)
                     .ThenInclude(l => l!.Student)
                 .Include(f => f.Booking)
                     .ThenInclude(b => b!.Tutorsubjectgradeprice)
@@ -613,8 +613,8 @@ namespace MV.ApplicationLayer.Services
                 {
                     worksheet.Cell(row, 1).Value = feedback.Createdat.HasValue ? feedback.Createdat.Value.ToString("dd/MM/yyyy") : "-";
                     worksheet.Cell(row, 2).Value = feedback.Fromuser?.Fullname ?? DisplayValues.NotAvailable;
-                    worksheet.Cell(row, 3).Value = feedback.Lesson?.Student?.Fullname ?? DisplayValues.NotAvailable;
-                    worksheet.Cell(row, 4).Value = feedback.Booking?.Subject?.Subjectname ?? feedback.Lesson?.Booking?.Subject?.Subjectname ?? DisplayValues.NotAvailable;
+                    worksheet.Cell(row, 3).Value = feedback.ClassSession?.Student?.Fullname ?? DisplayValues.NotAvailable;
+                    worksheet.Cell(row, 4).Value = feedback.Booking?.Subject?.Subjectname ?? feedback.ClassSession?.Booking?.Subject?.Subjectname ?? DisplayValues.NotAvailable;
                     worksheet.Cell(row, 5).Value = feedback.Rating ?? 0;
                     worksheet.Cell(row, 5).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
                     // Color code rating

@@ -12,7 +12,7 @@ using MV.DomainLayer.Helpers;
 using MV.ApplicationLayer.Interfaces;
 using MV.ApplicationLayer.RepositoryInterfaces;
 using System.Text.Json;
-using static MV.DomainLayer.Constants.LessonStatus;
+using static MV.DomainLayer.Constants.ClassSessionStatus;
 using static MV.DomainLayer.Constants.TrustScoringConstants;
 
 namespace MV.ApplicationLayer.Services;
@@ -227,7 +227,7 @@ public class AdminPayoutService(
 
         var wallet = await walletRepo.GetByUserIdAsNoTrackingAsync(tutorId, ct);
 
-        var completedLessons = await context.Lessons.AsNoTracking()
+        var completedClassSessions = await context.ClassSessions.AsNoTracking()
             .CountAsync(l => l.Tutorid == tutorId && l.Status == Completed, ct);
 
         var totalEarnings = await context.Wallettransactions.AsNoTracking()
@@ -258,7 +258,7 @@ public class AdminPayoutService(
             Email = user.Email,
             Phone = user.Phone,
             AccountAgeDays = (MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow - (user.Createdat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow)).Days,
-            CompletedLessons = completedLessons,
+            CompletedClassSessions = completedClassSessions,
             TotalEarnings = totalEarnings,
             JoinedAt = user.Createdat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
         };

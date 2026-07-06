@@ -6,41 +6,41 @@ using MV.DomainLayer.DTO.ResponseModel;
 using MV.DomainLayer.Entities;
 using MV.DomainLayer.Exceptions;
 using MV.DomainLayer.Helpers;
-using static MV.DomainLayer.Constants.LessonStatus;
+using static MV.DomainLayer.Constants.ClassSessionStatus;
 
 namespace MV.ApplicationLayer.Services;
 
-public partial class LessonService
+public partial class ClassSessionService
 {
     // ── M3-T7: No-show Handling ───────────────────────────────────────────────
 
-    public async Task<LessonDetailResponse> ReportTutorNoShowAsync(int lessonId, string parentId)
+    public async Task<ClassSessionDetailResponse> ReportTutorNoShowAsync(int classSessionId, string parentId)
     {
         var studentIds = await _context.Studentprofiles
             .Where(s => s.Parentid == parentId)
             .Select(s => s.Studentid)
             .ToListAsync();
 
-        var lesson = await _context.Lessons
+        var classSession = await _context.ClassSessions
             .Include(l => l.Booking)
-            .FirstOrDefaultAsync(l => l.Lessonid == lessonId && studentIds.Contains(l.Studentid!))
-            ?? throw new LessonException(LessonErrorCodes.LessonNotFound, "Không tìm thấy buổi học hoặc bạn không có quyền truy cập", 404);
+            .FirstOrDefaultAsync(l => l.Classsessionid == classSessionId && studentIds.Contains(l.Studentid!))
+            ?? throw new ClassSessionException(ClassSessionErrorCodes.ClassSessionNotFound, "Không tìm thấy buổi học hoặc bạn không có quyền truy cập", 404);
 
         var now = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
-        if ((now - lesson.Scheduledstart).TotalMinutes < 15)
-            throw new LessonException(LessonErrorCodes.TooEarlyToReportNoShow, "Chỉ có thể báo cáo vắng mặt sau 15 phút kể từ giờ bắt đầu", 400);
+        if ((now - classSession.Scheduledstart).TotalMinutes < 15)
+            throw new ClassSessionException(ClassSessionErrorCodes.TooEarlyToReportNoShow, "Chỉ có thể báo cáo vắng mặt sau 15 phút kể từ giờ bắt đầu", 400);
 
-        if (lesson.Status != Scheduled)
-            throw new LessonException(LessonErrorCodes.InvalidLessonStatus, "Buổi học không ở trạng thái đã lên lịch", 400);
+        if (classSession.Status != Scheduled)
+            throw new ClassSessionException(ClassSessionErrorCodes.InvalidClassSessionStatus, "Buổi học không ở trạng thái đã lên lịch", 400);
 
-        lesson.Status = NoShow;
-        lesson.Istutorpresent = false;
+        classSession.Status = NoShow;
+        classSession.Istutorpresent = false;
 
         // Auto-create dispute record to track no-show
         var dispute = new Dispute
         {
-            Lessonid = lessonId,
-            Bookingid = lesson.Bookingid,
+            Classsessionid = classSessionId,
+            Bookingid = classSession.Bookingid,
             Createdby = parentId,
             Disputetype = DisputeTypes.NoShow,
             Reason = "Tutor no-show: Gia sư không có mặt sau 15 phút",
@@ -52,54 +52,54 @@ public partial class LessonService
         await _context.SaveChangesAsync();
 
         // Notify tutor about the no-show report
-        if (!string.IsNullOrEmpty(lesson.Tutorid))
+        if (!string.IsNullOrEmpty(classSession.Tutorid))
         {
             await _notificationService.CreateNotificationAsync(new NotificationRequest
             {
-                Userid = lesson.Tutorid,
+                Userid = classSession.Tutorid,
                 Title = "Báo cáo vắng mặt",
-                Message = $"Phụ huynh đã báo cáo bạn vắng mặt cho buổi học #{lessonId}."
+                Message = $"Phụ huynh đã báo cáo bạn vắng mặt cho buổi học #{classSessionId}."
             });
         }
 
-        _logger.LogInformation("Parent {ParentId} reported tutor no-show for lesson {LessonId}, dispute {DisputeId} created", parentId, lessonId, dispute.Disputeid);
-        return MapToLessonDetailResponse(lesson);
+        _logger.LogInformation("Parent {ParentId} reported tutor no-show for classSession {ClassSessionId}, dispute {DisputeId} created", parentId, classSessionId, dispute.Disputeid);
+        return MapToClassSessionDetailResponse(classSession);
     }
 
-    public async Task<NoShowActionResultResponse> ProcessNoShowActionAsync(int lessonId, string parentId, NoShowActionRequest request)
+    public async Task<NoShowActionResultResponse> ProcessNoShowActionAsync(int classSessionId, string parentId, NoShowActionRequest request)
     {
         var studentIds = await _context.Studentprofiles
             .Where(s => s.Parentid == parentId)
             .Select(s => s.Studentid)
             .ToListAsync();
 
-        var lesson = await _context.Lessons
+        var classSession = await _context.ClassSessions
             .Include(l => l.Booking)
-            .FirstOrDefaultAsync(l => l.Lessonid == lessonId && studentIds.Contains(l.Studentid!))
-            ?? throw new LessonException(LessonErrorCodes.LessonNotFound, "Không tìm thấy buổi học hoặc bạn không có quyền truy cập", 404);
+            .FirstOrDefaultAsync(l => l.Classsessionid == classSessionId && studentIds.Contains(l.Studentid!))
+            ?? throw new ClassSessionException(ClassSessionErrorCodes.ClassSessionNotFound, "Không tìm thấy buổi học hoặc bạn không có quyền truy cập", 404);
 
-        if (lesson.Status != NoShow)
-            throw new LessonException(LessonErrorCodes.InvalidLessonStatus, "Buổi học không ở trạng thái vắng mặt", 400);
+        if (classSession.Status != NoShow)
+            throw new ClassSessionException(ClassSessionErrorCodes.InvalidClassSessionStatus, "Buổi học không ở trạng thái vắng mặt", 400);
 
-        var result = new NoShowActionResultResponse { LessonId = lessonId, ActionType = request.ActionType, Success = true };
+        var result = new NoShowActionResultResponse { ClassSessionId = classSessionId, ActionType = request.ActionType, Success = true };
 
         await using var tx = await _context.Database.BeginTransactionAsync();
         try
         {
-            lesson.Noshowaction = request.ActionType;
+            classSession.Noshowaction = request.ActionType;
 
             switch (request.ActionType)
             {
                 case NoShowActionTypes.FreeSession:
-                    lesson.Status = Cancelled;
-                    lesson.Issettled = true;
+                    classSession.Status = Cancelled;
+                    classSession.Issettled = true;
 
                     // Hoàn tiền 100% vào wallet parent, trừ từ tutor frozen balance
-                    var refundAmount = lesson.Lessonprice ?? 0;
+                    var refundAmount = classSession.Lessonprice ?? 0;
                     if (refundAmount > 0)
                     {
                         // Trừ frozen balance từ tutor wallet (tiền escrow nằm ở tutor)
-                        var tutorWalletFree = await _context.Wallets.FirstOrDefaultAsync(w => w.Userid == lesson.Tutorid);
+                        var tutorWalletFree = await _context.Wallets.FirstOrDefaultAsync(w => w.Userid == classSession.Tutorid);
                         if (tutorWalletFree != null)
                         {
                             tutorWalletFree.Frozenbalance = (tutorWalletFree.Frozenbalance ?? 0) - refundAmount;
@@ -118,7 +118,7 @@ public partial class LessonService
                                 Walletid = parentWallet.Walletid,
                                 Amount = refundAmount,
                                 Transactiontype = TransactionType.Refund,
-                                Description = $"Hoàn tiền no-show lesson #{lessonId}",
+                                Description = $"Hoàn tiền no-show buổi học #{classSessionId}",
                                 Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
                             });
                         }
@@ -130,24 +130,24 @@ public partial class LessonService
 
                 case NoShowActionTypes.Makeup:
                     if (!request.NewScheduledStart.HasValue)
-                        throw new LessonException(LessonErrorCodes.MakeupTimeRequired, "Vui lòng cung cấp thời gian học bù mới", 400);
-                    var makeupLesson = await CreateMakeupLessonAsync(lessonId, request.NewScheduledStart.Value, lesson.Tutorid!);
-                    result.MakeupLessonId = makeupLesson.LessonId;
+                        throw new ClassSessionException(ClassSessionErrorCodes.MakeupTimeRequired, "Vui lòng cung cấp thời gian học bù mới", 400);
+                    var makeupClassSession = await CreateMakeupClassSessionAsync(classSessionId, request.NewScheduledStart.Value, classSession.Tutorid!);
+                    result.MakeupClassSessionId = makeupClassSession.ClassSessionId;
                     result.Message = $"Buổi học bù đã được tạo vào {request.NewScheduledStart:dd/MM/yyyy HH:mm}";
                     break;
 
                 case NoShowActionTypes.ChangeTutor:
-                    lesson.Status = Cancelled;
-                    if (lesson.Booking != null)
+                    classSession.Status = Cancelled;
+                    if (classSession.Booking != null)
                     {
-                        var remaining = lesson.Booking.Sessionsremaining ?? 0;
-                        var totalRefund = remaining * (lesson.Lessonprice ?? 0);
+                        var remaining = classSession.Booking.Sessionsremaining ?? 0;
+                        var totalRefund = remaining * (classSession.Lessonprice ?? 0);
 
                         // Hoàn tiền các buổi còn lại: trừ tutor frozen, cộng parent balance
                         if (totalRefund > 0)
                         {
                             // Trừ frozen balance từ tutor wallet
-                            var tutorWalletChange = await _context.Wallets.FirstOrDefaultAsync(w => w.Userid == lesson.Tutorid);
+                            var tutorWalletChange = await _context.Wallets.FirstOrDefaultAsync(w => w.Userid == classSession.Tutorid);
                             if (tutorWalletChange != null)
                             {
                                 tutorWalletChange.Frozenbalance = (tutorWalletChange.Frozenbalance ?? 0) - totalRefund;
@@ -166,14 +166,14 @@ public partial class LessonService
                                     Walletid = parentWalletForChange.Walletid,
                                     Amount = totalRefund,
                                     Transactiontype = TransactionType.Refund,
-                                    Description = $"Hoàn tiền change tutor - booking #{lesson.Bookingid} ({remaining} buổi còn lại)",
+                                    Description = $"Hoàn tiền change tutor - booking #{classSession.Bookingid} ({remaining} buổi còn lại)",
                                     Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
                                 });
                             }
                         }
 
                         result.AmountRefunded = totalRefund;
-                        lesson.Booking.Status = BookingStatus.CancelledNoshow;
+                        classSession.Booking.Status = BookingStatus.CancelledNoshow;
                     }
                     result.Message = "Đã hủy booking và hoàn tiền các buổi còn lại";
                     break;
@@ -181,10 +181,10 @@ public partial class LessonService
 
             var warning = new Userwarning
             {
-                Userid = lesson.Tutorid,
+                Userid = classSession.Tutorid,
                 Warninglevel = 1,
-                Reason = "Tutor no-show for lesson",
-                Relatedbookingid = lesson.Bookingid,
+                Reason = "Tutor no-show for class session",
+                Relatedbookingid = classSession.Bookingid,
                 Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
             };
             _context.Userwarnings.Add(warning);
@@ -201,38 +201,38 @@ public partial class LessonService
         }
     }
 
-    public async Task<LessonDetailResponse> CreateMakeupLessonAsync(int originalLessonId, DateTime newScheduledStart, string tutorId)
+    public async Task<ClassSessionDetailResponse> CreateMakeupClassSessionAsync(int originalClassSessionId, DateTime newScheduledStart, string tutorId)
     {
-        var originalLesson = await _context.Lessons
+        var originalClassSession = await _context.ClassSessions
             .Include(l => l.Booking)
-            .FirstOrDefaultAsync(l => l.Lessonid == originalLessonId && l.Tutorid == tutorId)
-            ?? throw new LessonException(LessonErrorCodes.LessonNotFound, "Không tìm thấy buổi học gốc", 404);
+            .FirstOrDefaultAsync(l => l.Classsessionid == originalClassSessionId && l.Tutorid == tutorId)
+            ?? throw new ClassSessionException(ClassSessionErrorCodes.ClassSessionNotFound, "Không tìm thấy buổi học gốc", 404);
 
-        var duration = originalLesson.Scheduledend - originalLesson.Scheduledstart;
+        var duration = originalClassSession.Scheduledend - originalClassSession.Scheduledstart;
 
         // Normalize timezone: nếu frontend gửi UTC thì convert sang UTC, nếu Unspecified thì coi như user time
         var scheduledStartUtc = newScheduledStart.Kind == DateTimeKind.Utc 
             ? newScheduledStart 
             : DateTime.SpecifyKind(newScheduledStart, DateTimeKind.Utc);
 
-        var makeupLesson = new Lesson
+        var makeupClassSession = new ClassSession
         {
-            Bookingid = originalLesson.Bookingid,
+            Bookingid = originalClassSession.Bookingid,
             Tutorid = tutorId,
-            Studentid = originalLesson.Studentid,
+            Studentid = originalClassSession.Studentid,
             Scheduledstart = scheduledStartUtc,
             Scheduledend = scheduledStartUtc.Add(duration),
             Lessonprice = 0,
             Status = Scheduled,
             Ismakeup = true,
-            Originalessonid = originalLessonId,
+            Originalsessionid = originalClassSessionId,
             Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
         };
 
-        _context.Lessons.Add(makeupLesson);
+        _context.ClassSessions.Add(makeupClassSession);
         await _context.SaveChangesAsync();
 
-        _logger.LogInformation("Created makeup lesson {MakeupId} for original {OriginalId}", makeupLesson.Lessonid, originalLessonId);
-        return MapToLessonDetailResponse(makeupLesson);
+        _logger.LogInformation("Created makeup classSession {MakeupId} for original {OriginalId}", makeupClassSession.Classsessionid, originalClassSessionId);
+        return MapToClassSessionDetailResponse(makeupClassSession);
     }
 }

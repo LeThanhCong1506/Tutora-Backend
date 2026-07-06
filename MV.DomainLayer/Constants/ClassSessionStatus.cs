@@ -1,9 +1,9 @@
 namespace MV.DomainLayer.Constants;
 
 /// <summary>
-/// Lesson status constants
+/// ClassSession status constants
 /// </summary>
-public static class LessonStatus
+public static class ClassSessionStatus
 {
     public const string Scheduled = "scheduled";
     public const string Reserved = "reserved";

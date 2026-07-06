@@ -4,7 +4,7 @@ using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO.ResponseModel;
 using MV.DomainLayer.Helpers;
 using System.Text.Json;
-using static MV.DomainLayer.Constants.LessonStatus;
+using static MV.DomainLayer.Constants.ClassSessionStatus;
 
 namespace MV.ApplicationLayer.Services
 {
@@ -293,11 +293,11 @@ namespace MV.ApplicationLayer.Services
 
             var feedbacks = await GetTutorFeedbacksAsync(tutorId);
 
-            var totalLessons = await _dbContext.Lessons
+            var totalClassSessions = await _dbContext.ClassSessions
                 .AsNoTracking()
                 .CountAsync(l => l.Tutorid == tutorId
-                    && l.Status != LessonStatus.Cancelled
-                    && l.Status != LessonStatus.CancelledNoshow
+                    && l.Status != ClassSessionStatus.Cancelled
+                    && l.Status != ClassSessionStatus.CancelledNoshow
                     && l.Booking != null && PaidBookingStatuses.Contains(l.Booking.Status!));
 
             var totalStudents = await _dbContext.Bookings
@@ -333,7 +333,7 @@ namespace MV.ApplicationLayer.Services
                 TotalFeedbacks = totalFeedbacks,
                 AverageRating = Math.Round(averageRating, 1),
                 Feedbacks = feedbacks,
-                TotalLessons = totalLessons,
+                TotalClassSessions = totalClassSessions,
                 TotalStudents = totalStudents
             };
 

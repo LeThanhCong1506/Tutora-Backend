@@ -21,10 +21,10 @@ public interface IChatService
     Task<ChatMessageResponse> SendMessageAsync(string userId, int channelId, ChatMessageCreateRequest dto);
 
     /// <summary>
-    /// Send meeting links for all auto-created lessons in a booking via the chat channel.
-    /// Called by <c>ILessonService.AutoCreateLessonsAsync</c> after tutor acceptance.
+    /// Send meeting links for all auto-created classSessions in a booking via the chat channel.
+    /// Called by <c>IClassSessionService.AutoCreateClassSessionsAsync</c> after tutor acceptance.
     /// </summary>
-    Task SendMeetLinksAsync(int bookingId, List<LessonMiniResponse> lessons);
+    Task SendMeetLinksAsync(int bookingId, List<ClassSessionMiniResponse> classSessions);
 
     /// <summary>
     /// Return the existing chat channel between a parent/student and a tutor,

@@ -14,4 +14,6 @@ public partial class Subject
     public virtual ICollection<Studentgrade> Studentgrades { get; set; } = new List<Studentgrade>();
 
     public virtual ICollection<Tutorsubjectgradeprice> Tutorsubjectgradeprices { get; set; } = new List<Tutorsubjectgradeprice>();
+
+    public virtual ICollection<QuestionBank> QuestionBanks { get; set; } = new List<QuestionBank>();
 }

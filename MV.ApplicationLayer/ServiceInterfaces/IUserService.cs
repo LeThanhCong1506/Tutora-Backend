@@ -27,7 +27,7 @@ namespace MV.ApplicationLayer.ServiceInterfaces
         Task<PagedList<PendingTutorResponse>> GetPendingTutorsAsync(UserParameters parameters);
 
         /// <summary>
-        /// 4-field tutor embed (id, name, avatar, headline) for booking/lesson display.
+        /// 4-field tutor embed (id, name, avatar, headline) for booking/classSession display.
         /// </summary>
         Task<TutorProfileShortResponse> GetTutorProfileShortAsync(string tutorId);
 

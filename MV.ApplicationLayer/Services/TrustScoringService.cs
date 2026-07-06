@@ -9,7 +9,7 @@ using MV.DomainLayer.Entities;
 using MV.DomainLayer.Settings;
 using MV.ApplicationLayer.Interfaces;
 using System.Text.Json;
-using static MV.DomainLayer.Constants.LessonStatus;
+using static MV.DomainLayer.Constants.ClassSessionStatus;
 
 namespace MV.ApplicationLayer.Services;
 
@@ -34,10 +34,10 @@ public class TrustScoringService(
                 t.Createdat,
                 t.Isbankverified,
                 t.Bankchangedat,
-                CompletedLessonsCount = context.Lessons
+                CompletedClassSessionsCount = context.ClassSessions
                     .Count(l => l.Tutorid == tutorId && l.Status == Completed),
                 DisputesCount = context.Disputes
-                    .Count(d => d.Lessonid != null && d.Lesson!.Tutorid == tutorId),
+                    .Count(d => d.Classsessionid != null && d.ClassSession!.Tutorid == tutorId),
                 HasSuccessfulWithdrawal = context.Withdrawalrequests
                     .Any(w => w.Userid == tutorId && w.Status == WithdrawalStatus.Approved)
             })
@@ -56,7 +56,7 @@ public class TrustScoringService(
         CalculatePositiveFactors(
             result,
             accountAgeDays,
-            tutorStats.CompletedLessonsCount,
+            tutorStats.CompletedClassSessionsCount,
             tutorStats.Isbankverified ?? false,
             tutorStats.DisputesCount,
             amount,
@@ -156,7 +156,7 @@ public class TrustScoringService(
     private void CalculatePositiveFactors(
         TrustScoreResult result,
         int accountAgeDays,
-        int completedLessonsCount,
+        int completedClassSessionsCount,
         bool isBankVerified,
         int disputesCount,
         decimal amount,
@@ -181,22 +181,22 @@ public class TrustScoringService(
             });
         }
 
-        if (completedLessonsCount >= _settings.CompletedLessons10Threshold)
+        if (completedClassSessionsCount >= _settings.CompletedLessons10Threshold)
         {
             result.PositiveFactors.Add(new ScoreFactor
             {
                 Factor = TrustScoringConstants.PositiveFactors.CompletedLessons10Plus,
                 Points = _settings.CompletedLessons10PlusPoints,
-                Detail = $"{completedLessonsCount} completed lessons (≥10)"
+                Detail = $"{completedClassSessionsCount} completed classSessions (≥10)"
             });
         }
-        else if (completedLessonsCount >= _settings.CompletedLessons5Threshold)
+        else if (completedClassSessionsCount >= _settings.CompletedLessons5Threshold)
         {
             result.PositiveFactors.Add(new ScoreFactor
             {
                 Factor = TrustScoringConstants.PositiveFactors.CompletedLessons5To10,
                 Points = _settings.CompletedLessons5To10Points,
-                Detail = $"{completedLessonsCount} completed lessons (5-10)"
+                Detail = $"{completedClassSessionsCount} completed classSessions (5-10)"
             });
         }
 

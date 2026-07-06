@@ -1,14 +1,14 @@
 namespace MV.DomainLayer.Exceptions;
 
 /// <summary>
-/// Exception for lesson-related errors
+/// Exception for classSession-related errors
 /// </summary>
-public class LessonException : Exception
+public class ClassSessionException : Exception
 {
     public string ErrorCode { get; }
     public int HttpStatus { get; }
 
-    public LessonException(string errorCode, string message, int httpStatus = 400)
+    public ClassSessionException(string errorCode, string message, int httpStatus = 400)
         : base(message)
     {
         ErrorCode = errorCode;

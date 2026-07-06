@@ -138,10 +138,10 @@ public class AdminBookingService(IAppDbContext context) : IAdminBookingService
             })
             .ToListAsync(ct);
 
-        // ── Batch load lesson counts cho các booking trong trang ──────────────
+        // ── Batch load classSession counts cho các booking trong trang ──────────────
         var bookingIds = raw.Select(x => x.Bookingid).ToList();
 
-        var lessonCounts = await context.Lessons
+        var classSessionCounts = await context.ClassSessions
             .AsNoTracking()
             .Where(l => l.Bookingid != null && bookingIds.Contains(l.Bookingid.Value))
             .GroupBy(l => l.Bookingid!.Value)
@@ -149,16 +149,16 @@ public class AdminBookingService(IAppDbContext context) : IAdminBookingService
             {
                 BookingId  = g.Key,
                 Total      = g.Count(),
-                Completed  = g.Count(l => l.Status == LessonStatus.Completed)
+                Completed  = g.Count(l => l.Status == ClassSessionStatus.Completed)
             })
             .ToListAsync(ct);
 
-        var lessonCountDict = lessonCounts.ToDictionary(x => x.BookingId);
+        var classSessionCountDict = classSessionCounts.ToDictionary(x => x.BookingId);
 
         // ── In-memory map với VietnamTimeHelper ───────────────────────────────
         var items = raw.Select(x =>
         {
-            lessonCountDict.TryGetValue(x.Bookingid, out var lc);
+            classSessionCountDict.TryGetValue(x.Bookingid, out var lc);
             return new AdminBookingListItem
             {
                 BookingId        = x.Bookingid,
@@ -189,8 +189,8 @@ public class AdminBookingService(IAppDbContext context) : IAdminBookingService
                 // Progress
                 SessionCount     = x.Sessioncount,
                 SessionsRemaining = x.Sessionsremaining,
-                LessonsTotal     = lc?.Total    ?? 0,
-                LessonsCompleted = lc?.Completed ?? 0,
+                ClassSessionsTotal     = lc?.Total    ?? 0,
+                ClassSessionsCompleted = lc?.Completed ?? 0,
                 // Dates — tất cả convert sang VN time
                 StartDate        = x.Startdate,
                 CreatedAt        = x.Createdat,
@@ -295,14 +295,14 @@ public class AdminBookingService(IAppDbContext context) : IAdminBookingService
 
         if (row == null) return null;
 
-        // ── Load all lessons for this booking ─────────────────────────────────
-        var lessons = await context.Lessons
+        // ── Load all classSessions for this booking ─────────────────────────────────
+        var classSessions = await context.ClassSessions
             .AsNoTracking()
             .Where(l => l.Bookingid == bookingId)
             .OrderBy(l => l.Scheduledstart)
             .Select(l => new
             {
-                l.Lessonid,
+                l.Classsessionid,
                 l.Status,
                 l.Scheduledstart,
                 l.Scheduledend,
@@ -316,7 +316,7 @@ public class AdminBookingService(IAppDbContext context) : IAdminBookingService
             })
             .ToListAsync(ct);
 
-        var completedLessons = lessons.Count(l => l.Status == LessonStatus.Completed);
+        var completedClassSessions = classSessions.Count(l => l.Status == ClassSessionStatus.Completed);
 
         // ── Build composite location string ───────────────────────────────────
         var locationParts = new[] { row.Locationdetail, row.Locationward, row.Locationdistrict, row.Locationcity }
@@ -342,18 +342,18 @@ public class AdminBookingService(IAppDbContext context) : IAdminBookingService
             })
             .ToList();
 
-        // ── Build lesson list ─────────────────────────────────────────────────
-        var lessonItems = lessons
-            .Select((l, idx) => new AdminBookingLessonItem
+        // ── Build classSession list ─────────────────────────────────────────────────
+        var classSessionItems = classSessions
+            .Select((l, idx) => new AdminBookingClassSessionItem
             {
-                LessonId       = l.Lessonid,
-                LessonNumber   = idx + 1,
+                ClassSessionId       = l.Classsessionid,
+                ClassSessionNumber   = idx + 1,
                 Status         = l.Status,
                 ScheduledStart = l.Scheduledstart,
                 ScheduledEnd   = l.Scheduledend,
                 RealStart      = l.Realstart,
                 RealEnd        = l.Realend,
-                LessonPrice    = l.Lessonprice,
+                ClassSessionPrice    = l.Lessonprice,
                 IsSettled      = l.Issettled,
                 IsMakeup       = l.Ismakeup,
                 TutorNotes     = l.Tutornotes,
@@ -404,7 +404,7 @@ public class AdminBookingService(IAppDbContext context) : IAdminBookingService
             Progress = new AdminBookingProgress
             {
                 TotalSessions     = row.Sessioncount,
-                CompletedSessions = completedLessons,
+                CompletedSessions = completedClassSessions,
                 StartDate         = row.Startdate
             },
             Cancellation = new AdminBookingCancellation
@@ -418,7 +418,7 @@ public class AdminBookingService(IAppDbContext context) : IAdminBookingService
             UpdatedAt = row.Updatedat,
 
             Timeline = timeline,
-            Lessons  = lessonItems,
+            ClassSessions  = classSessionItems,
             PaymentBreakdown = new AdminBookingPaymentBreakdown
             {
                 OriginalPrice    = row.Price,

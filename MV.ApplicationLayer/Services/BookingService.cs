@@ -11,7 +11,7 @@ using MV.DomainLayer.Entities;
 using MV.DomainLayer.Exceptions;
 using MV.DomainLayer.Helpers;
 using System.Data;
-using static MV.DomainLayer.Constants.LessonStatus;
+using static MV.DomainLayer.Constants.ClassSessionStatus;
 using static MV.DomainLayer.Constants.PaymentStatus;
 
 namespace MV.ApplicationLayer.Services;
@@ -20,7 +20,7 @@ public partial class BookingService(
     IBookingRepository bookingRepo,
     IStudentRepository studentRepo,
     ITutorRepository tutorRepo,
-    IAppDbContext context,          // retained only for: Lessons (conflict check), Subjects, Tutorsubjects, Tutoravailabilities, Promotions, Wallets, Wallettransactions, Notifications
+    IAppDbContext context,          // retained only for: ClassSessions (conflict check), Subjects, Tutorsubjects, Tutoravailabilities, Promotions, Wallets, Wallettransactions, Notifications
     INotificationService notificationService,
     IChatService chatService,
     ILogger<BookingService> logger) : IBookingService
@@ -73,11 +73,11 @@ public partial class BookingService(
             ?? throw new BookingException(BookingErrorCodes.InvalidInput, "Package không hợp lệ", 400);
 
         var totalSessions = ResolveTotalSessions(dto, package);
-        var lessonSlots = package.Packagetype == Tutorpackage.FixedPackageType
+        var classSessionSlots = package.Packagetype == Tutorpackage.FixedPackageType
             ? GenerateFixedPackageSlots(package, dto.StartDate, totalSessions)
             : GenerateFlexibleSlots(dto, price.Durationminutespersession, totalSessions);
 
-        await ValidateSlotsAsync(dto.TutorId, lessonSlots);
+        await ValidateSlotsAsync(dto.TutorId, classSessionSlots);
 
         var totalAmount = Math.Round(price.Priceperhour * price.Durationminutespersession / 60m * totalSessions, 2);
         int? promotionId = null;
@@ -111,7 +111,7 @@ public partial class BookingService(
             Priceperhour = price.Priceperhour,
             Totalamount = totalAmount,
             Currency = price.Currency,
-            Startdate = lessonSlots.Min(s => s.Start),
+            Startdate = classSessionSlots.Min(s => s.Start),
             Discountapplied = discountApplied,
             Finalprice = fees.FinalPrice,
             Platformfee = fees.PlatformFee,
@@ -135,17 +135,17 @@ public partial class BookingService(
             context.Bookings.Add(booking);
             await context.SaveChangesAsync();
 
-            var lessonPrice = Math.Round(totalAmount / totalSessions, 2);
-            foreach (var slot in lessonSlots)
+            var classSessionPrice = Math.Round(totalAmount / totalSessions, 2);
+            foreach (var slot in classSessionSlots)
             {
-                context.Lessons.Add(new Lesson
+                context.ClassSessions.Add(new ClassSession
                 {
                     Bookingid = booking.Bookingid,
                     Tutorid = dto.TutorId,
                     Studentid = student.Studentid,
                     Scheduledstart = slot.Start,
                     Scheduledend = slot.End,
-                    Lessonprice = lessonPrice,
+                    Lessonprice = classSessionPrice,
                     Status = Reserved,
                     Createdat = TimeZoneHelper.UtcNow
                 });
@@ -224,7 +224,7 @@ public partial class BookingService(
     {
         var booking = await context.Bookings
             .Include(b => b.Student)
-            .Include(b => b.Lessons)
+            .Include(b => b.ClassSessions)
             .FirstOrDefaultAsync(b => b.Bookingid == bookingId &&
                 (b.Parentid == userId || b.Studentid == userId || b.Student.Linkeduserid == userId || b.Tutorid == userId));
         if (booking == null) return false;
@@ -312,7 +312,7 @@ public partial class BookingService(
                 booking.Refundstatus = RefundStatus.Refunded;
                 booking.Refundamount = refundAmount;
 
-                foreach (var l in booking.Lessons.Where(x => x.Status is Scheduled or Reserved))
+                foreach (var l in booking.ClassSessions.Where(x => x.Status is Scheduled or Reserved))
                     l.Status = Cancelled;
 
                 await context.SaveChangesAsync();
@@ -347,7 +347,7 @@ public partial class BookingService(
             booking.Cancelledat = TimeZoneHelper.UtcNow;
             booking.Updatedat = TimeZoneHelper.UtcNow;
 
-            foreach (var l in booking.Lessons.Where(x => x.Status is Scheduled or Reserved))
+            foreach (var l in booking.ClassSessions.Where(x => x.Status is Scheduled or Reserved))
                 l.Status = Cancelled;
 
             await context.SaveChangesAsync();
@@ -371,7 +371,7 @@ public partial class BookingService(
         var fromUtc = NormalizeUtc(startDate);
         var toUtc = NormalizeUtc(endDate);
 
-        var lessons = await context.Lessons
+        var classSessions = await context.ClassSessions
             .Where(l => l.Tutorid == tutorId
                 && l.Scheduledend > fromUtc
                 && l.Scheduledstart < toUtc
@@ -382,7 +382,7 @@ public partial class BookingService(
             .OrderBy(l => l.Scheduledstart)
             .ToListAsync();
 
-        return lessons.Select(l => new BookedSlotResponse
+        return classSessions.Select(l => new BookedSlotResponse
         {
             ScheduledStart = DateTime.SpecifyKind(l.Scheduledstart, DateTimeKind.Utc),
             ScheduledEnd = DateTime.SpecifyKind(l.Scheduledend, DateTimeKind.Utc)
@@ -390,16 +390,16 @@ public partial class BookingService(
     }
 
 
-    private async Task ValidateSlotsAsync(string tutorId, IReadOnlyList<LessonSlot> lessonSlots)
+    private async Task ValidateSlotsAsync(string tutorId, IReadOnlyList<ClassSessionSlot> classSessionSlots)
     {
-        if (lessonSlots.Count == 0)
+        if (classSessionSlots.Count == 0)
             throw new BookingException(BookingErrorCodes.InvalidSchedule, "Không tìm thấy lịch học hợp lệ", 400);
 
         var tutorAvailabilities = await context.Tutoravailabilities
             .Where(a => a.Tutorid == tutorId)
             .ToListAsync();
 
-        foreach (var slot in lessonSlots)
+        foreach (var slot in classSessionSlots)
         {
             // slot.Start/End are UTC — compare directly against UTC availability rows
             var isoDayUtc = slot.Start.DayOfWeek == DayOfWeek.Sunday ? 7 : (int)slot.Start.DayOfWeek;
@@ -448,7 +448,7 @@ public partial class BookingService(
                 throw new BookingException(BookingErrorCodes.ScheduleNotInAvailability,
                     $"Slot {startVn:dd/MM/yyyy HH:mm}-{endVn:HH:mm} nằm ngoài lịch rảnh của gia sư", 400);
 
-            var hasConflict = await context.Lessons.AnyAsync(l =>
+            var hasConflict = await context.ClassSessions.AnyAsync(l =>
                 l.Tutorid == tutorId
                 && l.Status != Cancelled
                 && l.Status != CancelledNoshow
@@ -481,7 +481,7 @@ public partial class BookingService(
         return dto.TotalSessions.Value;
     }
 
-    private static List<LessonSlot> GenerateFixedPackageSlots(Tutorpackage package, DateTime startDate, int totalSessions)
+    private static List<ClassSessionSlot> GenerateFixedPackageSlots(Tutorpackage package, DateTime startDate, int totalSessions)
     {
         if (package.Tutorpackagefixedslots.Count == 0)
             throw new BookingException(BookingErrorCodes.InvalidSchedule, "Package cố định chưa có khung giờ", 400);
@@ -497,7 +497,7 @@ public partial class BookingService(
             .OrderBy(s => s.utcDay)
             .ThenBy(s => s.utcStart)
             .ToList();
-        var result = new List<LessonSlot>();
+        var result = new List<ClassSessionSlot>();
 
         while (result.Count < totalSessions)
         {
@@ -511,7 +511,7 @@ public partial class BookingService(
                     slotStart.Hour, slotStart.Minute, 0, DateTimeKind.Utc);
                 var end = new DateTime(currentDate.Year, currentDate.Month, currentDate.Day,
                     slotEnd.Hour, slotEnd.Minute, 0, DateTimeKind.Utc);
-                result.Add(new LessonSlot(start, end));
+                result.Add(new ClassSessionSlot(start, end));
             }
 
             currentDate = currentDate.AddDays(1);
@@ -520,7 +520,7 @@ public partial class BookingService(
         return result;
     }
 
-    private static List<LessonSlot> GenerateFlexibleSlots(CreateBookingRequest dto, int durationMinutes, int totalSessions)
+    private static List<ClassSessionSlot> GenerateFlexibleSlots(CreateBookingRequest dto, int durationMinutes, int totalSessions)
     {
         var slots = dto.FlexibleSlots ?? [];
         if (slots.Count != totalSessions)
@@ -542,7 +542,7 @@ public partial class BookingService(
                 if (end <= start || Math.Abs((end - start - duration).TotalMinutes) > 1)
                     throw new BookingException(BookingErrorCodes.InvalidSchedule,
                         $"Mỗi buổi học phải kéo dài {durationMinutes} phút", 400);
-                return new LessonSlot(start, end);
+                return new ClassSessionSlot(start, end);
             })
             .OrderBy(s => s.Start)
             .ToList();
@@ -552,16 +552,16 @@ public partial class BookingService(
         Studentprofile? student, Tutorprofile? tutor, Subject? subject)
     {
         var grade = b.Tutorsubjectgradeprice?.Gradelevel ?? student?.GradelevelNavigation;
-        var lessons = b.Lessons?
+        var classSessions = b.ClassSessions?
             .OrderBy(l => l.Scheduledstart)
-            .Select((l, i) => new BookingLessonSlotResponse
+            .Select((l, i) => new BookingClassSessionSlotResponse
             {
-                LessonId = l.Lessonid,
+                ClassSessionId = l.Classsessionid,
                 SessionIndex = i + 1,
                 ScheduledStart = l.Scheduledstart,
                 ScheduledEnd = l.Scheduledend,
                 Status = l.Status,
-                LessonPrice = l.Lessonprice
+                ClassSessionPrice = l.Lessonprice
             })
             .ToList();
 
@@ -617,7 +617,7 @@ public partial class BookingService(
             Status = b.Status,
             PaymentStatus = b.Paymentstatus,
             PaymentCode = b.Paymentcode,
-            Schedule = lessons?.Select(l => 
+            Schedule = classSessions?.Select(l => 
             {
                 // Convert C# DayOfWeek (0=Sunday, 1=Monday...) to ISO format (1=Monday, 7=Sunday)
                 var isoDayOfWeek = l.ScheduledStart.DayOfWeek == DayOfWeek.Sunday ? 7 : (int)l.ScheduledStart.DayOfWeek;
@@ -628,7 +628,7 @@ public partial class BookingService(
                     EndTime = l.ScheduledEnd.ToString("HH:mm")
                 };
             }).ToList(),
-            Lessons = lessons,
+            ClassSessions = classSessions,
             StartDate = b.Startdate,
             // Pattern này đúng cả local lẫn cloud deployment.
             CreatedAt = b.Createdat,
@@ -649,6 +649,6 @@ public partial class BookingService(
         };
     }
 
-    private sealed record LessonSlot(DateTime Start, DateTime End);
+    private sealed record ClassSessionSlot(DateTime Start, DateTime End);
 
 }

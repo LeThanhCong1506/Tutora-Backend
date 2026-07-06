@@ -59,7 +59,7 @@ public partial class BookingService
             .Include(b => b.Tutorsubjectgradeprice).ThenInclude(p => p!.Subject)
             .Include(b => b.Tutorsubjectgradeprice).ThenInclude(p => p!.Gradelevel)
             .Include(b => b.Package)
-            .Include(b => b.Lessons)
+            .Include(b => b.ClassSessions)
             .FirstOrDefaultAsync(b => b.Bookingid == bookingId &&
                 (b.Parentid == userId || b.Studentid == userId || b.Student.Linkeduserid == userId));
 

@@ -3,17 +3,17 @@
 namespace MV.DomainLayer.DTO.ResponseModel;
 
 /// <summary>
-/// Lesson awaiting parent confirmation after tutor submits a report.
-/// Callers: <c>GetPendingLessonsAsync</c> (parent + tutor via ParentLessonService),
+/// ClassSession awaiting parent confirmation after tutor submits a report.
+/// Callers: <c>GetPendingClassSessionsAsync</c> (parent + tutor via ParentClassSessionService),
 /// <c>GetPendingSettlementsAsync</c> (SettlementService for admin payout queue).
 /// Includes computed helpers: <see cref="TimeRemainingDisplay"/> and <see cref="IsUrgent"/>.
 /// All DateTime fields are Vietnam time (UTC+7).
 /// </summary>
-public class PendingLessonResponse
+public class PendingClassSessionResponse
 {
     // So sánh dùng giờ VN vì ConfirmDeadline đã được convert sang giờ VN (now using VietnamTimeHelper)
 
-    public int LessonId { get; set; }
+    public int ClassSessionId { get; set; }
     public int? BookingId { get; set; }
 
     public DateTime ScheduledStart { get; set; }
@@ -26,12 +26,12 @@ public class PendingLessonResponse
     public string? StudentName { get; set; }
     public string? SubjectName { get; set; }
 
-    public decimal? LessonPrice { get; set; }
+    public decimal? ClassSessionPrice { get; set; }
 
     /// <summary>
     /// Report content from tutor
     /// </summary>
-    public string? LessonContent { get; set; }
+    public string? ClassSessionContent { get; set; }
     public string? Homework { get; set; }
     public string? TutorNotes { get; set; }
 

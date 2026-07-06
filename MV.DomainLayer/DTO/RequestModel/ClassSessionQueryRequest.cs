@@ -1,6 +1,6 @@
 namespace MV.DomainLayer.DTO.RequestModel;
 
-public class LessonQueryRequest
+public class ClassSessionQueryRequest
 {
     public DateTime? FromDate { get; set; }
     public DateTime? ToDate { get; set; }

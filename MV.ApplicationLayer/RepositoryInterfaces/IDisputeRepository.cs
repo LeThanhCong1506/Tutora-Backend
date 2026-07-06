@@ -6,9 +6,9 @@ public interface IDisputeRepository
 {
     // Queries
     IQueryable<Dispute> GetBaseQuery();
-    Task<Dispute?> GetDetailAsync(int disputeId);           // includes Lesson.Tutor.Tutor, CreatedBy, ResolvedBy, Booking.Subject
+    Task<Dispute?> GetDetailAsync(int disputeId);           // includes ClassSession.Tutor.Tutor, CreatedBy, ResolvedBy, Booking.Subject
     Task<Dispute?> FindWithBookingAsync(int disputeId);     // includes Booking
-    Task<Dispute?> FindWithLessonAsync(int disputeId);      // includes Lesson
+    Task<Dispute?> FindWithClassSessionAsync(int disputeId);      // includes ClassSession
 
     // Stats
     Task<int> CountByStatusAsync(string status);

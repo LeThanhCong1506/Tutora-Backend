@@ -26,9 +26,9 @@ public interface ITencentRTCService
 
     /// <summary>
     /// Lấy đầy đủ thông tin để client join room của một buổi học.
-    /// RoomId = lessonId (deterministic, không cần external API).
+    /// RoomId = classSessionId (deterministic, không cần external API).
     /// </summary>
-    /// <param name="lessonId">ID buổi học</param>
+    /// <param name="classSessionId">ID buổi học</param>
     /// <param name="userId">UserId của người dùng đang join</param>
-    TRTCRoomInfo GetRoomInfo(int lessonId, string userId);
+    TRTCRoomInfo GetRoomInfo(int classSessionId, string userId);
 }

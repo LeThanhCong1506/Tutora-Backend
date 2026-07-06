@@ -49,15 +49,15 @@ public partial class BookingService
         booking.Updatedat = TimeZoneHelper.UtcNow;
         booking.Responsedeadline = null;
 
-        var scheduledLessons = booking.Lessons
-            .Where(lesson => lesson.Status == LessonStatus.Reserved)
-            .OrderBy(lesson => lesson.Scheduledstart)
+        var scheduledClassSessions = booking.ClassSessions
+            .Where(classSession => classSession.Status == ClassSessionStatus.Reserved)
+            .OrderBy(classSession => classSession.Scheduledstart)
             .ToList();
 
-        foreach (var lesson in scheduledLessons)
+        foreach (var classSession in scheduledClassSessions)
         {
-            lesson.Status = LessonStatus.Scheduled;
-            lesson.Meetinglink ??= lesson.Lessonid.ToString();
+            classSession.Status = ClassSessionStatus.Scheduled;
+            classSession.Meetinglink ??= classSession.Classsessionid.ToString();
         }
 
         // Save booking changes FIRST — before any chat/notification operations that share
@@ -75,17 +75,17 @@ public partial class BookingService
                 Metadata = new { bookingId, status = booking.Status }
             });
 
-            if (scheduledLessons.Count > 0)
+            if (scheduledClassSessions.Count > 0)
             {
-                await chatService.SendMeetLinksAsync(bookingId, scheduledLessons.Select((lesson, index) => new LessonMiniResponse
+                await chatService.SendMeetLinksAsync(bookingId, scheduledClassSessions.Select((classSession, index) => new ClassSessionMiniResponse
                 {
-                    LessonId = lesson.Lessonid,
+                    ClassSessionId = classSession.Classsessionid,
                     BookingId = bookingId,
                     SessionIndex = index + 1,
-                    ScheduledStart = lesson.Scheduledstart,
-                    ScheduledEnd = lesson.Scheduledend,
-                    MeetingLink = lesson.Meetinglink ?? "",
-                    Status = lesson.Status ?? LessonStatus.Scheduled
+                    ScheduledStart = classSession.Scheduledstart,
+                    ScheduledEnd = classSession.Scheduledend,
+                    MeetingLink = classSession.Meetinglink ?? "",
+                    Status = classSession.Status ?? ClassSessionStatus.Scheduled
                 }).ToList());
             }
         }
@@ -139,8 +139,8 @@ public partial class BookingService
             booking.Cancelledat = TimeZoneHelper.UtcNow;
             booking.Updatedat = TimeZoneHelper.UtcNow;
 
-            foreach (var lesson in booking.Lessons.Where(l => l.Status == LessonStatus.Reserved))
-                lesson.Status = LessonStatus.Cancelled;
+            foreach (var classSession in booking.ClassSessions.Where(l => l.Status == ClassSessionStatus.Reserved))
+                classSession.Status = ClassSessionStatus.Cancelled;
 
             await RefundPaidBookingAsync(booking, "Hoàn tiền do gia sư từ chối booking");
             await bookingRepo.SaveChangesAsync();

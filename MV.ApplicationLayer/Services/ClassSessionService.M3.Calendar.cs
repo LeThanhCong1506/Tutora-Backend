@@ -2,10 +2,10 @@
 using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO.ResponseModel;
 using MV.DomainLayer.Helpers;
-using static MV.DomainLayer.Constants.LessonStatus;
+using static MV.DomainLayer.Constants.ClassSessionStatus;
 namespace MV.ApplicationLayer.Services;
 
-public partial class LessonService
+public partial class ClassSessionService
 {
     // ── M3-T1: Calendar & Dashboard ───────────────────────────────────────────
 
@@ -19,7 +19,7 @@ public partial class LessonService
             ? endDate 
             : DateTime.SpecifyKind(endDate, DateTimeKind.Utc);
 
-        var lessons = await _context.Lessons
+        var classSessions = await _context.ClassSessions
             .AsNoTracking()
             .Where(l => l.Tutorid == tutorId && l.Scheduledstart >= startUtc && l.Scheduledstart <= endUtc)
             .Include(l => l.Booking)
@@ -31,14 +31,14 @@ public partial class LessonService
             .ToListAsync();
 
         // Group theo NGÀY Việt Nam để tránh lệch ngày do UTC+7
-        var grouped = lessons
+        var grouped = classSessions
             .GroupBy(l => l.Scheduledstart.Date)
             .Select(g => new CalendarDayResponse
             {
                 Date = g.Key,
-                Lessons = g.Select(l => new CalendarLessonResponse
+                ClassSessions = g.Select(l => new CalendarClassSessionResponse
                 {
-                    LessonId = l.Lessonid,
+                    ClassSessionId = l.Classsessionid,
                     ScheduledStart = l.Scheduledstart,
                     ScheduledEnd = l.Scheduledend,
                     StudentName = l.Booking?.Student?.Fullname,
@@ -70,7 +70,7 @@ public partial class LessonService
         if (profile == null)
             return new List<CalendarDayResponse>();
 
-        var lessons = await _context.Lessons
+        var classSessions = await _context.ClassSessions
             .AsNoTracking()
             .Where(l => l.Studentid == profile.Studentid
                      && l.Scheduledstart >= startUtc
@@ -84,14 +84,14 @@ public partial class LessonService
             .OrderBy(l => l.Scheduledstart)
             .ToListAsync();
 
-        return lessons
+        return classSessions
             .GroupBy(l => l.Scheduledstart.Date)
             .Select(g => new CalendarDayResponse
             {
                 Date = g.Key,
-                Lessons = g.Select(l => new CalendarLessonResponse
+                ClassSessions = g.Select(l => new CalendarClassSessionResponse
                 {
-                    LessonId = l.Lessonid,
+                    ClassSessionId = l.Classsessionid,
                     ScheduledStart = l.Scheduledstart,
                     ScheduledEnd = l.Scheduledend,
                     TutorName = l.Booking?.Tutor?.Tutor?.Fullname,
@@ -108,34 +108,34 @@ public partial class LessonService
         var now = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
         var startOfMonth = new DateTime(now.Year, now.Month, 1, 0, 0, 0, DateTimeKind.Utc);
 
-        var upcomingCount = await _context.Lessons
+        var upcomingCount = await _context.ClassSessions
             .CountAsync(l => l.Tutorid == tutorId && l.Status == Scheduled && l.Scheduledstart > now);
 
-        var completedThisMonth = await _context.Lessons
+        var completedThisMonth = await _context.ClassSessions
             .CountAsync(l => l.Tutorid == tutorId && l.Status == Completed && l.Scheduledstart >= startOfMonth);
 
-        var totalCompleted = await _context.Lessons
+        var totalCompleted = await _context.ClassSessions
             .CountAsync(l => l.Tutorid == tutorId && l.Status == Completed);
 
-        var earningsThisMonth = await _context.Lessons
+        var earningsThisMonth = await _context.ClassSessions
             .Where(l => l.Tutorid == tutorId && l.Status == Completed && l.Issettled == true && l.Scheduledstart >= startOfMonth)
             .SumAsync(l => l.Lessonprice ?? 0);
 
-        var totalEarnings = await _context.Lessons
+        var totalEarnings = await _context.ClassSessions
             .Where(l => l.Tutorid == tutorId && l.Status == Completed && l.Issettled == true)
             .SumAsync(l => l.Lessonprice ?? 0);
 
         var wallet = await _context.Wallets.FirstOrDefaultAsync(w => w.Userid == tutorId);
 
-        var pendingConfirmation = await _context.Lessons
+        var pendingConfirmation = await _context.ClassSessions
             .CountAsync(l => l.Tutorid == tutorId && l.Status == PendingConfirmation);
 
         var activeDisputes = await _context.Disputes
-            .CountAsync(d => d.Lesson != null && d.Lesson.Tutorid == tutorId && d.Status != DisputeStatus.Resolved && d.Status != DisputeStatus.Closed);
+            .CountAsync(d => d.ClassSession != null && d.ClassSession.Tutorid == tutorId && d.Status != DisputeStatus.Resolved && d.Status != DisputeStatus.Closed);
 
         var tutorProfile = await _context.Tutorprofiles.FirstOrDefaultAsync(t => t.Tutorid == tutorId);
 
-        var nextLessonEntities = await _context.Lessons
+        var nextClassSessionEntities = await _context.ClassSessions
             .AsNoTracking()
             .Where(l => l.Tutorid == tutorId && l.Status == Scheduled && l.Scheduledstart > now)
             .OrderBy(l => l.Scheduledstart)
@@ -147,9 +147,9 @@ public partial class LessonService
                 .ThenInclude(b => b!.Student)
             .ToListAsync();
 
-        var nextLessons = nextLessonEntities.Select(l => new UpcomingLessonResponse
+        var nextClassSessions = nextClassSessionEntities.Select(l => new UpcomingClassSessionResponse
         {
-            LessonId = l.Lessonid,
+            ClassSessionId = l.Classsessionid,
             BookingId = l.Bookingid,
             ScheduledStart = l.Scheduledstart,
             ScheduledEnd = l.Scheduledend,
@@ -185,7 +185,7 @@ public partial class LessonService
 
         return new TutorDashboardStatsResponse
         {
-            UpcomingLessons = upcomingCount,
+            UpcomingClassSessions = upcomingCount,
             CompletedThisMonth = completedThisMonth,
             TotalCompleted = totalCompleted,
             EarningsThisMonth = earningsThisMonth,
@@ -196,18 +196,18 @@ public partial class LessonService
             ActiveDisputes = activeDisputes,
             AverageRating = tutorProfile?.Averagerating ?? 0,
             TotalReviews = tutorProfile?.Totalreviews ?? 0,
-            NextLessons = nextLessons,
+            NextClassSessions = nextClassSessions,
             ProfileStatus = tutorProfile?.Profilestatus,
             HasVerifiedCertificates = hasVerifiedCerts,
             MissingFields = missingFields
         };
     }
 
-    public async Task<LessonDetailResponse?> GetTutorLessonDetailAsync(int lessonId, string tutorId)
+    public async Task<ClassSessionDetailResponse?> GetTutorClassSessionDetailAsync(int classSessionId, string tutorId)
     {
-        var lesson = await _context.Lessons
+        var classSession = await _context.ClassSessions
             .AsNoTracking()
-            .Where(l => l.Lessonid == lessonId && l.Tutorid == tutorId)
+            .Where(l => l.Classsessionid == classSessionId && l.Tutorid == tutorId)
             .Include(l => l.Booking)
                 .ThenInclude(b => b!.Tutorsubjectgradeprice)
                     .ThenInclude(p => p!.Subject)
@@ -215,10 +215,10 @@ public partial class LessonService
                 .ThenInclude(b => b!.Student)
             .Include(l => l.Tutor)
                 .ThenInclude(t => t!.Tutor)
-            .Include(l => l.Lessonreport)
+            .Include(l => l.ClassSessionReport)
             .FirstOrDefaultAsync();
 
-        if (lesson == null) return null;
-        return MapToLessonDetailResponse(lesson);
+        if (classSession == null) return null;
+        return MapToClassSessionDetailResponse(classSession);
     }
 }

@@ -90,7 +90,7 @@ public class PaymentTimeoutJob(IServiceProvider sp, ILogger<PaymentTimeoutJob> l
 
         var expired = await db.Bookings
             .Include(b => b.Chatchannels)
-            .Include(b => b.Lessons)
+            .Include(b => b.ClassSessions)
             .Where(b => (b.Status == BookingStatus.PendingPayment || b.Status == BookingStatus.Accepted)
                         && b.Paymentdueat != null
                         && b.Paymentdueat < now)
@@ -109,8 +109,8 @@ public class PaymentTimeoutJob(IServiceProvider sp, ILogger<PaymentTimeoutJob> l
                 b.Status = BookingStatus.PaymentTimeout;
                 b.Updatedat = now;
                 foreach (var ch in b.Chatchannels) ch.Status = ChatChannelStatus.Closed;
-                foreach (var lesson in b.Lessons.Where(l => l.Status == LessonStatus.Reserved))
-                    lesson.Status = LessonStatus.Cancelled;
+                foreach (var classSession in b.ClassSessions.Where(l => l.Status == ClassSessionStatus.Reserved))
+                    classSession.Status = ClassSessionStatus.Cancelled;
 
                 await db.SaveChangesAsync(ct);
 
@@ -160,7 +160,7 @@ public class PaymentTimeoutJob(IServiceProvider sp, ILogger<PaymentTimeoutJob> l
     /// <summary>
     /// Handle expired remaining payment deadlines.
     /// Parent chose not to pay for remaining sessions within 48h → finalize booking early:
-    /// release escrow for completed lessons, cancel remaining lessons, mark booking Completed.
+    /// release escrow for completed classSessions, cancel remaining classSessions, mark booking Completed.
     /// </summary>
     private async Task ProcessExpiredRemainingPaymentsAsync(CancellationToken ct)
     {

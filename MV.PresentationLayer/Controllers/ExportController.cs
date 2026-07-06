@@ -98,17 +98,17 @@ namespace MV.PresentationLayer.Controllers
         // =====================================================
 
         /// <summary>
-        /// Export tutor lesson reports to Excel
+        /// Export tutor classSession reports to Excel
         /// </summary>
-        [HttpGet("tutor/lessons")]
+        [HttpGet("tutor/class-sessions")]
         [Authorize(Roles = UserRole.Tutor)]
-        public async Task<IActionResult> ExportTutorLessonsToExcel(
+        public async Task<IActionResult> ExportTutorClassSessionsToExcel(
             [FromQuery] DateTime? fromDate,
             [FromQuery] DateTime? toDate)
         {
             var tutorId = GetCurrentUserId();
-            var fileBytes = await _exportService.ExportTutorLessonReportsAsync(tutorId, fromDate, toDate);
-            string fileName = $"LessonReports_{MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow:yyyyMMdd_HHmmss}.xlsx";
+            var fileBytes = await _exportService.ExportTutorClassSessionReportsAsync(tutorId, fromDate, toDate);
+            string fileName = $"ClassSessionReports_{MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow:yyyyMMdd_HHmmss}.xlsx";
             return File(fileBytes, ExcelMimeType, fileName);
         }
 

@@ -10,7 +10,7 @@ using MV.DomainLayer.Entities;
 using MV.DomainLayer.Exceptions;
 using MV.DomainLayer.Helpers;
 using MV.ApplicationLayer.Interfaces;
-using static MV.DomainLayer.Constants.LessonStatus;
+using static MV.DomainLayer.Constants.ClassSessionStatus;
 
 namespace MV.ApplicationLayer.Services;
 
@@ -37,7 +37,7 @@ public class TutorFinanceService(
             .Where(t => t.Wallet!.Userid == tutorId && t.Transactiontype == TransactionType.EscrowRelease)
             .SumAsync(t => t.Amount ?? 0, ct);
 
-        var pendingSettlement = await context.Lessons
+        var pendingSettlement = await context.ClassSessions
             .AsNoTracking()
             .Where(l => l.Tutorid == tutorId && l.Issettled == false && l.Status == Completed)
             .SumAsync(l => l.Lessonprice ?? 0, ct);
@@ -310,6 +310,7 @@ public class TutorFinanceService(
             var withdrawal = new Withdrawalrequest
             {
                 Userid = tutorId,
+                Walletid = wallet.Walletid,
                 Amount = request.Amount,
                 Bankname = tutor.Bankname,
                 Accountnumber = tutor.Bankaccountnumber,

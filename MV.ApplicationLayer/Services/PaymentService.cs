@@ -292,7 +292,7 @@ public partial class PaymentService(
             if (booking.Status != BookingStatus.Accepted && booking.Status != BookingStatus.PendingPayment)
                 throw new BookingException(BookingErrorCodes.InvalidBookingStatus, "Booking không đũ điều kiện nhận tiền cọc", 409);
 
-            // Parent has paid the first lesson/deposit. The booking now waits for tutor approval.
+            // Parent has paid the first classSession/deposit. The booking now waits for tutor approval.
             booking.Status = BookingStatus.PendingTutor;
             booking.Paymentstatus = DepositEscrowed;
             booking.Paymentdueat = null; // Clear deposit deadline
@@ -301,7 +301,7 @@ public partial class PaymentService(
             booking.Escrowstatus = Holding;
             booking.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 
-            // Escrow first-lesson share of tutor receivable to frozen balance
+            // Escrow first-classSession share of tutor receivable to frozen balance
             var sessions = booking.Totalsessions ?? 1;
             if (!string.IsNullOrWhiteSpace(booking.Tutorid))
             {
@@ -410,7 +410,7 @@ public partial class PaymentService(
             booking.Paymentdueat = null; // Clear remaining deadline
             booking.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 
-            // Escrow remaining lessons' share of tutor receivable to frozen balance
+            // Escrow remaining classSessions' share of tutor receivable to frozen balance
             if (!string.IsNullOrWhiteSpace(booking.Tutorid))
             {
                 var wallet = await walletRepo.GetOrCreateForUpdateAsync(booking.Tutorid, ct);

@@ -3,7 +3,7 @@ using System.ComponentModel.DataAnnotations;
 namespace MV.DomainLayer.DTO.RequestModel;
 
 /// <summary>
-/// Request for parent to create a dispute for a lesson
+/// Request for parent to create a dispute for a classSession
 /// </summary>
 public class CreateDisputeRequest
 {

@@ -9,9 +9,9 @@ namespace MV.DomainLayer.DTO.RequestModel;
 public class CreateFeedbackRequest
 {
     /// <summary>
-    /// Lesson ID being reviewed
+    /// ClassSession ID being reviewed
     /// </summary>
-    public int? LessonId { get; set; }
+    public int? ClassSessionId { get; set; }
 
     /// <summary>
     /// Booking ID being reviewed (used for early termination feedback)
@@ -26,7 +26,7 @@ public class CreateFeedbackRequest
     public int Rating { get; set; }
 
     /// <summary>
-    /// Comment about the lesson/tutor
+    /// Comment about the classSession/tutor
     /// </summary>
     [StringLength(1000, ErrorMessage = "Nhận xét không được vượt quá 1000 ký tự")]
     public string? Comment { get; set; }

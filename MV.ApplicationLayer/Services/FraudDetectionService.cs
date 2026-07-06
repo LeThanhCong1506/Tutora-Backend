@@ -9,7 +9,7 @@ using MV.DomainLayer.Entities;
 using MV.DomainLayer.Settings;
 using MV.ApplicationLayer.Interfaces;
 using System.Text.Json;
-using static MV.DomainLayer.Constants.LessonStatus;
+using static MV.DomainLayer.Constants.ClassSessionStatus;
 
 namespace MV.ApplicationLayer.Services;
 
@@ -35,7 +35,7 @@ public class FraudDetectionService(
                 await CheckAmountLimitsAsync(tutorId, amount, cts.Token),
                 await CheckNewAccountAsync(tutorId, amount, cts.Token),
                 await CheckBankChangeCooldownAsync(tutorId, cts.Token),
-                await CheckLessonRequiredAsync(tutorId, cts.Token),
+                await CheckClassSessionRequiredAsync(tutorId, cts.Token),
                 await CheckPatternsAsync(tutorId, amount, cts.Token)
             };
 
@@ -254,24 +254,24 @@ public class FraudDetectionService(
         return RuleResult.Pass(FraudRuleConstants.RuleNames.BankChangeCooldown, metadata);
     }
 
-    private async Task<RuleResult> CheckLessonRequiredAsync(string tutorId, CancellationToken ct)
+    private async Task<RuleResult> CheckClassSessionRequiredAsync(string tutorId, CancellationToken ct)
     {
-        var completedLessons = await context.Lessons
+        var completedClassSessions = await context.ClassSessions
             .AsNoTracking()
             .Where(l => l.Tutorid == tutorId && l.Status == Completed)
             .CountAsync(ct);
 
         var metadata = new Dictionary<string, object>
         {
-            ["completed_lessons"] = completedLessons,
+            ["completed_lessons"] = completedClassSessions,
             ["required_lessons"] = _settings.MinCompletedLessons
         };
 
-        if (completedLessons < _settings.MinCompletedLessons)
-            return RuleResult.Fail(FraudRuleConstants.RuleNames.LessonRequired,
-                FraudRuleConstants.ErrorMessages.NoCompletedLesson, metadata);
+        if (completedClassSessions < _settings.MinCompletedLessons)
+            return RuleResult.Fail(FraudRuleConstants.RuleNames.ClassSessionRequired,
+                FraudRuleConstants.ErrorMessages.NoCompletedClassSession, metadata);
 
-        return RuleResult.Pass(FraudRuleConstants.RuleNames.LessonRequired, metadata);
+        return RuleResult.Pass(FraudRuleConstants.RuleNames.ClassSessionRequired, metadata);
     }
 
     private async Task<RuleResult> CheckPatternsAsync(string tutorId, decimal amount, CancellationToken ct)

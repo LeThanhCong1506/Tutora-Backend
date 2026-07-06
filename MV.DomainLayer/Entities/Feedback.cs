@@ -27,7 +27,7 @@ public partial class Feedback
 
     public string? Feedbacktype { get; set; }
 
-    public int? Lessonid { get; set; }
+    public int? Classsessionid { get; set; }
 
     // --- CÁC TRƯỜNG MỚI THÊM ---
     public string? InitialGoal { get; set; } // Mapping với initial_goal
@@ -41,7 +41,7 @@ public partial class Feedback
 
     public virtual User? Fromuser { get; set; }
 
-    public virtual Lesson? Lesson { get; set; }
+    public virtual ClassSession? ClassSession { get; set; }
 
     public virtual User? Touser { get; set; }
-}
+}

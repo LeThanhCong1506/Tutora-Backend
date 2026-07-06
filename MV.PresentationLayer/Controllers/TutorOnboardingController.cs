@@ -354,7 +354,7 @@ namespace MV.PresentationLayer.Controllers
         // Endpoint cũ nhận URL ảnh rồi download. Flow mới upload file trực tiếp + OCR trong 1 request.
 
         /// <summary>
-        /// Get tutor pricing information (hourly rate, trial lesson price, allow negotiation)
+        /// Get tutor pricing information (hourly rate, trial classSession price, allow negotiation)
         /// </summary>
         [HttpGet("{id}/profile/pricing")]
         public async Task<IActionResult> GetPricing([FromRoute] string id)
@@ -376,7 +376,7 @@ namespace MV.PresentationLayer.Controllers
         }
 
         /// <summary>
-        /// Update tutor pricing information (hourly rate: 50,000 - 2,000,000 VND, trial lesson price, allow negotiation)
+        /// Update tutor pricing information (hourly rate: 50,000 - 2,000,000 VND, trial classSession price, allow negotiation)
         /// </summary>
         [HttpPut("{id}/profile/pricing")]
         public async Task<IActionResult> UpdatePricing([FromRoute] string id, [FromBody] UpdateTutorPricingRequest request)

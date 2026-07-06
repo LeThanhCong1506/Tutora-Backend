@@ -7,7 +7,7 @@ public interface IBookingRepository
     // Single-entity lookups
     Task<Booking?> FindByIdAsync(int id);
     Task<Booking?> FindWithStudentAsync(int id);
-    Task<Booking?> FindWithRelationsAsync(int id);   // includes Student, Tutor.Tutor, Subject, Lessons
+    Task<Booking?> FindWithRelationsAsync(int id);   // includes Student, Tutor.Tutor, Subject, ClassSessions
     Task<Booking?> FindWithSubjectAsync(int id);      // includes Subject (for ZaloPay)
     Task<Booking?> FindByIdForUserAsync(int id, string userId);  // owned by parent/student/tutor
     /// <summary>Loads booking with Student include for payment ownership checks. Tracked. Supports CT.</summary>
