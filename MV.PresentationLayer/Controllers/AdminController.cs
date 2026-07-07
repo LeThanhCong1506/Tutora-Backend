@@ -163,9 +163,10 @@ namespace MV.PresentationLayer.Controllers
 
         /// <summary>
         /// PUT /api/admin/tutors/{tutorId}/certificates/{certId}/verify
-        /// Admin duyệt hoặc từ chối một chứng chỉ của gia sư.
+        /// Admin hoặc Staff duyệt hoặc từ chối một chứng chỉ của gia sư — cùng quyền với
+        /// GetPendingTutors/ApproveTutor/GetAdminCertificates (đều nằm trên trang Vetting).
         /// </summary>
-        [Authorize(Roles = UserRole.Admin)]
+        [Authorize(Roles = UserRole.AdminOrStaff)]
         [HttpPut("tutors/{tutorId}/certificates/{certId}/verify")]
         public async Task<IActionResult> VerifyCertificate(
             string tutorId,
@@ -185,9 +186,7 @@ namespace MV.PresentationLayer.Controllers
             try
             {
                 var result = await _tutorService.AdminVerifyCertificateAsync(tutorId, certId, request, adminId);
-                var message = request.IsApproved
-                    ? (result.IsProfileActivated ? "Duyệt chứng chỉ thành công. Hồ sơ gia sư đã được kích hoạt." : "Duyệt chứng chỉ thành công.")
-                    : "Từ chối chứng chỉ thành công.";
+                var message = request.IsApproved ? "Duyệt chứng chỉ thành công." : "Từ chối chứng chỉ thành công.";
                 return Ok(APIResponse<AdminVerifyCertificateResponse>.Success(result, message));
             }
             catch (KeyNotFoundException ex)
