@@ -4,12 +4,14 @@ using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO;
 using MV.DomainLayer.DTO.ResponseModel.Admin;
+using MV.PresentationLayer.Authorization;
 
 namespace MV.PresentationLayer.Controllers;
 
 [ApiController]
 [Route("api/admin/financials")]
-[Authorize(Roles = UserRole.Admin)]
+[Authorize]
+[RequirePermission(Permissions.FinancialView)]
 public class AdminFinancialController(IAdminFinancialService adminFinancialService) : ControllerBase
 {
     private IActionResult HandleException(Exception ex) => ex switch

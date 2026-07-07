@@ -5,13 +5,14 @@ using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.DTO;
 using MV.DomainLayer.DTO.RequestModel.Admin;
 using MV.DomainLayer.DTO.ResponseModel.Admin;
+using MV.PresentationLayer.Authorization;
 using System.Security.Claims;
 
 namespace MV.PresentationLayer.Controllers;
 
 [ApiController]
 [Route("api/admin/payouts")]
-[Authorize(Roles = UserRole.AdminOrStaff)]
+[Authorize]
 public class AdminPayoutController(
     IAdminPayoutService adminPayoutService,
     IPayoutService payoutService,
@@ -31,6 +32,7 @@ public class AdminPayoutController(
         InvalidOperationException => BadRequest(APIResponse<object>.Fail(ex.Message, 400)),
         _ => StatusCode(500, APIResponse<object>.Fail($"Lỗi hệ thống: {ex.Message}", 500))
     };
+    [RequirePermission(Permissions.PayoutView)]
     [HttpGet("overview")]
     public async Task<IActionResult> GetOverview(CancellationToken ct)
     {
@@ -46,6 +48,7 @@ public class AdminPayoutController(
         }
     }
 
+    [RequirePermission(Permissions.PayoutView)]
     [HttpGet("pending")]
     public async Task<IActionResult> GetPendingReview(
         [FromQuery] int page = 1,
@@ -66,6 +69,7 @@ public class AdminPayoutController(
         }
     }
 
+    [RequirePermission(Permissions.PayoutView)]
     [HttpGet]
     public async Task<IActionResult> GetAllRequests(
         [FromQuery] int page = 1,
@@ -90,6 +94,7 @@ public class AdminPayoutController(
         }
     }
 
+    [RequirePermission(Permissions.PayoutView)]
     [HttpGet("{id}")]
     public async Task<IActionResult> GetRequestDetail(int id, CancellationToken ct)
     {
@@ -104,6 +109,7 @@ public class AdminPayoutController(
         }
     }
 
+    [RequirePermission(Permissions.PayoutApprove)]
     [HttpPost("{id}/approve")]
     public async Task<IActionResult> ApproveRequest(
         int id,
@@ -126,6 +132,7 @@ public class AdminPayoutController(
         }
     }
 
+    [RequirePermission(Permissions.PayoutReject)]
     [HttpPost("{id}/reject")]
     public async Task<IActionResult> RejectRequest(
         int id,
@@ -152,7 +159,7 @@ public class AdminPayoutController(
     }
 
     [HttpGet("payos-balance")]
-    [Authorize(Roles = UserRole.Admin)]
+    [RequirePermission(Permissions.PayoutBalanceView)]
     public async Task<IActionResult> GetPayOSBalance(CancellationToken ct)
     {
         try
@@ -173,7 +180,7 @@ public class AdminPayoutController(
     }
 
     [HttpGet("fraud-logs")]
-    [Authorize(Roles = UserRole.Admin)]
+    [RequirePermission(Permissions.FraudLogView)]
     public async Task<IActionResult> GetFraudLogs(
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20,
@@ -199,7 +206,7 @@ public class AdminPayoutController(
     }
 
     [HttpGet("system-alerts")]
-    [Authorize(Roles = UserRole.Admin)]
+    [RequirePermission(Permissions.SystemAlertView)]
     public async Task<IActionResult> GetSystemAlerts(
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20,
@@ -221,7 +228,7 @@ public class AdminPayoutController(
     }
 
     [HttpPost("system-alerts/{id}/resolve")]
-    [Authorize(Roles = UserRole.Admin)]
+    [RequirePermission(Permissions.SystemAlertResolve)]
     public async Task<IActionResult> ResolveAlert(int id, CancellationToken ct)
     {
         try

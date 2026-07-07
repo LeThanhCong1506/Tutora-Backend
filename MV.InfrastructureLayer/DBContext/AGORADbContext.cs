@@ -105,6 +105,8 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
 
     public virtual DbSet<RefreshToken> Refreshtokens { get; set; }
 
+    public virtual DbSet<StaffPermission> StaffPermissions { get; set; }
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.HasPostgresExtension("pgcrypto");
@@ -2174,6 +2176,26 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
                 .HasForeignKey(d => d.Userid)
                 .OnDelete(DeleteBehavior.Cascade)
                 .HasConstraintName("fk_refreshtokens_user");
+        });
+
+        modelBuilder.Entity<StaffPermission>(entity =>
+        {
+            entity.HasKey(e => new { e.Userid, e.PermissionKey }).HasName("staff_permissions_pkey");
+
+            entity.ToTable("staff_permissions");
+
+            entity.Property(e => e.Userid).HasMaxLength(50).HasColumnName("user_id");
+            entity.Property(e => e.PermissionKey).HasMaxLength(100).HasColumnName("permission_key");
+            entity.Property(e => e.GrantedBy).HasMaxLength(50).HasColumnName("granted_by");
+            entity.Property(e => e.GrantedAt)
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
+                .HasColumnType("timestamp without time zone")
+                .HasColumnName("granted_at");
+
+            entity.HasOne(d => d.User).WithMany()
+                .HasForeignKey(d => d.Userid)
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("staff_permissions_userid_fkey");
         });
 
         OnModelCreatingPartial(modelBuilder);

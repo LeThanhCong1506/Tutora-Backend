@@ -121,5 +121,17 @@ namespace MV.ApplicationLayer.ServiceInterfaces
         /// URL lưu trong DB là private/authenticated — không thể truy cập trực tiếp.
         /// </summary>
         Task<TutorCccdUrlsResponse> GetTutorCccdUrlsAsync(string tutorId);
+
+        // ── Admin: phân quyền hành động cho Staff ────────────────────────────
+
+        /// <summary>
+        /// Admin only: xem danh sách permission key hiện đang được cấp cho một Staff.
+        /// </summary>
+        Task<StaffPermissionsResponse> AdminGetStaffPermissionsAsync(string staffId);
+
+        /// <summary>
+        /// Admin only: set lại toàn bộ danh sách permission của một Staff (thay thế hoàn toàn).
+        /// </summary>
+        Task<StaffPermissionsResponse> AdminSetStaffPermissionsAsync(string staffId, List<string> permissionKeys, string adminUserId);
     }
 }

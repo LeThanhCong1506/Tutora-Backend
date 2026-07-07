@@ -51,8 +51,6 @@ builder.Services.Configure<GoogleSettings>(builder.Configuration.GetSection(Goog
 builder.Services.Configure<AgoraSettings>(builder.Configuration.GetSection(AgoraSettings.SectionName));
 builder.Services.Configure<BankVerificationSettings>(builder.Configuration.GetSection(BankVerificationSettings.SectionName));
 builder.Services.Configure<VietQRSettings>(builder.Configuration.GetSection(VietQRSettings.SectionName));
-builder.Services.Configure<FraudDetectionSettings>(builder.Configuration.GetSection(FraudDetectionSettings.SectionName));
-builder.Services.Configure<TrustScoringSettings>(builder.Configuration.GetSection(TrustScoringSettings.SectionName));
 builder.Services.Configure<MV.DomainLayer.Settings.PayoutSettings>(builder.Configuration.GetSection(MV.DomainLayer.Settings.PayoutSettings.SectionName));
 builder.Services.Configure<ZaloOAConfig>(builder.Configuration.GetSection(ConfigurationKeys.ZaloOA.SectionName));
 builder.Services.Configure<CloudinarySettings>(builder.Configuration.GetSection("Cloudinary"));
@@ -294,6 +292,7 @@ builder.Services.AddScoped<ITutorRepository, TutorRepository>();
 builder.Services.AddScoped<INotificationRepository, NotificationRepository>();
 builder.Services.AddScoped<IRefreshTokenRepository, RefreshTokenRepository>();
 builder.Services.AddScoped<ITutorSearchRepository, TutorSearchRepository>();
+builder.Services.AddScoped<IStaffPermissionRepository, StaffPermissionRepository>();
 
 // Service injection
 builder.Services.AddScoped<ITutorVerificationService, TutorVerificationService>();
@@ -337,8 +336,6 @@ builder.Services.AddScoped<IWarningService, WarningService>();
 builder.Services.AddScoped<IFeedbackService, FeedbackService>();
 
 builder.Services.AddScoped<IBankVerificationService, BankVerificationService>();
-builder.Services.AddScoped<IFraudDetectionService, FraudDetectionService>();
-builder.Services.AddScoped<ITrustScoringService, TrustScoringService>();
 builder.Services.AddScoped<IPayOSTransferClient, PayOSTransferClient>();
 builder.Services.AddScoped<IPayoutService, PayoutService>();
 builder.Services.AddScoped<PayOSWebhookService>();
@@ -492,6 +489,20 @@ builder.Services.AddAuthentication(options =>
                     context.Fail("Tài khoản đã bị khóa hoặc bị xóa.");
                     return;
                 }
+
+                // Nạp permission claims cho Staff. Không nhúng vào JWT để đổi quyền
+                // có hiệu lực ngay lập tức mà không cần đăng nhập lại.
+                if (string.Equals(user.Primaryrole, UserRole.Staff, StringComparison.OrdinalIgnoreCase))
+                {
+                    var permissionRepo = context.HttpContext.RequestServices.GetRequiredService<MV.ApplicationLayer.RepositoryInterfaces.IStaffPermissionRepository>();
+                    var grantedKeys = await permissionRepo.GetGrantedPermissionKeysAsync(userId);
+                    if (grantedKeys.Count > 0)
+                    {
+                        var identity = (System.Security.Claims.ClaimsIdentity)context.Principal!.Identity!;
+                        foreach (var key in grantedKeys)
+                            identity.AddClaim(new System.Security.Claims.Claim(MV.DomainLayer.Constants.Permissions.ClaimType, key));
+                    }
+                }
             }
         }
     };
@@ -506,6 +517,7 @@ builder.Services.AddAuthorization(options =>
             context.User.IsInRole(UserRole.Tutor));
     });
 });
+builder.Services.AddSingleton<Microsoft.AspNetCore.Authorization.IAuthorizationHandler, MV.PresentationLayer.Authorization.PermissionRequirementHandler>();
 
 var app = builder.Build();
 

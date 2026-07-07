@@ -1,7 +1,5 @@
-﻿using Hangfire;
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
-using MV.ApplicationLayer.JobHandlers;
 using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO.RequestModel;
@@ -16,8 +14,6 @@ namespace MV.ApplicationLayer.Services;
 
 public class TutorFinanceService(
     IAppDbContext context,
-    IFraudDetectionService fraudDetectionService,
-    ITrustScoringService trustScoringService,
     INotificationService notificationService,
     ILogger<TutorFinanceService> logger) : ITutorFinanceService
 {
@@ -231,40 +227,6 @@ public class TutorFinanceService(
 
     public async Task<WithdrawalDetailResponse> CreateWithdrawalAsync(string tutorId, CreateWithdrawalRequest request, CancellationToken ct = default)
     {
-        var fraudCheck = await fraudDetectionService.RunAllRulesAsync(tutorId, request.Amount, ct);
-
-        if (!fraudCheck.AllPassed)
-        {
-            await fraudDetectionService.LogFraudCheckAsync(tutorId, null, fraudCheck, ct);
-
-            throw new FraudCheckFailedException(
-                fraudCheck.BlockingMessage!,
-                FraudRuleConstants.ErrorCodes.FraudCheckFailed,
-                fraudCheck.BlockingRules);
-        }
-
-        if (fraudCheck.FlaggedRules.Any())
-        {
-            logger.LogWarning("Withdrawal flagged for tutor {TutorId}: {Flags}",
-                tutorId, string.Join(", ", fraudCheck.FlaggedRules));
-        }
-
-        var trustScore = await trustScoringService.CalculateTrustScoreAsync(tutorId, request.Amount, fraudCheck, ct);
-
-        var approvalDecision = trustScoringService.GetApprovalDecision(trustScore.TotalScore, fraudCheck);
-
-        logger.LogInformation(
-            "Trust score for tutor {TutorId}: {Score}, Decision: {Decision}",
-            tutorId, trustScore.TotalScore, approvalDecision.Decision);
-
-        if (approvalDecision.Decision == TrustScoringConstants.Decisions.AutoReject)
-        {
-            throw new BookingException(
-                TrustScoringConstants.ErrorCodes.LowTrustScore,
-                approvalDecision.Message,
-                400);
-        }
-
         await using var transaction = await context.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, ct);
         var committed = false;
 
@@ -302,14 +264,6 @@ public class TutorFinanceService(
             wallet.Balance -= request.Amount;
             wallet.Lastupdated = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 
-            var withdrawalStatus = approvalDecision.Decision switch
-            {
-                TrustScoringConstants.Decisions.AutoApprove => WithdrawalStatus.Pending,
-                TrustScoringConstants.Decisions.Delayed => WithdrawalStatus.Delayed,
-                TrustScoringConstants.Decisions.ManualReview => WithdrawalStatus.PendingReview,
-                _ => WithdrawalStatus.Pending
-            };
-
             var withdrawal = new Withdrawalrequest
             {
                 Userid = tutorId,
@@ -318,8 +272,8 @@ public class TutorFinanceService(
                 Bankname = tutor.Bankname,
                 Accountnumber = tutor.Bankaccountnumber,
                 Accountholdername = tutor.Bankaccountname,
-                Status = withdrawalStatus,
-                Decision = approvalDecision.Decision,
+                Status = WithdrawalStatus.PendingReview,
+                Decision = TrustScoringConstants.Decisions.ManualReview,
                 Requestedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
             };
 
@@ -338,47 +292,10 @@ public class TutorFinanceService(
 
             await context.SaveChangesAsync(ct);
 
-            await trustScoringService.SaveScoreAsync(withdrawal.Withdrawalid, tutorId, trustScore, approvalDecision, ct);
-
             await transaction.CommitAsync(ct);
             committed = true;
 
-            // Enqueue AFTER commit so Hangfire workers always see the committed row.
-            // Do this first among post-commit steps so a later failure can't skip the payout job.
-            if (approvalDecision.Decision == TrustScoringConstants.Decisions.AutoApprove)
-            {
-                BackgroundJob.Enqueue<PayoutJobHandler>(handler =>
-                    handler.ProcessImmediatePayoutAsync(withdrawal.Withdrawalid, CancellationToken.None));
-
-                logger.LogInformation("Enqueued immediate payout job for withdrawal {WithdrawalId}", withdrawal.Withdrawalid);
-            }
-            else if (approvalDecision.Decision == TrustScoringConstants.Decisions.Delayed)
-            {
-                BackgroundJob.Schedule<PayoutJobHandler>(
-                    handler => handler.ProcessDelayedPayoutAsync(withdrawal.Withdrawalid, CancellationToken.None),
-                    TimeSpan.FromHours(2));
-
-                logger.LogInformation("Scheduled delayed payout job for withdrawal {WithdrawalId} (2h delay)", withdrawal.Withdrawalid);
-            }
-
-            // Best-effort: withdrawal is already committed, so a fraud-log failure must not
-            // bubble up and trigger a rollback of an already-committed transaction.
-            try
-            {
-                await fraudDetectionService.LogFraudCheckAsync(tutorId, withdrawal.Withdrawalid, fraudCheck, ct);
-            }
-            catch (Exception ex)
-            {
-                logger.LogError(ex, "Failed to log fraud check for withdrawal {WithdrawalId}", withdrawal.Withdrawalid);
-            }
-
-            var notificationMessage = approvalDecision.Decision switch
-            {
-                TrustScoringConstants.Decisions.AutoApprove => "Đang xử lý, dự kiến 5-30 phút",
-                TrustScoringConstants.Decisions.Delayed => "Đang xử lý, dự kiến 2-4 giờ",
-                TrustScoringConstants.Decisions.ManualReview => "Cần admin review, dự kiến 1-24 giờ",
-                _ => "Yêu cầu rút tiền đang được xử lý"
-            };
+            const string notificationMessage = "Yêu cầu rút tiền của bạn đã được ghi nhận và đang chờ admin/staff xét duyệt, dự kiến trong vòng 24 giờ.";
 
             try
             {
@@ -394,8 +311,8 @@ public class TutorFinanceService(
                 logger.LogWarning(ex, "Failed to send notification for withdrawal {WithdrawalId}", withdrawal.Withdrawalid);
             }
 
-            logger.LogInformation("Created withdrawal {WithdrawalId} for tutor {TutorId}, amount: {Amount}, decision: {Decision}",
-                withdrawal.Withdrawalid, tutorId, request.Amount, approvalDecision.Decision);
+            logger.LogInformation("Created withdrawal {WithdrawalId} for tutor {TutorId}, amount: {Amount}",
+                withdrawal.Withdrawalid, tutorId, request.Amount);
 
             return new WithdrawalDetailResponse
             {

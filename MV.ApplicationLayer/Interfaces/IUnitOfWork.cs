@@ -17,6 +17,8 @@ namespace MV.ApplicationLayer.Interfaces
 
         IRefreshTokenRepository RefreshTokenRepository { get; }
 
+        IStaffPermissionRepository StaffPermissionRepository { get; }
+
         // Single commit point
         Task<int> SaveChangesAsync();
     }

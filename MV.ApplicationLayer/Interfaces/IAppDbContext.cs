@@ -50,6 +50,7 @@ public interface IAppDbContext
     DbSet<WithdrawalScore> Withdrawalscores { get; }
     DbSet<Systemalert> Systemalerts { get; }
     DbSet<RefreshToken> Refreshtokens { get; }
+    DbSet<StaffPermission> StaffPermissions { get; }
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 }
