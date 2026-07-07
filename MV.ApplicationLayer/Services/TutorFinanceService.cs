@@ -261,6 +261,9 @@ public class TutorFinanceService(
             if (tutor.Isbankverified != true)
                 throw new BankNotVerifiedException();
 
+            if (request.Amount < MinWithdrawalAmount)
+                throw new WithdrawalAmountTooLowException(MinWithdrawalAmount);
+
             wallet.Balance -= request.Amount;
             wallet.Lastupdated = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 

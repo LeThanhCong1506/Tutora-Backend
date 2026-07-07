@@ -164,6 +164,12 @@ namespace MV.DomainLayer.Exceptions
             : base("Bank account not verified. Please contact support.") { }
     }
 
+    public class WithdrawalAmountTooLowException : BadRequestException
+    {
+        public WithdrawalAmountTooLowException(decimal minAmount)
+            : base($"Số tiền rút tối thiểu là {minAmount:N0} VND.") { }
+    }
+
     public class WithdrawalNotFoundException : NotFoundException
     {
         public WithdrawalNotFoundException()
