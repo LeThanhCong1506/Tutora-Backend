@@ -29,7 +29,10 @@ namespace MV.ApplicationLayer.Services
             certificate.Verificationstatus = request.IsApproved
                 ? CertificateStatus.Verified
                 : CertificateStatus.Rejected;
-            certificate.Verificationnote = $"[Admin: {adminId}] {noteText}";
+            // KHÔNG nhúng adminId vào note — field này hiển thị trực tiếp cho Tutor xem
+            // (GetVerificationProgressAsync → VerificationNote), lộ ID nội bộ của admin là
+            // rò rỉ thông tin không cần thiết. "Admin nào duyệt" đã có trong log dưới đây.
+            certificate.Verificationnote = noteText;
             certificate.Updatedat = TimeZoneHelper.UtcNow;
 
             await _unitOfWork.SaveChangesAsync();
@@ -71,8 +74,7 @@ namespace MV.ApplicationLayer.Services
                 TutorId = certificate.Tutorid,
                 CertificateName = certificate.Certificatename,
                 VerificationStatus = certificate.Verificationstatus!,
-                VerificationNote = certificate.Verificationnote,
-                IsProfileActivated = false
+                VerificationNote = certificate.Verificationnote
             };
         }
 
