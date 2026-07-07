@@ -300,6 +300,7 @@ builder.Services.AddScoped<ITutorVerificationService, TutorVerificationService>(
 builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<ILoginService, LoginService>();
 builder.Services.AddScoped<ITutorService, TutorService>();
+builder.Services.AddScoped<ITutorProfileUpdateStagingService, TutorProfileUpdateStagingService>();
 builder.Services.AddScoped<IPushTokenService, PushTokenService>();
 builder.Services.AddScoped<IFirebasePushNotificationService, FirebasePushNotificationService>();
 builder.Services.AddScoped<IEmailService, ResendEmailService>();

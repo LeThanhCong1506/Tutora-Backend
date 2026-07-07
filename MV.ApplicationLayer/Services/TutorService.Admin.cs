@@ -100,5 +100,160 @@ namespace MV.ApplicationLayer.Services
 
             return new PagedList<PendingCertificateResponse>(mapped, paged.TotalCount, paged.CurrentPage, paged.PageSize);
         }
+
+        // ─── Admin: Profile Update Requests (Tutor Active chỉnh sửa hồ sơ) ──────
+
+        public async Task<List<PendingProfileUpdateRequestResponse>> GetPendingProfileUpdateRequestsAsync()
+        {
+            var tutorIds = await _updateStaging.GetAllPendingTutorIdsAsync();
+            var result = new List<PendingProfileUpdateRequestResponse>();
+
+            foreach (var tutorId in tutorIds)
+            {
+                // Bản pending có thể vừa bị Admin xử lý xong ở request khác (SMEMBERS đọc
+                // trước, key đã bị xoá) — bỏ qua thay vì lỗi, danh sách sẽ tự cập nhật ở lần gọi sau.
+                var response = await BuildPendingProfileUpdateRequestResponseAsync(tutorId);
+                if (response != null) result.Add(response);
+            }
+
+            return result.OrderByDescending(r => r.SubmittedAt).ToList();
+        }
+
+        /// <summary>
+        /// Bản mới nhất hiện tại của 1 request đang chờ duyệt — dùng để FE (CMS) tự kiểm tra
+        /// "nội dung mình đang xem có còn đúng với nội dung sẽ thực sự được áp dụng không" ngay
+        /// trước khi gửi lệnh Duyệt/Từ chối, phòng trường hợp Tutor vừa nộp thêm thay đổi trong
+        /// lúc Admin đang xem mà màn hình không tự cập nhật (không có real-time push).
+        /// Trả null nếu không còn request nào đang chờ cho tutor này (đã xử lý xong, hoặc chưa từng nộp).
+        /// </summary>
+        public Task<PendingProfileUpdateRequestResponse?> GetProfileUpdateRequestDetailAsync(string tutorId)
+            => BuildPendingProfileUpdateRequestResponseAsync(tutorId);
+
+        private async Task<PendingProfileUpdateRequestResponse?> BuildPendingProfileUpdateRequestResponseAsync(string tutorId)
+        {
+            var pending = await _updateStaging.GetPendingUpdateAsync(tutorId);
+            if (pending == null) return null;
+
+            var profile = await _unitOfWork.TutorRepository.GetTutorProfileByIdAsync(tutorId);
+            var user = await _unitOfWork.UserRepository.GetUserByIdAsync(tutorId);
+            if (profile == null || user == null) return null;
+
+            return new PendingProfileUpdateRequestResponse
+            {
+                TutorId = tutorId,
+                TutorFullName = user.Fullname,
+                TutorEmail = user.Email,
+                TutorAvatarUrl = user.Avatarurl,
+                SubmittedAt = pending.SubmittedAt,
+                CurrentHeadline = profile.Headline,
+                ProposedHeadline = pending.Headline,
+                CurrentTeachingAreaCity = profile.Teachingareacity,
+                ProposedTeachingAreaCity = pending.TeachingAreaCity,
+                CurrentTeachingAreaDistrict = profile.Teachingareadistrict,
+                ProposedTeachingAreaDistrict = pending.TeachingAreaDistrict,
+                CurrentBio = profile.Bio,
+                ProposedBio = pending.Bio,
+                CurrentEducation = profile.Education,
+                ProposedEducation = pending.Education,
+                CurrentExperience = profile.Experience,
+                ProposedExperience = pending.Experience,
+                CurrentVideoIntroUrl = profile.Videointrourl,
+                ProposedVideoIntroUrl = pending.VideoIntroUrl,
+                HasProposedSubjectGradePrices = pending.SubjectGradePrices != null
+            };
+        }
+
+        public async Task<ReviewProfileUpdateResponse> ReviewProfileUpdateRequestAsync(
+            string tutorId, AdminReviewProfileUpdateRequest request, string adminId)
+        {
+            var (pending, rawJson) = await _updateStaging.GetPendingUpdateWithRawAsync(tutorId);
+            if (pending == null || rawJson == null)
+                throw new KeyNotFoundException(
+                    "Yêu cầu cập nhật không còn tồn tại — có thể đã được xử lý trước đó hoặc dữ liệu tạm thời bị mất. Vui lòng yêu cầu tutor nộp lại.");
+
+            var profile = await _unitOfWork.TutorRepository.GetTutorProfileByIdAsync(tutorId)
+                ?? throw new KeyNotFoundException("Không tìm thấy hồ sơ gia sư.");
+
+            var user = await _unitOfWork.UserRepository.GetUserByIdAsync(tutorId)
+                ?? throw new KeyNotFoundException("Không tìm thấy gia sư.");
+
+            string statusText;
+            bool clearedCleanly;
+
+            if (request.IsApproved)
+            {
+                // Chỉ ghi đè field mà tutor thực sự có đề xuất (khác null) — field null nghĩa
+                // là "không đụng tới ở lần nộp này", giữ nguyên giá trị đang có trên Tutorprofile.
+                if (pending.Headline != null) profile.Headline = pending.Headline;
+                if (pending.TeachingAreaCity != null) profile.Teachingareacity = pending.TeachingAreaCity;
+                if (pending.TeachingAreaDistrict != null) profile.Teachingareadistrict = pending.TeachingAreaDistrict;
+                if (pending.Bio != null) profile.Bio = pending.Bio;
+                if (pending.Education != null) profile.Education = pending.Education;
+                if (pending.Gpa != null) profile.Gpa = pending.Gpa;
+                if (pending.GpaScale != null) profile.Gpascale = pending.GpaScale;
+                if (pending.Experience != null) profile.Experience = pending.Experience;
+                if (pending.VideoIntroUrl != null) profile.Videointrourl = pending.VideoIntroUrl;
+                profile.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
+
+                if (pending.SubjectGradePrices != null)
+                {
+                    await ValidateSubjectGradePricesAsync(tutorId, pending.SubjectGradePrices);
+                    await _unitOfWork.TutorRepository.ReplaceTutorSubjectGradePricesAsync(
+                        tutorId, MapSubjectGradePriceRequests(tutorId, pending.SubjectGradePrices));
+                }
+
+                await _unitOfWork.SaveChangesAsync();
+
+                // Compare-and-delete: chỉ xoá key Redis nếu nội dung vẫn giống hệt lúc đọc ở
+                // trên (rawJson). Nếu Tutor vừa nộp thêm thay đổi mới trong lúc ta đang áp dụng
+                // `pending` vào Postgres, key hiện tại đã khác → KHÔNG xoá, để bản mới nhất đó
+                // tiếp tục nằm trong hàng chờ cho lần duyệt sau, tránh mất dữ liệu.
+                clearedCleanly = await _updateStaging.ClearPendingUpdateIfUnchangedAsync(tutorId, rawJson);
+                statusText = TutorProfileUpdateStatus.Approved;
+
+                _logger.LogInformation("Admin {AdminId} approved profile update request for tutor {TutorId}", adminId, tutorId);
+            }
+            else
+            {
+                clearedCleanly = await _updateStaging.ClearPendingUpdateIfUnchangedAsync(tutorId, rawJson);
+                statusText = TutorProfileUpdateStatus.Rejected;
+
+                _logger.LogInformation("Admin {AdminId} rejected profile update request for tutor {TutorId}", adminId, tutorId);
+            }
+
+            try
+            {
+                if (request.IsApproved)
+                {
+                    await _notificationService.CreateNotificationAsync(new NotificationRequest
+                    {
+                        Userid = tutorId,
+                        Title = "Cập nhật hồ sơ đã được duyệt",
+                        Message = "Admin đã phê duyệt thay đổi hồ sơ của bạn. Thông tin mới đã hiển thị trên marketplace."
+                    });
+                }
+                else
+                {
+                    await _notificationService.CreateNotificationAsync(new NotificationRequest
+                    {
+                        Userid = tutorId,
+                        Title = "Cập nhật hồ sơ bị từ chối",
+                        Message = $"Admin đã từ chối thay đổi hồ sơ của bạn. Lý do: {request.Note ?? "Không đạt yêu cầu"}. Hồ sơ hiện tại của bạn trên marketplace không bị ảnh hưởng."
+                    });
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to send profile-update review notification to tutor {TutorId}", tutorId);
+            }
+
+            return new ReviewProfileUpdateResponse
+            {
+                TutorName = user.Fullname ?? DisplayValues.Unknown,
+                Status = statusText,
+                Note = request.Note,
+                HasNewerPendingChanges = !clearedCleanly
+            };
+        }
     }
 }

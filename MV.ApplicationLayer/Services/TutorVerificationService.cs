@@ -18,6 +18,7 @@ namespace MV.ApplicationLayer.Services
         private readonly IAppDbContext _dbContext;
         private readonly ILogger<TutorVerificationService> _logger;
         private readonly IEncryptionService _encryption;
+        private readonly ITutorProfileUpdateStagingService _updateStaging;
 
         private const string CacheKeyPrefix = "tutor_preview:";
         private static readonly TimeSpan CacheDuration = TimeSpan.FromMinutes(15);
@@ -36,7 +37,8 @@ namespace MV.ApplicationLayer.Services
             IDistributedCache cache,
             IAppDbContext dbContext,
             ILogger<TutorVerificationService> logger,
-            IEncryptionService encryption)
+            IEncryptionService encryption,
+            ITutorProfileUpdateStagingService updateStaging)
         {
             _unitOfWork = unitOfWork;
             _fptAiService = fptAiService;
@@ -44,6 +46,7 @@ namespace MV.ApplicationLayer.Services
             _dbContext = dbContext;
             _logger = logger;
             _encryption = encryption;
+            _updateStaging = updateStaging;
         }
 
         /// <summary>

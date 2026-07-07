@@ -16,11 +16,16 @@ namespace MV.PresentationLayer.Controllers
     {
         private readonly ITutorVerificationService _verificationService;
         private readonly ITutorService _tutorService;
+        private readonly ITutorProfileUpdateStagingService _updateStaging;
 
-        public TutorOnboardingController(ITutorVerificationService verificationService, ITutorService tutorService)
+        public TutorOnboardingController(
+            ITutorVerificationService verificationService,
+            ITutorService tutorService,
+            ITutorProfileUpdateStagingService updateStaging)
         {
             _verificationService = verificationService;
             _tutorService = tutorService;
+            _updateStaging = updateStaging;
         }
 
         /// <summary>
@@ -270,6 +275,28 @@ namespace MV.PresentationLayer.Controllers
 
             var result = await _tutorService.GetProfileCompletionAsync(id);
             return Ok(APIResponse<ProfileCompletionResponse>.Success(result, "Lấy tiến trình hoàn thiện hồ sơ thành công."));
+        }
+
+        /// <summary>
+        /// GET /api/tutors/{id}/profile/pending-update
+        /// Trả về bản chỉnh sửa hồ sơ đang chờ Admin duyệt của chính tutor (null nếu không có).
+        /// </summary>
+        [HttpGet("{id}/profile/pending-update")]
+        public async Task<IActionResult> GetPendingProfileUpdate([FromRoute] string id)
+        {
+            var currentUserId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (currentUserId != id)
+                return StatusCode(403, APIResponse.Fail(ApiMessages.Forbidden, 403));
+
+            try
+            {
+                var result = await _updateStaging.GetPendingUpdateAsync(id);
+                return Ok(APIResponse<PendingTutorProfileUpdate?>.Success(result, "Lấy thông tin bản cập nhật đang chờ duyệt thành công."));
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(APIResponse.Fail(ex.Message, 400));
+            }
         }
 
         /// <summary>
