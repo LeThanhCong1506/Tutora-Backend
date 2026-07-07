@@ -123,14 +123,32 @@ public partial class ClassSessionService
                     classSession.Status = Cancelled;
                     classSession.Issettled = true;
 
-                    if (tutorWallet != null && tutorEscrowPerSession > 0)
+                    // Clamp parent refund against what was actually paid minus any prior booking refunds
+                    // (mirrors ChangeTutor's clamp below, scoped to 1 session instead of `remaining`).
+                    decimal totalPaidByParentSingle = booking.Remainingpaidat.HasValue
+                        ? (booking.Finalprice ?? 0)
+                        : (booking.Depositpaidat.HasValue ? (booking.Depositamount ?? 0) : 0m);
+                    var totalAlreadyRefundedSingle = await _context.Wallettransactions
+                        .Where(wt => wt.Referencetable == ReferenceTable.Booking
+                                  && wt.Referenceid == classSession.Bookingid
+                                  && wt.Transactiontype == TransactionType.Refund)
+                        .SumAsync(wt => wt.Amount ?? 0);
+                    var maxParentRefundSingle = Math.Max(0, totalPaidByParentSingle - totalAlreadyRefundedSingle);
+                    var parentRefundClamped = Math.Round(Math.Min(parentRefundPerSession, maxParentRefundSingle), 2);
+
+                    // Clamp tutor escrow release against actual frozen balance so the wallet-transaction
+                    // ledger always matches the real balance delta (same reasoning as ChangeTutor below).
+                    var tutorEscrowClamped = Math.Round(
+                        Math.Min(tutorEscrowPerSession, Math.Max(0, tutorWallet?.Frozenbalance ?? 0)), 2);
+
+                    if (tutorWallet != null && tutorEscrowClamped > 0)
                     {
-                        tutorWallet.Frozenbalance = Math.Max(0, (tutorWallet.Frozenbalance ?? 0) - tutorEscrowPerSession);
+                        tutorWallet.Frozenbalance = Math.Max(0, (tutorWallet.Frozenbalance ?? 0) - tutorEscrowClamped);
                         tutorWallet.Lastupdated = now;
                         _context.Wallettransactions.Add(new Wallettransaction
                         {
                             Walletid = tutorWallet.Walletid,
-                            Amount = tutorEscrowPerSession,
+                            Amount = tutorEscrowClamped,
                             Transactiontype = TransactionType.EscrowRelease,
                             Referencetable = ReferenceTable.Booking,
                             Referenceid = classSession.Bookingid,
@@ -139,14 +157,14 @@ public partial class ClassSessionService
                         });
                     }
 
-                    if (parentWallet != null && parentRefundPerSession > 0)
+                    if (parentWallet != null && parentRefundClamped > 0)
                     {
-                        parentWallet.Balance += parentRefundPerSession;
+                        parentWallet.Balance += parentRefundClamped;
                         parentWallet.Lastupdated = now;
                         _context.Wallettransactions.Add(new Wallettransaction
                         {
                             Walletid = parentWallet.Walletid,
-                            Amount = parentRefundPerSession,
+                            Amount = parentRefundClamped,
                             Transactiontype = TransactionType.Refund,
                             Referencetable = ReferenceTable.Booking,
                             Referenceid = classSession.Bookingid,
@@ -155,7 +173,7 @@ public partial class ClassSessionService
                         });
                     }
 
-                    result.AmountRefunded = parentRefundPerSession;
+                    result.AmountRefunded = parentRefundClamped;
                     result.Message = "Buổi học đã được hủy và hoàn tiền 100%";
                     break;
 
