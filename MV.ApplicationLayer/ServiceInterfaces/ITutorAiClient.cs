@@ -19,6 +19,12 @@ namespace MV.ApplicationLayer.ServiceInterfaces
             IReadOnlyList<string> candidateIds,
             int topK,
             CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Embed 1 đoạn text (đề+lời giải) thành vector(768) qua tutora-ai /api/v1/embed.
+        /// Trả về vector, hoặc null nếu embed lỗi (câu hỏi vẫn được lưu, embed lại sau).
+        /// </summary>
+        Task<float[]?> EmbedAsync(string id, string text, CancellationToken cancellationToken = default);
     }
 
     public record AiRankedTutor(string TutorId, float Similarity);
