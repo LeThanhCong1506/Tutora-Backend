@@ -384,12 +384,19 @@ public class AdminPayoutService(
 
         await withdrawalRepo.SaveChangesAsync(ct);
 
-        await notificationService.CreateNotificationAsync(new NotificationRequest
+        try
         {
-            Userid = withdrawal.Userid!,
-            Title = "Yêu cầu rút tiền đã hoàn tất",
-            Message = "Yêu cầu rút tiền của bạn đã được duyệt và số tiền đã được chuyển vào tài khoản ngân hàng của bạn."
-        });
+            await notificationService.CreateNotificationAsync(new NotificationRequest
+            {
+                Userid = withdrawal.Userid!,
+                Title = "Yêu cầu rút tiền đã hoàn tất",
+                Message = "Yêu cầu rút tiền của bạn đã được duyệt và số tiền đã được chuyển vào tài khoản ngân hàng của bạn."
+            });
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Failed to send completed withdrawal notification for {WithdrawalId}", withdrawalId);
+        }
 
         logger.LogInformation("{Role} {ActorId} approved & completed withdrawal {WithdrawalId} (decision={Decision})",
             actorRole, actorUserId, withdrawalId, decision);
@@ -453,12 +460,19 @@ public class AdminPayoutService(
             await walletRepo.SaveChangesAsync(ct);
             await transaction.CommitAsync(ct);
 
-            await notificationService.CreateNotificationAsync(new NotificationRequest
+            try
             {
-                Userid = tutorId,
-                Title = "Yêu cầu rút tiền bị từ chối",
-                Message = $"Yêu cầu rút tiền bị từ chối: {reason}. Tiền đã được hoàn về ví."
-            });
+                await notificationService.CreateNotificationAsync(new NotificationRequest
+                {
+                    Userid = tutorId,
+                    Title = "Yêu cầu rút tiền bị từ chối",
+                    Message = $"Yêu cầu rút tiền bị từ chối: {reason}. Tiền đã được hoàn về ví."
+                });
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Failed to send rejected withdrawal notification for {WithdrawalId}", withdrawalId);
+            }
 
             logger.LogInformation("Actor {ActorId} rejected withdrawal {WithdrawalId}: {Reason}", actorUserId, withdrawalId, reason);
 
