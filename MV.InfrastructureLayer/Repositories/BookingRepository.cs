@@ -27,12 +27,6 @@ public class BookingRepository(AgoraDbContext context) : IBookingRepository
             .Include(b => b.ClassSessions)
             .FirstOrDefaultAsync(b => b.Bookingid == id);
 
-    public Task<Booking?> FindWithSubjectAsync(int id)
-        => context.Bookings
-            .Include(b => b.Tutorsubjectgradeprice).ThenInclude(p => p!.Subject)
-            .Include(b => b.Tutorsubjectgradeprice).ThenInclude(p => p!.Gradelevel)
-            .FirstOrDefaultAsync(b => b.Bookingid == id);
-
     public Task<Booking?> FindByIdForUserAsync(int id, string userId)
         => context.Bookings
             .Include(b => b.Student)

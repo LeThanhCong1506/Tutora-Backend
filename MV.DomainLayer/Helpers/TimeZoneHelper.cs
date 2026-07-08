@@ -13,7 +13,6 @@ public static class TimeZoneHelper
 
     /// <summary>
     /// Gets a TimeZoneInfo from an IANA or Windows timezone ID. Returns UTC on invalid/empty input.
-    /// Used only by ZaloPay (requires VN local time) and ToUtc(DateTime, string?).
     /// </summary>
     public static TimeZoneInfo GetTimeZoneInfo(string? timeZoneId)
     {

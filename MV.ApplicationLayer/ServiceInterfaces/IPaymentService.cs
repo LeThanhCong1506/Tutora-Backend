@@ -6,17 +6,17 @@ namespace MV.ApplicationLayer.ServiceInterfaces;
 public interface IPaymentService
 {
     /// <summary>
-    /// Get ZaloPay QR / payment URL info for a booking's current unpaid phase.
+    /// Get payment info for a booking's current unpaid phase.
     /// </summary>
     Task<PaymentInfoResponse> GetPaymentInfoAsync(int bookingId, string userId);
 
     /// <summary>
-    /// Process an inbound ZaloPay webhook callback; updates booking/payment status.
+    /// Process an inbound webhook callback; updates booking/payment status.
     /// </summary>
     Task ProcessWebhookAsync(PaymentWebhookRequest request, CancellationToken ct = default);
 
     /// <summary>
-    /// Verify the HMAC-SHA256 signature on a raw ZaloPay webhook payload.
+    /// Verify the HMAC-SHA256 signature on a raw webhook payload.
     /// </summary>
     Task<bool> VerifyWebhookSignatureAsync(string payload, string signature);
 
@@ -44,10 +44,4 @@ public interface IPaymentService
     /// Snapshot of payment status for a booking — includes deposit and remaining-balance phases.
     /// </summary>
     Task<PaymentStatusResponse> GetPaymentStatusAsync(int bookingId, string userId);
-
-    /// <summary>
-    /// Lightweight booking info returned to the ZaloPay payment page before order creation.
-    /// Returns <c>null</c> if the booking does not belong to the user or is not payable.
-    /// </summary>
-    Task<ZaloPayBookingInfoResponse?> GetBookingForZaloPayAsync(int bookingId, string userId);
 }

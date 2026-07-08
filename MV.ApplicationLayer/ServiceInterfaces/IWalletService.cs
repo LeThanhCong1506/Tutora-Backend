@@ -6,12 +6,12 @@ namespace MV.ApplicationLayer.ServiceInterfaces;
 public interface IWalletService
 {
     /// <summary>
-    /// Initiate a wallet top-up via ZaloPay; returns payment URL / QR data.
+    /// Initiate a wallet top-up; returns payment URL / QR data.
     /// </summary>
     Task<TopupResponse> CreateTopupRequestAsync(string userId, TopupRequest request);
 
     /// <summary>
-    /// Process an inbound ZaloPay webhook for a wallet top-up transaction.
+    /// Process an inbound webhook for a wallet top-up transaction.
     /// </summary>
     Task ProcessTopupWebhookAsync(PaymentWebhookRequest request, CancellationToken ct = default);
 
@@ -26,7 +26,8 @@ public interface IWalletService
     Task<TransactionHistoryPagedResponse> GetTransactionHistoryAsync(string userId, int page = 1, int pageSize = 20);
 
     /// <summary>
-    /// Verify the HMAC-SHA256 signature on a raw ZaloPay webhook payload.
+    /// Verify the HMAC-SHA256 signature on a raw webhook payload.
     /// </summary>
     Task<bool> VerifyWebhookSignatureAsync(string payload, string signature);
 }
+
