@@ -23,8 +23,14 @@ public class TutorDashboardStatsResponse
     /// <summary>Current wallet balance (VND)</summary>
     public decimal WalletBalance { get; set; }
 
+    /// <summary>Wallet balance that can be withdrawn or spent (VND)</summary>
+    public decimal AvailableBalance { get; set; }
+
     /// <summary>Frozen balance in escrow (VND)</summary>
     public decimal FrozenBalance { get; set; }
+
+    /// <summary>Total wallet balance including frozen escrow (VND)</summary>
+    public decimal TotalBalance { get; set; }
 
     /// <summary>Pending confirmation classSessions</summary>
     public int PendingConfirmation { get; set; }

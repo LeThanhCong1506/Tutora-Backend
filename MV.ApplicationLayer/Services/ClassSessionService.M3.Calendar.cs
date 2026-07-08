@@ -183,6 +183,9 @@ public partial class ClassSessionService
             if (!(user?.Isidentityverified ?? false)) missingFields.Add("identity");
         }
 
+        var walletBalance = wallet?.Balance ?? 0;
+        var frozenBalance = wallet?.Frozenbalance ?? 0;
+
         return new TutorDashboardStatsResponse
         {
             UpcomingClassSessions = upcomingCount,
@@ -190,8 +193,10 @@ public partial class ClassSessionService
             TotalCompleted = totalCompleted,
             EarningsThisMonth = earningsThisMonth,
             TotalEarnings = totalEarnings,
-            WalletBalance = wallet?.Balance ?? 0,
-            FrozenBalance = wallet?.Frozenbalance ?? 0,
+            WalletBalance = walletBalance,
+            AvailableBalance = walletBalance,
+            FrozenBalance = frozenBalance,
+            TotalBalance = walletBalance + frozenBalance,
             PendingConfirmation = pendingConfirmation,
             ActiveDisputes = activeDisputes,
             AverageRating = tutorProfile?.Averagerating ?? 0,

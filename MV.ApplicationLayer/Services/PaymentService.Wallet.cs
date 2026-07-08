@@ -171,10 +171,15 @@ public partial class PaymentService
     public async Task<WalletSummaryResponse> GetTutorWalletSummaryAsync(string tutorId)
     {
         var wallet = await walletRepo.GetByUserIdAsNoTrackingAsync(tutorId);
+        var balance = wallet?.Balance ?? 0;
+        var frozenBalance = wallet?.Frozenbalance ?? 0;
+
         return new WalletSummaryResponse
         {
-            Balance = wallet?.Balance ?? 0,
-            FrozenBalance = wallet?.Frozenbalance ?? 0,
+            Balance = balance,
+            AvailableBalance = balance,
+            FrozenBalance = frozenBalance,
+            TotalBalance = balance + frozenBalance,
             LastUpdated = wallet != null ? wallet.Lastupdated : null
         };
     }

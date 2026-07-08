@@ -158,6 +158,7 @@ public class WalletService(
         return new WalletBalanceResponse
         {
             Balance = bal,
+            AvailableBalance = bal,
             FrozenBalance = frz,
             TotalBalance = bal + frz,
             LastUpdated = w != null ? w.Lastupdated : null

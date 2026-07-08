@@ -268,11 +268,14 @@ public class AdminPayoutService(
             Decision = score.Decision
         };
 
+        var balance = wallet?.Balance ?? 0;
+        var frozenBalance = wallet?.Frozenbalance ?? 0;
         var walletInfo = new WalletInfoResponse
         {
-            Balance = wallet?.Balance ?? 0,
-            FrozenBalance = wallet?.Frozenbalance ?? 0,
-            AvailableBalance = (wallet?.Balance ?? 0) - (wallet?.Frozenbalance ?? 0)
+            Balance = balance,
+            FrozenBalance = frozenBalance,
+            AvailableBalance = balance,
+            TotalBalance = balance + frozenBalance
         };
 
         var user = withdrawal.User!;

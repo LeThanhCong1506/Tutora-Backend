@@ -45,10 +45,15 @@ public class TutorFinanceService(
             .Select(w => w.Requestedat)
             .FirstOrDefaultAsync(ct);
 
+        var balance = wallet.Balance ?? 0;
+        var frozenBalance = wallet.Frozenbalance ?? 0;
+
         return new FinanceSummaryResponse
         {
-            Balance = wallet.Balance ?? 0,
-            FrozenBalance = wallet.Frozenbalance ?? 0,
+            Balance = balance,
+            AvailableBalance = balance,
+            FrozenBalance = frozenBalance,
+            TotalBalance = balance + frozenBalance,
             TotalEarned = totalEarned,
             PendingSettlement = pendingSettlement,
             LastWithdrawalAt = lastWithdrawal
@@ -404,7 +409,9 @@ public class TutorFinanceService(
             if (withdrawal == null)
                 throw new WithdrawalNotFoundException();
 
-            if (withdrawal.Status != WithdrawalStatus.Pending && withdrawal.Status != WithdrawalStatus.Delayed)
+            if (withdrawal.Status != WithdrawalStatus.Pending
+                && withdrawal.Status != WithdrawalStatus.Delayed
+                && withdrawal.Status != WithdrawalStatus.PendingReview)
                 throw new WithdrawalCancellationException();
 
             var wallet = await context.Wallets
@@ -425,6 +432,8 @@ public class TutorFinanceService(
                 Walletid = wallet.Walletid,
                 Amount = withdrawal.Amount ?? 0,
                 Transactiontype = TransactionType.Refund,
+                Referencetable = ReferenceTable.Withdrawal,
+                Referenceid = withdrawalId,
                 Description = $"Cancelled withdrawal #{withdrawalId}",
                 Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
             };
