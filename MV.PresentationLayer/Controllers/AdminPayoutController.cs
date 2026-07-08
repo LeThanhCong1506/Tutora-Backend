@@ -116,9 +116,6 @@ public class AdminPayoutController(
     {
         try
         {
-            if (!ModelState.IsValid)
-                return BadRequest(APIResponse<object>.Fail(ApiMessages.InvalidRequestData, 400));
-
             if (string.IsNullOrEmpty(ActorUserId))
                 return Unauthorized(APIResponse<object>.Fail(ApiMessages.ActorUserIdNotFound, 401));
 
@@ -142,9 +139,6 @@ public class AdminPayoutController(
     {
         try
         {
-            if (!ModelState.IsValid)
-                return BadRequest(APIResponse<object>.Fail(ApiMessages.InvalidRequestData, 400));
-
             if (string.IsNullOrEmpty(ActorUserId))
                 return Unauthorized(APIResponse<object>.Fail(ApiMessages.ActorUserIdNotFound, 401));
 
@@ -156,32 +150,6 @@ public class AdminPayoutController(
         catch (Exception ex)
         {
             return HandleException(ex, "rejecting request");
-        }
-    }
-
-    [HttpGet("fraud-logs")]
-    [RequirePermission(Permissions.FraudLogView)]
-    public async Task<IActionResult> GetFraudLogs(
-        [FromQuery] int page = 1,
-        [FromQuery] int pageSize = 20,
-        [FromQuery] string? tutorId = null,
-        [FromQuery] string? ruleName = null,
-        [FromQuery] bool? passed = null,
-        [FromQuery] DateTime? from = null,
-        [FromQuery] DateTime? to = null,
-        CancellationToken ct = default)
-    {
-        try
-        {
-            var validation = ValidatePagination(page, pageSize);
-            if (validation != null) return validation;
-
-            var result = await adminPayoutService.GetFraudLogsAsync(page, pageSize, tutorId, ruleName, passed, from, to, ct);
-            return Ok(APIResponse<FraudLogResponse>.Success(result, "Lấy nhật ký gian lận thành công."));
-        }
-        catch (Exception ex)
-        {
-            return HandleException(ex, "retrieving fraud logs");
         }
     }
 

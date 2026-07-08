@@ -185,7 +185,7 @@ namespace MV.DomainLayer.Exceptions
     public class WithdrawalCancellationException : BadRequestException
     {
         public WithdrawalCancellationException()
-            : base("Only pending, pending review, or delayed withdrawals can be cancelled.") { }
+            : base("Withdrawal requests must be cancelled by staff after transfer status is verified.") { }
     }
 
     public class TutorProfileNotFoundException : NotFoundException

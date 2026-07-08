@@ -14,7 +14,5 @@ public class PendingReviewItem
     public string TutorId { get; set; } = string.Empty;
     public string TutorName { get; set; } = string.Empty;
     public decimal Amount { get; set; }
-    public int? TrustScore { get; set; }
-    public List<string> TopFraudFlags { get; set; } = new();
     public DateTime RequestedAt { get; set; }
 }

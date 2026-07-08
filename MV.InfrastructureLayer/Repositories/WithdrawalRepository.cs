@@ -22,7 +22,10 @@ public class WithdrawalRepository(AgoraDbContext context) : IWithdrawalRepositor
 
     public Task<int> CountPendingAsync(CancellationToken ct = default)
         => context.Withdrawalrequests.CountAsync(
-            w => w.Status == WithdrawalStatus.PendingReview || w.Status == WithdrawalStatus.Delayed || w.Status == WithdrawalStatus.Pending, ct);
+            w => w.Status == WithdrawalStatus.PendingReview
+                 || w.Status == WithdrawalStatus.Delayed
+                 || w.Status == WithdrawalStatus.Pending
+                 || w.Status == WithdrawalStatus.Approved, ct);
 
     public Task<int> SaveChangesAsync(CancellationToken ct = default)
         => context.SaveChangesAsync(ct);

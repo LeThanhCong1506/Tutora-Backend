@@ -248,7 +248,8 @@ public class TutorFinanceService(
                 .AnyAsync(w => w.Userid == tutorId
                                && (w.Status == WithdrawalStatus.Pending
                                    || w.Status == WithdrawalStatus.Delayed
-                                   || w.Status == WithdrawalStatus.PendingReview), ct);
+                                   || w.Status == WithdrawalStatus.PendingReview
+                                   || w.Status == WithdrawalStatus.Approved), ct);
 
             if (pendingWithdrawal)
                 throw new PendingWithdrawalException();
@@ -399,57 +400,16 @@ public class TutorFinanceService(
 
     public async Task CancelWithdrawalAsync(string tutorId, int withdrawalId, CancellationToken ct = default)
     {
-        await using var transaction = await context.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, ct);
+        var withdrawal = await context.Withdrawalrequests
+            .AsNoTracking()
+            .FirstOrDefaultAsync(w => w.Withdrawalid == withdrawalId && w.Userid == tutorId, ct);
 
-        try
-        {
-            var withdrawal = await context.Withdrawalrequests
-                .FirstOrDefaultAsync(w => w.Withdrawalid == withdrawalId && w.Userid == tutorId, ct);
+        if (withdrawal == null)
+            throw new WithdrawalNotFoundException();
 
-            if (withdrawal == null)
-                throw new WithdrawalNotFoundException();
-
-            if (withdrawal.Status != WithdrawalStatus.Pending
-                && withdrawal.Status != WithdrawalStatus.Delayed
-                && withdrawal.Status != WithdrawalStatus.PendingReview)
-                throw new WithdrawalCancellationException();
-
-            var wallet = await context.Wallets
-            .FromSqlRaw(SqlQueries.LockWalletByUserId, tutorId)
-                .FirstOrDefaultAsync(ct);
-
-            if (wallet == null)
-                throw new WalletNotFoundException();
-
-            wallet.Balance += withdrawal.Amount ?? 0;
-            wallet.Lastupdated = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
-
-            withdrawal.Status = WithdrawalStatus.Cancelled;
-            withdrawal.Processedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
-
-            var refundTransaction = new Wallettransaction
-            {
-                Walletid = wallet.Walletid,
-                Amount = withdrawal.Amount ?? 0,
-                Transactiontype = TransactionType.Refund,
-                Referencetable = ReferenceTable.Withdrawal,
-                Referenceid = withdrawalId,
-                Description = $"Cancelled withdrawal #{withdrawalId}",
-                Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
-            };
-
-            context.Wallettransactions.Add(refundTransaction);
-
-            await context.SaveChangesAsync(ct);
-            await transaction.CommitAsync(ct);
-
-            logger.LogInformation("Cancelled withdrawal {WithdrawalId} for tutor {TutorId}", withdrawalId, tutorId);
-        }
-        catch
-        {
-            await transaction.RollbackAsync(ct);
-            throw;
-        }
+        // Manual bank transfer has no system-side "in progress" lock. Staff must reject the
+        // request after verifying no transfer was sent; tutor self-cancel would risk double payout.
+        throw new WithdrawalCancellationException();
     }
 
     private static int GetWeekOfYear(DateTime date)

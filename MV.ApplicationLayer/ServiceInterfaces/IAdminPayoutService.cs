@@ -10,7 +10,7 @@ public interface IAdminPayoutService
     Task<PayoutOverviewResponse> GetOverviewAsync(CancellationToken ct = default);
 
     /// <summary>
-    /// Get pending review list (MANUAL_REVIEW cases)
+    /// Get withdrawal requests that staff/admin can still manually approve or reject.
     /// </summary>
     Task<PendingReviewResponse> GetPendingReviewAsync(int page, int pageSize, CancellationToken ct = default);
 
@@ -41,17 +41,4 @@ public interface IAdminPayoutService
     /// Reject a withdrawal request and refund the tutor's wallet.
     /// </summary>
     Task<RejectResult> RejectRequestAsync(int withdrawalId, string actorUserId, string reason, CancellationToken ct = default);
-
-    /// <summary>
-    /// Get fraud logs with filters
-    /// </summary>
-    Task<FraudLogResponse> GetFraudLogsAsync(
-        int page,
-        int pageSize,
-        string? tutorId = null,
-        string? ruleName = null,
-        bool? passed = null,
-        DateTime? from = null,
-        DateTime? to = null,
-        CancellationToken ct = default);
 }

@@ -4,8 +4,6 @@ public class AdminWithdrawalDetailResponse
 {
     public RequestInfoResponse RequestInfo { get; set; } = new();
     public TutorInfoResponse TutorInfo { get; set; } = new();
-    public ScoreBreakdownResponse? ScoreBreakdown { get; set; }
-    public List<string> FraudFlags { get; set; } = new();
     public List<PreviousWithdrawalResponse> PreviousWithdrawals { get; set; } = new();
     public WalletInfoResponse WalletInfo { get; set; } = new();
     public List<TimelineEventResponse> Timeline { get; set; } = new();
@@ -36,15 +34,6 @@ public class TutorInfoResponse
     public int CompletedClassSessions { get; set; }
     public decimal TotalEarnings { get; set; }
     public DateTime JoinedAt { get; set; }
-}
-
-public class ScoreBreakdownResponse
-{
-    public int BaseScore { get; set; }
-    public List<string> PositiveFactors { get; set; } = new();
-    public List<string> NegativeFactors { get; set; } = new();
-    public int TotalScore { get; set; }
-    public string Decision { get; set; } = string.Empty;
 }
 
 public class PreviousWithdrawalResponse
