@@ -24,8 +24,10 @@ public class AdminPayoutService(
 {
     public async Task<PayoutOverviewResponse> GetOverviewAsync(CancellationToken ct = default)
     {
-        var today = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow.Date;
-        var thisMonth = new DateTime(MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow.Year, MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow.Month, 1);
+        var now = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
+        var today = now.Date;
+        var tomorrow = today.AddDays(1);
+        var thisMonth = new DateTime(now.Year, now.Month, 1);
 
         // Complex analytics query: stays on context
         var monthStats = await context.Withdrawalrequests
@@ -40,8 +42,33 @@ public class AdminPayoutService(
                 Delayed = g.Count(w => w.Decision == Decisions.Delayed),
                 ManualReview = g.Count(w => w.Decision == Decisions.ManualReview),
                 Rejected = g.Count(w => w.Status == WithdrawalStatus.Rejected),
-                Completed = g.Count(w => w.Status == WithdrawalStatus.Approved || w.Status == WithdrawalStatus.Completed),
-                TotalPayoutThisMonth = g.Where(w => w.Status == WithdrawalStatus.Approved || w.Status == WithdrawalStatus.Completed).Sum(w => w.Amount ?? 0)
+                Completed = g.Count(w => w.Status == WithdrawalStatus.Approved || w.Status == WithdrawalStatus.Completed)
+            })
+            .FirstOrDefaultAsync(ct);
+
+        var todayStats = await context.Withdrawalrequests
+            .Where(w => w.Requestedat >= today && w.Requestedat < tomorrow)
+            .GroupBy(w => 1)
+            .Select(g => new
+            {
+                TotalRequests = g.Count(),
+                AutoApproved = g.Count(w => w.Decision == Decisions.AutoApprove
+                                         || w.Decision == Decisions.AdminApproved
+                                         || w.Decision == Decisions.StaffApproved),
+                Delayed = g.Count(w => w.Decision == Decisions.Delayed),
+                ManualReview = g.Count(w => w.Decision == Decisions.ManualReview),
+                Rejected = g.Count(w => w.Status == WithdrawalStatus.Rejected)
+            })
+            .FirstOrDefaultAsync(ct);
+
+        var payoutStats = await context.Withdrawalrequests
+            .Where(w => (w.Status == WithdrawalStatus.Approved || w.Status == WithdrawalStatus.Completed)
+                        && w.Processedat >= thisMonth)
+            .GroupBy(w => 1)
+            .Select(g => new
+            {
+                TotalPayoutToday = g.Where(w => w.Processedat >= today && w.Processedat < tomorrow).Sum(w => w.Amount ?? 0),
+                TotalPayoutThisMonth = g.Sum(w => w.Amount ?? 0)
             })
             .FirstOrDefaultAsync(ct);
 
@@ -56,11 +83,11 @@ public class AdminPayoutService(
         {
             TodayStats = new TodayStatsResponse
             {
-                TotalRequests = monthStats?.TotalRequests ?? 0,
-                AutoApproved = monthStats?.AutoApproved ?? 0,
-                Delayed = monthStats?.Delayed ?? 0,
-                ManualReview = monthStats?.ManualReview ?? 0,
-                Rejected = monthStats?.Rejected ?? 0
+                TotalRequests = todayStats?.TotalRequests ?? 0,
+                AutoApproved = todayStats?.AutoApproved ?? 0,
+                Delayed = todayStats?.Delayed ?? 0,
+                ManualReview = todayStats?.ManualReview ?? 0,
+                Rejected = todayStats?.Rejected ?? 0
             },
             ProcessingStats = new ProcessingStatsResponse
             {
@@ -70,8 +97,8 @@ public class AdminPayoutService(
             },
             FinancialStats = new FinancialStatsResponse
             {
-                TotalPayoutToday = monthStats?.TotalPayoutThisMonth ?? 0,
-                TotalPayoutThisMonth = monthStats?.TotalPayoutThisMonth ?? 0
+                TotalPayoutToday = payoutStats?.TotalPayoutToday ?? 0,
+                TotalPayoutThisMonth = payoutStats?.TotalPayoutThisMonth ?? 0
             },
             DecisionBreakdown = new DecisionBreakdownResponse
             {
