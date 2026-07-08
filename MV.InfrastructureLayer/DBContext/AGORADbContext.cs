@@ -19,8 +19,6 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
 
     public virtual DbSet<Booking> Bookings { get; set; }
 
-    public virtual DbSet<BankChangeLog> BankChangeLogs { get; set; }
-
     public virtual DbSet<FraudLog> Fraudlogs { get; set; }
 
     public virtual DbSet<LoginHistory> Loginhistories { get; set; }
@@ -113,52 +111,6 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
 
         modelBuilder.Entity<Studentprofile>().HasQueryFilter(e => EF.Property<DateTime?>(e, "Deletedat") == null);
         modelBuilder.Entity<Tutorprofile>().HasQueryFilter(e => EF.Property<DateTime?>(e, "Deletedat") == null);
-
-        modelBuilder.Entity<BankChangeLog>(entity =>
-        {
-            entity.HasKey(e => e.Logid).HasName("bank_change_logs_pkey");
-
-            entity.ToTable("bank_change_logs");
-
-            entity.Property(e => e.Logid).HasColumnName("log_id");
-            entity.Property(e => e.Tutorid)
-                .HasMaxLength(50)
-                .HasColumnName("tutor_id");
-            entity.Property(e => e.Oldbankname)
-                .HasMaxLength(100)
-                .HasColumnName("old_bank_name");
-            entity.Property(e => e.Oldbankaccountnumber)
-                .HasMaxLength(50)
-                .HasColumnName("old_bank_account_number");
-            entity.Property(e => e.Oldbankaccountname)
-                .HasMaxLength(200)
-                .HasColumnName("old_bank_account_name");
-            entity.Property(e => e.Newbankname)
-                .HasMaxLength(100)
-                .HasColumnName("new_bank_name");
-            entity.Property(e => e.Newbankaccountnumber)
-                .HasMaxLength(50)
-                .HasColumnName("new_bank_account_number");
-            entity.Property(e => e.Newbankaccountname)
-                .HasMaxLength(200)
-                .HasColumnName("new_bank_account_name");
-            entity.Property(e => e.Changedat)
-                .HasDefaultValueSql("CURRENT_TIMESTAMP")
-                .HasColumnType("timestamp without time zone")
-                .HasColumnName("changed_at");
-            entity.Property(e => e.Ipaddress)
-                .HasMaxLength(45)
-                .HasColumnName("ip_address");
-            entity.Property(e => e.Useragent).HasColumnName("user_agent");
-            entity.Property(e => e.Reason)
-                .HasMaxLength(500)
-                .HasColumnName("reason");
-
-            entity.HasOne(d => d.Tutor).WithMany()
-                .HasForeignKey(d => d.Tutorid)
-                .OnDelete(DeleteBehavior.Cascade)
-                .HasConstraintName("fk_bank_change_logs_tutor");
-        });
 
         modelBuilder.Entity<FraudLog>(entity =>
         {
@@ -1447,12 +1399,6 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
 
             entity.ToTable("tutor_profiles");
 
-            entity.HasIndex(e => new { e.Isbankverified, e.Bankverifiedat }, "idx_tutorprofiles_bankverified")
-                .HasFilter("is_bank_verified = true");
-
-            entity.HasIndex(e => e.Bankverifycode, "idx_tutorprofiles_bankverifycode")
-                .HasFilter("bank_verify_code IS NOT NULL");
-
             entity.Property(e => e.Tutorid)
                 .HasMaxLength(50)
                 .HasColumnName("tutor_id");
@@ -1524,27 +1470,9 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
             entity.Property(e => e.Bankaccountname)
                 .HasMaxLength(100)
                 .HasColumnName("bank_account_name");
-            entity.Property(e => e.Isbankverified)
-                .HasDefaultValue(false)
-                .HasColumnName("is_bank_verified");
             entity.Property(e => e.Bankchangedat)
                 .HasColumnType("timestamp without time zone")
                 .HasColumnName("bank_changed_at");
-            entity.Property(e => e.Bankverifycode)
-                .HasMaxLength(50)
-                .HasColumnName("bank_verify_code");
-            entity.Property(e => e.Bankverifystatus)
-                .HasMaxLength(30)
-                .HasColumnName("bank_verify_status");
-            entity.Property(e => e.Bankverifyrequested)
-                .HasColumnType("timestamp without time zone")
-                .HasColumnName("bank_verify_requested");
-            entity.Property(e => e.Bankverifiedat)
-                .HasColumnType("timestamp without time zone")
-                .HasColumnName("bank_verified_at");
-            entity.Property(e => e.Bankverifyattempts)
-                .HasDefaultValue(0)
-                .HasColumnName("bank_verify_attempts");
 
             entity.HasOne(d => d.Tutor).WithOne(p => p.Tutorprofile)
                 .HasForeignKey<Tutorprofile>(d => d.Tutorid)
@@ -2076,24 +2004,7 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
                 .HasColumnName("user_id");
             entity.Property(e => e.Walletid).HasColumnName("wallet_id");
 
-            // PayOS tracking fields
-            entity.Property(e => e.Payostransactionid)
-                .HasMaxLength(255)
-                .HasColumnName("payos_transaction_id");
-            entity.Property(e => e.Payosstatus)
-                .HasMaxLength(50)
-                .HasColumnName("payos_status");
-            entity.Property(e => e.Payosresponsecode)
-                .HasMaxLength(50)
-                .HasColumnName("payos_response_code");
-            entity.Property(e => e.Payoserror)
-                .HasColumnName("payos_error");
-            entity.Property(e => e.Retrycount)
-                .HasDefaultValue(0)
-                .HasColumnName("retry_count");
-            entity.Property(e => e.Lastretryat)
-                .HasColumnType("timestamp without time zone")
-                .HasColumnName("last_retry_at");
+            entity.Property(e => e.Completionnote).HasColumnName("completion_note");
 
             // Decision tracking fields
             entity.Property(e => e.Decision)

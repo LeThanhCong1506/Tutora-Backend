@@ -9,7 +9,6 @@ public interface IAppDbContext
     DatabaseFacade Database { get; }
 
     DbSet<Booking> Bookings { get; }
-    DbSet<BankChangeLog> BankChangeLogs { get; }
     DbSet<FraudLog> Fraudlogs { get; }
     DbSet<LoginHistory> Loginhistories { get; }
     DbSet<Chatchannel> Chatchannels { get; }

@@ -193,7 +193,6 @@ public class TutorFinanceService(
             BankName = tutor.Bankname,
             AccountNumber = tutor.Bankaccountnumber,
             AccountHolderName = tutor.Bankaccountname,
-            IsVerified = tutor.Isbankverified ?? false,
             BankChangedAt = tutor.Bankchangedat
         };
     }
@@ -207,7 +206,6 @@ public class TutorFinanceService(
         tutor.Bankname = request.BankName;
         tutor.Bankaccountnumber = request.AccountNumber;
         tutor.Bankaccountname = request.AccountHolderName;
-        tutor.Isbankverified = false;
         tutor.Bankchangedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
         tutor.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 
@@ -220,7 +218,6 @@ public class TutorFinanceService(
             BankName = tutor.Bankname,
             AccountNumber = tutor.Bankaccountnumber,
             AccountHolderName = tutor.Bankaccountname,
-            IsVerified = tutor.Isbankverified ?? false,
             BankChangedAt = tutor.Bankchangedat
         };
     }
@@ -255,11 +252,11 @@ public class TutorFinanceService(
                 .AsNoTracking()
                 .FirstOrDefaultAsync(t => t.Tutorid == tutorId, ct);
 
-            if (tutor == null || string.IsNullOrEmpty(tutor.Bankaccountnumber))
+            if (tutor == null
+                || string.IsNullOrEmpty(tutor.Bankname)
+                || string.IsNullOrEmpty(tutor.Bankaccountnumber)
+                || string.IsNullOrEmpty(tutor.Bankaccountname))
                 throw new BankInfoRequiredException();
-
-            if (tutor.Isbankverified != true)
-                throw new BankNotVerifiedException();
 
             if (request.Amount < MinWithdrawalAmount)
                 throw new WithdrawalAmountTooLowException(MinWithdrawalAmount);

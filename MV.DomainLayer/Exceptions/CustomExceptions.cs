@@ -158,10 +158,16 @@ namespace MV.DomainLayer.Exceptions
             : base("Please update your bank information first.") { }
     }
 
-    public class BankNotVerifiedException : BadRequestException
+    public class ExternalApiException : Exception
     {
-        public BankNotVerifiedException()
-            : base("Bank account not verified. Please contact support.") { }
+        public ExternalApiException(string message) : base(message)
+        {
+        }
+
+        public ExternalApiException(string message, Exception innerException)
+            : base(message, innerException)
+        {
+        }
     }
 
     public class WithdrawalAmountTooLowException : BadRequestException

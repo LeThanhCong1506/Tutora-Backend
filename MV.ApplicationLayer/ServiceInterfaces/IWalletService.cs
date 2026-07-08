@@ -29,14 +29,4 @@ public interface IWalletService
     /// Verify the HMAC-SHA256 signature on a raw ZaloPay webhook payload.
     /// </summary>
     Task<bool> VerifyWebhookSignatureAsync(string payload, string signature);
-
-    /// <summary>
-    /// Check whether the user's wallet balance covers the given verification cost.
-    /// </summary>
-    Task<bool> HasSufficientBalanceForVerificationAsync(string userId, decimal verificationCost);
-
-    /// <summary>
-    /// Deduct a verification fee from the user's wallet and record the transaction.
-    /// </summary>
-    Task DeductVerificationFeeAsync(string userId, decimal amount, string verificationCode);
 }

@@ -1,7 +1,5 @@
-﻿using Hangfire;
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
-using MV.ApplicationLayer.JobHandlers;
 using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO.RequestModel;
@@ -279,8 +277,7 @@ public class AdminPayoutService(
                 CreatedAt = withdrawal.Requestedat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow,
                 ProcessedAt = withdrawal.Processedat,
                 ProcessedBy = withdrawal.Processedby,
-                PayosTransactionId = withdrawal.Payostransactionid,
-                PayosStatus = withdrawal.Payosstatus
+                CompletionNote = withdrawal.Completionnote
             },
             TutorInfo = tutorInfo,
             ScoreBreakdown = scoreBreakdown,
@@ -327,7 +324,7 @@ public class AdminPayoutService(
             timeline.Add(new() { Timestamp = withdrawal.Requestedat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow, Event = "Decision made", Details = withdrawal.Decision });
 
         if (withdrawal.Processedat.HasValue)
-            timeline.Add(new() { Timestamp = withdrawal.Processedat.Value, Event = "Processed", Details = $"Status: {withdrawal.Status}" });
+            timeline.Add(new() { Timestamp = withdrawal.Processedat.Value, Event = "Processed", Details = $"Status: {withdrawal.Status}. Ghi chú: {withdrawal.Completionnote}" });
 
         return timeline;
     }
@@ -342,35 +339,38 @@ public class AdminPayoutService(
         if (withdrawal.Status != WithdrawalStatus.PendingReview && withdrawal.Status != WithdrawalStatus.Delayed)
             throw new InvalidOperationException($"Không thể duyệt yêu cầu có trạng thái: {withdrawal.Status}");
 
+        if (string.IsNullOrWhiteSpace(note))
+            throw new InvalidOperationException("Vui lòng nhập ghi chú/mã tham chiếu giao dịch chuyển khoản.");
+
         // Ghi đúng decision theo role người thực hiện
         var decision = string.Equals(actorRole, UserRole.Staff, StringComparison.OrdinalIgnoreCase)
             ? Decisions.StaffApproved
             : Decisions.AdminApproved;
 
-        withdrawal.Status     = WithdrawalStatus.Approved;
-        withdrawal.Processedby = actorUserId;
-        withdrawal.Processedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
-        withdrawal.Decision    = decision;
+        // Staff đã tự chuyển tiền thủ công trước khi bấm nút này — 1 bước, không còn trạng thái
+        // Approved trung gian chờ PayOS xử lý async như trước.
+        withdrawal.Status         = WithdrawalStatus.Completed;
+        withdrawal.Processedby    = actorUserId;
+        withdrawal.Processedat    = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
+        withdrawal.Decision       = decision;
+        withdrawal.Completionnote = note;
 
         await withdrawalRepo.SaveChangesAsync(ct);
-
-        BackgroundJob.Enqueue<PayoutJobHandler>(x => x.ProcessImmediatePayoutAsync(withdrawalId, CancellationToken.None));
 
         await notificationService.CreateNotificationAsync(new NotificationRequest
         {
             Userid = withdrawal.Userid!,
-            Title = "Yêu cầu rút tiền đã được phê duyệt",
-            Message = "Yêu cầu rút tiền của bạn đã được phê duyệt. Đang xử lý, dự kiến 5-30 phút."
+            Title = "Yêu cầu rút tiền đã hoàn tất",
+            Message = "Yêu cầu rút tiền của bạn đã được duyệt và số tiền đã được chuyển vào tài khoản ngân hàng của bạn."
         });
 
-        logger.LogInformation("{Role} {ActorId} approved withdrawal {WithdrawalId} (decision={Decision})",
+        logger.LogInformation("{Role} {ActorId} approved & completed withdrawal {WithdrawalId} (decision={Decision})",
             actorRole, actorUserId, withdrawalId, decision);
 
         return new ApproveResult
         {
             Success = true,
-            Message = "Đã phê duyệt yêu cầu rút tiền thành công",
-            EstimatedTime = "5-30 phút"
+            Message = "Đã duyệt và xác nhận chuyển tiền thành công"
         };
     }
 

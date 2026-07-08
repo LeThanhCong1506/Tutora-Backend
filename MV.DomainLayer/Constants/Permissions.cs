@@ -22,7 +22,6 @@ public static class Permissions
     public const string PayoutView           = "payout.view";
     public const string PayoutApprove        = "payout.approve";
     public const string PayoutReject         = "payout.reject";
-    public const string PayoutBalanceView    = "payout.balance_view";
     public const string FraudLogView         = "fraud_log.view";
     public const string SystemAlertView      = "system_alert.view";
     public const string SystemAlertResolve   = "system_alert.resolve";
@@ -46,7 +45,7 @@ public static class Permissions
         TutorApprovalView, TutorApprovalDecide, CertificateView, CertificateVerify, TutorCccdView,
         UserView, UserUpdate, UserDeactivate,
         DashboardView, FinancialView, BookingView, PromotionManage,
-        PayoutView, PayoutApprove, PayoutReject, PayoutBalanceView, FraudLogView,
+        PayoutView, PayoutApprove, PayoutReject, FraudLogView,
         SystemAlertView, SystemAlertResolve,
         DisputeView, DisputeInvestigate, DisputeResolve,
         WarningCreate, WarningView, SuspensionManage,
@@ -72,7 +71,6 @@ public static class Permissions
         new(PayoutView,          "Xem yêu cầu rút tiền",                "Payout"),
         new(PayoutApprove,       "Duyệt yêu cầu rút tiền",              "Payout"),
         new(PayoutReject,        "Từ chối yêu cầu rút tiền",            "Payout"),
-        new(PayoutBalanceView,   "Xem số dư PayOS",                     "Payout"),
         new(FraudLogView,        "Xem nhật ký gian lận (lịch sử)",      "Payout"),
         new(SystemAlertView,     "Xem cảnh báo hệ thống",               "Payout"),
         new(SystemAlertResolve,  "Xử lý cảnh báo hệ thống",             "Payout"),

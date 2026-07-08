@@ -15,7 +15,6 @@ namespace MV.PresentationLayer.Controllers;
 [Authorize]
 public class AdminPayoutController(
     IAdminPayoutService adminPayoutService,
-    IPayoutService payoutService,
     ISystemAlertService systemAlertService) : ControllerBase
 {
     private string? ActorUserId => User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
@@ -39,7 +38,6 @@ public class AdminPayoutController(
         try
         {
             var overview = await adminPayoutService.GetOverviewAsync(ct);
-            overview.PayOSBalance = await payoutService.GetPayOSBalanceAsync(ct);
             return Ok(APIResponse<PayoutOverviewResponse>.Success(overview, "Lấy tổng quan thành công."));
         }
         catch (Exception ex)
@@ -118,6 +116,9 @@ public class AdminPayoutController(
     {
         try
         {
+            if (!ModelState.IsValid)
+                return BadRequest(APIResponse<object>.Fail(ApiMessages.InvalidRequestData, 400));
+
             if (string.IsNullOrEmpty(ActorUserId))
                 return Unauthorized(APIResponse<object>.Fail(ApiMessages.ActorUserIdNotFound, 401));
 
@@ -155,27 +156,6 @@ public class AdminPayoutController(
         catch (Exception ex)
         {
             return HandleException(ex, "rejecting request");
-        }
-    }
-
-    [HttpGet("payos-balance")]
-    [RequirePermission(Permissions.PayoutBalanceView)]
-    public async Task<IActionResult> GetPayOSBalance(CancellationToken ct)
-    {
-        try
-        {
-            var balance = await payoutService.GetPayOSBalanceAsync(ct);
-            return balance == null
-                ? Ok(APIResponse<object>.Success(new
-                {
-                    Message = "Không thể kiểm tra số dư PayOS qua API. Vui lòng kiểm tra trên dashboard PayOS.",
-                    DashboardUrl = "https://payos.vn"
-                }, "Không thể kiểm tra số dư."))
-                : Ok(APIResponse<PayOSBalanceResponse>.Success(balance, "Lấy số dư thành công."));
-        }
-        catch (Exception ex)
-        {
-            return HandleException(ex, "retrieving balance");
         }
     }
 

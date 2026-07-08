@@ -1,8 +1,8 @@
 using MV.DomainLayer.DTO.ResponseModel;
 
-namespace MV.DomainLayer.Interfaces;
+namespace MV.ApplicationLayer.ServiceInterfaces;
 
-public interface IVietQRClient
+public interface IBankListService
 {
     Task<List<BankInfoResponse>> GetBankListAsync(CancellationToken cancellationToken = default);
 }

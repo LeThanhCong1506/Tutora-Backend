@@ -23,8 +23,7 @@ public class RequestInfoResponse
     public DateTime CreatedAt { get; set; }
     public DateTime? ProcessedAt { get; set; }
     public string? ProcessedBy { get; set; }
-    public string? PayosTransactionId { get; set; }
-    public string? PayosStatus { get; set; }
+    public string? CompletionNote { get; set; }
 }
 
 public class TutorInfoResponse

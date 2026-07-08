@@ -12,7 +12,6 @@ using MV.ApplicationLayer.ServiceInterfaces;
 using MV.ApplicationLayer.Services;
 using MV.ApplicationLayer.BackgroundJobs;
 using MV.DomainLayer.Constants;
-using MV.ApplicationLayer.JobHandlers;
 using MV.PresentationLayer.Filters;
 using Hangfire;
 using Hangfire.PostgreSql;
@@ -49,9 +48,7 @@ builder.Services.Configure<GoogleGeminiSettings>(builder.Configuration.GetSectio
 builder.Services.Configure<PaymentSettings>(builder.Configuration.GetSection(PaymentSettings.SectionName));
 builder.Services.Configure<GoogleSettings>(builder.Configuration.GetSection(GoogleSettings.SectionName));
 builder.Services.Configure<AgoraSettings>(builder.Configuration.GetSection(AgoraSettings.SectionName));
-builder.Services.Configure<BankVerificationSettings>(builder.Configuration.GetSection(BankVerificationSettings.SectionName));
 builder.Services.Configure<VietQRSettings>(builder.Configuration.GetSection(VietQRSettings.SectionName));
-builder.Services.Configure<MV.DomainLayer.Settings.PayoutSettings>(builder.Configuration.GetSection(MV.DomainLayer.Settings.PayoutSettings.SectionName));
 builder.Services.Configure<ZaloOAConfig>(builder.Configuration.GetSection(ConfigurationKeys.ZaloOA.SectionName));
 builder.Services.Configure<CloudinarySettings>(builder.Configuration.GetSection("Cloudinary"));
 // builder.Services.Configure<InternalApiSettings>(builder.Configuration.GetSection(InternalApiSettings.SectionName));
@@ -65,21 +62,6 @@ builder.Services.AddKeyedSingleton<PayOSClient>(ServiceKeys.PayOS.Checkout, (sp,
         ClientId = settings.ClientId,
         ApiKey = settings.ApiKey,
         ChecksumKey = settings.ChecksumKey,
-        TimeoutMs = 30000,
-        MaxRetries = 3,
-        Logger = logger
-    });
-});
-
-builder.Services.AddKeyedSingleton<PayOSClient>(ServiceKeys.PayOS.Payout, (sp, _) =>
-{
-    var settings = sp.GetRequiredService<IOptions<PaymentSettings>>().Value;
-    var logger = sp.GetRequiredService<ILogger<PayOSClient>>();
-    return new PayOSClient(new PayOSOptions
-    {
-        ClientId = settings.PayoutClientId,
-        ApiKey = settings.PayoutApiKey,
-        ChecksumKey = settings.PayoutChecksumKey,
         TimeoutMs = 30000,
         MaxRetries = 3,
         Logger = logger
@@ -335,9 +317,7 @@ builder.Services.AddScoped<IDisputeService, DisputeService>();
 builder.Services.AddScoped<IWarningService, WarningService>();
 builder.Services.AddScoped<IFeedbackService, FeedbackService>();
 
-builder.Services.AddScoped<IBankVerificationService, BankVerificationService>();
-builder.Services.AddScoped<IPayOSTransferClient, PayOSTransferClient>();
-builder.Services.AddScoped<IPayoutService, PayoutService>();
+builder.Services.AddScoped<IBankListService, BankListService>();
 builder.Services.AddScoped<PayOSWebhookService>();
 
 // M4-T7: Admin Monitoring Dashboard
@@ -346,8 +326,6 @@ builder.Services.AddScoped<ISystemAlertService, SystemAlertService>();
 builder.Services.AddScoped<IAdminFinancialService, AdminFinancialService>();
 builder.Services.AddScoped<IAdminBookingService, AdminBookingService>();
 builder.Services.AddScoped<IAdminDashboardService, AdminDashboardService>();
-
-builder.Services.AddScoped<PayoutJobHandler>();
 
 builder.Services.AddHangfire(config => config
     .SetDataCompatibilityLevel(CompatibilityLevel.Version_180)
@@ -364,7 +342,7 @@ builder.Services.AddHangfire(config => config
 builder.Services.AddHangfireServer(options =>
 {
     options.WorkerCount = 2;
-    options.Queues = new[] { "default", "payout" };
+    options.Queues = new[] { "default" };
 });
 
 builder.Services.AddHttpClient(ServiceKeys.HttpClients.VietQR, client =>
@@ -416,8 +394,6 @@ builder.Services.AddHostedService<AutoConfirmClassSessionJob>();
 builder.Services.AddHostedService<AutoUnsuspendJob>();
 builder.Services.AddHostedService<ClassSessionReminderJob>();
 builder.Services.AddHostedService<RemainingPaymentTriggerJob>();
-// M4-T6: Background Jobs - Reconciliation only (Hangfire handles payout jobs)
-builder.Services.AddHostedService<ReconciliationJob>();
 builder.Services.AddHostedService<GhostUserCleanupJob>();
 // Chủ động refresh Zalo OA token trước khi hết hạn.
 builder.Services.AddHostedService<ZaloTokenRefreshJob>();
