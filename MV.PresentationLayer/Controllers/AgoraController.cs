@@ -107,9 +107,11 @@ public class AgoraController(
     /// <summary>
     /// GET /api/agora/token?channel={channel}
     /// Tạo token nhanh cho user hiện tại trong một channel bất kỳ.
-    /// Dùng cho testing hoặc khi cần token độc lập với buổi học.
+    /// Chỉ Admin gọi được — dùng cho testing nội bộ, không phục vụ người dùng cuối
+    /// (channel không được kiểm tra gắn với buổi học nào, không an toàn cho user thường).
     /// </summary>
     [HttpGet("token")]
+    [Authorize(Roles = UserRole.Admin)]
     public IActionResult GetToken([FromQuery] string channel)
     {
         if (string.IsNullOrWhiteSpace(channel))
