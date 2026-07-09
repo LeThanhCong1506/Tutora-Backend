@@ -41,5 +41,6 @@ namespace MV.ApplicationLayer.ServiceInterfaces
         string? Solution,
         string? ProblemType,
         string? Chapter,
-        int? Page);
+        int? Page,
+        List<string> Images);
 }

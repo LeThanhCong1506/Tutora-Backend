@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using MV.ApplicationLayer.Interfaces;
 using MV.ApplicationLayer.ServiceInterfaces;
+using MV.DomainLayer.DTO.RequestModel;
 using MV.DomainLayer.DTO.ResponseModel.Question;
 using MV.DomainLayer.Entities;
 using Pgvector;
@@ -93,11 +94,13 @@ public class SourceDocumentService : ISourceDocumentService
             return Fail(doc, "AI extract thất bại. Vui lòng thử lại.");
         }
 
-        // Lưu câu ở trạng thái pending_review. subject/grade lấy default của document
-        // (staff chỉnh lại từng câu khi duyệt nếu cần).
-        var questions = extracted
-            .Where(q => !string.IsNullOrWhiteSpace(q.Content))
-            .Select(q => new QuestionBank
+        // Lưu câu ở trạng thái pending_review. subject/grade lấy default của document.
+        // Ảnh crop (base64) -> upload Cloudinary -> gán image_urls (best-effort).
+        var questions = new List<QuestionBank>();
+        foreach (var q in extracted.Where(x => !string.IsNullOrWhiteSpace(x.Content)))
+        {
+            var imageUrls = await UploadFigureImagesAsync(q.Images, uploadedBy, ct);
+            questions.Add(new QuestionBank
             {
                 Id = Guid.NewGuid(),
                 SubjectId = defaultSubjectId.Value,        // đã validate > 0 ở trên
@@ -106,12 +109,13 @@ public class SourceDocumentService : ISourceDocumentService
                 ProblemType = q.ProblemType,
                 Content = q.Content,
                 Solution = q.Solution,
+                ImageUrls = imageUrls,
                 SourceDocumentId = doc.Id,
                 SourcePage = q.Page,
                 ReviewStatus = "pending_review",
                 CreatedBy = uploadedBy,
-            })
-            .ToList();
+            });
+        }
 
         if (questions.Count == 0)
         {
@@ -160,6 +164,74 @@ public class SourceDocumentService : ISourceDocumentService
             Message = $"Đã tách {questions.Count} câu (embed {embedded}). Vui lòng duyệt trước khi publish.",
             Questions = questions.Select(ToResponse).ToList(),
         };
+    }
+
+    public async Task<PagedList<SourceDocumentResponse>> GetHistoryAsync(
+        int pageNumber, int pageSize, CancellationToken ct = default)
+    {
+        var (items, total) = await _unitOfWork.SourceDocumentRepository.GetHistoryAsync(pageNumber, pageSize);
+        var mapped = items.Select(DocToResponse).ToList();
+        return new PagedList<SourceDocumentResponse>(mapped, total, pageNumber, pageSize);
+    }
+
+    public async Task<SourceDocumentDetailResponse?> GetDetailAsync(Guid id, CancellationToken ct = default)
+    {
+        var doc = await _unitOfWork.SourceDocumentRepository.GetWithQuestionsAsync(id);
+        if (doc == null) return null;
+        var detail = new SourceDocumentDetailResponse
+        {
+            Questions = doc.Questions.OrderBy(q => q.SourcePage).Select(ToResponse).ToList(),
+        };
+        FillDoc(detail, doc);
+        return detail;
+    }
+
+    private static SourceDocumentResponse DocToResponse(SourceDocument d)
+    {
+        var r = new SourceDocumentResponse();
+        FillDoc(r, d);
+        return r;
+    }
+
+    private static void FillDoc(SourceDocumentResponse r, SourceDocument d)
+    {
+        r.Id = d.Id;
+        r.FileName = d.FileName;
+        r.FileUrl = d.FileUrl;
+        r.PageCount = d.PageCount;
+        r.DefaultSubjectId = d.DefaultSubjectId;
+        r.DefaultGradeLevelId = d.DefaultGradeLevelId;
+        r.Status = d.Status;
+        r.QuestionsExtracted = d.QuestionsExtracted;
+        r.ErrorMessage = d.ErrorMessage;
+        r.UploadedBy = d.UploadedBy;
+        r.CreatedAt = d.CreatedAt;
+    }
+
+    private const string ImageBucket = "question-bank-images";
+
+    // Upload từng ảnh base64 (PNG crop từ PDF) -> Cloudinary. Lỗi 1 ảnh không chặn
+    // cả câu (bỏ qua ảnh đó). Trả list URL.
+    private async Task<List<string>> UploadFigureImagesAsync(
+        List<string> base64Images, string? uploadedBy, CancellationToken ct)
+    {
+        var urls = new List<string>();
+        foreach (var b64 in base64Images ?? new())
+        {
+            if (string.IsNullOrWhiteSpace(b64)) continue;
+            try
+            {
+                var bytes = Convert.FromBase64String(b64);
+                var url = await _storage.UploadImageBytesAsync(
+                    ImageBucket, uploadedBy ?? "", bytes, $"{Guid.NewGuid()}.png");
+                urls.Add(url);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Upload ảnh crop thất bại — bỏ qua ảnh này.");
+            }
+        }
+        return urls;
     }
 
     private static QuestionResponse ToResponse(QuestionBank e) => QuestionService.ToResponse(e);

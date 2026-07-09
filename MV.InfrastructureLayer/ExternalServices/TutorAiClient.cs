@@ -183,7 +183,7 @@ public class TutorAiClient : ITutorAiClient
             }
 
             return result.Questions
-                .Select(q => new AiExtractedQuestion(q.Content, q.Solution, q.ProblemType, q.Chapter, q.Page))
+                .Select(q => new AiExtractedQuestion(q.Content, q.Solution, q.ProblemType, q.Chapter, q.Page, q.Images ?? new()))
                 .ToList();
         }
         catch (Exception ex)
@@ -223,6 +223,9 @@ public class TutorAiClient : ITutorAiClient
 
         [JsonPropertyName("page")]
         public int? Page { get; set; }
+
+        [JsonPropertyName("images")]
+        public List<string>? Images { get; set; }
     }
 
     private sealed class EmbedRequest

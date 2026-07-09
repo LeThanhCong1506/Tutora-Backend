@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Http;
 using MV.DomainLayer.DTO.ResponseModel.Question;
+using MV.DomainLayer.DTO.RequestModel;
 
 namespace MV.ApplicationLayer.ServiceInterfaces;
 
@@ -18,4 +19,11 @@ public interface ISourceDocumentService
         int? defaultGradeLevelId,
         string? uploadedBy,
         CancellationToken ct = default);
+
+    /// <summary>Lịch sử trích xuất — list các lần upload PDF (mới nhất trước), phân trang.</summary>
+    Task<PagedList<SourceDocumentResponse>> GetHistoryAsync(
+        int pageNumber, int pageSize, CancellationToken ct = default);
+
+    /// <summary>Chi tiết 1 lần upload: file + các câu đã tách. Null nếu không thấy.</summary>
+    Task<SourceDocumentDetailResponse?> GetDetailAsync(Guid id, CancellationToken ct = default);
 }

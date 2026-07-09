@@ -148,6 +148,7 @@ public class QuestionService : IQuestionService
         Content = e.Content,
         Solution = e.Solution,
         SolutionSource = e.SolutionSource,
+        ImageUrls = e.ImageUrls ?? new(),
         SourceDocumentId = e.SourceDocumentId,
         SourcePage = e.SourcePage,
         ReviewStatus = e.ReviewStatus,

@@ -22,6 +22,7 @@ public class QuestionResponse
     public string Content { get; set; } = null!;
     public string? Solution { get; set; }
     public string? SolutionSource { get; set; }
+    public List<string> ImageUrls { get; set; } = new();
     public Guid? SourceDocumentId { get; set; }
     public int? SourcePage { get; set; }
     public string ReviewStatus { get; set; } = null!;

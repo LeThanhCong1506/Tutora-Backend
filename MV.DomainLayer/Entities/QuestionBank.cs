@@ -39,6 +39,9 @@ public partial class QuestionBank
     /// <summary>Nguồn lời giải, vd "SGK Toán 9 - Kết nối tri thức".</summary>
     public string? SolutionSource { get; set; }
 
+    /// <summary>URL ảnh (Cloudinary) của câu — bảng biến thiên/đồ thị crop từ PDF. jsonb array.</summary>
+    public List<string> ImageUrls { get; set; } = new();
+
     /// <summary>PDF nguồn nếu extract từ file. Null nếu nhập tay.</summary>
     public Guid? SourceDocumentId { get; set; }
 

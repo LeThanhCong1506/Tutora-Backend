@@ -1526,6 +1526,16 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
             entity.Property(e => e.Content).HasColumnName("content");
             entity.Property(e => e.Solution).HasColumnName("solution");
             entity.Property(e => e.SolutionSource).HasColumnName("solution_source");
+            entity.Property(e => e.ImageUrls)
+                .HasColumnType("jsonb")
+                .HasColumnName("image_urls")
+                .HasConversion(
+                    v => System.Text.Json.JsonSerializer.Serialize(v, (System.Text.Json.JsonSerializerOptions?)null),
+                    v => System.Text.Json.JsonSerializer.Deserialize<List<string>>(v, (System.Text.Json.JsonSerializerOptions?)null) ?? new List<string>())
+                .Metadata.SetValueComparer(new Microsoft.EntityFrameworkCore.ChangeTracking.ValueComparer<List<string>>(
+                    (a, b) => System.Text.Json.JsonSerializer.Serialize(a, (System.Text.Json.JsonSerializerOptions?)null) == System.Text.Json.JsonSerializer.Serialize(b, (System.Text.Json.JsonSerializerOptions?)null),
+                    v => v == null ? 0 : System.Text.Json.JsonSerializer.Serialize(v, (System.Text.Json.JsonSerializerOptions?)null).GetHashCode(),
+                    v => System.Text.Json.JsonSerializer.Deserialize<List<string>>(System.Text.Json.JsonSerializer.Serialize(v, (System.Text.Json.JsonSerializerOptions?)null), (System.Text.Json.JsonSerializerOptions?)null) ?? new List<string>()));
             entity.Property(e => e.SourceDocumentId).HasColumnName("source_document_id");
             entity.Property(e => e.SourcePage).HasColumnName("source_page");
             entity.Property(e => e.ReviewStatus)

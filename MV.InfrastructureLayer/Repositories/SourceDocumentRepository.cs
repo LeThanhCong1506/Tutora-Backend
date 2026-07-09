@@ -18,6 +18,23 @@ public class SourceDocumentRepository : ISourceDocumentRepository
     public Task<SourceDocument?> GetByIdAsync(Guid id)
         => _context.SourceDocuments.FirstOrDefaultAsync(d => d.Id == id);
 
+    public async Task<(List<SourceDocument> Items, int Total)> GetHistoryAsync(int pageNumber, int pageSize)
+    {
+        var query = _context.SourceDocuments.AsNoTracking().OrderByDescending(d => d.CreatedAt);
+        var total = await query.CountAsync();
+        var items = await query.Skip((pageNumber - 1) * pageSize).Take(pageSize).ToListAsync();
+        return (items, total);
+    }
+
+    public Task<SourceDocument?> GetWithQuestionsAsync(Guid id)
+        => _context.SourceDocuments
+            .AsNoTracking()
+            .Include(d => d.Questions).ThenInclude(q => q.ChapterNav)
+            .Include(d => d.Questions).ThenInclude(q => q.QuestionType)
+            .Include(d => d.Questions).ThenInclude(q => q.Subject)
+            .Include(d => d.Questions).ThenInclude(q => q.Gradelevel)
+            .FirstOrDefaultAsync(d => d.Id == id);
+
     public void Update(SourceDocument document)
         => _context.SourceDocuments.Update(document);
 
