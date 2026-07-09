@@ -320,6 +320,7 @@ builder.Services.AddScoped<IDisputeService, DisputeService>();
 builder.Services.AddScoped<IWarningService, WarningService>();
 builder.Services.AddScoped<IFeedbackService, FeedbackService>();
 builder.Services.AddScoped<IQuestionService, QuestionService>();
+builder.Services.AddScoped<ISourceDocumentService, SourceDocumentService>();
 
 builder.Services.AddScoped<IBankListService, BankListService>();
 builder.Services.AddScoped<PayOSWebhookService>();

@@ -143,7 +143,87 @@ public class TutorAiClient : ITutorAiClient
         }
     }
 
+    public async Task<List<AiExtractedQuestion>?> ExtractPdfAsync(
+        byte[] pdfBytes, string fileName, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var client = _httpClientFactory.CreateClient(ServiceKeys.HttpClients.TutorAi);
+
+            using var form = new MultipartFormDataContent();
+            var fileContent = new ByteArrayContent(pdfBytes);
+            fileContent.Headers.ContentType =
+                new System.Net.Http.Headers.MediaTypeHeaderValue("application/pdf");
+            form.Add(fileContent, "file", fileName);
+
+            using var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/extract-pdf")
+            {
+                Content = form
+            };
+            if (!string.IsNullOrWhiteSpace(_apiKey))
+                request.Headers.Add("X-API-Key", _apiKey);
+
+            // Đọc PDF nhiều câu -> lâu hơn embed; cho timeout riêng rộng hơn.
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            cts.CancelAfter(TimeSpan.FromSeconds(180));
+
+            using var response = await client.SendAsync(request, cts.Token);
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogWarning("TutorAI extract-pdf trả status {StatusCode}.", (int)response.StatusCode);
+                return null;
+            }
+
+            var content = await response.Content.ReadAsStringAsync(cts.Token);
+            var result = JsonSerializer.Deserialize<ExtractPdfResponse>(content, _jsonOptions);
+            if (result?.Questions == null)
+            {
+                _logger.LogWarning("TutorAI extract-pdf trả null questions: {Error}", result?.Error);
+                return null;
+            }
+
+            return result.Questions
+                .Select(q => new AiExtractedQuestion(q.Content, q.Solution, q.ProblemType, q.Chapter, q.Page))
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Lỗi gọi TutorAI extract-pdf.");
+            return null;
+        }
+    }
+
     // Internal request/response shapes
+
+    private sealed class ExtractPdfResponse
+    {
+        [JsonPropertyName("total")]
+        public int Total { get; set; }
+
+        [JsonPropertyName("questions")]
+        public List<ExtractedQuestionItem>? Questions { get; set; }
+
+        [JsonPropertyName("error")]
+        public string? Error { get; set; }
+    }
+
+    private sealed class ExtractedQuestionItem
+    {
+        [JsonPropertyName("content")]
+        public string Content { get; set; } = "";
+
+        [JsonPropertyName("solution")]
+        public string? Solution { get; set; }
+
+        [JsonPropertyName("problem_type")]
+        public string? ProblemType { get; set; }
+
+        [JsonPropertyName("chapter")]
+        public string? Chapter { get; set; }
+
+        [JsonPropertyName("page")]
+        public int? Page { get; set; }
+    }
 
     private sealed class EmbedRequest
     {
