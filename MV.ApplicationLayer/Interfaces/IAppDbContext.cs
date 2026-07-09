@@ -32,6 +32,8 @@ public interface IAppDbContext
     DbSet<Studentgrade> Studentgrades { get; }
     DbSet<Studentprofile> Studentprofiles { get; }
     DbSet<Subject> Subjects { get; }
+    DbSet<Chapter> Chapters { get; }
+    DbSet<QuestionType> QuestionTypes { get; }
     DbSet<Systemconfig> Systemconfigs { get; }
     DbSet<Topuprequest> Topuprequests { get; }
     DbSet<Tutoravailability> Tutoravailabilities { get; }
