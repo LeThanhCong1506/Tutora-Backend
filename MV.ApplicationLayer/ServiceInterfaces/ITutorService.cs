@@ -120,5 +120,28 @@ namespace MV.ApplicationLayer.ServiceInterfaces
 
         /// <summary>Tutor tự bật/tắt nhận booking mới.</summary>
         Task<bool> SetAcceptingBookingsAsync(string userId, bool accepting);
+
+        // ── Admin: profile update requests (Tutor Active chỉnh sửa hồ sơ) ───
+
+        /// <summary>
+        /// Danh sách các bản chỉnh sửa hồ sơ đang chờ Admin duyệt (lưu trong Redis),
+        /// kèm giá trị hiện tại trên Tutorprofile để FE hiển thị diff.
+        /// </summary>
+        Task<List<PendingProfileUpdateRequestResponse>> GetPendingProfileUpdateRequestsAsync();
+
+        /// <summary>
+        /// Bản mới nhất của 1 request đang chờ duyệt (null nếu không còn). Dùng để FE tự kiểm
+        /// tra dữ liệu có bị thay đổi so với lúc mở lên xem hay không, ngay trước khi Duyệt/Từ chối.
+        /// </summary>
+        Task<PendingProfileUpdateRequestResponse?> GetProfileUpdateRequestDetailAsync(string tutorId);
+
+        /// <summary>
+        /// Admin duyệt hoặc từ chối bản chỉnh sửa hồ sơ đang chờ của 1 tutor.
+        /// Duyệt: copy field từ Redis vào Tutorprofile thật rồi xoá bản chờ.
+        /// Từ chối: xoá bản chờ, Tutorprofile không đổi.
+        /// Throws KeyNotFoundException nếu không còn bản chờ duyệt cho tutor này.
+        /// </summary>
+        Task<ReviewProfileUpdateResponse> ReviewProfileUpdateRequestAsync(
+            string tutorId, AdminReviewProfileUpdateRequest request, string adminId);
     }
 }
