@@ -19,6 +19,12 @@ public interface ISettlementService
     Task<SettlementResultResponse> SettleClassSessionAsync(int classSessionId, string? confirmedBy = null);
 
     /// <summary>
+    /// Settle a classSession during admin dispute resolution (side-with-tutor / Release).
+    /// Skips the PendingConfirmation/Completed status guard so a Disputed/NoShow classSession can be settled.
+    /// </summary>
+    Task<SettlementResultResponse> SettleDisputedClassSessionAsync(int classSessionId, string? confirmedBy = null);
+
+    /// <summary>
     /// Process refund for a classSession (partial or full)
     /// </summary>
     Task<SettlementResultResponse> ProcessRefundAsync(int classSessionId, int refundPercentage, string processedBy);

@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -504,19 +504,4 @@ public partial class PaymentService(
         booking.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
     }
 
-    public async Task<ZaloPayBookingInfoResponse?> GetBookingForZaloPayAsync(int bookingId, string userId)
-    {
-        var booking = await bookingRepo.FindWithSubjectAsync(bookingId);
-        if (booking == null) return null;
-        if (booking.Parentid != userId && booking.Studentid != userId) return null;
-
-        return new ZaloPayBookingInfoResponse
-        {
-            BookingId = booking.Bookingid,
-            Amount = booking.Finalprice ?? booking.Totalamount ?? 0,
-            SubjectName = booking.Tutorsubjectgradeprice?.Subject?.Subjectname,
-            ParentId = booking.Parentid,
-            StudentId = booking.Studentid
-        };
-    }
 }

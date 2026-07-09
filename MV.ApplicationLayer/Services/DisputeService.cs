@@ -227,7 +227,8 @@ public class DisputeService : IDisputeService
                 if (refundPercentage > 0)
                     await _settlementService.ProcessRefundAsync(classSessionId, refundPercentage, adminId);
                 else
-                    await _settlementService.SettleClassSessionAsync(classSessionId, adminId);
+                    // Release (side with tutor): settle even though the classSession is Disputed/NoShow.
+                    await _settlementService.SettleDisputedClassSessionAsync(classSessionId, adminId);
             }
 
             dispute.Status = DisputeStatus.Resolved;

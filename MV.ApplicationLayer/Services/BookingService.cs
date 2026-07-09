@@ -241,6 +241,14 @@ public partial class BookingService(
             || booking.Paymentstatus == Escrowed
             || booking.Paymentstatus == Paid;
 
+        if (needsRefund && HasStartedOrSettledLesson(booking, TimeZoneHelper.UtcNow))
+        {
+            logger.LogWarning(
+                "Rejected paid cancellation for booking {BookingId} because at least one lesson has already started, completed, settled, or entered dispute/no-show.",
+                bookingId);
+            return false;
+        }
+
         if (needsRefund)
         {
             decimal refundAmount = booking.Paymentstatus == DepositEscrowed
@@ -315,6 +323,9 @@ public partial class BookingService(
                 foreach (var l in booking.ClassSessions.Where(x => x.Status is Scheduled or Reserved))
                     l.Status = Cancelled;
 
+                // Return the promotion usage consumed at booking creation
+                await MV.ApplicationLayer.Helpers.PromotionUsageHelper.ReturnUsageAsync(context, booking.Promotionid);
+
                 await context.SaveChangesAsync();
                 await tx.CommitAsync();
 
@@ -350,10 +361,26 @@ public partial class BookingService(
             foreach (var l in booking.ClassSessions.Where(x => x.Status is Scheduled or Reserved))
                 l.Status = Cancelled;
 
+            // Return the promotion usage consumed at booking creation
+            await MV.ApplicationLayer.Helpers.PromotionUsageHelper.ReturnUsageAsync(context, booking.Promotionid);
+
             await context.SaveChangesAsync();
         }
 
         return true;
+    }
+
+    private static bool HasStartedOrSettledLesson(Booking booking, DateTime now)
+    {
+        return booking.ClassSessions.Any(l =>
+            l.Issettled == true ||
+            (l.Scheduledstart <= now && l.Status is Scheduled or Reserved) ||
+            l.Status is InProgress
+                or PendingConfirmation
+                or Completed
+                or Disputed
+                or NoShow
+                or CancelledNoshow);
     }
 
     public async Task<List<BookedSlotResponse>> GetTutorBookedSlotsAsync(

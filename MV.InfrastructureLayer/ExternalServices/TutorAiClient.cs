@@ -2,8 +2,10 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.Constants;
+using MV.DomainLayer.Settings;
 
 namespace MV.InfrastructureLayer.ExternalServices;
 
@@ -16,16 +18,21 @@ public class TutorAiClient : ITutorAiClient
 {
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<TutorAiClient> _logger;
+    private readonly string? _apiKey;
 
     private static readonly JsonSerializerOptions _jsonOptions = new()
     {
         PropertyNameCaseInsensitive = true
     };
 
-    public TutorAiClient(IHttpClientFactory httpClientFactory, ILogger<TutorAiClient> logger)
+    public TutorAiClient(
+        IHttpClientFactory httpClientFactory,
+        ILogger<TutorAiClient> logger,
+        IOptions<TutorAiSettings> aiSettings)
     {
         _httpClientFactory = httpClientFactory;
         _logger = logger;
+        _apiKey = aiSettings.Value.ApiKey;
     }
 
     public async Task<List<AiRankedTutor>?> RankAsync(
@@ -93,7 +100,172 @@ public class TutorAiClient : ITutorAiClient
         }
     }
 
+    public async Task<float[]?> EmbedAsync(string id, string text, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var client = _httpClientFactory.CreateClient(ServiceKeys.HttpClients.TutorAi);
+
+            using var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/embed")
+            {
+                Content = JsonContent.Create(new EmbedRequest
+                {
+                    Items = new List<EmbedItem> { new() { Id = id, Text = text } }
+                })
+            };
+            if (!string.IsNullOrWhiteSpace(_apiKey))
+                request.Headers.Add("X-API-Key", _apiKey);
+
+            using var response = await client.SendAsync(request, cancellationToken);
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogWarning(
+                    "TutorAI embed trả về status {StatusCode}. Câu hỏi sẽ được embed lại sau.",
+                    (int)response.StatusCode);
+                return null;
+            }
+
+            var content = await response.Content.ReadAsStringAsync(cancellationToken);
+            var result = JsonSerializer.Deserialize<EmbedResponse>(content, _jsonOptions);
+            var item = result?.Results?.FirstOrDefault(r => r.Id == id);
+
+            if (item?.Embedding == null || item.Embedding.Count == 0)
+            {
+                _logger.LogWarning("TutorAI embed không trả vector cho id {Id}: {Error}", id, item?.Error);
+                return null;
+            }
+            return item.Embedding.ToArray();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Lỗi gọi TutorAI embed. Câu hỏi sẽ được embed lại sau.");
+            return null;
+        }
+    }
+
+    public async Task<List<AiExtractedQuestion>?> ExtractPdfAsync(
+        byte[] pdfBytes, string fileName, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var client = _httpClientFactory.CreateClient(ServiceKeys.HttpClients.TutorAi);
+
+            using var form = new MultipartFormDataContent();
+            var fileContent = new ByteArrayContent(pdfBytes);
+            fileContent.Headers.ContentType =
+                new System.Net.Http.Headers.MediaTypeHeaderValue("application/pdf");
+            form.Add(fileContent, "file", fileName);
+
+            using var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/extract-pdf")
+            {
+                Content = form
+            };
+            if (!string.IsNullOrWhiteSpace(_apiKey))
+                request.Headers.Add("X-API-Key", _apiKey);
+
+            // Đọc PDF nhiều câu -> lâu hơn embed; cho timeout riêng rộng hơn.
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            cts.CancelAfter(TimeSpan.FromSeconds(180));
+
+            using var response = await client.SendAsync(request, cts.Token);
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogWarning("TutorAI extract-pdf trả status {StatusCode}.", (int)response.StatusCode);
+                return null;
+            }
+
+            var content = await response.Content.ReadAsStringAsync(cts.Token);
+            var result = JsonSerializer.Deserialize<ExtractPdfResponse>(content, _jsonOptions);
+            if (result?.Questions == null)
+            {
+                _logger.LogWarning("TutorAI extract-pdf trả null questions: {Error}", result?.Error);
+                return null;
+            }
+
+            return result.Questions
+                .Select(q => new AiExtractedQuestion(q.Content, q.Solution, q.ProblemType, q.Chapter, q.Page, q.Images ?? new()))
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Lỗi gọi TutorAI extract-pdf.");
+            return null;
+        }
+    }
+
     // Internal request/response shapes
+
+    private sealed class ExtractPdfResponse
+    {
+        [JsonPropertyName("total")]
+        public int Total { get; set; }
+
+        [JsonPropertyName("questions")]
+        public List<ExtractedQuestionItem>? Questions { get; set; }
+
+        [JsonPropertyName("error")]
+        public string? Error { get; set; }
+    }
+
+    private sealed class ExtractedQuestionItem
+    {
+        [JsonPropertyName("content")]
+        public string Content { get; set; } = "";
+
+        [JsonPropertyName("solution")]
+        public string? Solution { get; set; }
+
+        [JsonPropertyName("problem_type")]
+        public string? ProblemType { get; set; }
+
+        [JsonPropertyName("chapter")]
+        public string? Chapter { get; set; }
+
+        [JsonPropertyName("page")]
+        public int? Page { get; set; }
+
+        [JsonPropertyName("images")]
+        public List<string>? Images { get; set; }
+    }
+
+    private sealed class EmbedRequest
+    {
+        [JsonPropertyName("items")]
+        public List<EmbedItem> Items { get; set; } = new();
+    }
+
+    private sealed class EmbedItem
+    {
+        [JsonPropertyName("id")]
+        public string Id { get; set; } = "";
+
+        [JsonPropertyName("text")]
+        public string Text { get; set; } = "";
+    }
+
+    private sealed class EmbedResponse
+    {
+        [JsonPropertyName("model")]
+        public string? Model { get; set; }
+
+        [JsonPropertyName("dim")]
+        public int Dim { get; set; }
+
+        [JsonPropertyName("results")]
+        public List<EmbedResultItem>? Results { get; set; }
+    }
+
+    private sealed class EmbedResultItem
+    {
+        [JsonPropertyName("id")]
+        public string Id { get; set; } = "";
+
+        [JsonPropertyName("embedding")]
+        public List<float>? Embedding { get; set; }
+
+        [JsonPropertyName("error")]
+        public string? Error { get; set; }
+    }
 
     private sealed class AiRankRequest
     {

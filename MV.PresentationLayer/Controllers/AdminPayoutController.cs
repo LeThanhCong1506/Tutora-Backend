@@ -5,16 +5,16 @@ using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.DTO;
 using MV.DomainLayer.DTO.RequestModel.Admin;
 using MV.DomainLayer.DTO.ResponseModel.Admin;
+using MV.PresentationLayer.Authorization;
 using System.Security.Claims;
 
 namespace MV.PresentationLayer.Controllers;
 
 [ApiController]
 [Route("api/admin/payouts")]
-[Authorize(Roles = UserRole.AdminOrStaff)]
+[Authorize]
 public class AdminPayoutController(
     IAdminPayoutService adminPayoutService,
-    IPayoutService payoutService,
     ISystemAlertService systemAlertService) : ControllerBase
 {
     private string? ActorUserId => User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
@@ -31,13 +31,13 @@ public class AdminPayoutController(
         InvalidOperationException => BadRequest(APIResponse<object>.Fail(ex.Message, 400)),
         _ => StatusCode(500, APIResponse<object>.Fail($"Lỗi hệ thống: {ex.Message}", 500))
     };
+    [RequirePermission(Permissions.PayoutView)]
     [HttpGet("overview")]
     public async Task<IActionResult> GetOverview(CancellationToken ct)
     {
         try
         {
             var overview = await adminPayoutService.GetOverviewAsync(ct);
-            overview.PayOSBalance = await payoutService.GetPayOSBalanceAsync(ct);
             return Ok(APIResponse<PayoutOverviewResponse>.Success(overview, "Lấy tổng quan thành công."));
         }
         catch (Exception ex)
@@ -46,6 +46,7 @@ public class AdminPayoutController(
         }
     }
 
+    [RequirePermission(Permissions.PayoutView)]
     [HttpGet("pending")]
     public async Task<IActionResult> GetPendingReview(
         [FromQuery] int page = 1,
@@ -66,6 +67,7 @@ public class AdminPayoutController(
         }
     }
 
+    [RequirePermission(Permissions.PayoutView)]
     [HttpGet]
     public async Task<IActionResult> GetAllRequests(
         [FromQuery] int page = 1,
@@ -90,6 +92,7 @@ public class AdminPayoutController(
         }
     }
 
+    [RequirePermission(Permissions.PayoutView)]
     [HttpGet("{id}")]
     public async Task<IActionResult> GetRequestDetail(int id, CancellationToken ct)
     {
@@ -104,6 +107,7 @@ public class AdminPayoutController(
         }
     }
 
+    [RequirePermission(Permissions.PayoutApprove)]
     [HttpPost("{id}/approve")]
     public async Task<IActionResult> ApproveRequest(
         int id,
@@ -126,6 +130,7 @@ public class AdminPayoutController(
         }
     }
 
+    [RequirePermission(Permissions.PayoutReject)]
     [HttpPost("{id}/reject")]
     public async Task<IActionResult> RejectRequest(
         int id,
@@ -134,9 +139,6 @@ public class AdminPayoutController(
     {
         try
         {
-            if (!ModelState.IsValid)
-                return BadRequest(APIResponse<object>.Fail(ApiMessages.InvalidRequestData, 400));
-
             if (string.IsNullOrEmpty(ActorUserId))
                 return Unauthorized(APIResponse<object>.Fail(ApiMessages.ActorUserIdNotFound, 401));
 
@@ -151,55 +153,8 @@ public class AdminPayoutController(
         }
     }
 
-    [HttpGet("payos-balance")]
-    [Authorize(Roles = UserRole.Admin)]
-    public async Task<IActionResult> GetPayOSBalance(CancellationToken ct)
-    {
-        try
-        {
-            var balance = await payoutService.GetPayOSBalanceAsync(ct);
-            return balance == null
-                ? Ok(APIResponse<object>.Success(new
-                {
-                    Message = "Không thể kiểm tra số dư PayOS qua API. Vui lòng kiểm tra trên dashboard PayOS.",
-                    DashboardUrl = "https://payos.vn"
-                }, "Không thể kiểm tra số dư."))
-                : Ok(APIResponse<PayOSBalanceResponse>.Success(balance, "Lấy số dư thành công."));
-        }
-        catch (Exception ex)
-        {
-            return HandleException(ex, "retrieving balance");
-        }
-    }
-
-    [HttpGet("fraud-logs")]
-    [Authorize(Roles = UserRole.Admin)]
-    public async Task<IActionResult> GetFraudLogs(
-        [FromQuery] int page = 1,
-        [FromQuery] int pageSize = 20,
-        [FromQuery] string? tutorId = null,
-        [FromQuery] string? ruleName = null,
-        [FromQuery] bool? passed = null,
-        [FromQuery] DateTime? from = null,
-        [FromQuery] DateTime? to = null,
-        CancellationToken ct = default)
-    {
-        try
-        {
-            var validation = ValidatePagination(page, pageSize);
-            if (validation != null) return validation;
-
-            var result = await adminPayoutService.GetFraudLogsAsync(page, pageSize, tutorId, ruleName, passed, from, to, ct);
-            return Ok(APIResponse<FraudLogResponse>.Success(result, "Lấy nhật ký gian lận thành công."));
-        }
-        catch (Exception ex)
-        {
-            return HandleException(ex, "retrieving fraud logs");
-        }
-    }
-
     [HttpGet("system-alerts")]
-    [Authorize(Roles = UserRole.Admin)]
+    [RequirePermission(Permissions.SystemAlertView)]
     public async Task<IActionResult> GetSystemAlerts(
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20,
@@ -221,7 +176,7 @@ public class AdminPayoutController(
     }
 
     [HttpPost("system-alerts/{id}/resolve")]
-    [Authorize(Roles = UserRole.Admin)]
+    [RequirePermission(Permissions.SystemAlertResolve)]
     public async Task<IActionResult> ResolveAlert(int id, CancellationToken ct)
     {
         try

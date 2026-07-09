@@ -9,6 +9,7 @@ using MV.DomainLayer.Exceptions;
 using System.Security.Claims;
 using System.Text.Json;
 using MV.DomainLayer.Helpers;
+using MV.PresentationLayer.Authorization;
 
 namespace MV.PresentationLayer.Controllers
 {
@@ -33,7 +34,7 @@ namespace MV.PresentationLayer.Controllers
         /// Danh sách gia sư đang chờ admin duyệt hồ sơ (profilestatus = pending_approval).
         /// Trả về đầy đủ thông tin cá nhân + VerificationSections để admin review.
         /// </summary>
-        [Authorize(Roles = UserRole.AdminOrStaff)]
+        [RequirePermission(Permissions.TutorApprovalView)]
         [HttpGet("tutors/pending")]
         public async Task<IActionResult> GetPendingTutors([FromQuery] UserParameters parameters)
         {
@@ -67,7 +68,7 @@ namespace MV.PresentationLayer.Controllers
         /// PUT /api/admin/tutors/{id}/approval
         /// Duyệt hoặc từ chối hồ sơ gia sư.
         /// </summary>
-        [Authorize(Roles = UserRole.AdminOrStaff)]
+        [RequirePermission(Permissions.TutorApprovalDecide)]
         [HttpPut("tutors/{id}/approval")]
         public async Task<IActionResult> ApproveTutor(string id, [FromBody] ApproveTutorRequest request)
         {
@@ -105,7 +106,7 @@ namespace MV.PresentationLayer.Controllers
         /// Danh sách chứng chỉ gia sư — có filter status, tìm kiếm tên/email, sắp xếp và phân trang.
         /// Query: pageNumber, pageSize, searchTerm, status (pending_review|verified|rejected|all), orderBy
         /// </summary>
-        [Authorize(Roles = UserRole.AdminOrStaff)]
+        [RequirePermission(Permissions.CertificateView)]
         [HttpGet("certificates/pending")]
         public async Task<IActionResult> GetAdminCertificates([FromQuery] CertificateParameters parameters)
         {
@@ -140,7 +141,7 @@ namespace MV.PresentationLayer.Controllers
         /// Admin xem ảnh CCCD của gia sư. Trả về signed URL (yêu cầu chữ ký backend để truy cập).
         /// Chỉ Admin mới được gọi (không áp dụng cho Staff).
         /// </summary>
-        [Authorize(Roles = UserRole.Admin)]
+        [RequirePermission(Permissions.TutorCccdView)]
         [HttpGet("tutors/{id}/cccd")]
         public async Task<IActionResult> GetTutorCccdUrls(string id)
         {
@@ -166,7 +167,7 @@ namespace MV.PresentationLayer.Controllers
         /// Admin hoặc Staff duyệt hoặc từ chối một chứng chỉ của gia sư — cùng quyền với
         /// GetPendingTutors/ApproveTutor/GetAdminCertificates (đều nằm trên trang Vetting).
         /// </summary>
-        [Authorize(Roles = UserRole.AdminOrStaff)]
+        [RequirePermission(Permissions.CertificateVerify)]
         [HttpPut("tutors/{tutorId}/certificates/{certId}/verify")]
         public async Task<IActionResult> VerifyCertificate(
             string tutorId,

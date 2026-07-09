@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using MV.ApplicationLayer.Interfaces;
 using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.DTO.ResponseModel;
+using MV.DomainLayer.DTO.ResponseModel.Question;
 
 namespace MV.ApplicationLayer.Services
 {
@@ -39,6 +40,41 @@ namespace MV.ApplicationLayer.Services
                     GradeLevelId = g.Gradelevelid,
                     GradeName = g.Gradename,
                     LevelOrder = g.Levelorder
+                })
+                .ToListAsync();
+        }
+
+        public async Task<List<ChapterResponse>> GetChaptersAsync(int? subjectId, int? gradeLevelId)
+        {
+            var query = _context.Chapters.Where(c => c.IsActive);
+            if (subjectId.HasValue) query = query.Where(c => c.SubjectId == subjectId.Value);
+            if (gradeLevelId.HasValue) query = query.Where(c => c.GradeLevelId == gradeLevelId.Value);
+
+            return await query
+                .OrderBy(c => c.DisplayOrder).ThenBy(c => c.Name)
+                .Select(c => new ChapterResponse
+                {
+                    Id = c.Id,
+                    SubjectId = c.SubjectId,
+                    GradeLevelId = c.GradeLevelId,
+                    Slug = c.Slug,
+                    Name = c.Name,
+                    DisplayOrder = c.DisplayOrder,
+                })
+                .ToListAsync();
+        }
+
+        public async Task<List<QuestionTypeResponse>> GetQuestionTypesAsync()
+        {
+            return await _context.QuestionTypes
+                .Where(t => t.IsActive)
+                .OrderBy(t => t.DisplayOrder).ThenBy(t => t.Name)
+                .Select(t => new QuestionTypeResponse
+                {
+                    Id = t.Id,
+                    Slug = t.Slug,
+                    Name = t.Name,
+                    DisplayOrder = t.DisplayOrder,
                 })
                 .ToListAsync();
         }

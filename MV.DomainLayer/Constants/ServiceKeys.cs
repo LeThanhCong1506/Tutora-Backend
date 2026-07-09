@@ -5,7 +5,6 @@ public static class ServiceKeys
     public static class PayOS
     {
         public const string Checkout = "checkout";
-        public const string Payout = "payout";
     }
 
     public static class HttpClients

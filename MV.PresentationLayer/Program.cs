@@ -12,7 +12,6 @@ using MV.ApplicationLayer.ServiceInterfaces;
 using MV.ApplicationLayer.Services;
 using MV.ApplicationLayer.BackgroundJobs;
 using MV.DomainLayer.Constants;
-using MV.ApplicationLayer.JobHandlers;
 using MV.PresentationLayer.Filters;
 using Hangfire;
 using Hangfire.PostgreSql;
@@ -48,14 +47,11 @@ builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
 builder.Services.Configure<GoogleGeminiSettings>(builder.Configuration.GetSection(GoogleGeminiSettings.SectionName));
 builder.Services.Configure<PaymentSettings>(builder.Configuration.GetSection(PaymentSettings.SectionName));
 builder.Services.Configure<GoogleSettings>(builder.Configuration.GetSection(GoogleSettings.SectionName));
-builder.Services.Configure<TencentRTCSettings>(builder.Configuration.GetSection(TencentRTCSettings.SectionName));
-builder.Services.Configure<BankVerificationSettings>(builder.Configuration.GetSection(BankVerificationSettings.SectionName));
+builder.Services.Configure<AgoraSettings>(builder.Configuration.GetSection(AgoraSettings.SectionName));
 builder.Services.Configure<VietQRSettings>(builder.Configuration.GetSection(VietQRSettings.SectionName));
-builder.Services.Configure<FraudDetectionSettings>(builder.Configuration.GetSection(FraudDetectionSettings.SectionName));
-builder.Services.Configure<TrustScoringSettings>(builder.Configuration.GetSection(TrustScoringSettings.SectionName));
-builder.Services.Configure<MV.DomainLayer.Settings.PayoutSettings>(builder.Configuration.GetSection(MV.DomainLayer.Settings.PayoutSettings.SectionName));
 builder.Services.Configure<ZaloOAConfig>(builder.Configuration.GetSection(ConfigurationKeys.ZaloOA.SectionName));
 builder.Services.Configure<CloudinarySettings>(builder.Configuration.GetSection("Cloudinary"));
+builder.Services.Configure<TutorAiSettings>(builder.Configuration.GetSection(TutorAiSettings.SectionName));
 // builder.Services.Configure<InternalApiSettings>(builder.Configuration.GetSection(InternalApiSettings.SectionName));
 
 builder.Services.AddKeyedSingleton<PayOSClient>(ServiceKeys.PayOS.Checkout, (sp, _) =>
@@ -67,21 +63,6 @@ builder.Services.AddKeyedSingleton<PayOSClient>(ServiceKeys.PayOS.Checkout, (sp,
         ClientId = settings.ClientId,
         ApiKey = settings.ApiKey,
         ChecksumKey = settings.ChecksumKey,
-        TimeoutMs = 30000,
-        MaxRetries = 3,
-        Logger = logger
-    });
-});
-
-builder.Services.AddKeyedSingleton<PayOSClient>(ServiceKeys.PayOS.Payout, (sp, _) =>
-{
-    var settings = sp.GetRequiredService<IOptions<PaymentSettings>>().Value;
-    var logger = sp.GetRequiredService<ILogger<PayOSClient>>();
-    return new PayOSClient(new PayOSOptions
-    {
-        ClientId = settings.PayoutClientId,
-        ApiKey = settings.PayoutApiKey,
-        ChecksumKey = settings.PayoutChecksumKey,
         TimeoutMs = 30000,
         MaxRetries = 3,
         Logger = logger
@@ -253,7 +234,9 @@ builder.Services.AddSwaggerGen(options =>
 });
 
 builder.Services.AddDbContext<AgoraDbContext>(options =>
-                options.UseNpgsql(builder.Configuration.GetConnectionString(ConfigurationKeys.ConnectionStrings.DefaultConnection))
+                options.UseNpgsql(
+                    builder.Configuration.GetConnectionString(ConfigurationKeys.ConnectionStrings.DefaultConnection),
+                    o => o.UseVector())   // pgvector: map cột vector(768) của questions.embedding
             );
 builder.Services.AddScoped<IAppDbContext>(sp => sp.GetRequiredService<AgoraDbContext>());
 
@@ -294,6 +277,7 @@ builder.Services.AddScoped<ITutorRepository, TutorRepository>();
 builder.Services.AddScoped<INotificationRepository, NotificationRepository>();
 builder.Services.AddScoped<IRefreshTokenRepository, RefreshTokenRepository>();
 builder.Services.AddScoped<ITutorSearchRepository, TutorSearchRepository>();
+builder.Services.AddScoped<IStaffPermissionRepository, StaffPermissionRepository>();
 
 // Service injection
 builder.Services.AddScoped<ITutorVerificationService, TutorVerificationService>();
@@ -325,7 +309,7 @@ builder.Services.AddScoped<IAiChatService, AiChatService>();
 builder.Services.AddScoped<IPaymentService, PaymentService>();
 builder.Services.AddScoped<IWalletService, WalletService>();
 builder.Services.AddScoped<IClassSessionService, ClassSessionService>();
-builder.Services.AddScoped<ITencentRTCService, TencentRTCService>();
+builder.Services.AddScoped<IAgoraRTCService, AgoraRTCService>();
 builder.Services.AddScoped<ITutorFinanceService, TutorFinanceService>();
 
 builder.Services.AddHttpContextAccessor();
@@ -336,12 +320,10 @@ builder.Services.AddScoped<IParentService, ParentService>();
 builder.Services.AddScoped<IDisputeService, DisputeService>();
 builder.Services.AddScoped<IWarningService, WarningService>();
 builder.Services.AddScoped<IFeedbackService, FeedbackService>();
+builder.Services.AddScoped<IQuestionService, QuestionService>();
+builder.Services.AddScoped<ISourceDocumentService, SourceDocumentService>();
 
-builder.Services.AddScoped<IBankVerificationService, BankVerificationService>();
-builder.Services.AddScoped<IFraudDetectionService, FraudDetectionService>();
-builder.Services.AddScoped<ITrustScoringService, TrustScoringService>();
-builder.Services.AddScoped<IPayOSTransferClient, PayOSTransferClient>();
-builder.Services.AddScoped<IPayoutService, PayoutService>();
+builder.Services.AddScoped<IBankListService, BankListService>();
 builder.Services.AddScoped<PayOSWebhookService>();
 
 // M4-T7: Admin Monitoring Dashboard
@@ -350,8 +332,6 @@ builder.Services.AddScoped<ISystemAlertService, SystemAlertService>();
 builder.Services.AddScoped<IAdminFinancialService, AdminFinancialService>();
 builder.Services.AddScoped<IAdminBookingService, AdminBookingService>();
 builder.Services.AddScoped<IAdminDashboardService, AdminDashboardService>();
-
-builder.Services.AddScoped<PayoutJobHandler>();
 
 builder.Services.AddHangfire(config => config
     .SetDataCompatibilityLevel(CompatibilityLevel.Version_180)
@@ -368,7 +348,7 @@ builder.Services.AddHangfire(config => config
 builder.Services.AddHangfireServer(options =>
 {
     options.WorkerCount = 2;
-    options.Queues = new[] { "default", "payout" };
+    options.Queues = new[] { "default" };
 });
 
 builder.Services.AddHttpClient(ServiceKeys.HttpClients.VietQR, client =>
@@ -420,8 +400,6 @@ builder.Services.AddHostedService<AutoConfirmClassSessionJob>();
 builder.Services.AddHostedService<AutoUnsuspendJob>();
 builder.Services.AddHostedService<ClassSessionReminderJob>();
 builder.Services.AddHostedService<RemainingPaymentTriggerJob>();
-// M4-T6: Background Jobs - Reconciliation only (Hangfire handles payout jobs)
-builder.Services.AddHostedService<ReconciliationJob>();
 builder.Services.AddHostedService<GhostUserCleanupJob>();
 // Chủ động refresh Zalo OA token trước khi hết hạn.
 builder.Services.AddHostedService<ZaloTokenRefreshJob>();
@@ -493,6 +471,20 @@ builder.Services.AddAuthentication(options =>
                     context.Fail("Tài khoản đã bị khóa hoặc bị xóa.");
                     return;
                 }
+
+                // Nạp permission claims cho Staff. Không nhúng vào JWT để đổi quyền
+                // có hiệu lực ngay lập tức mà không cần đăng nhập lại.
+                if (string.Equals(user.Primaryrole, UserRole.Staff, StringComparison.OrdinalIgnoreCase))
+                {
+                    var permissionRepo = context.HttpContext.RequestServices.GetRequiredService<MV.ApplicationLayer.RepositoryInterfaces.IStaffPermissionRepository>();
+                    var grantedKeys = await permissionRepo.GetGrantedPermissionKeysAsync(userId);
+                    if (grantedKeys.Count > 0)
+                    {
+                        var identity = (System.Security.Claims.ClaimsIdentity)context.Principal!.Identity!;
+                        foreach (var key in grantedKeys)
+                            identity.AddClaim(new System.Security.Claims.Claim(MV.DomainLayer.Constants.Permissions.ClaimType, key));
+                    }
+                }
             }
         }
     };
@@ -507,6 +499,7 @@ builder.Services.AddAuthorization(options =>
             context.User.IsInRole(UserRole.Tutor));
     });
 });
+builder.Services.AddSingleton<Microsoft.AspNetCore.Authorization.IAuthorizationHandler, MV.PresentationLayer.Authorization.PermissionRequirementHandler>();
 
 var app = builder.Build();
 

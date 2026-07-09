@@ -1,4 +1,4 @@
-using MV.DomainLayer.DTO.BankVerification;
+using MV.DomainLayer.DTO.ResponseModel;
 
 namespace MV.DomainLayer.Interfaces;
 

@@ -6,6 +6,7 @@ using MV.DomainLayer.DTO;
 using MV.DomainLayer.DTO.RequestModel;
 using MV.DomainLayer.DTO.ResponseModel;
 using MV.PresentationLayer.Helpers;
+using MV.PresentationLayer.Authorization;
 
 namespace MV.PresentationLayer.Controllers;
 
@@ -14,7 +15,7 @@ namespace MV.PresentationLayer.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/admin/warnings")]
-[Authorize(Roles = UserRole.Admin)]
+[Authorize]
 public class WarningController : ControllerBase
 {
     private readonly IWarningService _warningService;
@@ -29,6 +30,7 @@ public class WarningController : ControllerBase
     /// WarningLevel: 1 = Thấp, 2 = Trung bình, 3 = Cao.
     /// Cao triggers immediate suspension; Thấp/Trung bình trigger suspension after 3 accumulated warnings in 30 days.
     /// </summary>
+    [RequirePermission(Permissions.WarningCreate)]
     [HttpPost("users/{id}")]
     public async Task<ActionResult<APIResponse<WarningHistoryResponse>>> CreateWarning(
         string id,
@@ -45,6 +47,7 @@ public class WarningController : ControllerBase
     /// <summary>
     /// Get user warning summary
     /// </summary>
+    [RequirePermission(Permissions.WarningView)]
     [HttpGet("users/{id}")]
     public async Task<ActionResult<APIResponse<UserWarningSummaryResponse>>> GetUserWarnings(string id)
     {
@@ -55,6 +58,7 @@ public class WarningController : ControllerBase
     /// <summary>
     /// Apply suspension to a user
     /// </summary>
+    [RequirePermission(Permissions.SuspensionManage)]
     [HttpPost("users/{id}/suspend")]
     public async Task<ActionResult<APIResponse<SuspensionListResponse>>> ApplySuspension(
         string id,
@@ -69,6 +73,7 @@ public class WarningController : ControllerBase
     /// <summary>
     /// Remove suspension from a user
     /// </summary>
+    [RequirePermission(Permissions.SuspensionManage)]
     [HttpPut("users/{id}/unsuspend")]
     public async Task<ActionResult<APIResponse<bool>>> RemoveSuspension(string id)
     {
@@ -80,6 +85,7 @@ public class WarningController : ControllerBase
     /// <summary>
     /// Get all active suspensions
     /// </summary>
+    [RequirePermission(Permissions.WarningView)]
     [HttpGet("suspensions")]
     public async Task<ActionResult<APIResponse<PagedList<SuspensionListResponse>>>> GetSuspensions(
         [FromQuery] int page = 1,

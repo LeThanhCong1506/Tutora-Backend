@@ -86,13 +86,13 @@ public partial class ClassSessionService : IClassSessionService
 
             if (booking.Tutorid != null && booking.Studentid != null)
             {
-                // Tencent RTC: RoomId = classSessionId (deterministic, không cần tạo link bên ngoài)
+                // Agora RTC: channel = classSessionId (deterministic, không cần tạo link bên ngoài)
                 foreach (var classSession in classSessions.Where(l => string.IsNullOrWhiteSpace(l.Meetinglink)))
                 {
                     classSession.Meetinglink = classSession.Classsessionid.ToString();
                 }
                 await _context.SaveChangesAsync(ct);
-                _logger.LogInformation("Assigned Tencent RTC RoomId for {Count} classSessions in booking {BookingId}",
+                _logger.LogInformation("Assigned Agora RTC channel for {Count} classSessions in booking {BookingId}",
                     classSessions.Count, bookingId);
             }
 
@@ -303,7 +303,7 @@ public partial class ClassSessionService : IClassSessionService
     {
         try
         {
-            // Tencent RTC: assign RoomId = classSessionId cho tất cả classSession online/hybrid sắp tới chưa có RoomId
+            // Agora RTC: assign channel = classSessionId cho tất cả classSession online/hybrid sắp tới chưa có channel
             var classSessions = await _context.ClassSessions
                 .Include(l => l.Booking)
                 .Where(l => l.Tutorid == tutorId
@@ -326,7 +326,7 @@ public partial class ClassSessionService : IClassSessionService
             }
 
             await _context.SaveChangesAsync();
-            _logger.LogInformation("Assigned Tencent RTC RoomId for {Count} classSessions for tutor {TutorId}", onlineClassSessions.Count, tutorId);
+            _logger.LogInformation("Assigned Agora RTC channel for {Count} classSessions for tutor {TutorId}", onlineClassSessions.Count, tutorId);
 
             // Gửi chat message cho từng booking (gom nhóm theo bookingId)
             var byBooking = onlineClassSessions
@@ -351,7 +351,7 @@ public partial class ClassSessionService : IClassSessionService
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "Failed to send Tencent RTC room info chat for booking {BookingId}", group.Key);
+                    _logger.LogWarning(ex, "Failed to send Agora RTC room info chat for booking {BookingId}", group.Key);
                 }
             }
         }
@@ -386,40 +386,9 @@ public partial class ClassSessionService : IClassSessionService
                 throw new UnauthorizedAccessException("Bạn không có quyền hủy buổi học này.");
         }
 
-        // Only scheduled classSessions can be cancelled
-        if (classSession.Status != Scheduled)
-            throw new InvalidOperationException(
-                $"Không thể hủy buổi học ở trạng thái '{classSession.Status}'. Chỉ có thể hủy buổi học đang được lên lịch.");
-
-        classSession.Status = Cancelled;
-        await _classSessionRepo.SaveChangesAsync();
-
-        // Notify the other party
-        var classSessionTimeVn = classSession.Scheduledstart.ToString("dd/MM/yyyy HH:mm");
-        var reasonSuffix = string.IsNullOrWhiteSpace(reason) ? "" : $" Lý do: {reason}";
-
-        if (userRole != UserRole.Tutor && classSession.Tutorid != null)
-        {
-            await _notificationService.CreateNotificationAsync(new NotificationRequest
-            {
-                Userid  = classSession.Tutorid,
-                Title   = "Buổi học bị hủy",
-                Message = $"Phụ huynh/Học sinh đã hủy buổi học ngày {classSessionTimeVn}.{reasonSuffix}"
-            });
-        }
-
-        if (userRole == UserRole.Tutor && classSession.Booking?.Parentid != null)
-        {
-            await _notificationService.CreateNotificationAsync(new NotificationRequest
-            {
-                Userid  = classSession.Booking.Parentid,
-                Title   = "Buổi học bị hủy",
-                Message = $"Gia sư đã hủy buổi học ngày {classSessionTimeVn}.{reasonSuffix}"
-            });
-        }
-
-        _logger.LogInformation("ClassSession {ClassSessionId} cancelled by {UserId} ({Role})", classSessionId, userId, userRole);
-        return MapToClassSessionResponse(classSession);
+        // Single-classSession cancel is blocked: escrow release requires full booking cancel.
+        throw new InvalidOperationException(
+            "Không hỗ trợ hủy từng buổi học. Vui lòng hủy toàn bộ booking để nhận hoàn tiền tương ứng.");
     }
 
     public async Task<(IReadOnlyList<StudentClassSessionSummaryResponse> Items, int TotalCount)> GetStudentClassSessionsAsync(

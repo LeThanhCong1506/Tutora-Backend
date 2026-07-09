@@ -205,6 +205,11 @@ public class ParentService : IParentService
             .FirstOrDefaultAsync(l => l.Classsessionid == classSessionId && studentIds.Contains(l.Studentid!))
             ?? throw new ClassSessionException(ClassSessionErrorCodes.ClassSessionNotFound, "Không tìm thấy buổi học hoặc bạn không có quyền truy cập", 404);
 
+        // An already-settled classSession cannot be disputed: a refund would throw on Issettled and a
+        // Release would throw on status → the dispute would deadlock (unresolvable).
+        if (classSession.Issettled == true)
+            throw new ClassSessionException(ClassSessionErrorCodes.ClassSessionAlreadyConfirmed, "Buổi học đã thanh toán, không thể tạo tranh chấp", 400);
+
         if (classSession.Status != PendingConfirmation && classSession.Status != Completed)
             throw new ClassSessionException(ClassSessionErrorCodes.InvalidClassSessionStatus, "Buổi học không thể tạo tranh chấp ở trạng thái này", 400);
 

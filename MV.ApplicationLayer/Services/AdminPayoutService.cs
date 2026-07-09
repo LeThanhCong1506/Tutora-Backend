@@ -1,7 +1,5 @@
-﻿using Hangfire;
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
-using MV.ApplicationLayer.JobHandlers;
 using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO.RequestModel;
@@ -11,7 +9,6 @@ using MV.DomainLayer.Entities;
 using MV.DomainLayer.Helpers;
 using MV.ApplicationLayer.Interfaces;
 using MV.ApplicationLayer.RepositoryInterfaces;
-using System.Text.Json;
 using static MV.DomainLayer.Constants.ClassSessionStatus;
 using static MV.DomainLayer.Constants.TrustScoringConstants;
 
@@ -24,10 +21,19 @@ public class AdminPayoutService(
     INotificationService notificationService,
     ILogger<AdminPayoutService> logger) : IAdminPayoutService
 {
+    private static readonly string[] StaffActionableStatuses =
+    [
+        WithdrawalStatus.Pending,
+        WithdrawalStatus.PendingReview,
+        WithdrawalStatus.Delayed
+    ];
+
     public async Task<PayoutOverviewResponse> GetOverviewAsync(CancellationToken ct = default)
     {
-        var today = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow.Date;
-        var thisMonth = new DateTime(MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow.Year, MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow.Month, 1);
+        var now = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
+        var today = now.Date;
+        var tomorrow = today.AddDays(1);
+        var thisMonth = new DateTime(now.Year, now.Month, 1);
 
         // Complex analytics query: stays on context
         var monthStats = await context.Withdrawalrequests
@@ -42,8 +48,36 @@ public class AdminPayoutService(
                 Delayed = g.Count(w => w.Decision == Decisions.Delayed),
                 ManualReview = g.Count(w => w.Decision == Decisions.ManualReview),
                 Rejected = g.Count(w => w.Status == WithdrawalStatus.Rejected),
-                Completed = g.Count(w => w.Status == WithdrawalStatus.Approved || w.Status == WithdrawalStatus.Completed),
-                TotalPayoutThisMonth = g.Where(w => w.Status == WithdrawalStatus.Approved || w.Status == WithdrawalStatus.Completed).Sum(w => w.Amount ?? 0)
+                // Approved is a legacy in-flight state from the old automated-payout flow and no
+                // longer means "paid out"; AdminFinancialService/AdminDashboardService already
+                // bucket it under "outstanding", so keep this consistent: only Completed counts.
+                Completed = g.Count(w => w.Status == WithdrawalStatus.Completed)
+            })
+            .FirstOrDefaultAsync(ct);
+
+        var todayStats = await context.Withdrawalrequests
+            .Where(w => w.Requestedat >= today && w.Requestedat < tomorrow)
+            .GroupBy(w => 1)
+            .Select(g => new
+            {
+                TotalRequests = g.Count(),
+                AutoApproved = g.Count(w => w.Decision == Decisions.AutoApprove
+                                         || w.Decision == Decisions.AdminApproved
+                                         || w.Decision == Decisions.StaffApproved),
+                Delayed = g.Count(w => w.Decision == Decisions.Delayed),
+                ManualReview = g.Count(w => w.Decision == Decisions.ManualReview),
+                Rejected = g.Count(w => w.Status == WithdrawalStatus.Rejected)
+            })
+            .FirstOrDefaultAsync(ct);
+
+        var payoutStats = await context.Withdrawalrequests
+            .Where(w => w.Status == WithdrawalStatus.Completed
+                        && w.Processedat >= thisMonth)
+            .GroupBy(w => 1)
+            .Select(g => new
+            {
+                TotalPayoutToday = g.Where(w => w.Processedat >= today && w.Processedat < tomorrow).Sum(w => w.Amount ?? 0),
+                TotalPayoutThisMonth = g.Sum(w => w.Amount ?? 0)
             })
             .FirstOrDefaultAsync(ct);
 
@@ -58,11 +92,11 @@ public class AdminPayoutService(
         {
             TodayStats = new TodayStatsResponse
             {
-                TotalRequests = monthStats?.TotalRequests ?? 0,
-                AutoApproved = monthStats?.AutoApproved ?? 0,
-                Delayed = monthStats?.Delayed ?? 0,
-                ManualReview = monthStats?.ManualReview ?? 0,
-                Rejected = monthStats?.Rejected ?? 0
+                TotalRequests = todayStats?.TotalRequests ?? 0,
+                AutoApproved = todayStats?.AutoApproved ?? 0,
+                Delayed = todayStats?.Delayed ?? 0,
+                ManualReview = todayStats?.ManualReview ?? 0,
+                Rejected = todayStats?.Rejected ?? 0
             },
             ProcessingStats = new ProcessingStatsResponse
             {
@@ -72,8 +106,8 @@ public class AdminPayoutService(
             },
             FinancialStats = new FinancialStatsResponse
             {
-                TotalPayoutToday = monthStats?.TotalPayoutThisMonth ?? 0,
-                TotalPayoutThisMonth = monthStats?.TotalPayoutThisMonth ?? 0
+                TotalPayoutToday = payoutStats?.TotalPayoutToday ?? 0,
+                TotalPayoutThisMonth = payoutStats?.TotalPayoutThisMonth ?? 0
             },
             DecisionBreakdown = new DecisionBreakdownResponse
             {
@@ -93,7 +127,7 @@ public class AdminPayoutService(
             .AsNoTracking()
             .Include(w => w.User)
                 .ThenInclude(u => u!.Tutorprofile)
-            .Where(w => w.Decision == Decisions.ManualReview && w.Status == WithdrawalStatus.PendingReview);
+            .Where(w => StaffActionableStatuses.Contains(w.Status ?? ""));
 
         var total = await query.CountAsync(ct);
 
@@ -111,28 +145,12 @@ public class AdminPayoutService(
             })
             .ToListAsync(ct);
 
-        var withdrawalIds = items.Select(i => i.Withdrawalid).ToList();
-
-        var scores = await context.Withdrawalscores
-            .AsNoTracking()
-            .Where(s => withdrawalIds.Contains(s.Withdrawalrequestid))
-            .ToDictionaryAsync(s => s.Withdrawalrequestid, s => s.Totalscore, ct);
-
-        var fraudFlags = await context.Fraudlogs
-            .AsNoTracking()
-            .Where(f => withdrawalIds.Contains(f.Withdrawalrequestid!.Value) && f.Isflagged)
-            .GroupBy(f => f.Withdrawalrequestid!.Value)
-            .Select(g => new { WithdrawalId = g.Key, Flags = g.Select(f => f.Rulename).Take(3).ToList() })
-            .ToDictionaryAsync(x => x.WithdrawalId, x => x.Flags, ct);
-
         var result = items.Select(i => new PendingReviewItem
         {
             WithdrawalId = i.Withdrawalid,
             TutorId = i.Userid ?? "",
             TutorName = i.TutorName ?? "",
             Amount = i.Amount ?? 0,
-            TrustScore = scores.GetValueOrDefault(i.Withdrawalid),
-            TopFraudFlags = fraudFlags.GetValueOrDefault(i.Withdrawalid, []),
             RequestedAt = i.Requestedat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
         }).ToList();
 
@@ -201,15 +219,6 @@ public class AdminPayoutService(
 
         var tutorId = withdrawal.Userid!;
 
-        // Complex multi-entity analytics: stays on context
-        var score = await context.Withdrawalscores.AsNoTracking()
-            .FirstOrDefaultAsync(s => s.Withdrawalrequestid == withdrawalId, ct);
-
-        var fraudFlags = await context.Fraudlogs.AsNoTracking()
-            .Where(f => f.Withdrawalrequestid == withdrawalId && f.Isflagged)
-            .Select(f => f.Message ?? f.Rulename)
-            .ToListAsync(ct);
-
         var rawPreviousWithdrawals = await context.Withdrawalrequests.AsNoTracking()
             .Where(w => w.Userid == tutorId && w.Withdrawalid != withdrawalId)
             .OrderByDescending(w => w.Requestedat)
@@ -234,20 +243,14 @@ public class AdminPayoutService(
             .Where(t => t.Wallet!.Userid == tutorId && t.Transactiontype == TransactionType.EscrowRelease)
             .SumAsync(t => t.Amount ?? 0, ct);
 
-        var scoreBreakdown = score is null ? null : new ScoreBreakdownResponse
-        {
-            BaseScore = score.Basescore,
-            PositiveFactors = ParseScoreFactors(score.Positivefactors),
-            NegativeFactors = ParseScoreFactors(score.Negativefactors),
-            TotalScore = score.Totalscore,
-            Decision = score.Decision
-        };
-
+        var balance = wallet?.Balance ?? 0;
+        var frozenBalance = wallet?.Frozenbalance ?? 0;
         var walletInfo = new WalletInfoResponse
         {
-            Balance = wallet?.Balance ?? 0,
-            FrozenBalance = wallet?.Frozenbalance ?? 0,
-            AvailableBalance = (wallet?.Balance ?? 0) - (wallet?.Frozenbalance ?? 0)
+            Balance = balance,
+            FrozenBalance = frozenBalance,
+            AvailableBalance = balance,
+            TotalBalance = balance + frozenBalance
         };
 
         var user = withdrawal.User!;
@@ -279,41 +282,13 @@ public class AdminPayoutService(
                 CreatedAt = withdrawal.Requestedat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow,
                 ProcessedAt = withdrawal.Processedat,
                 ProcessedBy = withdrawal.Processedby,
-                PayosTransactionId = withdrawal.Payostransactionid,
-                PayosStatus = withdrawal.Payosstatus
+                CompletionNote = withdrawal.Completionnote
             },
             TutorInfo = tutorInfo,
-            ScoreBreakdown = scoreBreakdown,
-            FraudFlags = fraudFlags,
             PreviousWithdrawals = previousWithdrawals,
             WalletInfo = walletInfo,
             Timeline = timeline.OrderBy(t => t.Timestamp).ToList()
         };
-    }
-
-    private static List<string> ParseScoreFactors(string? json)
-    {
-        if (string.IsNullOrEmpty(json)) return [];
-        try
-        {
-            var strings = JsonSerializer.Deserialize<List<string>>(json);
-            if (strings != null) return strings;
-        }
-        catch
-        {
-            try
-            {
-                var elements = JsonSerializer.Deserialize<List<JsonElement>>(json);
-                if (elements != null)
-                    return elements.Select(e =>
-                        e.TryGetProperty("Detail", out var detail) ? detail.GetString() ?? "" :
-                        e.TryGetProperty("detail", out var detail2) ? detail2.GetString() ?? "" :
-                        e.ToString()
-                    ).ToList();
-            }
-            catch { }
-        }
-        return [];
     }
 
     private static List<TimelineEventResponse> BuildTimeline(Withdrawalrequest withdrawal)
@@ -327,7 +302,7 @@ public class AdminPayoutService(
             timeline.Add(new() { Timestamp = withdrawal.Requestedat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow, Event = "Decision made", Details = withdrawal.Decision });
 
         if (withdrawal.Processedat.HasValue)
-            timeline.Add(new() { Timestamp = withdrawal.Processedat.Value, Event = "Processed", Details = $"Status: {withdrawal.Status}" });
+            timeline.Add(new() { Timestamp = withdrawal.Processedat.Value, Event = "Processed", Details = $"Status: {withdrawal.Status}. Ghi chú: {withdrawal.Completionnote}" });
 
         return timeline;
     }
@@ -339,38 +314,48 @@ public class AdminPayoutService(
         if (withdrawal == null)
             throw new KeyNotFoundException("Không tìm thấy yêu cầu rút tiền");
 
-        if (withdrawal.Status != WithdrawalStatus.PendingReview && withdrawal.Status != WithdrawalStatus.Delayed)
+        if (!StaffActionableStatuses.Contains(withdrawal.Status ?? ""))
             throw new InvalidOperationException($"Không thể duyệt yêu cầu có trạng thái: {withdrawal.Status}");
+
+        if (string.IsNullOrWhiteSpace(note))
+            throw new InvalidOperationException("Vui lòng nhập ghi chú/mã tham chiếu giao dịch chuyển khoản.");
 
         // Ghi đúng decision theo role người thực hiện
         var decision = string.Equals(actorRole, UserRole.Staff, StringComparison.OrdinalIgnoreCase)
             ? Decisions.StaffApproved
             : Decisions.AdminApproved;
 
-        withdrawal.Status     = WithdrawalStatus.Approved;
-        withdrawal.Processedby = actorUserId;
-        withdrawal.Processedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
-        withdrawal.Decision    = decision;
+        // Staff đã tự chuyển tiền thủ công trước khi bấm nút này; 1 bước, không còn trạng thái
+        // Approved trung gian chờ PayOS xử lý async như trước.
+        withdrawal.Status         = WithdrawalStatus.Completed;
+        withdrawal.Processedby    = actorUserId;
+        withdrawal.Processedat    = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
+        withdrawal.Decision       = decision;
+        withdrawal.Completionnote = note;
 
         await withdrawalRepo.SaveChangesAsync(ct);
 
-        BackgroundJob.Enqueue<PayoutJobHandler>(x => x.ProcessImmediatePayoutAsync(withdrawalId, CancellationToken.None));
-
-        await notificationService.CreateNotificationAsync(new NotificationRequest
+        try
         {
-            Userid = withdrawal.Userid!,
-            Title = "Yêu cầu rút tiền đã được phê duyệt",
-            Message = "Yêu cầu rút tiền của bạn đã được phê duyệt. Đang xử lý, dự kiến 5-30 phút."
-        });
+            await notificationService.CreateNotificationAsync(new NotificationRequest
+            {
+                Userid = withdrawal.Userid!,
+                Title = "Yêu cầu rút tiền đã hoàn tất",
+                Message = "Yêu cầu rút tiền của bạn đã được duyệt và số tiền đã được chuyển vào tài khoản ngân hàng của bạn."
+            });
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Failed to send completed withdrawal notification for {WithdrawalId}", withdrawalId);
+        }
 
-        logger.LogInformation("{Role} {ActorId} approved withdrawal {WithdrawalId} (decision={Decision})",
+        logger.LogInformation("{Role} {ActorId} approved & completed withdrawal {WithdrawalId} (decision={Decision})",
             actorRole, actorUserId, withdrawalId, decision);
 
         return new ApproveResult
         {
             Success = true,
-            Message = "Đã phê duyệt yêu cầu rút tiền thành công",
-            EstimatedTime = "5-30 phút"
+            Message = "Đã duyệt và xác nhận chuyển tiền thành công"
         };
     }
 
@@ -384,7 +369,7 @@ public class AdminPayoutService(
             if (withdrawal == null)
                 throw new KeyNotFoundException("Không tìm thấy yêu cầu rút tiền");
 
-            if (withdrawal.Status != WithdrawalStatus.PendingReview && withdrawal.Status != WithdrawalStatus.Delayed)
+            if (!StaffActionableStatuses.Contains(withdrawal.Status ?? ""))
                 throw new InvalidOperationException($"Không thể từ chối yêu cầu có trạng thái: {withdrawal.Status}");
 
             var tutorId = withdrawal.Userid!;
@@ -426,12 +411,19 @@ public class AdminPayoutService(
             await walletRepo.SaveChangesAsync(ct);
             await transaction.CommitAsync(ct);
 
-            await notificationService.CreateNotificationAsync(new NotificationRequest
+            try
             {
-                Userid = tutorId,
-                Title = "Yêu cầu rút tiền bị từ chối",
-                Message = $"Yêu cầu rút tiền bị từ chối: {reason}. Tiền đã được hoàn về ví."
-            });
+                await notificationService.CreateNotificationAsync(new NotificationRequest
+                {
+                    Userid = tutorId,
+                    Title = "Yêu cầu rút tiền bị từ chối",
+                    Message = $"Yêu cầu rút tiền bị từ chối: {reason}. Tiền đã được hoàn về ví."
+                });
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Failed to send rejected withdrawal notification for {WithdrawalId}", withdrawalId);
+            }
 
             logger.LogInformation("Actor {ActorId} rejected withdrawal {WithdrawalId}: {Reason}", actorUserId, withdrawalId, reason);
 
@@ -446,68 +438,5 @@ public class AdminPayoutService(
             await transaction.RollbackAsync(ct);
             throw;
         }
-    }
-
-    public async Task<FraudLogResponse> GetFraudLogsAsync(
-        int page,
-        int pageSize,
-        string? tutorId = null,
-        string? ruleName = null,
-        bool? passed = null,
-        DateTime? from = null,
-        DateTime? to = null,
-        CancellationToken ct = default)
-    {
-        // Complex multi-join query: stays on context
-        IQueryable<FraudLog> query = context.Fraudlogs
-            .AsNoTracking()
-            .Include(f => f.Tutor);
-
-        if (!string.IsNullOrEmpty(tutorId))
-            query = query.Where(f => f.Tutorid == tutorId);
-        if (!string.IsNullOrEmpty(ruleName))
-            query = query.Where(f => f.Rulename == ruleName);
-        if (passed.HasValue)
-            query = query.Where(f => f.Passed == passed.Value);
-        if (from.HasValue)
-            query = query.Where(f => f.Checkedat >= from.Value);
-        if (to.HasValue)
-            query = query.Where(f => f.Checkedat <= to.Value);
-
-        var total = await query.CountAsync(ct);
-
-        var items = await query
-            .OrderByDescending(f => f.Checkedat)
-            .Skip((page - 1) * pageSize)
-            .Take(pageSize)
-            .ToListAsync(ct);
-
-        var tutorIds = items.Select(f => f.Tutorid).Distinct().ToList();
-        var tutorNames = await context.Users
-            .AsNoTracking()
-            .Where(u => tutorIds.Contains(u.Userid))
-            .Select(u => new { u.Userid, Name = u.Fullname ?? u.Username ?? "" })
-            .ToDictionaryAsync(u => u.Userid, u => u.Name, ct);
-
-        var result = items.Select(f => new FraudLogItem
-        {
-            LogId = f.Logid,
-            TutorId = f.Tutorid,
-            TutorName = tutorNames.GetValueOrDefault(f.Tutorid, ""),
-            WithdrawalRequestId = f.Withdrawalrequestid,
-            RuleName = f.Rulename,
-            Passed = f.Passed,
-            IsFlagged = f.Isflagged,
-            Message = f.Message,
-            CheckedAt = f.Checkedat
-        }).ToList();
-
-        return new FraudLogResponse
-        {
-            Items = result,
-            Total = total,
-            Page = page,
-            PageSize = pageSize
-        };
     }
 }

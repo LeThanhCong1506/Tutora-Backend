@@ -143,6 +143,8 @@ public partial class BookingService
                 classSession.Status = ClassSessionStatus.Cancelled;
 
             await RefundPaidBookingAsync(booking, "Hoàn tiền do gia sư từ chối booking");
+            // Return the promotion usage consumed at booking creation
+            await MV.ApplicationLayer.Helpers.PromotionUsageHelper.ReturnUsageAsync(context, booking.Promotionid);
             await bookingRepo.SaveChangesAsync();
             await tx.CommitAsync();
         }

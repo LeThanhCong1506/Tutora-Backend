@@ -8,6 +8,5 @@ public static class WalletErrorCodes
     public const string DuplicateTransaction = "DUPLICATE_TRANSACTION";
     public const string WalletNotFound = "WALLET_NOT_FOUND";
     public const string InsufficientBalance = "INSUFFICIENT_BALANCE";
-    public const string InsufficientBalanceForVerification = "INSUFFICIENT_BALANCE_FOR_VERIFICATION";
     public const string MinimumTopupRequired = "MINIMUM_TOPUP_REQUIRED";
 }

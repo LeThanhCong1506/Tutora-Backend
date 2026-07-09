@@ -80,19 +80,7 @@ public partial class Tutorprofile
 
     public string? Bankaccountname { get; set; }
 
-    public bool? Isbankverified { get; set; }
-
     public DateTime? Bankchangedat { get; set; }
-
-    public string? Bankverifycode { get; set; }
-
-    public string? Bankverifystatus { get; set; }
-
-    public DateTime? Bankverifyrequested { get; set; }
-
-    public DateTime? Bankverifiedat { get; set; }
-
-    public int Bankverifyattempts { get; set; }
 
     public virtual ICollection<Booking> Bookings { get; set; } = new List<Booking>();
 

@@ -62,9 +62,9 @@ public partial class ClassSessionService
 
         if (isOnlineMode && string.IsNullOrWhiteSpace(classSession.Meetinglink) && classSession.Booking?.Studentid != null)
         {
-            // Tencent RTC: RoomId = classSessionId (không cần OAuth, không cần external API)
+            // Agora RTC: channel = classSessionId (không cần OAuth, không cần external API)
             classSession.Meetinglink = classSessionId.ToString();
-            _logger.LogInformation("Assigned Tencent RTC RoomId {RoomId} for classSession {ClassSessionId}", classSessionId, classSessionId);
+            _logger.LogInformation("Assigned Agora RTC channel {Channel} for classSession {ClassSessionId}", classSessionId, classSessionId);
             await _context.SaveChangesAsync();
         }
 
@@ -73,13 +73,13 @@ public partial class ClassSessionService
         var parentId = classSession.Booking?.Parentid;
         var studentProfileId = classSession.Booking?.Studentid; // ProfileId (stu_xxx), KHÔNG phải UserId
         var classSessionTimeVn = classSession.Scheduledstart.ToString("dd/MM HH:mm");
-        // hasMeetLink được tính lại SAU khi Tencent RTC RoomId đã được set
+        // hasMeetLink được tính lại SAU khi Agora RTC channel đã được set
         var hasMeetLink = !string.IsNullOrWhiteSpace(classSession.Meetinglink);
         string chatContent;
         string messageType;
         if (hasMeetLink)
         {
-            chatContent = $"🟢 Buổi học đã bắt đầu lúc {classSessionTimeVn}!\n\n🔗 Link tham gia (Tencent RTC - Room ID: {classSession.Meetinglink}):\nĐể vào phòng học, vui lòng mở ứng dụng và nhập Room ID: {classSession.Meetinglink}";
+            chatContent = $"🟢 Buổi học đã bắt đầu lúc {classSessionTimeVn}!\n\n🔗 Tham gia lớp học trực tuyến (Mã phòng: {classSession.Meetinglink}):\nĐể vào phòng học, vui lòng mở ứng dụng và nhập Mã phòng: {classSession.Meetinglink}";
             messageType = ChatMessageType.MeetLink;
         }
         else
@@ -137,7 +137,7 @@ public partial class ClassSessionService
                     Userid = parentId,
                     Title = "Buổi học đã bắt đầu",
                     Message = "Gia sư đã bắt đầu buổi học." +
-                                  (hasMeetLink ? " Kiểm tra tin nhắn để lấy Room ID tham gia Tencent RTC." : ""),
+                                  (hasMeetLink ? " Kiểm tra tin nhắn để lấy Mã phòng tham gia lớp học trực tuyến." : ""),
                     Type = NotificationType.LessonCheckin,
                     Referenceid = classSessionId.ToString()
                 });
@@ -176,7 +176,7 @@ public partial class ClassSessionService
                     Userid = studentLinkedUserId,
                     Title = "Buổi học đã bắt đầu",
                     Message = "Gia sư đã bắt đầu buổi học." +
-                                  (hasMeetLink ? " Kiểm tra tin nhắn để lấy Room ID tham gia Tencent RTC." : ""),
+                                  (hasMeetLink ? " Kiểm tra tin nhắn để lấy Mã phòng tham gia lớp học trực tuyến." : ""),
                     Type = NotificationType.LessonCheckin,
                     Referenceid = classSessionId.ToString()
                 });

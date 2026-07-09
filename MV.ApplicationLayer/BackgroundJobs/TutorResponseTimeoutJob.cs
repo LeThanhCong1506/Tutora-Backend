@@ -81,6 +81,9 @@ public class TutorResponseTimeoutJob(IServiceProvider sp, ILogger<TutorResponseT
 
                 await RefundPaidBookingAsync(db, b, now, ct);
 
+                // Return the promotion usage consumed at booking creation
+                await MV.ApplicationLayer.Helpers.PromotionUsageHelper.ReturnUsageAsync(db, b.Promotionid, ct);
+
                 await db.SaveChangesAsync(ct);
 
                 // Notify parent/student

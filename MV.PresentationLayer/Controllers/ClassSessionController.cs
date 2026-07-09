@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc;
 using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.DTO.RequestModel;
 using MV.DomainLayer.DTO.ResponseModel;
+using MV.DomainLayer.Exceptions;
 using System.Security.Claims;
 
 namespace MV.PresentationLayer.Controllers;
@@ -45,9 +46,9 @@ public class ClassSessionController(IClassSessionService classSessionService) : 
     }
 
     /// <summary>
-    /// DELETE /api/classSessions/{id}?reason=...
-    /// Tutor hoặc Parent có thể hủy 1 buổi học đang được lên lịch (status = scheduled).
-    /// Không ảnh hưởng các buổi học khác trong cùng booking.
+    /// DELETE /api/class-sessions/{id}?reason=...
+    /// KHÔNG hỗ trợ hủy từng buổi học lẻ (luôn trả 400) — việc giải phóng escrow đòi hỏi
+    /// hủy toàn bộ booking. Endpoint giữ lại để client nhận thông báo hướng dẫn thay vì 404.
     /// </summary>
     [HttpDelete("class-sessions/{id:int}")]
     [Authorize(Roles = UserRole.ParentOrTutor)]
@@ -72,6 +73,47 @@ public class ClassSessionController(IClassSessionService classSessionService) : 
         catch (InvalidOperationException ex)
         {
             return BadRequest(MV.DomainLayer.DTO.APIResponse<object>.Fail(ex.Message, 400));
+        }
+    }
+
+    /// <summary>
+    /// POST /api/class-sessions/{id}/report-no-show
+    /// Parent báo cáo gia sư vắng mặt sau 15 phút kể từ giờ bắt đầu.
+    /// </summary>
+    [HttpPost("class-sessions/{id:int}/report-no-show")]
+    [Authorize(Roles = UserRole.Parent)]
+    public async Task<IActionResult> ReportNoShow([FromRoute] int id)
+    {
+        var parentId = UserId ?? throw new UnauthorizedAccessException();
+        try
+        {
+            var result = await classSessionService.ReportTutorNoShowAsync(id, parentId);
+            return Ok(MV.DomainLayer.DTO.APIResponse<ClassSessionDetailResponse>.Success(result, "Đã báo cáo gia sư vắng mặt thành công."));
+        }
+        catch (ClassSessionException ex)
+        {
+            return StatusCode(ex.HttpStatus, MV.DomainLayer.DTO.APIResponse<object>.Fail(ex.Message, ex.HttpStatus));
+        }
+    }
+
+    /// <summary>
+    /// POST /api/class-sessions/{id}/no-show-action
+    /// Parent chọn hướng xử lý sau khi gia sư bị xác nhận vắng mặt.
+    /// ActionType: free_session | makeup | change_tutor
+    /// </summary>
+    [HttpPost("class-sessions/{id:int}/no-show-action")]
+    [Authorize(Roles = UserRole.Parent)]
+    public async Task<IActionResult> ProcessNoShowAction([FromRoute] int id, [FromBody] NoShowActionRequest request)
+    {
+        var parentId = UserId ?? throw new UnauthorizedAccessException();
+        try
+        {
+            var result = await classSessionService.ProcessNoShowActionAsync(id, parentId, request);
+            return Ok(MV.DomainLayer.DTO.APIResponse<NoShowActionResultResponse>.Success(result, "Xử lý no-show thành công."));
+        }
+        catch (ClassSessionException ex)
+        {
+            return StatusCode(ex.HttpStatus, MV.DomainLayer.DTO.APIResponse<object>.Fail(ex.Message, ex.HttpStatus));
         }
     }
 

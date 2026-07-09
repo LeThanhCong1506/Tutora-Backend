@@ -6,6 +6,7 @@ using MV.DomainLayer.DTO;
 using MV.DomainLayer.DTO.RequestModel;
 using MV.DomainLayer.DTO.ResponseModel;
 using MV.DomainLayer.Exceptions;
+using MV.PresentationLayer.Authorization;
 using System.Security.Claims;
 using System.Text.Json;
 
@@ -13,7 +14,7 @@ namespace MV.PresentationLayer.Controllers;
 
 [ApiController]
 [Route("api/admin/users")]
-[Authorize(Roles = UserRole.Admin)]
+[Authorize]
 public class AdminUserController : ControllerBase
 {
     private readonly IUserService _userService;
@@ -23,6 +24,7 @@ public class AdminUserController : ControllerBase
         _userService = userService;
     }
 
+    [RequirePermission(Permissions.UserView)]
     [HttpGet]
     public async Task<IActionResult> GetAllUsers([FromQuery] AdminUserFilterParameters parameters)
     {
@@ -43,6 +45,7 @@ public class AdminUserController : ControllerBase
         return Ok(APIResponse<PagedList<UserResponse>>.Success(users, "Lấy danh sách người dùng thành công."));
     }
 
+    [RequirePermission(Permissions.UserView)]
     [HttpGet("{id}")]
     public async Task<IActionResult> GetUserById(string id)
     {
@@ -57,6 +60,7 @@ public class AdminUserController : ControllerBase
         }
     }
 
+    [RequirePermission(Permissions.UserUpdate)]
     [HttpPut("{id}")]
     public async Task<IActionResult> UpdateUser(string id, [FromBody] AdminUpdateUserRequest request)
     {
@@ -78,6 +82,7 @@ public class AdminUserController : ControllerBase
         }
     }
 
+    [RequirePermission(Permissions.UserDeactivate)]
     [HttpPut("{id}/deactivate")]
     public async Task<IActionResult> DeactivateUser(string id)
     {
@@ -101,6 +106,7 @@ public class AdminUserController : ControllerBase
     /// Mở khóa tài khoản người dùng đã bị deactivate.
     /// Nếu là gia sư và profile đang Active → khôi phục Ispublic = true.
     /// </summary>
+    [RequirePermission(Permissions.UserDeactivate)]
     [HttpPut("{id}/reactivate")]
     public async Task<IActionResult> ReactivateUser(string id)
     {
@@ -119,6 +125,7 @@ public class AdminUserController : ControllerBase
         }
     }
 
+    [Authorize(Roles = UserRole.Admin)]
     [HttpDelete("{id}")]
     public async Task<IActionResult> DeleteUser(string id)
     {
@@ -143,6 +150,7 @@ public class AdminUserController : ControllerBase
     /// Các role được phép gán: Parent, Student, Tutor, Staff.
     /// Không thể gán role Admin qua API.
     /// </summary>
+    [Authorize(Roles = UserRole.Admin)]
     [HttpPut("{id}/role")]
     public async Task<IActionResult> ChangeUserRole(string id, [FromBody] ChangeUserRoleRequest request)
     {

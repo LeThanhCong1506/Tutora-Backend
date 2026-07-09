@@ -354,40 +354,5 @@ namespace MV.InfrastructureLayer.Repositories
         }
 
         #endregion
-
-        #region Bank Verification Methods
-
-        public async Task<List<BankChangeLog>> GetBankChangeLogsByTutorIdAsync(string tutorId, int limit = 10, CancellationToken cancellationToken = default)
-        {
-            return await _context.BankChangeLogs
-                .Where(log => log.Tutorid == tutorId)
-                .OrderByDescending(log => log.Changedat)
-                .Take(limit)
-                .ToListAsync(cancellationToken);
-        }
-
-        public async Task AddBankChangeLogAsync(BankChangeLog log, CancellationToken cancellationToken = default)
-        {
-            await _context.BankChangeLogs.AddAsync(log, cancellationToken);
-        }
-
-        public async Task<int> CountBankChangesInLastMonthAsync(string tutorId, CancellationToken cancellationToken = default)
-        {
-            var oneMonthAgo = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow.AddMonths(-1);
-            return await _context.BankChangeLogs
-                .Where(log => log.Tutorid == tutorId && log.Changedat >= oneMonthAgo)
-                .CountAsync(cancellationToken);
-        }
-
-        public async Task<Tutorprofile?> GetTutorByVerificationCodeAsync(string? verificationCode, CancellationToken cancellationToken = default)
-        {
-            if (string.IsNullOrWhiteSpace(verificationCode))
-                return null;
-
-            return await _context.Tutorprofiles
-                .FirstOrDefaultAsync(t => t.Bankverifycode == verificationCode, cancellationToken);
-        }
-
-        #endregion
     }
 }

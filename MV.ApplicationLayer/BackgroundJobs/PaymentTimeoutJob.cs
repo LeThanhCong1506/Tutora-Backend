@@ -112,6 +112,9 @@ public class PaymentTimeoutJob(IServiceProvider sp, ILogger<PaymentTimeoutJob> l
                 foreach (var classSession in b.ClassSessions.Where(l => l.Status == ClassSessionStatus.Reserved))
                     classSession.Status = ClassSessionStatus.Cancelled;
 
+                // Return the promotion usage consumed at booking creation
+                await MV.ApplicationLayer.Helpers.PromotionUsageHelper.ReturnUsageAsync(db, b.Promotionid, ct);
+
                 await db.SaveChangesAsync(ct);
 
                 if (!string.IsNullOrEmpty(b.Parentid))

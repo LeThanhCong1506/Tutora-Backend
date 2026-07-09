@@ -20,6 +20,11 @@ namespace MV.ApplicationLayer.ServiceInterfaces
         Task<string> UploadFileAsync(string bucketName, string userId, IFormFile file);
 
         /// <summary>
+        /// Upload ảnh từ bytes (vd ảnh crop từ PDF). Trả về public URL.
+        /// </summary>
+        Task<string> UploadImageBytesAsync(string bucketName, string userId, byte[] bytes, string fileName);
+
+        /// <summary>
         /// Upload a file dưới dạng private (authenticated). Dùng cho CCCD và tài liệu nhạy cảm.
         /// URL trả về chỉ là public ID, cần gọi GenerateSignedUrl để lấy link xem tạm thời.
         /// </summary>

@@ -110,15 +110,14 @@ public interface IClassSessionService
     Task<ClassSessionDetailResponse> CreateMakeupClassSessionAsync(int originalClassSessionId, DateTime newScheduledStart, string tutorId);
 
     /// <summary>
-    /// Cancel a single scheduled classSession — only the classSession owner (tutor) or the
-    /// booking's parent may cancel. Only classSessions with status <c>scheduled</c> can be cancelled.
-    /// Sends a notification to the other party.
+    /// Always rejects: single-classSession cancel is unsupported because escrow release
+    /// requires cancelling the full booking. Kept so the ownership check runs before the 400.
     /// </summary>
     Task<ClassSessionResponse> CancelClassSessionAsync(int classSessionId, string userId, string userRole, string? reason = null);
 
     /// <summary>
-    /// Gán Tencent RTC RoomId (= classSessionId) cho tất cả buổi học online/hybrid sắp tới
-    /// chưa có RoomId, rồi gửi thông báo chat cho parent của từng booking.
+    /// Gán Agora RTC channel (= classSessionId) cho tất cả buổi học online/hybrid sắp tới
+    /// chưa có channel, rồi gửi thông báo chat cho parent của từng booking.
     /// Fire-and-forget safe — never throws; logs warnings on individual failures.
     /// </summary>
     Task RefreshMeetLinksForTutorAsync(string tutorId);

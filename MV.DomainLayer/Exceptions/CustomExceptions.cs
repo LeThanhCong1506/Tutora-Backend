@@ -158,10 +158,22 @@ namespace MV.DomainLayer.Exceptions
             : base("Please update your bank information first.") { }
     }
 
-    public class BankNotVerifiedException : BadRequestException
+    public class ExternalApiException : Exception
     {
-        public BankNotVerifiedException()
-            : base("Bank account not verified. Please contact support.") { }
+        public ExternalApiException(string message) : base(message)
+        {
+        }
+
+        public ExternalApiException(string message, Exception innerException)
+            : base(message, innerException)
+        {
+        }
+    }
+
+    public class WithdrawalAmountTooLowException : BadRequestException
+    {
+        public WithdrawalAmountTooLowException(decimal minAmount)
+            : base($"Số tiền rút tối thiểu là {minAmount:N0} VND.") { }
     }
 
     public class WithdrawalNotFoundException : NotFoundException
@@ -173,7 +185,7 @@ namespace MV.DomainLayer.Exceptions
     public class WithdrawalCancellationException : BadRequestException
     {
         public WithdrawalCancellationException()
-            : base("Only pending or delayed withdrawals can be cancelled.") { }
+            : base("Withdrawal requests must be cancelled by staff after transfer status is verified.") { }
     }
 
     public class TutorProfileNotFoundException : NotFoundException
