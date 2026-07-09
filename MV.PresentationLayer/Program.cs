@@ -275,6 +275,7 @@ builder.Services.AddScoped<INotificationRepository, NotificationRepository>();
 builder.Services.AddScoped<IRefreshTokenRepository, RefreshTokenRepository>();
 builder.Services.AddScoped<ITutorSearchRepository, TutorSearchRepository>();
 builder.Services.AddScoped<IStaffPermissionRepository, StaffPermissionRepository>();
+builder.Services.AddScoped<ILearningMaterialRepository, LearningMaterialRepository>();
 
 // Service injection
 builder.Services.AddScoped<ITutorVerificationService, TutorVerificationService>();
@@ -307,6 +308,7 @@ builder.Services.AddScoped<IWalletService, WalletService>();
 builder.Services.AddScoped<IClassSessionService, ClassSessionService>();
 builder.Services.AddScoped<IAgoraRTCService, AgoraRTCService>();
 builder.Services.AddScoped<ITutorFinanceService, TutorFinanceService>();
+builder.Services.AddScoped<ILearningMaterialService, LearningMaterialService>();
 
 builder.Services.AddHttpContextAccessor();
 

@@ -199,4 +199,23 @@ namespace MV.DomainLayer.Exceptions
         public TransactionNotFoundException()
             : base("Transaction not found.") { }
     }
+
+    // ---------------------------------- Learning Material Exceptions ----------------------------------
+    public class BookingNotFoundException : NotFoundException
+    {
+        public BookingNotFoundException()
+            : base("Không tìm thấy booking.") { }
+    }
+
+    public class MaterialNotFoundException : NotFoundException
+    {
+        public MaterialNotFoundException()
+            : base("Không tìm thấy tài liệu.") { }
+    }
+
+    public class MaterialAccessDeniedException : BadRequestException
+    {
+        public MaterialAccessDeniedException()
+            : base("Bạn không có quyền truy cập tài liệu của booking này.") { }
+    }
 }
