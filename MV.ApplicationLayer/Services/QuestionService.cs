@@ -33,8 +33,8 @@ public class QuestionService : IQuestionService
             Id = Guid.NewGuid(),
             SubjectId = request.SubjectId,
             GradeLevelId = request.GradeLevelId,
-            Chapter = request.Chapter,
-            ProblemType = request.ProblemType,
+            ChapterId = request.ChapterId,
+            QuestionTypeId = request.QuestionTypeId,
             Difficulty = request.Difficulty,
             Content = request.Content,
             Solution = request.Solution,
@@ -60,12 +60,12 @@ public class QuestionService : IQuestionService
 
     public async Task<PagedList<QuestionResponse>> GetPagedAsync(
         int pageNumber, int pageSize,
-        int? subjectId, int? gradeLevelId, string? chapter,
+        int? subjectId, int? gradeLevelId, int? chapterId,
         string? reviewStatus, string? search,
         CancellationToken ct = default)
     {
         var paged = await _unitOfWork.QuestionRepository.GetPagedAsync(
-            pageNumber, pageSize, subjectId, gradeLevelId, chapter, reviewStatus, search);
+            pageNumber, pageSize, subjectId, gradeLevelId, chapterId, reviewStatus, search);
 
         var items = paged.Select(ToResponse).ToList();
         return new PagedList<QuestionResponse>(items, paged.TotalCount, paged.CurrentPage, paged.PageSize);
@@ -81,8 +81,8 @@ public class QuestionService : IQuestionService
 
         entity.SubjectId = request.SubjectId;
         entity.GradeLevelId = request.GradeLevelId;
-        entity.Chapter = request.Chapter;
-        entity.ProblemType = request.ProblemType;
+        entity.ChapterId = request.ChapterId;
+        entity.QuestionTypeId = request.QuestionTypeId;
         entity.Difficulty = request.Difficulty;
         entity.Content = request.Content;
         entity.Solution = request.Solution;
@@ -131,13 +131,19 @@ public class QuestionService : IQuestionService
         }
     }
 
-    private static QuestionResponse ToResponse(QuestionBank e) => new()
+    // static để dùng chung; nav (ChapterNav/QuestionType/Subject/Gradelevel) cần
+    // được Include khi query để có Name (null-safe nếu chưa Include).
+    internal static QuestionResponse ToResponse(QuestionBank e) => new()
     {
         Id = e.Id,
         SubjectId = e.SubjectId,
+        SubjectName = e.Subject?.Subjectname,
         GradeLevelId = e.GradeLevelId,
-        Chapter = e.Chapter,
-        ProblemType = e.ProblemType,
+        GradeName = e.Gradelevel?.Gradename,
+        ChapterId = e.ChapterId,
+        ChapterName = e.ChapterNav?.Name,
+        QuestionTypeId = e.QuestionTypeId,
+        QuestionTypeName = e.QuestionType?.Name,
         Difficulty = e.Difficulty,
         Content = e.Content,
         Solution = e.Solution,

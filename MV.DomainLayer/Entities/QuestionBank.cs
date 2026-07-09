@@ -16,14 +16,20 @@ public partial class QuestionBank
 
     public int GradeLevelId { get; set; }
 
-    /// <summary>Chương/chủ đề (chương trình VN), vd "ung_dung_dao_ham". Nullable.</summary>
+    /// <summary>[LEGACY] slug chương dạng text — giữ để tương thích data cũ. Ưu tiên dùng ChapterId.</summary>
     public string? Chapter { get; set; }
 
-    /// <summary>tu_luan / trac_nghiem / dien_so.</summary>
+    /// <summary>[LEGACY] loại câu dạng text — giữ tương thích. Ưu tiên dùng QuestionTypeId.</summary>
     public string? ProblemType { get; set; }
 
-    /// <summary>Độ khó 1-5 (optional).</summary>
-    public short? Difficulty { get; set; }
+    /// <summary>FK -> chapters. Chương gắn (môn, lớp). Null nếu chưa gán.</summary>
+    public int? ChapterId { get; set; }
+
+    /// <summary>FK -> question_types. Loại câu hỏi. Null nếu chưa gán.</summary>
+    public int? QuestionTypeId { get; set; }
+
+    /// <summary>4 cấp Bộ GD: NHAN_BIET | THONG_HIEU | VAN_DUNG | VAN_DUNG_CAO.</summary>
+    public string? Difficulty { get; set; }
 
     public string Content { get; set; } = null!;
 
@@ -66,4 +72,8 @@ public partial class QuestionBank
     public virtual Gradelevel? Gradelevel { get; set; }
 
     public virtual SourceDocument? SourceDocument { get; set; }
+
+    public virtual Chapter? ChapterNav { get; set; }
+
+    public virtual QuestionType? QuestionType { get; set; }
 }

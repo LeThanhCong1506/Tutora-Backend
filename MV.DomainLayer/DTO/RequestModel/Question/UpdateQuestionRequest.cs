@@ -14,12 +14,13 @@ public class UpdateQuestionRequest
     [Required(ErrorMessage = "Khối lớp là bắt buộc")]
     public int GradeLevelId { get; set; }
 
-    public string? Chapter { get; set; }
+    public int? ChapterId { get; set; }
 
-    public string? ProblemType { get; set; }
+    public int? QuestionTypeId { get; set; }
 
-    [Range(1, 5, ErrorMessage = "Độ khó phải từ 1 đến 5")]
-    public short? Difficulty { get; set; }
+    [RegularExpression("NHAN_BIET|THONG_HIEU|VAN_DUNG|VAN_DUNG_CAO",
+        ErrorMessage = "Độ khó không hợp lệ.")]
+    public string? Difficulty { get; set; }
 
     [Required(ErrorMessage = "Nội dung câu hỏi là bắt buộc")]
     [MinLength(5, ErrorMessage = "Nội dung câu hỏi quá ngắn")]

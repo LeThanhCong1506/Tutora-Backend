@@ -16,7 +16,7 @@ public interface IQuestionService
 
     Task<PagedList<QuestionResponse>> GetPagedAsync(
         int pageNumber, int pageSize,
-        int? subjectId, int? gradeLevelId, string? chapter,
+        int? subjectId, int? gradeLevelId, int? chapterId,
         string? reviewStatus, string? search,
         CancellationToken ct = default);
 

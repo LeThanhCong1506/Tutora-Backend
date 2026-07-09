@@ -53,6 +53,10 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
 
     public virtual DbSet<SourceDocument> SourceDocuments { get; set; }
 
+    public virtual DbSet<Chapter> Chapters { get; set; }
+
+    public virtual DbSet<QuestionType> QuestionTypes { get; set; }
+
     public virtual DbSet<AiCreditTransaction> AiCreditTransactions { get; set; }
 
     public virtual DbSet<Profilesuspension> Profilesuspensions { get; set; }
@@ -1516,6 +1520,8 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
             entity.Property(e => e.GradeLevelId).HasColumnName("grade_level_id");
             entity.Property(e => e.Chapter).HasColumnName("chapter");
             entity.Property(e => e.ProblemType).HasColumnName("problem_type");
+            entity.Property(e => e.ChapterId).HasColumnName("chapter_id");
+            entity.Property(e => e.QuestionTypeId).HasColumnName("question_type_id");
             entity.Property(e => e.Difficulty).HasColumnName("difficulty");
             entity.Property(e => e.Content).HasColumnName("content");
             entity.Property(e => e.Solution).HasColumnName("solution");
@@ -1559,6 +1565,14 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
             entity.HasOne(d => d.SourceDocument).WithMany(p => p.Questions)
                 .HasForeignKey(d => d.SourceDocumentId)
                 .OnDelete(DeleteBehavior.SetNull);
+
+            entity.HasOne(d => d.ChapterNav).WithMany(p => p.Questions)
+                .HasForeignKey(d => d.ChapterId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            entity.HasOne(d => d.QuestionType).WithMany(p => p.Questions)
+                .HasForeignKey(d => d.QuestionTypeId)
+                .OnDelete(DeleteBehavior.SetNull);
         });
 
         modelBuilder.Entity<SourceDocument>(entity =>
@@ -1591,6 +1605,41 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnType("timestamp with time zone")
                 .HasColumnName("updated_at");
+        });
+
+        modelBuilder.Entity<Chapter>(entity =>
+        {
+            entity.HasKey(e => e.Id).HasName("chapters_pkey");
+            entity.ToTable("chapters");
+            entity.HasIndex(e => new { e.SubjectId, e.GradeLevelId, e.Slug }, "uq_chapters_subject_grade_slug").IsUnique();
+
+            entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.SubjectId).HasColumnName("subject_id");
+            entity.Property(e => e.GradeLevelId).HasColumnName("grade_level_id");
+            entity.Property(e => e.Slug).HasColumnName("slug");
+            entity.Property(e => e.Name).HasColumnName("name");
+            entity.Property(e => e.DisplayOrder).HasColumnName("display_order");
+            entity.Property(e => e.IsActive).HasDefaultValue(true).HasColumnName("is_active");
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("now()").HasColumnType("timestamp with time zone").HasColumnName("created_at");
+            entity.Property(e => e.UpdatedAt).HasDefaultValueSql("now()").HasColumnType("timestamp with time zone").HasColumnName("updated_at");
+
+            entity.HasOne(d => d.Subject).WithMany().HasForeignKey(d => d.SubjectId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(d => d.Gradelevel).WithMany().HasForeignKey(d => d.GradeLevelId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<QuestionType>(entity =>
+        {
+            entity.HasKey(e => e.Id).HasName("question_types_pkey");
+            entity.ToTable("question_types");
+            entity.HasIndex(e => e.Slug, "question_types_slug_key").IsUnique();
+
+            entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.Slug).HasColumnName("slug");
+            entity.Property(e => e.Name).HasColumnName("name");
+            entity.Property(e => e.DisplayOrder).HasColumnName("display_order");
+            entity.Property(e => e.IsActive).HasDefaultValue(true).HasColumnName("is_active");
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("now()").HasColumnType("timestamp with time zone").HasColumnName("created_at");
+            entity.Property(e => e.UpdatedAt).HasDefaultValueSql("now()").HasColumnType("timestamp with time zone").HasColumnName("updated_at");
         });
 
         modelBuilder.Entity<Tutorsubjectgradeprice>(entity =>

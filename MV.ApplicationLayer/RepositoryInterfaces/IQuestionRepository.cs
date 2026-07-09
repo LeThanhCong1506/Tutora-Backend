@@ -15,7 +15,7 @@ public interface IQuestionRepository
         int pageSize,
         int? subjectId = null,
         int? gradeLevelId = null,
-        string? chapter = null,
+        int? chapterId = null,
         string? reviewStatus = null,
         string? search = null);
 

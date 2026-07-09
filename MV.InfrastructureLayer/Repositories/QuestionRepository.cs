@@ -16,26 +16,33 @@ public class QuestionRepository : IQuestionRepository
     public async Task AddAsync(QuestionBank question)
         => await _context.QuestionBanks.AddAsync(question);
 
+    // Include nav để ToResponse có Name (chương/loại/môn/lớp) hiển thị cho UI.
+    private IQueryable<QuestionBank> WithNav(IQueryable<QuestionBank> q) => q
+        .Include(x => x.Subject)
+        .Include(x => x.Gradelevel)
+        .Include(x => x.ChapterNav)
+        .Include(x => x.QuestionType);
+
     public Task<QuestionBank?> GetByIdAsync(Guid id)
-        => _context.QuestionBanks.FirstOrDefaultAsync(q => q.Id == id);
+        => WithNav(_context.QuestionBanks).FirstOrDefaultAsync(q => q.Id == id);
 
     public Task<PagedList<QuestionBank>> GetPagedAsync(
         int pageNumber,
         int pageSize,
         int? subjectId = null,
         int? gradeLevelId = null,
-        string? chapter = null,
+        int? chapterId = null,
         string? reviewStatus = null,
         string? search = null)
     {
-        var query = _context.QuestionBanks.AsNoTracking().AsQueryable();
+        var query = WithNav(_context.QuestionBanks.AsNoTracking());
 
         if (subjectId.HasValue)
             query = query.Where(q => q.SubjectId == subjectId.Value);
         if (gradeLevelId.HasValue)
             query = query.Where(q => q.GradeLevelId == gradeLevelId.Value);
-        if (!string.IsNullOrWhiteSpace(chapter))
-            query = query.Where(q => q.Chapter == chapter);
+        if (chapterId.HasValue)
+            query = query.Where(q => q.ChapterId == chapterId.Value);
         if (!string.IsNullOrWhiteSpace(reviewStatus))
             query = query.Where(q => q.ReviewStatus == reviewStatus);
         if (!string.IsNullOrWhiteSpace(search))

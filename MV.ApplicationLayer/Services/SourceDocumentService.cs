@@ -162,26 +162,7 @@ public class SourceDocumentService : ISourceDocumentService
         };
     }
 
-    private static QuestionResponse ToResponse(QuestionBank e) => new()
-    {
-        Id = e.Id,
-        SubjectId = e.SubjectId,
-        GradeLevelId = e.GradeLevelId,
-        Chapter = e.Chapter,
-        ProblemType = e.ProblemType,
-        Difficulty = e.Difficulty,
-        Content = e.Content,
-        Solution = e.Solution,
-        SolutionSource = e.SolutionSource,
-        SourceDocumentId = e.SourceDocumentId,
-        SourcePage = e.SourcePage,
-        ReviewStatus = e.ReviewStatus,
-        ReviewedBy = e.ReviewedBy,
-        ReviewedAt = e.ReviewedAt,
-        HasEmbedding = e.Embedding != null && e.ContentHash != null && e.ContentHash == e.EmbeddedHash,
-        CreatedAt = e.CreatedAt,
-        UpdatedAt = e.UpdatedAt,
-    };
+    private static QuestionResponse ToResponse(QuestionBank e) => QuestionService.ToResponse(e);
 
     private static UploadPdfResponse Fail(SourceDocument doc, string message) => new()
     {

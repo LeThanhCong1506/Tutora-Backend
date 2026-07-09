@@ -44,7 +44,7 @@ public class QuestionController : ControllerBase
         [FromQuery] int pageSize = 20,
         [FromQuery] int? subjectId = null,
         [FromQuery] int? gradeLevelId = null,
-        [FromQuery] string? chapter = null,
+        [FromQuery] int? chapterId = null,
         [FromQuery] string? reviewStatus = null,
         [FromQuery] string? search = null,
         CancellationToken ct = default)
@@ -53,7 +53,7 @@ public class QuestionController : ControllerBase
         if (pageSize is < 1 or > 100) pageSize = 20;
 
         var paged = await _questionService.GetPagedAsync(
-            pageNumber, pageSize, subjectId, gradeLevelId, chapter, reviewStatus, search, ct);
+            pageNumber, pageSize, subjectId, gradeLevelId, chapterId, reviewStatus, search, ct);
 
         return Ok(APIResponse<object>.Success(new
         {

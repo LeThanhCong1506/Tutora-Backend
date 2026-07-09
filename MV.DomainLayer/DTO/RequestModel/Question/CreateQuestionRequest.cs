@@ -14,15 +14,16 @@ public class CreateQuestionRequest
     [Required(ErrorMessage = "Khối lớp là bắt buộc")]
     public int GradeLevelId { get; set; }
 
-    /// <summary>Chương/chủ đề (chương trình VN), vd "ung_dung_dao_ham".</summary>
-    public string? Chapter { get; set; }
+    /// <summary>FK chương (chapters.id). Chương gắn môn+lớp.</summary>
+    public int? ChapterId { get; set; }
 
-    /// <summary>tu_luan | trac_nghiem | dien_so.</summary>
-    public string? ProblemType { get; set; }
+    /// <summary>FK loại câu hỏi (question_types.id).</summary>
+    public int? QuestionTypeId { get; set; }
 
-    // Sau nếu được thì cải thiện lên 4 cấp: nhận biết - thông hiểu - vận dụng - vận dụng cao
-    [Range(1, 5, ErrorMessage = "Độ khó phải từ 1 đến 5")]
-    public short? Difficulty { get; set; }
+    /// <summary>4 cấp Bộ GD: NHAN_BIET | THONG_HIEU | VAN_DUNG | VAN_DUNG_CAO.</summary>
+    [RegularExpression("NHAN_BIET|THONG_HIEU|VAN_DUNG|VAN_DUNG_CAO",
+        ErrorMessage = "Độ khó không hợp lệ.")]
+    public string? Difficulty { get; set; }
 
     [Required(ErrorMessage = "Nội dung câu hỏi là bắt buộc")]
     [MinLength(5, ErrorMessage = "Nội dung câu hỏi quá ngắn")]
