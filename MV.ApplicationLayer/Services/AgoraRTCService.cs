@@ -32,7 +32,7 @@ public class AgoraRTCService(
             throw new ArgumentException("channelName không được rỗng.", nameof(channelName));
 
         var issueTs = (uint)DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-        var expire = (uint)_settings.TokenExpirationInSeconds;
+        var expire = (uint)_settings.TokenExpireSeconds;
         var salt = GenerateSalt();
 
         var token = RtcTokenBuilder2.BuildTokenWithUserAccount(
@@ -56,7 +56,7 @@ public class AgoraRTCService(
     {
         var channelName = lessonId.ToString();
         var token = GenerateToken(channelName, userId);
-        var expireAt = (int)(DateTimeOffset.UtcNow.ToUnixTimeSeconds() + _settings.TokenExpirationInSeconds);
+        var expireAt = (int)(DateTimeOffset.UtcNow.ToUnixTimeSeconds() + _settings.TokenExpireSeconds);
 
         return new AgoraRoomInfo(
             Channel: channelName,

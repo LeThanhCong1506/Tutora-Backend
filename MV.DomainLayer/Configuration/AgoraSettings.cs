@@ -18,5 +18,5 @@ public class AgoraSettings
     /// Thời gian token có hiệu lực (giây). Mặc định 3600 = 1h.
     /// Agora cho phép tối đa 86400 (24h).
     /// </summary>
-    public int TokenExpirationInSeconds { get; set; } = 3600;
+    public int TokenExpireSeconds { get; set; } = 3600;
 }
