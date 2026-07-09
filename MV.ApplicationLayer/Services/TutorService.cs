@@ -18,6 +18,7 @@ namespace MV.ApplicationLayer.Services
         private readonly INotificationService _notificationService;
         private readonly ILogger<TutorService> _logger;
         private readonly IEncryptionService _encryption;
+        private readonly ITutorProfileUpdateStagingService _updateStaging;
 
         // Storage buckets
         private const string CertificateBucket = StorageBucket.CertificateFiles;
@@ -35,7 +36,8 @@ namespace MV.ApplicationLayer.Services
             IFptAiService fptAiService,
             INotificationService notificationService,
             ILogger<TutorService> logger,
-            IEncryptionService encryption)
+            IEncryptionService encryption,
+            ITutorProfileUpdateStagingService updateStaging)
         {
             _unitOfWork = unitOfWork;
             _storageService = storageService;
@@ -43,7 +45,17 @@ namespace MV.ApplicationLayer.Services
             _notificationService = notificationService;
             _logger = logger;
             _encryption = encryption;
+            _updateStaging = updateStaging;
         }
+
+        /// <summary>
+        /// true nếu profile đã từng được duyệt và đang hiển thị công khai — mọi chỉnh sửa nội
+        /// dung từ lúc này trở đi phải qua staging (Redis) chờ Admin duyệt lại, thay vì ghi
+        /// thẳng vào Tutorprofile, để Marketplace tiếp tục hiển thị thông tin cũ cho đến khi
+        /// được duyệt.
+        /// </summary>
+        private static bool RequiresApprovalForEdits(Tutorprofile profile) =>
+            string.Equals(profile.Profilestatus, TutorProfileStatus.Active, StringComparison.OrdinalIgnoreCase);
 
         // ─── Profile Queries ─────────────────────────────────────────────────
 
@@ -85,12 +97,21 @@ namespace MV.ApplicationLayer.Services
                 }
             }
 
+            if (RequiresApprovalForEdits(profile))
+            {
+                await _updateStaging.UpsertPendingUpdateAsync(userId, pending =>
+                {
+                    pending.Headline = request.Headline;
+                    pending.TeachingAreaCity = request.TeachingAreaCity;
+                    pending.TeachingAreaDistrict = request.TeachingAreaDistrict;
+                });
+                return true;
+            }
+
             profile.Headline = request.Headline;
             profile.Teachingareacity = request.TeachingAreaCity;
             profile.Teachingareadistrict = request.TeachingAreaDistrict;
             profile.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
-
-
 
             await _unitOfWork.SaveChangesAsync();
             await AutoSubmitIfCompleteAsync(userId);
@@ -127,6 +148,19 @@ namespace MV.ApplicationLayer.Services
                     var violations = expResult.Violations?.Select(v => v.Category).Distinct();
                     throw new ArgumentException($"Experience chứa nội dung không phù hợp: {string.Join(", ", violations ?? new[] { "vi phạm chính sách" })}");
                 }
+            }
+
+            if (RequiresApprovalForEdits(profile))
+            {
+                await _updateStaging.UpsertPendingUpdateAsync(userId, pending =>
+                {
+                    pending.Bio = request.Bio;
+                    pending.Education = request.Education;
+                    pending.GpaScale = request.GpaScale;
+                    pending.Gpa = request.Gpa;
+                    pending.Experience = request.Experience;
+                });
+                return true;
             }
 
             profile.Bio = request.Bio;
@@ -183,6 +217,15 @@ namespace MV.ApplicationLayer.Services
             }
 
             await ValidateSubjectGradePricesAsync(tutorId, request.SubjectGradePrices);
+
+            if (RequiresApprovalForEdits(profile))
+            {
+                await _updateStaging.UpsertPendingUpdateAsync(tutorId, pending =>
+                {
+                    pending.SubjectGradePrices = request.SubjectGradePrices;
+                });
+                return true;
+            }
 
             profile.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 
@@ -355,12 +398,22 @@ namespace MV.ApplicationLayer.Services
                              && (string.Equals(profile.Profilestatus, TutorProfileStatus.Draft,    StringComparison.OrdinalIgnoreCase)
                               || string.Equals(profile.Profilestatus, TutorProfileStatus.Rejected, StringComparison.OrdinalIgnoreCase));
 
+            var reportedStatus = profile?.Profilestatus ?? TutorProfileStatus.Draft;
+            if (profile != null && RequiresApprovalForEdits(profile))
+            {
+                var pendingUpdate = await _updateStaging.GetPendingUpdateAsync(tutorId);
+                if (pendingUpdate != null)
+                {
+                    reportedStatus = TutorProfileStatus.PendingUpdate;
+                }
+            }
+
             return new ProfileCompletionResponse
             {
                 CompletedSections = completedCount,
                 TotalSections     = 5,
                 CanSubmit         = canSubmit,
-                ProfileStatus     = profile?.Profilestatus ?? TutorProfileStatus.Draft,
+                ProfileStatus     = reportedStatus,
                 Sections          = sections
             };
         }

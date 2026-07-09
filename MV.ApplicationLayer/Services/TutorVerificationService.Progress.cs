@@ -20,13 +20,40 @@ namespace MV.ApplicationLayer.Services
             var profile = await _unitOfWork.TutorRepository.GetTutorProfileByIdAsync(userId);
             var certificates = await _unitOfWork.TutorRepository.GetCertificatesByTutorIdAsync(userId);
 
+            // Nếu tutor đã Active và có 1 bản chỉnh sửa đang chờ Admin duyệt (Redis), hiển thị
+            // cho CHÍNH tutor đó nội dung họ vừa nộp — KHÔNG áp dụng lên `profile` (tracked
+            // entity, sẽ ảnh hưởng Marketplace) mà chỉ tính vào 1 bản sao rời rạc để build
+            // section, tránh vô tình lưu nhầm dữ liệu chưa được duyệt xuống Postgres.
+            var effectiveProfile = profile;
+            if (profile != null && string.Equals(profile.Profilestatus, TutorProfileStatus.Active, StringComparison.OrdinalIgnoreCase))
+            {
+                var pendingUpdate = await _updateStaging.GetPendingUpdateAsync(userId);
+                if (pendingUpdate != null)
+                {
+                    effectiveProfile = new Tutorprofile
+                    {
+                        Tutorid = profile.Tutorid,
+                        Headline = pendingUpdate.Headline ?? profile.Headline,
+                        Teachingareacity = pendingUpdate.TeachingAreaCity ?? profile.Teachingareacity,
+                        Teachingareadistrict = pendingUpdate.TeachingAreaDistrict ?? profile.Teachingareadistrict,
+                        Bio = pendingUpdate.Bio ?? profile.Bio,
+                        Education = pendingUpdate.Education ?? profile.Education,
+                        Gpa = pendingUpdate.Gpa ?? profile.Gpa,
+                        Gpascale = pendingUpdate.GpaScale ?? profile.Gpascale,
+                        Experience = pendingUpdate.Experience ?? profile.Experience,
+                        Videointrourl = pendingUpdate.VideoIntroUrl ?? profile.Videointrourl,
+                        Updatedat = profile.Updatedat
+                    };
+                }
+            }
+
             return new VerificationProgressResponse
             {
                 Sections = new VerificationSections
                 {
-                    Video = BuildVideoSection(profile),
-                    BasicInfo = BuildBasicInfoSection(profile, user),
-                    Introduction = BuildIntroductionSection(profile),
+                    Video = BuildVideoSection(effectiveProfile),
+                    BasicInfo = BuildBasicInfoSection(effectiveProfile, user),
+                    Introduction = BuildIntroductionSection(effectiveProfile),
                     Certificates = BuildCertificatesSection(certificates, profile),
                     IdentityCard = BuildIdentityCardSection(user, _encryption)
                 }

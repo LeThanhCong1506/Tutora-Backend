@@ -51,6 +51,7 @@ builder.Services.Configure<AgoraSettings>(builder.Configuration.GetSection(Agora
 builder.Services.Configure<VietQRSettings>(builder.Configuration.GetSection(VietQRSettings.SectionName));
 builder.Services.Configure<ZaloOAConfig>(builder.Configuration.GetSection(ConfigurationKeys.ZaloOA.SectionName));
 builder.Services.Configure<CloudinarySettings>(builder.Configuration.GetSection("Cloudinary"));
+builder.Services.Configure<TutorAiSettings>(builder.Configuration.GetSection(TutorAiSettings.SectionName));
 // builder.Services.Configure<InternalApiSettings>(builder.Configuration.GetSection(InternalApiSettings.SectionName));
 
 builder.Services.AddKeyedSingleton<PayOSClient>(ServiceKeys.PayOS.Checkout, (sp, _) =>
@@ -233,7 +234,9 @@ builder.Services.AddSwaggerGen(options =>
 });
 
 builder.Services.AddDbContext<AgoraDbContext>(options =>
-                options.UseNpgsql(builder.Configuration.GetConnectionString(ConfigurationKeys.ConnectionStrings.DefaultConnection))
+                options.UseNpgsql(
+                    builder.Configuration.GetConnectionString(ConfigurationKeys.ConnectionStrings.DefaultConnection),
+                    o => o.UseVector())   // pgvector: map cột vector(768) của questions.embedding
             );
 builder.Services.AddScoped<IAppDbContext>(sp => sp.GetRequiredService<AgoraDbContext>());
 
@@ -282,6 +285,7 @@ builder.Services.AddScoped<ITutorVerificationService, TutorVerificationService>(
 builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<ILoginService, LoginService>();
 builder.Services.AddScoped<ITutorService, TutorService>();
+builder.Services.AddScoped<ITutorProfileUpdateStagingService, TutorProfileUpdateStagingService>();
 builder.Services.AddScoped<IPushTokenService, PushTokenService>();
 builder.Services.AddScoped<IFirebasePushNotificationService, FirebasePushNotificationService>();
 builder.Services.AddScoped<IEmailService, ResendEmailService>();
@@ -318,6 +322,8 @@ builder.Services.AddScoped<IParentService, ParentService>();
 builder.Services.AddScoped<IDisputeService, DisputeService>();
 builder.Services.AddScoped<IWarningService, WarningService>();
 builder.Services.AddScoped<IFeedbackService, FeedbackService>();
+builder.Services.AddScoped<IQuestionService, QuestionService>();
+builder.Services.AddScoped<ISourceDocumentService, SourceDocumentService>();
 
 builder.Services.AddScoped<IBankListService, BankListService>();
 builder.Services.AddScoped<PayOSWebhookService>();

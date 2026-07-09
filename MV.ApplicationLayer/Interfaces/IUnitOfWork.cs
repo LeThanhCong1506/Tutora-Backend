@@ -19,6 +19,10 @@ namespace MV.ApplicationLayer.Interfaces
 
         IStaffPermissionRepository StaffPermissionRepository { get; }
 
+        // Question bank (AI giải bài tập)
+        IQuestionRepository QuestionRepository { get; }
+        ISourceDocumentRepository SourceDocumentRepository { get; }
+
         // Single commit point
         Task<int> SaveChangesAsync();
     }

@@ -41,7 +41,18 @@ namespace MV.ApplicationLayer.Services
             if (!IsValidYoutubeUrl(request.VideoUrl))
                 throw new ArgumentException("Vui lòng nhập link video YouTube hợp lệ.");
 
-            profile.Videointrourl = request.VideoUrl.Trim();
+            var trimmedUrl = request.VideoUrl.Trim();
+
+            if (RequiresApprovalForEdits(profile))
+            {
+                await _updateStaging.UpsertPendingUpdateAsync(userId, pending =>
+                {
+                    pending.VideoIntroUrl = trimmedUrl;
+                });
+                return true;
+            }
+
+            profile.Videointrourl = trimmedUrl;
             profile.Updatedat = TimeZoneHelper.UtcNow;
 
             await _unitOfWork.SaveChangesAsync();

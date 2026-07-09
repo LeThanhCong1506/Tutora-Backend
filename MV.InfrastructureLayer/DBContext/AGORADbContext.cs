@@ -51,6 +51,12 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
 
     public virtual DbSet<QuestionBank> QuestionBanks { get; set; }
 
+    public virtual DbSet<SourceDocument> SourceDocuments { get; set; }
+
+    public virtual DbSet<Chapter> Chapters { get; set; }
+
+    public virtual DbSet<QuestionType> QuestionTypes { get; set; }
+
     public virtual DbSet<AiCreditTransaction> AiCreditTransactions { get; set; }
 
     public virtual DbSet<Profilesuspension> Profilesuspensions { get; set; }
@@ -1501,45 +1507,149 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
 
         modelBuilder.Entity<QuestionBank>(entity =>
         {
-            entity.HasKey(e => e.Questionid).HasName("question_bank_pkey");
+            entity.HasKey(e => e.Id).HasName("questions_pkey");
 
-            entity.ToTable("question_bank");
+            entity.ToTable("questions");
 
-            entity.HasIndex(e => new { e.Subjectid, e.Gradelevelid }, "idx_question_bank_subject_grade")
-                .HasFilter("(is_active = true)");
+            entity.HasIndex(e => new { e.SubjectId, e.GradeLevelId }, "idx_questions_subject_grade");
 
-            entity.Property(e => e.Questionid).HasColumnName("question_id");
-            entity.Property(e => e.Subjectid).HasColumnName("subject_id");
-            entity.Property(e => e.Gradelevelid).HasColumnName("grade_level_id");
+            entity.Property(e => e.Id)
+                .HasDefaultValueSql("gen_random_uuid()")
+                .HasColumnName("id");
+            entity.Property(e => e.SubjectId).HasColumnName("subject_id");
+            entity.Property(e => e.GradeLevelId).HasColumnName("grade_level_id");
+            entity.Property(e => e.Chapter).HasColumnName("chapter");
+            entity.Property(e => e.ProblemType).HasColumnName("problem_type");
+            entity.Property(e => e.ChapterId).HasColumnName("chapter_id");
+            entity.Property(e => e.QuestionTypeId).HasColumnName("question_type_id");
+            entity.Property(e => e.Difficulty).HasColumnName("difficulty");
             entity.Property(e => e.Content).HasColumnName("content");
-            entity.Property(e => e.Answer).HasColumnName("answer");
-            entity.Property(e => e.Metadata)
+            entity.Property(e => e.Solution).HasColumnName("solution");
+            entity.Property(e => e.SolutionSource).HasColumnName("solution_source");
+            entity.Property(e => e.ImageUrls)
                 .HasColumnType("jsonb")
-                .HasColumnName("metadata");
+                .HasColumnName("image_urls")
+                .HasConversion(
+                    v => System.Text.Json.JsonSerializer.Serialize(v, (System.Text.Json.JsonSerializerOptions?)null),
+                    v => System.Text.Json.JsonSerializer.Deserialize<List<string>>(v, (System.Text.Json.JsonSerializerOptions?)null) ?? new List<string>())
+                .Metadata.SetValueComparer(new Microsoft.EntityFrameworkCore.ChangeTracking.ValueComparer<List<string>>(
+                    (a, b) => System.Text.Json.JsonSerializer.Serialize(a, (System.Text.Json.JsonSerializerOptions?)null) == System.Text.Json.JsonSerializer.Serialize(b, (System.Text.Json.JsonSerializerOptions?)null),
+                    v => v == null ? 0 : System.Text.Json.JsonSerializer.Serialize(v, (System.Text.Json.JsonSerializerOptions?)null).GetHashCode(),
+                    v => System.Text.Json.JsonSerializer.Deserialize<List<string>>(System.Text.Json.JsonSerializer.Serialize(v, (System.Text.Json.JsonSerializerOptions?)null), (System.Text.Json.JsonSerializerOptions?)null) ?? new List<string>()));
+            entity.Property(e => e.SourceDocumentId).HasColumnName("source_document_id");
+            entity.Property(e => e.SourcePage).HasColumnName("source_page");
+            entity.Property(e => e.ReviewStatus)
+                .HasDefaultValue("pending_review")
+                .HasColumnName("review_status");
+            entity.Property(e => e.ReviewedBy).HasColumnName("reviewed_by");
+            entity.Property(e => e.ReviewedAt)
+                .HasColumnType("timestamp with time zone")
+                .HasColumnName("reviewed_at");
+            // content_hash do TRIGGER DB tính (sha256 content) khi insert/update content.
+            // ValueGeneratedOnAddOrUpdate + không set khi ghi -> EF reload giá trị trigger tính.
+            entity.Property(e => e.ContentHash)
+                .HasColumnName("content_hash")
+                .ValueGeneratedOnAddOrUpdate();
+            entity.Property(e => e.EmbeddedHash).HasColumnName("embedded_hash");
             entity.Property(e => e.Embedding)
-                .HasColumnType("jsonb")
+                .HasColumnType("vector(768)")   // pgvector; gemini-embedding-2, sinh bởi tutora-ai /api/v1/embed
                 .HasColumnName("embedding");
-            entity.Property(e => e.Isactive)
-                .HasDefaultValue(true)
-                .HasColumnName("is_active");
-            entity.Property(e => e.Createdat)
+            entity.Property(e => e.CreatedBy).HasColumnName("created_by");
+            entity.Property(e => e.CreatedAt)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
-                .HasColumnType("timestamp without time zone")
+                .HasColumnType("timestamp with time zone")
                 .HasColumnName("created_at");
-            entity.Property(e => e.Updatedat)
+            entity.Property(e => e.UpdatedAt)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
-                .HasColumnType("timestamp without time zone")
+                .HasColumnType("timestamp with time zone")
                 .HasColumnName("updated_at");
 
             entity.HasOne(d => d.Subject).WithMany(p => p.QuestionBanks)
-                .HasForeignKey(d => d.Subjectid)
-                .OnDelete(DeleteBehavior.SetNull)
-                .HasConstraintName("question_bank_subjectid_fkey");
+                .HasForeignKey(d => d.SubjectId)
+                .OnDelete(DeleteBehavior.Restrict);
 
             entity.HasOne(d => d.Gradelevel).WithMany(p => p.QuestionBanks)
-                .HasForeignKey(d => d.Gradelevelid)
-                .OnDelete(DeleteBehavior.SetNull)
-                .HasConstraintName("question_bank_gradelevelid_fkey");
+                .HasForeignKey(d => d.GradeLevelId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(d => d.SourceDocument).WithMany(p => p.Questions)
+                .HasForeignKey(d => d.SourceDocumentId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            entity.HasOne(d => d.ChapterNav).WithMany(p => p.Questions)
+                .HasForeignKey(d => d.ChapterId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            entity.HasOne(d => d.QuestionType).WithMany(p => p.Questions)
+                .HasForeignKey(d => d.QuestionTypeId)
+                .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<SourceDocument>(entity =>
+        {
+            entity.HasKey(e => e.Id).HasName("source_documents_pkey");
+
+            entity.ToTable("source_documents");
+
+            entity.Property(e => e.Id)
+                .HasDefaultValueSql("gen_random_uuid()")
+                .HasColumnName("id");
+            entity.Property(e => e.FileUrl).HasColumnName("file_url");
+            entity.Property(e => e.FileName).HasColumnName("file_name");
+            entity.Property(e => e.PageCount).HasColumnName("page_count");
+            entity.Property(e => e.DefaultSubjectId).HasColumnName("default_subject_id");
+            entity.Property(e => e.DefaultGradeLevelId).HasColumnName("default_grade_level_id");
+            entity.Property(e => e.Status)
+                .HasDefaultValue("pending")
+                .HasColumnName("status");
+            entity.Property(e => e.QuestionsExtracted)
+                .HasDefaultValue(0)
+                .HasColumnName("questions_extracted");
+            entity.Property(e => e.ErrorMessage).HasColumnName("error_message");
+            entity.Property(e => e.UploadedBy).HasColumnName("uploaded_by");
+            entity.Property(e => e.CreatedAt)
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
+                .HasColumnType("timestamp with time zone")
+                .HasColumnName("created_at");
+            entity.Property(e => e.UpdatedAt)
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
+                .HasColumnType("timestamp with time zone")
+                .HasColumnName("updated_at");
+        });
+
+        modelBuilder.Entity<Chapter>(entity =>
+        {
+            entity.HasKey(e => e.Id).HasName("chapters_pkey");
+            entity.ToTable("chapters");
+            entity.HasIndex(e => new { e.SubjectId, e.GradeLevelId, e.Slug }, "uq_chapters_subject_grade_slug").IsUnique();
+
+            entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.SubjectId).HasColumnName("subject_id");
+            entity.Property(e => e.GradeLevelId).HasColumnName("grade_level_id");
+            entity.Property(e => e.Slug).HasColumnName("slug");
+            entity.Property(e => e.Name).HasColumnName("name");
+            entity.Property(e => e.DisplayOrder).HasColumnName("display_order");
+            entity.Property(e => e.IsActive).HasDefaultValue(true).HasColumnName("is_active");
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("now()").HasColumnType("timestamp with time zone").HasColumnName("created_at");
+            entity.Property(e => e.UpdatedAt).HasDefaultValueSql("now()").HasColumnType("timestamp with time zone").HasColumnName("updated_at");
+
+            entity.HasOne(d => d.Subject).WithMany().HasForeignKey(d => d.SubjectId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(d => d.Gradelevel).WithMany().HasForeignKey(d => d.GradeLevelId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<QuestionType>(entity =>
+        {
+            entity.HasKey(e => e.Id).HasName("question_types_pkey");
+            entity.ToTable("question_types");
+            entity.HasIndex(e => e.Slug, "question_types_slug_key").IsUnique();
+
+            entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.Slug).HasColumnName("slug");
+            entity.Property(e => e.Name).HasColumnName("name");
+            entity.Property(e => e.DisplayOrder).HasColumnName("display_order");
+            entity.Property(e => e.IsActive).HasDefaultValue(true).HasColumnName("is_active");
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("now()").HasColumnType("timestamp with time zone").HasColumnName("created_at");
+            entity.Property(e => e.UpdatedAt).HasDefaultValueSql("now()").HasColumnType("timestamp with time zone").HasColumnName("updated_at");
         });
 
         modelBuilder.Entity<Tutorsubjectgradeprice>(entity =>
