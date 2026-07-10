@@ -77,12 +77,32 @@ namespace MV.InfrastructureLayer.Repositories
         {
             var query = _context.Users
                 .Where(u => u.Primaryrole != null && u.Primaryrole.ToLower() == roleName.ToLower())
-                .AsNoTracking()
-                .AsQueryable();
+                .AsNoTracking();
 
+            if (!string.IsNullOrWhiteSpace(parameters.SearchTerm))
+            {
+                var term = parameters.SearchTerm.Trim().ToLower();
+                query = query.Where(u =>
+                    (u.Fullname != null && u.Fullname.ToLower().Contains(term)) ||
+                    (u.Email    != null && u.Email.ToLower().Contains(term))    ||
+                    (u.Phone    != null && u.Phone.ToLower().Contains(term))    ||
+                    (u.Username != null && u.Username.ToLower().Contains(term)));
+            }
 
+            query = parameters.OrderBy?.ToLower() switch
+            {
+                UserListSortBy.FullNameAsc  => query.OrderBy(u => u.Fullname),
+                UserListSortBy.FullNameDesc => query.OrderByDescending(u => u.Fullname),
+                _                           => query.OrderByDescending(u => u.Createdat)
+            };
 
-            return PagedList<User>.ToPagedList(query, parameters.PageNumber, parameters.PageSize);
+            var count = await query.CountAsync();
+            var items = await query
+                .Skip((parameters.PageNumber - 1) * parameters.PageSize)
+                .Take(parameters.PageSize)
+                .ToListAsync();
+
+            return new PagedList<User>(items, count, parameters.PageNumber, parameters.PageSize);
         }
 
         public async Task<PagedList<User>> GetTutorsBySubjectAsync(int subjectId, UserParameters parameters)
