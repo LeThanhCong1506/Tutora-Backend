@@ -16,8 +16,13 @@ namespace MV.ApplicationLayer.Services
         {
             var users = await _unitOfWork.UserRepository.GetUsersAsync(parameters);
 
+            // Endpoint này phục vụ trang "Quản lý người dùng" — chỉ khách hàng nền tảng
+            // (Student/Parent/Tutor). Admin và Staff là tài khoản nội bộ: Staff đã có
+            // trang + endpoint riêng (GET /api/users/staffs); nếu để lẫn ở đây thì cùng
+            // một nhân viên bị quản ở 2 nơi với 2 bộ hành động khác nhau.
             var filtered = users.AsEnumerable()
-                .Where(u => !string.Equals(u.Primaryrole, UserRole.Admin, StringComparison.OrdinalIgnoreCase));
+                .Where(u => !string.Equals(u.Primaryrole, UserRole.Admin, StringComparison.OrdinalIgnoreCase)
+                         && !string.Equals(u.Primaryrole, UserRole.Staff, StringComparison.OrdinalIgnoreCase));
 
             if (!string.IsNullOrWhiteSpace(parameters.SearchTerm))
             {

@@ -138,18 +138,20 @@ namespace MV.ApplicationLayer.Services
 
         // ─── CRUD ─────────────────────────────────────────────────────────────
 
-        public async Task<UserResponse> CreateUserAsync(CreateUserRequest request)
+        // Endpoint tạo user duy nhất do Admin gọi là tạo NHÂN VIÊN (Staff).
+        // Tài khoản khách hàng (Tutor/Parent/Student) đăng ký qua auth flows
+        // (SimpleAuth/Social) — không đi qua đây, nên không còn branch theo role.
+        // Chỉ nhận trường tối thiểu; hồ sơ cá nhân staff tự bổ sung sau qua
+        // UpdateUserAsync (PUT /api/users/{id}).
+        public async Task<UserResponse> CreateStaffAsync(CreateStaffRequest request)
         {
             if (!await _unitOfWork.UserRepository.IsEmailUniqueAsync(request.Email))
                 throw new EmailAlreadyExistsException();
-            if (!await _unitOfWork.UserRepository.IsUsernameUniqueAsync(request.Username))
+            if (!string.IsNullOrEmpty(request.Username) && !await _unitOfWork.UserRepository.IsUsernameUniqueAsync(request.Username))
                 throw new UsernameAlreadyExistsException();
-            if (!await _unitOfWork.UserRepository.IsIdentityNumberUniqueAsync(_encryption.Encrypt(request.IdentityNumber)))
-                throw new IdentityNumberAlreadyExistsException();
             if (!string.IsNullOrEmpty(request.Phone) && !await _unitOfWork.UserRepository.IsPhoneUniqueAsync(request.Phone))
                 throw new PhoneAlreadyExistsException();
 
-            var roleToUse = !string.IsNullOrEmpty(request.RoleName) ? request.RoleName : UserRole.Parent;
             var userId = Guid.NewGuid().ToString();
 
             var newUser = new User
@@ -159,41 +161,11 @@ namespace MV.ApplicationLayer.Services
                 Email = request.Email,
                 Password = _passwordRepository.HashPassword(request.Password),
                 Fullname = request.Fullname,
-                Identitynumber = _encryption.Encrypt(request.IdentityNumber),
                 Phone = request.Phone,
-                Birthdate = request.Birthdate,
-                Address = request.Address,
-                Gender = request.Gender,
                 Status = 1,
                 Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow,
-                Primaryrole = roleToUse
+                Primaryrole = UserRole.Staff
             };
-
-            if (string.Equals(roleToUse, UserRole.Tutor, StringComparison.OrdinalIgnoreCase))
-            {
-                newUser.Tutorprofile = new Tutorprofile
-                {
-                    Tutorid = userId,
-                    Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow,
-                    Profilestatus = TutorProfileStatus.Draft
-                };
-            }
-            else if (string.Equals(roleToUse, UserRole.Student, StringComparison.OrdinalIgnoreCase))
-            {
-                newUser.StudentprofileLinkedusers.Add(new Studentprofile
-                {
-                    Studentid = $"STU-{userId}",
-                    Linkeduserid = userId,
-                    Parentid = request.ParentId,
-                    Fullname = request.Fullname,
-                    Birthdate = request.Birthdate,
-                    Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
-                });
-            }
-            else if (string.Equals(roleToUse, UserRole.Parent, StringComparison.OrdinalIgnoreCase))
-            {
-                newUser.Wallet = new Wallet { Userid = userId, Balance = 0, Lastupdated = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow };
-            }
 
             await _unitOfWork.UserRepository.CreateUserAsync(newUser);
             await _unitOfWork.SaveChangesAsync();

@@ -42,9 +42,10 @@ namespace MV.ApplicationLayer.ServiceInterfaces
         Task<List<StudentProfileResponse>> GetStudentsByParentIdAsync(string parentId);
 
         /// <summary>
-        /// Create a new user account (admin-initiated).
+        /// Create a new Staff account (admin-initiated). Internal accounts only —
+        /// customer accounts (Tutor/Parent/Student) register through the auth flows.
         /// </summary>
-        Task<UserResponse> CreateUserAsync(CreateUserRequest request);
+        Task<UserResponse> CreateStaffAsync(CreateStaffRequest request);
 
         /// <summary>
         /// Assign subjects a tutor is qualified to teach.
