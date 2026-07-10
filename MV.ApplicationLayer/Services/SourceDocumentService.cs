@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using MV.ApplicationLayer.Interfaces;
 using MV.ApplicationLayer.ServiceInterfaces;
+using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO.RequestModel;
 using MV.DomainLayer.DTO.ResponseModel.Question;
 using MV.DomainLayer.Entities;
@@ -18,18 +19,46 @@ public class SourceDocumentService : ISourceDocumentService
     private readonly IUnitOfWork _unitOfWork;
     private readonly IFileStorageService _storage;
     private readonly ITutorAiClient _aiClient;
+    private readonly INotificationService _notificationService;
     private readonly ILogger<SourceDocumentService> _logger;
 
     public SourceDocumentService(
         IUnitOfWork unitOfWork,
         IFileStorageService storage,
         ITutorAiClient aiClient,
+        INotificationService notificationService,
         ILogger<SourceDocumentService> logger)
     {
         _unitOfWork = unitOfWork;
         _storage = storage;
         _aiClient = aiClient;
+        _notificationService = notificationService;
         _logger = logger;
+    }
+
+    /// <summary>
+    /// Báo cho staff/admin đã upload biết PDF trích xuất xong (in-app + push qua hub).
+    /// Best-effort: lỗi thông báo không được làm hỏng luồng trích xuất.
+    /// </summary>
+    private async Task NotifyExtractionDoneAsync(SourceDocument doc, int questionCount)
+    {
+        if (string.IsNullOrWhiteSpace(doc.UploadedBy)) return;
+        try
+        {
+            await _notificationService.CreateNotificationAsync(new NotificationRequest
+            {
+                Userid = doc.UploadedBy!,
+                Title = "Trích xuất PDF hoàn tất",
+                Message = questionCount > 0
+                    ? $"Đã trích {questionCount} câu hỏi từ \"{doc.FileName}\" thành công."
+                    : $"Không trích được câu hỏi nào từ \"{doc.FileName}\".",
+                Type = NotificationType.Message,
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Gửi thông báo trích xuất PDF {Doc} thất bại.", doc.Id);
+        }
     }
 
     public async Task<UploadPdfResponse> UploadAndExtractAsync(
@@ -123,6 +152,7 @@ public class SourceDocumentService : ISourceDocumentService
             doc.QuestionsExtracted = 0;
             _unitOfWork.SourceDocumentRepository.Update(doc);
             await _unitOfWork.SaveChangesAsync();
+            await NotifyExtractionDoneAsync(doc, 0);
             return Fail(doc, "Không tách được câu hỏi nào từ PDF.");
         }
 
@@ -152,6 +182,8 @@ public class SourceDocumentService : ISourceDocumentService
         }
         if (embedded > 0)
             await _unitOfWork.SaveChangesAsync();
+
+        await NotifyExtractionDoneAsync(doc, questions.Count);
 
         return new UploadPdfResponse
         {

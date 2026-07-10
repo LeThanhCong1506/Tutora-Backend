@@ -44,16 +44,25 @@ public class QuestionController : ControllerBase
         [FromQuery] int pageSize = 20,
         [FromQuery] int? subjectId = null,
         [FromQuery] int? gradeLevelId = null,
-        [FromQuery] int? chapterId = null,
+        [FromQuery] string? chapterIds = null,
         [FromQuery] string? reviewStatus = null,
         [FromQuery] string? search = null,
+        [FromQuery] string? difficulties = null,
+        [FromQuery] bool? hasSolution = null,
+        [FromQuery] string? sortBy = null,
+        [FromQuery] string? sortDir = null,
         CancellationToken ct = default)
     {
         if (pageNumber < 1) pageNumber = 1;
         if (pageSize is < 1 or > 100) pageSize = 20;
 
+        // Nhận CSV "1,2,3" -> list. Bỏ giá trị rỗng/không hợp lệ.
+        var chapterIdList = ParseIntCsv(chapterIds);
+        var difficultyList = ParseStrCsv(difficulties);
+
         var paged = await _questionService.GetPagedAsync(
-            pageNumber, pageSize, subjectId, gradeLevelId, chapterId, reviewStatus, search, ct);
+            pageNumber, pageSize, subjectId, gradeLevelId, chapterIdList, reviewStatus, search,
+            difficultyList, hasSolution, sortBy, sortDir, ct);
 
         return Ok(APIResponse<object>.Success(new
         {
@@ -65,6 +74,23 @@ public class QuestionController : ControllerBase
             paged.HasPrevious,
             paged.HasNext,
         }, "Lấy danh sách câu hỏi thành công."));
+    }
+
+    private static List<int>? ParseIntCsv(string? csv)
+    {
+        if (string.IsNullOrWhiteSpace(csv)) return null;
+        var list = csv.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(s => int.TryParse(s, out var n) ? n : (int?)null)
+            .Where(n => n.HasValue).Select(n => n!.Value).Distinct().ToList();
+        return list.Count > 0 ? list : null;
+    }
+
+    private static List<string>? ParseStrCsv(string? csv)
+    {
+        if (string.IsNullOrWhiteSpace(csv)) return null;
+        var list = csv.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Distinct().ToList();
+        return list.Count > 0 ? list : null;
     }
 
     /// <summary>Chi tiết 1 câu hỏi.</summary>

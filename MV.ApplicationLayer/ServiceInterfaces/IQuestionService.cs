@@ -16,8 +16,10 @@ public interface IQuestionService
 
     Task<PagedList<QuestionResponse>> GetPagedAsync(
         int pageNumber, int pageSize,
-        int? subjectId, int? gradeLevelId, int? chapterId,
+        int? subjectId, int? gradeLevelId, IReadOnlyList<int>? chapterIds,
         string? reviewStatus, string? search,
+        IReadOnlyList<string>? difficulties, bool? hasSolution,
+        string? sortBy, string? sortDir,
         CancellationToken ct = default);
 
     /// <summary>Trả null nếu không tìm thấy câu hỏi.</summary>
