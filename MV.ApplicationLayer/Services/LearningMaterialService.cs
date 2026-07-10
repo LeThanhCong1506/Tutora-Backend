@@ -64,6 +64,23 @@ public class LearningMaterialService(
         return MapToResponse(material);
     }
 
+    public async Task<LearningMaterialResponse> UpdateVisibilityAsync(int bookingId, int materialId, string tutorUserId, bool isPublic)
+    {
+        var material = await repository.GetByIdAsync(materialId)
+            ?? throw new MaterialNotFoundException();
+
+        if (material.Bookingid != bookingId)
+            throw new MaterialNotFoundException();
+
+        if (material.Uploadedby != tutorUserId)
+            throw new MaterialAccessDeniedException();
+
+        material.Ispublic = isPublic;
+        await repository.SaveChangesAsync();
+
+        return MapToResponse(material);
+    }
+
     public async Task DeleteAsync(int bookingId, int materialId, string tutorUserId)
     {
         var material = await repository.GetByIdAsync(materialId)
