@@ -78,7 +78,7 @@ namespace MV.ApplicationLayer.Services
             var user = await _unitOfWork.UserRepository.GetUserByIdAsync(userId)
                 ?? throw new ArgumentException("Không tìm thấy người dùng.");
 
-            // 1. Đọc bytes mặt trước một lần dùng cho cả FPT.AI và Cloudinary
+            // 1. Đọc bytes mặt trước để gửi trực tiếp cho FPT.AI OCR (không qua URL)
             byte[] frontBytes;
             using (var ms = new MemoryStream())
             {
@@ -120,15 +120,9 @@ namespace MV.ApplicationLayer.Services
                 }
             }
 
-            // 6. Upload Cloudinary private → lưu PublicId (không có chữ ký, không thể truy cập trực tiếp)
-            var frontPublicId = await _storageService.UploadPrivateFileAsync(
-                CccdBucket, userId + "/front",
-                CreateFormFileFromBytes(frontBytes, request.FrontImage.FileName, request.FrontImage.ContentType));
-            var backPublicId = await _storageService.UploadPrivateFileAsync(
-                CccdBucket, userId + "/back", request.BackImage);
-
-            user.Idcardfronturl = frontPublicId;
-            user.Idcardbackurl  = backPublicId;
+            // 6. Không lưu ảnh lên Cloudinary — data đã mã hóa trong DB, ảnh gốc không được giữ lại
+            user.Idcardfronturl = null;
+            user.Idcardbackurl  = null;
 
             if (ocrResult != null)
             {
@@ -194,16 +188,6 @@ namespace MV.ApplicationLayer.Services
                 _logger.LogWarning(ex, "FPT.AI OCR failed, proceeding without OCR data.");
                 return null;
             }
-        }
-
-        private static IFormFile CreateFormFileFromBytes(byte[] bytes, string fileName, string contentType)
-        {
-            var stream = new MemoryStream(bytes);
-            return new FormFile(stream, 0, bytes.Length, "file", fileName)
-            {
-                Headers     = new HeaderDictionary(),
-                ContentType = contentType
-            };
         }
 
         // ─── Private helpers ─────────────────────────────────────────────────

@@ -11,11 +11,13 @@ namespace MV.ApplicationLayer.Services
     {
         private readonly IUnitOfWork _unitOfWork;
         private readonly IAppDbContext _context;
+        private readonly IEncryptionService _encryption;
 
-        public ExportService(IUnitOfWork unitOfWork, IAppDbContext context)
+        public ExportService(IUnitOfWork unitOfWork, IAppDbContext context, IEncryptionService encryption)
         {
             _unitOfWork = unitOfWork;
             _context = context;
+            _encryption = encryption;
         }
 
         // Múi giờ Việt Nam (UTC+7) – dùng cho export hiển thị (now using VietnamTimeHelper)
@@ -23,45 +25,43 @@ namespace MV.ApplicationLayer.Services
         // 1. Lấy danh sách HỌC SINH
         public async Task<StudentExportListResponse> GetStudentsForExportAsync()
         {
-            //var allUsers = await _unitOfWork.AccountRepository.GetAccountsAsync();
+            var students = await _context.Users
+                .Where(u => u.Primaryrole != null && u.Primaryrole == UserRole.Student)
+                .AsNoTracking()
+                .Select(u => new StudentExportResponse
+                {
+                    Userid         = u.Userid,
+                    Fullname       = u.Fullname,
+                    Email          = u.Email,
+                    Phone          = u.Phone,
+                    Birthdate      = u.Birthdate,
+                    Identitynumber = u.Identitynumber, // encrypted — decrypt khi ghi Excel
+                    Address        = u.Address
+                })
+                .ToListAsync();
 
-            //var students = allUsers
-            //    .Where(u => u.Roleid == (int)Roles.Student) // Lọc RoleId = 3
-            //    .Select(u => new StudentExportResponse
-            //    {
-            //        Userid = u.Userid,
-            //        Fullname = u.Fullname,
-            //        Email = u.Email,
-            //        Phone = u.Phone,
-            //        Birthdate = u.Birthdate,
-            //        Identitynumber = u.Identitynumber,
-            //        Address = u.Address
-            //    }).ToList();
-
-            //return new StudentExportListResponse { Students = students };
-            return null;
+            return new StudentExportListResponse { Students = students };
         }
 
         // 2. Lấy danh sách PHỤ HUYNH
         public async Task<ParentExportListResponse> GetParentsForExportAsync()
         {
-            //var allUsers = await _unitOfWork.AccountRepository.GetAccountsAsync();
+            var parents = await _context.Users
+                .Where(u => u.Primaryrole != null && u.Primaryrole == UserRole.Parent)
+                .AsNoTracking()
+                .Select(u => new ParentExportResponse
+                {
+                    Userid         = u.Userid,
+                    Fullname       = u.Fullname,
+                    Email          = u.Email,
+                    Phone          = u.Phone,
+                    Birthdate      = u.Birthdate,
+                    Identitynumber = u.Identitynumber, // encrypted — decrypt khi ghi Excel
+                    Address        = u.Address
+                })
+                .ToListAsync();
 
-            //var parents = allUsers
-            //    .Where(u => u.Roleid == (int)Roles.Parent) // Lọc RoleId = 4
-            //    .Select(u => new ParentExportResponse
-            //    {
-            //        Userid = u.Userid,
-            //        Fullname = u.Fullname,
-            //        Email = u.Email,
-            //        Phone = u.Phone,
-            //        Birthdate = u.Birthdate,
-            //        Identitynumber = u.Identitynumber,
-            //        Address = u.Address
-            //    }).ToList();
-
-            //return new ParentExportListResponse { Parents = parents };
-            return null;
+            return new ParentExportListResponse { Parents = parents };
         }
 
         // 3. Lấy MỘT MOCKTEST theo ID (và các câu hỏi của nó)
@@ -153,7 +153,7 @@ namespace MV.ApplicationLayer.Services
                     worksheet.Cell(row, 3).Value = item.Email;
                     worksheet.Cell(row, 4).Value = item.Phone;
                     worksheet.Cell(row, 5).Value = item.Birthdate.HasValue ? item.Birthdate.Value.ToString("yyyy-MM-dd") : "";
-                    worksheet.Cell(row, 6).Value = item.Identitynumber;
+                    worksheet.Cell(row, 6).Value = _encryption.Decrypt(item.Identitynumber) ?? "";
                     worksheet.Cell(row, 7).Value = item.Address;
                     row++;
                 }
@@ -210,7 +210,7 @@ namespace MV.ApplicationLayer.Services
                     worksheet.Cell(row, 2).Value = item.Fullname;
                     worksheet.Cell(row, 3).Value = item.Email;
                     worksheet.Cell(row, 4).Value = item.Phone;
-                    worksheet.Cell(row, 5).Value = item.Identitynumber;
+                    worksheet.Cell(row, 5).Value = _encryption.Decrypt(item.Identitynumber) ?? "";
                     worksheet.Cell(row, 6).Value = item.Address;
                     row++;
                 }
