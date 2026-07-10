@@ -5,6 +5,7 @@ using MV.ApplicationLayer.Interfaces;
 using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO;
+using MV.DomainLayer.DTO.RequestModel;
 using MV.PresentationLayer.Helpers;
 using System.Security.Claims;
 
@@ -23,6 +24,7 @@ namespace MV.PresentationLayer.Controllers;
 [Authorize]
 public class AgoraController(
     IAgoraRTCService agoraService,
+    IAgoraPresenceTracker presenceTracker,
     IAppDbContext context) : ControllerBase
 {
     private string UserId => User.FindFirstValue(ClaimTypes.NameIdentifier)
@@ -59,22 +61,7 @@ public class AgoraController(
         if (!hasAccess)
             return Forbid();
 
-        // Buổi học phải đang diễn ra hoặc sắp diễn ra (không quá 30 phút trước giờ bắt đầu)
-        var now = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
-        var allowedFrom = classSession.Scheduledstart.AddMinutes(-30);
-        if (now < allowedFrom)
-        {
-            var minutesLeft = (int)(allowedFrom - now).TotalMinutes;
-            return BadRequest(APIResponse<object>.Fail(
-                $"Phòng học chưa mở. Vui lòng thử lại sau {minutesLeft} phút.", 400));
-        }
-
-        // Buổi học đã kết thúc quá lâu (sau checkout hoặc 4 tiếng từ khi bắt đầu)
-        var endDeadline = classSession.Scheduledend.AddHours(4);
-        if (now > endDeadline)
-        {
-            return BadRequest(APIResponse<object>.Fail("Buổi học đã kết thúc.", 400));
-        }
+        // Không giới hạn thời gian join Agora nữa — user có thể vào phòng bất kỳ lúc nào.
 
         // Lấy thông tin phòng (channel + token)
         var roomInfo = agoraService.GetRoomInfo(classSessionId, userId);
@@ -126,6 +113,39 @@ public class AgoraController(
             uid = userId,
             token
         }, "Tạo Agora token thành công."));
+    }
+
+    /// <summary>
+    /// POST /api/agora/{classSessionId}/presence-ping
+    /// Heartbeat gửi định kỳ từ client trong lúc đang ở trong kênh Agora — dùng để tính thời gian
+    /// đồng hiện diện (co-presence) giữa tutor và student. Lưu tạm in-memory, không ghi DB.
+    /// </summary>
+    [HttpPost("{classSessionId:int}/presence-ping")]
+    public async Task<IActionResult> PresencePing(int classSessionId, [FromBody] PresencePingRequest request)
+    {
+        var userId = UserId;
+
+        var classSession = await context.ClassSessions
+            .Include(l => l.Booking)
+            .FirstOrDefaultAsync(l => l.Classsessionid == classSessionId);
+
+        if (classSession == null)
+            return NotFound(APIResponse<object>.Fail("Không tìm thấy buổi học.", 404));
+
+        var hasAccess = await CheckClassSessionAccessAsync(classSession, userId);
+        if (!hasAccess)
+            return Forbid();
+
+        var isTutor = classSession.Tutorid == userId;
+
+        var state = presenceTracker.RecordPing(classSessionId, isTutor, request.MicOn, request.CamOn);
+
+        return Ok(APIResponse<object>.Success(new
+        {
+            videoCallStartedAt = state.VideoCallStartedAtUtc,
+            accumulatedSeconds = state.AccumulatedSeconds,
+            isCoPresenceConfirmed = state.IsCoPresenceConfirmed
+        }, "Ghi nhận presence thành công."));
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────

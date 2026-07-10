@@ -41,9 +41,6 @@ public partial class ClassSessionService
         }
 
         var now = TimeZoneHelper.UtcNow;
-        var minutesDiff = Math.Abs((now - classSession.Scheduledstart).TotalMinutes);
-        if (minutesDiff > 15)
-            throw new ClassSessionException(ClassSessionErrorCodes.CheckInTooEarly, "Chỉ được điểm danh trong vòng ±15 phút so với giờ bắt đầu", 400);
 
         classSession.Checkintime = now;
         classSession.Realstart = now;

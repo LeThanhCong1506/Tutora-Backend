@@ -45,6 +45,10 @@ public class ClassSessionDetailResponse
     public string? TutorNotes { get; set; }
     public string? MeetingLink { get; set; }
 
+    // Agora presence (in-memory, chỉ để test — null nếu chưa có heartbeat ping nào)
+    public DateTime? VideoCallStartedAt { get; set; }
+    public long? CoPresenceAccumulatedSeconds { get; set; }
+
     // Price info
     public decimal? ClassSessionPrice { get; set; }
 
@@ -68,8 +72,7 @@ public class ClassSessionDetailResponse
         ? ConfirmDeadline - TimeZoneHelper.UtcNow
         : null;
 
-    public bool CanCheckIn => Status == Scheduled &&
-        Math.Abs((TimeZoneHelper.UtcNow - ScheduledStart).TotalMinutes) <= 15;
+    public bool CanCheckIn => Status == Scheduled;
 
     public bool CanSubmitReport => Status == InProgress && CheckInTime.HasValue;
 }

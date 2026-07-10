@@ -7,10 +7,14 @@ public partial class ClassSessionService
 {
     // ── Shared helpers used by Calendar, Attendance, and NoShow partials ──────
 
-    private static ClassSessionDetailResponse MapToClassSessionDetailResponse(ClassSession classSession)
+    private ClassSessionDetailResponse MapToClassSessionDetailResponse(ClassSession classSession)
     {
+        var presenceState = _presenceTracker.GetState(classSession.Classsessionid);
+
         return new ClassSessionDetailResponse
         {
+            VideoCallStartedAt = presenceState?.VideoCallStartedAtUtc,
+            CoPresenceAccumulatedSeconds = presenceState?.AccumulatedSeconds,
             ClassSessionId = classSession.Classsessionid,
             BookingId = classSession.Bookingid,
             // Tất cả datetime trả về theo giờ Việt Nam (UTC+7) để frontend hiển thị đúng

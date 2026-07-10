@@ -5,6 +5,7 @@ using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO;
 using MV.DomainLayer.DTO.RequestModel;
 using MV.DomainLayer.DTO.ResponseModel;
+using MV.DomainLayer.Exceptions;
 using MV.PresentationLayer.Helpers;
 
 namespace MV.PresentationLayer.Controllers;
@@ -82,14 +83,21 @@ public class TutorClassSessionController : ControllerBase
     }
 
     /// <summary>
-    /// Check-in to a classSession (available ±15 min from scheduled start)
+    /// Check-in to a classSession (không còn giới hạn cửa sổ giờ)
     /// </summary>
     [HttpPut("{classSessionId}/checkin")]
     public async Task<ActionResult<APIResponse<ClassSessionDetailResponse>>> CheckIn(int classSessionId, [FromBody] CheckInRequest request)
     {
-        var tutorId = UserHelper.GetUserId(User);
-        var result = await _classSessionService.CheckInAsync(classSessionId, tutorId, request);
-        return Ok(APIResponse<ClassSessionDetailResponse>.Success(result, "Điểm danh vào buổi học thành công."));
+        try
+        {
+            var tutorId = UserHelper.GetUserId(User);
+            var result = await _classSessionService.CheckInAsync(classSessionId, tutorId, request);
+            return Ok(APIResponse<ClassSessionDetailResponse>.Success(result, "Điểm danh vào buổi học thành công."));
+        }
+        catch (ClassSessionException ex)
+        {
+            return StatusCode(ex.HttpStatus, APIResponse<object>.Fail(ex.Message, ex.HttpStatus));
+        }
     }
 
     /// <summary>
@@ -98,9 +106,16 @@ public class TutorClassSessionController : ControllerBase
     [HttpPut("{classSessionId}/checkout")]
     public async Task<ActionResult<APIResponse<ClassSessionDetailResponse>>> CheckOut(int classSessionId, [FromBody] CheckOutRequest request)
     {
-        var tutorId = UserHelper.GetUserId(User);
-        var result = await _classSessionService.CheckOutAsync(classSessionId, tutorId, request);
-        return Ok(APIResponse<ClassSessionDetailResponse>.Success(result, "Điểm danh ra buổi học thành công."));
+        try
+        {
+            var tutorId = UserHelper.GetUserId(User);
+            var result = await _classSessionService.CheckOutAsync(classSessionId, tutorId, request);
+            return Ok(APIResponse<ClassSessionDetailResponse>.Success(result, "Điểm danh ra buổi học thành công."));
+        }
+        catch (ClassSessionException ex)
+        {
+            return StatusCode(ex.HttpStatus, APIResponse<object>.Fail(ex.Message, ex.HttpStatus));
+        }
     }
 
     /// <summary>
@@ -109,9 +124,16 @@ public class TutorClassSessionController : ControllerBase
     [HttpPut("{id}/report")]
     public async Task<ActionResult<APIResponse<ClassSessionDetailResponse>>> SubmitReport(int id, [FromBody] SubmitReportRequest request)
     {
-        var tutorId = UserHelper.GetUserId(User);
-        var result = await _classSessionService.SubmitReportAsync(id, tutorId, request);
-        return Ok(APIResponse<ClassSessionDetailResponse>.Success(result, "Gửi báo cáo buổi học thành công."));
+        try
+        {
+            var tutorId = UserHelper.GetUserId(User);
+            var result = await _classSessionService.SubmitReportAsync(id, tutorId, request);
+            return Ok(APIResponse<ClassSessionDetailResponse>.Success(result, "Gửi báo cáo buổi học thành công."));
+        }
+        catch (ClassSessionException ex)
+        {
+            return StatusCode(ex.HttpStatus, APIResponse<object>.Fail(ex.Message, ex.HttpStatus));
+        }
     }
 
     /// <summary>
@@ -123,8 +145,15 @@ public class TutorClassSessionController : ControllerBase
         if (file == null || file.Length == 0)
             return BadRequest(APIResponse<string>.Fail("Tệp đính kèm là bắt buộc."));
 
-        var tutorId = UserHelper.GetUserId(User);
-        var result = await _classSessionService.UploadAttachmentAsync(id, tutorId, file);
-        return Ok(APIResponse<string>.Success(result, "Tải tệp đính kèm thành công."));
+        try
+        {
+            var tutorId = UserHelper.GetUserId(User);
+            var result = await _classSessionService.UploadAttachmentAsync(id, tutorId, file);
+            return Ok(APIResponse<string>.Success(result, "Tải tệp đính kèm thành công."));
+        }
+        catch (ClassSessionException ex)
+        {
+            return StatusCode(ex.HttpStatus, APIResponse<object>.Fail(ex.Message, ex.HttpStatus));
+        }
     }
 }

@@ -311,6 +311,7 @@ builder.Services.AddScoped<IPaymentService, PaymentService>();
 builder.Services.AddScoped<IWalletService, WalletService>();
 builder.Services.AddScoped<IClassSessionService, ClassSessionService>();
 builder.Services.AddScoped<IAgoraRTCService, AgoraRTCService>();
+builder.Services.AddSingleton<IAgoraPresenceTracker, AgoraPresenceTracker>();
 builder.Services.AddScoped<ITutorFinanceService, TutorFinanceService>();
 builder.Services.AddScoped<ILearningMaterialService, LearningMaterialService>();
 
