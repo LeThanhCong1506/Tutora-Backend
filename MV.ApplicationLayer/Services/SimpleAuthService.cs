@@ -107,7 +107,14 @@ namespace MV.ApplicationLayer.Services
                     return new TokenResponse { ErrorMessage = "Tài khoản đã bị khóa." };
                 }
 
-                if (string.IsNullOrWhiteSpace(user.Phone))
+                // Cổng xác thực SĐT là cơ chế onboarding chống-ảo cho KHÁCH HÀNG
+                // (tự đăng ký). Tài khoản nội bộ (Staff/Admin) do Admin cấp — phone
+                // là tùy chọn khi tạo — nên miễn cả 2 cổng; nếu không, staff không
+                // phone sẽ vĩnh viễn bị chặn đăng nhập, còn có phone thì bị ép OTP
+                // Zalo như khách hàng.
+                var isInternalAccount = UserRole.IsInternal(user.Primaryrole);
+
+                if (!isInternalAccount && string.IsNullOrWhiteSpace(user.Phone))
                 {
                     return new TokenResponse
                     {
@@ -116,7 +123,7 @@ namespace MV.ApplicationLayer.Services
                     };
                 }
 
-                if (user.Isphoneverified != true)
+                if (!isInternalAccount && user.Isphoneverified != true)
                 {
                     return new TokenResponse
                     {
@@ -449,7 +456,10 @@ namespace MV.ApplicationLayer.Services
 
         private async Task<TokenResponse> CreateTokenResponseAsync(User user)
         {
-            if (string.IsNullOrWhiteSpace(user.Phone) || user.Isphoneverified != true)
+            // Chốt chặn cuối trước khi phát token — miễn cho tài khoản nội bộ
+            // (Staff/Admin, xác thực bằng email + mật khẩu, không qua OTP).
+            if (!UserRole.IsInternal(user.Primaryrole)
+                && (string.IsNullOrWhiteSpace(user.Phone) || user.Isphoneverified != true))
             {
                 return new TokenResponse
                 {
