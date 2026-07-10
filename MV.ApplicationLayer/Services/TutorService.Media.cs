@@ -78,7 +78,7 @@ namespace MV.ApplicationLayer.Services
             var user = await _unitOfWork.UserRepository.GetUserByIdAsync(userId)
                 ?? throw new ArgumentException("Không tìm thấy người dùng.");
 
-            // 1. Đọc bytes mặt trước một lần dùng cho cả FPT.AI và Cloudinary
+            // 1. Đọc bytes mặt trước để gọi FPT.AI OCR
             byte[] frontBytes;
             using (var ms = new MemoryStream())
             {
@@ -120,15 +120,9 @@ namespace MV.ApplicationLayer.Services
                 }
             }
 
-            // 6. Upload Cloudinary private → lưu PublicId (không có chữ ký, không thể truy cập trực tiếp)
-            var frontPublicId = await _storageService.UploadPrivateFileAsync(
-                CccdBucket, userId + "/front",
-                CreateFormFileFromBytes(frontBytes, request.FrontImage.FileName, request.FrontImage.ContentType));
-            var backPublicId = await _storageService.UploadPrivateFileAsync(
-                CccdBucket, userId + "/back", request.BackImage);
-
-            user.Idcardfronturl = frontPublicId;
-            user.Idcardbackurl  = backPublicId;
+            // 6. Không lưu ảnh lên Cloudinary — data đã mã hóa trong DB, ảnh gốc không được giữ lại
+            user.Idcardfronturl = null;
+            user.Idcardbackurl  = null;
 
             if (ocrResult != null)
             {
@@ -161,7 +155,7 @@ namespace MV.ApplicationLayer.Services
             await _unitOfWork.UserRepository.UpdateUserAsync(user);
             await _unitOfWork.SaveChangesAsync();
 
-            _logger.LogInformation("CCCD uploaded for user {UserId}, OCR={OcrSuccess}, Verified={Verified}",
+            _logger.LogInformation("CCCD processed for user {UserId}, OCR={OcrSuccess}, Verified={Verified} — images not stored",
                 userId, ocrResult != null, user.Isidentityverified);
 
             if (user.Isidentityverified == true)
@@ -176,8 +170,8 @@ namespace MV.ApplicationLayer.Services
                 Gender         = ocrResult?.Sex,
                 Address        = ocrResult?.Address,
                 Message        = ocrResult != null
-                    ? "Upload và đọc CCCD thành công."
-                    : "Upload thành công. Không đọc được thông tin CCCD, Admin sẽ xác minh thủ công."
+                    ? "Xác minh CCCD thành công."
+                    : "Không đọc được thông tin CCCD, vui lòng thử lại với ảnh rõ hơn."
             };
         }
 
@@ -194,16 +188,6 @@ namespace MV.ApplicationLayer.Services
                 _logger.LogWarning(ex, "FPT.AI OCR failed, proceeding without OCR data.");
                 return null;
             }
-        }
-
-        private static IFormFile CreateFormFileFromBytes(byte[] bytes, string fileName, string contentType)
-        {
-            var stream = new MemoryStream(bytes);
-            return new FormFile(stream, 0, bytes.Length, "file", fileName)
-            {
-                Headers     = new HeaderDictionary(),
-                ContentType = contentType
-            };
         }
 
         // ─── Private helpers ─────────────────────────────────────────────────

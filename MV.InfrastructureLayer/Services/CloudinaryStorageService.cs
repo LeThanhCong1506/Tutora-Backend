@@ -134,10 +134,10 @@ namespace MV.InfrastructureLayer.Services
 
             var uploadParams = new ImageUploadParams
             {
-                File       = new FileDescription(file.FileName, stream),
-                Folder     = folderPath,
-                PublicId   = publicId,
-                AccessMode = "authenticated"   // private — không ai truy cập trực tiếp được
+                File = new FileDescription(file.FileName, stream),
+                Folder = folderPath,
+                PublicId = publicId,
+                Type = "private"   // không tồn tại CDN URL, chỉ truy cập qua DownloadPrivate API
             };
 
             var uploadResult = await _cloudinary.UploadAsync(uploadParams);
@@ -159,10 +159,10 @@ namespace MV.InfrastructureLayer.Services
                 ? ExtractPublicIdFromUrl(publicIdOrUrl)
                 : publicIdOrUrl;
 
-            // SDK v1.27.8 không có Url.Expires() — dùng DownloadPrivate với type="upload" + expiresAt
-            // Cloudinary API endpoint tự xử lý expiry, URL hết hạn sau expiresInMinutes phút
+            // DownloadPrivate(publicId, attachment, format, type, expiresAt, resourceType)
+            // type="private" phải match với Type="private" khi upload
             var expiresAt = DateTimeOffset.UtcNow.AddMinutes(expiresInMinutes).ToUnixTimeSeconds();
-            return _cloudinary.DownloadPrivate(publicId, false, null, "upload", expiresAt, "image");
+            return _cloudinary.DownloadPrivate(publicId, false, null, "private", expiresAt, "image");
         }
 
         public async Task<bool> DeleteFileAsync(string bucketName, string userId, string filePathOrUrl)
