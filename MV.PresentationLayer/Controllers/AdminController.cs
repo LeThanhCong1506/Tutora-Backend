@@ -30,6 +30,23 @@ namespace MV.PresentationLayer.Controllers
         }
 
         /// <summary>
+        /// GET /api/admin/staffs
+        /// Danh sách tất cả nhân viên (role = Staff). Chỉ Admin.
+        /// </summary>
+        [Authorize(Roles = UserRole.Admin)]
+        [HttpGet("staffs")]
+        public async Task<IActionResult> GetStaffs([FromQuery] UserParameters parameters)
+        {
+            var result = await _userService.GetUsersByRoleAsync(UserRole.Staff, parameters);
+            Response.Headers.Append("X-Pagination", JsonSerializer.Serialize(new
+            {
+                result.TotalCount, result.PageSize, result.CurrentPage,
+                result.TotalPages, result.HasNext, result.HasPrevious
+            }));
+            return Ok(APIResponse<PagedList<UserResponse>>.Success(result, $"Lấy danh sách nhân viên thành công. Tổng: {result.TotalCount}."));
+        }
+
+        /// <summary>
         /// GET /api/admin/tutors/pending
         /// Danh sách gia sư đang chờ admin duyệt hồ sơ (profilestatus = pending_approval).
         /// Trả về đầy đủ thông tin cá nhân + VerificationSections để admin review.
