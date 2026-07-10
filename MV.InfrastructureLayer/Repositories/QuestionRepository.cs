@@ -31,9 +31,13 @@ public class QuestionRepository : IQuestionRepository
         int pageSize,
         int? subjectId = null,
         int? gradeLevelId = null,
-        int? chapterId = null,
+        IReadOnlyList<int>? chapterIds = null,
         string? reviewStatus = null,
-        string? search = null)
+        string? search = null,
+        IReadOnlyList<string>? difficulties = null,
+        bool? hasSolution = null,
+        string? sortBy = null,
+        string? sortDir = null)
     {
         var query = WithNav(_context.QuestionBanks.AsNoTracking());
 
@@ -41,14 +45,27 @@ public class QuestionRepository : IQuestionRepository
             query = query.Where(q => q.SubjectId == subjectId.Value);
         if (gradeLevelId.HasValue)
             query = query.Where(q => q.GradeLevelId == gradeLevelId.Value);
-        if (chapterId.HasValue)
-            query = query.Where(q => q.ChapterId == chapterId.Value);
+        if (chapterIds is { Count: > 0 })
+            query = query.Where(q => q.ChapterId != null && chapterIds.Contains(q.ChapterId.Value));
         if (!string.IsNullOrWhiteSpace(reviewStatus))
             query = query.Where(q => q.ReviewStatus == reviewStatus);
+        if (difficulties is { Count: > 0 })
+            query = query.Where(q => q.Difficulty != null && difficulties.Contains(q.Difficulty));
+        if (hasSolution.HasValue)
+            query = hasSolution.Value
+                ? query.Where(q => q.Solution != null && q.Solution != "")
+                : query.Where(q => q.Solution == null || q.Solution == "");
         if (!string.IsNullOrWhiteSpace(search))
             query = query.Where(q => EF.Functions.ILike(q.Content, $"%{search}%"));
 
-        query = query.OrderByDescending(q => q.CreatedAt);
+        // Sort whitelist: chỉ cho phép cột an toàn, mặc định cập nhật mới nhất.
+        bool asc = string.Equals(sortDir, "asc", StringComparison.OrdinalIgnoreCase);
+        query = (sortBy?.ToLowerInvariant()) switch
+        {
+            "gradelevel" => asc ? query.OrderBy(q => q.GradeLevelId) : query.OrderByDescending(q => q.GradeLevelId),
+            "createdat"  => asc ? query.OrderBy(q => q.CreatedAt)    : query.OrderByDescending(q => q.CreatedAt),
+            _            => asc ? query.OrderBy(q => q.UpdatedAt)    : query.OrderByDescending(q => q.UpdatedAt),
+        };
 
         // Materialize thu cong (khong dung ToPagedList sync) de await dung EF Core async.
         var count = query.Count();

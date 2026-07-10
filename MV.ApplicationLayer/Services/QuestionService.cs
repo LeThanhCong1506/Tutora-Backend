@@ -60,12 +60,15 @@ public class QuestionService : IQuestionService
 
     public async Task<PagedList<QuestionResponse>> GetPagedAsync(
         int pageNumber, int pageSize,
-        int? subjectId, int? gradeLevelId, int? chapterId,
+        int? subjectId, int? gradeLevelId, IReadOnlyList<int>? chapterIds,
         string? reviewStatus, string? search,
+        IReadOnlyList<string>? difficulties, bool? hasSolution,
+        string? sortBy, string? sortDir,
         CancellationToken ct = default)
     {
         var paged = await _unitOfWork.QuestionRepository.GetPagedAsync(
-            pageNumber, pageSize, subjectId, gradeLevelId, chapterId, reviewStatus, search);
+            pageNumber, pageSize, subjectId, gradeLevelId, chapterIds, reviewStatus, search,
+            difficulties, hasSolution, sortBy, sortDir);
 
         var items = paged.Select(ToResponse).ToList();
         return new PagedList<QuestionResponse>(items, paged.TotalCount, paged.CurrentPage, paged.PageSize);

@@ -84,7 +84,11 @@ namespace MV.ApplicationLayer.Services
                     return new TokenResponse { ErrorMessage = "Tài khoản không tồn tại hoặc đã bị khóa." };
                 }
 
-                if (string.IsNullOrWhiteSpace(user.Phone) || user.Isphoneverified != true)
+                // Cổng SĐT chỉ áp cho khách hàng — tài khoản nội bộ (Staff/Admin)
+                // không có phone vẫn refresh bình thường; nếu không miễn, staff sẽ
+                // bị revoke sạch token ngay lần silent-refresh đầu tiên.
+                if (!UserRole.IsInternal(user.Primaryrole)
+                    && (string.IsNullOrWhiteSpace(user.Phone) || user.Isphoneverified != true))
                 {
                     await _unitOfWork.RefreshTokenRepository.RevokeAllByUserIdAsync(userId);
                     await _unitOfWork.SaveChangesAsync();
