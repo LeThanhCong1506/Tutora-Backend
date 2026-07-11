@@ -13,6 +13,9 @@ public class SubjectRequest
 
     [StringLength(500)]
     public string? Description { get; set; }
+
+    /// <summary>true = còn dùng được, false = ngừng dùng. Dùng để khôi phục khi Update.</summary>
+    public bool IsActive { get; set; } = true;
 }
 
 // GradeLevel
@@ -24,6 +27,9 @@ public class GradeLevelRequest
 
     /// <summary>Thứ tự sắp xếp (lớp nhỏ -> lớn).</summary>
     public int LevelOrder { get; set; }
+
+    /// <summary>true = còn dùng được, false = ngừng dùng. Dùng để khôi phục khi Update.</summary>
+    public bool IsActive { get; set; } = true;
 }
 
 // Chapter

@@ -34,6 +34,7 @@ public class SubjectResponse
 {
     public int SubjectId { get; set; }
     public string? SubjectName { get; set; }
+    public bool IsActive { get; set; }
 }
 
 public class GradeLevelResponse
@@ -41,6 +42,7 @@ public class GradeLevelResponse
     public int GradeLevelId { get; set; }
     public string? GradeName { get; set; }
     public int LevelOrder { get; set; }
+    public bool IsActive { get; set; }
 }
 
 public class BookingPackageResponse

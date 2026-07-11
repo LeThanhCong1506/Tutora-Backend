@@ -19,6 +19,10 @@ namespace MV.ApplicationLayer.ServiceInterfaces
 
         Task<List<QuestionTypeResponse>> GetQuestionTypesAsync();
 
+        // Admin: liệt kê TẤT CẢ (gồm mục đã ngừng dùng) để quản lý.
+        Task<List<SubjectResponse>> GetAllSubjectsAsync();
+        Task<List<GradeLevelResponse>> GetAllGradeLevelsAsync();
+
         // Subject
         Task<SubjectResponse> CreateSubjectAsync(SubjectRequest req);
         Task<SubjectResponse?> UpdateSubjectAsync(int id, SubjectRequest req);

@@ -26,11 +26,13 @@ namespace MV.ApplicationLayer.Services
         public async Task<List<SubjectResponse>> GetSubjectsAsync()
         {
             return await _context.Subjects
+                .Where(s => s.IsActive)
                 .OrderBy(s => s.Subjectid)
                 .Select(s => new SubjectResponse
                 {
                     SubjectId = s.Subjectid,
-                    SubjectName = s.Subjectname
+                    SubjectName = s.Subjectname,
+                    IsActive = s.IsActive
                 })
                 .ToListAsync();
         }
@@ -38,12 +40,42 @@ namespace MV.ApplicationLayer.Services
         public async Task<List<GradeLevelResponse>> GetGradeLevelsAsync()
         {
             return await _context.Gradelevels
+                .Where(g => g.IsActive)
                 .OrderBy(g => g.Levelorder)
                 .Select(g => new GradeLevelResponse
                 {
                     GradeLevelId = g.Gradelevelid,
                     GradeName = g.Gradename,
-                    LevelOrder = g.Levelorder
+                    LevelOrder = g.Levelorder,
+                    IsActive = g.IsActive
+                })
+                .ToListAsync();
+        }
+
+        // Admin: trả TẤT CẢ (gồm cả mục đã ngừng dùng) để quản lý & khôi phục.
+        public async Task<List<SubjectResponse>> GetAllSubjectsAsync()
+        {
+            return await _context.Subjects
+                .OrderBy(s => s.Subjectid)
+                .Select(s => new SubjectResponse
+                {
+                    SubjectId = s.Subjectid,
+                    SubjectName = s.Subjectname,
+                    IsActive = s.IsActive
+                })
+                .ToListAsync();
+        }
+
+        public async Task<List<GradeLevelResponse>> GetAllGradeLevelsAsync()
+        {
+            return await _context.Gradelevels
+                .OrderBy(g => g.Levelorder)
+                .Select(g => new GradeLevelResponse
+                {
+                    GradeLevelId = g.Gradelevelid,
+                    GradeName = g.Gradename,
+                    LevelOrder = g.Levelorder,
+                    IsActive = g.IsActive
                 })
                 .ToListAsync();
         }
@@ -103,6 +135,7 @@ namespace MV.ApplicationLayer.Services
             {
                 Subjectname = req.SubjectName.Trim(),
                 Description = req.Description?.Trim(),
+                IsActive = req.IsActive,
             };
             _context.Subjects.Add(entity);
             await _context.SaveChangesAsync();
@@ -115,19 +148,18 @@ namespace MV.ApplicationLayer.Services
             if (entity == null) return null;
             entity.Subjectname = req.SubjectName.Trim();
             entity.Description = req.Description?.Trim();
+            entity.IsActive = req.IsActive;
             await _context.SaveChangesAsync();
             return ToSubjectResponse(entity);
         }
 
+        // Soft-delete: chỉ đặt IsActive=false, GIỮ NGUYÊN dữ liệu để không phá tham chiếu
+        // (câu hỏi, chương, bảng giá, hồ sơ...). Khôi phục bằng Update IsActive=true.
         public async Task<bool> DeleteSubjectAsync(int id)
         {
             var entity = await _context.Subjects.FirstOrDefaultAsync(s => s.Subjectid == id);
             if (entity == null) return false;
-            if (await _context.QuestionBanks.AnyAsync(q => q.SubjectId == id))
-                throw new LookupInUseException("Môn học này đang có câu hỏi. Vui lòng kiểm tra lại danh sách câu hỏi.");
-            if (await _context.Chapters.AnyAsync(c => c.SubjectId == id))
-                throw new LookupInUseException("Môn học này đang có chương. Vui lòng kiểm tra lại danh sách chương.");
-            _context.Subjects.Remove(entity);
+            entity.IsActive = false;
             await _context.SaveChangesAsync();
             return true;
         }
@@ -139,6 +171,7 @@ namespace MV.ApplicationLayer.Services
             {
                 Gradename = req.GradeName.Trim(),
                 Levelorder = req.LevelOrder,
+                IsActive = req.IsActive,
                 Createdat = DateTime.UtcNow,
             };
             _context.Gradelevels.Add(entity);
@@ -152,19 +185,18 @@ namespace MV.ApplicationLayer.Services
             if (entity == null) return null;
             entity.Gradename = req.GradeName.Trim();
             entity.Levelorder = req.LevelOrder;
+            entity.IsActive = req.IsActive;
             await _context.SaveChangesAsync();
             return ToGradeResponse(entity);
         }
 
+        // Soft-delete: chỉ đặt IsActive=false, GIỮ NGUYÊN dữ liệu (câu hỏi, chương,
+        // bảng giá, hồ sơ học sinh...). Khôi phục bằng Update IsActive=true.
         public async Task<bool> DeleteGradeLevelAsync(int id)
         {
             var entity = await _context.Gradelevels.FirstOrDefaultAsync(g => g.Gradelevelid == id);
             if (entity == null) return false;
-            if (await _context.QuestionBanks.AnyAsync(q => q.GradeLevelId == id))
-                throw new LookupInUseException("Khối lớp này đang có câu hỏi. Vui lòng kiểm tra lại danh sách câu hỏi.");
-            if (await _context.Chapters.AnyAsync(c => c.GradeLevelId == id))
-                throw new LookupInUseException("Khối lớp này đang có chương. Vui lòng kiểm tra lại danh sách chương.");
-            _context.Gradelevels.Remove(entity);
+            entity.IsActive = false;
             await _context.SaveChangesAsync();
             return true;
         }
@@ -260,6 +292,7 @@ namespace MV.ApplicationLayer.Services
         {
             SubjectId = s.Subjectid,
             SubjectName = s.Subjectname,
+            IsActive = s.IsActive,
         };
 
         private static GradeLevelResponse ToGradeResponse(Gradelevel g) => new()
@@ -267,6 +300,7 @@ namespace MV.ApplicationLayer.Services
             GradeLevelId = g.Gradelevelid,
             GradeName = g.Gradename,
             LevelOrder = g.Levelorder,
+            IsActive = g.IsActive,
         };
 
         private static ChapterResponse ToChapterResponse(Chapter c) => new()
