@@ -206,7 +206,9 @@ namespace MV.ApplicationLayer.Services
                 .Select(t => new
                 {
                     t.Tutorid,
-                    t.Profilestatus
+                    t.Profilestatus,
+                    t.Ispublic,
+                    t.Isacceptingbookings
                 })
                 .FirstOrDefaultAsync();
 
@@ -341,10 +343,14 @@ namespace MV.ApplicationLayer.Services
             return response;
         }
 
+        // Hồ sơ chỉ "công khai" khi: đã duyệt (Active) + Ispublic (không bị Admin khóa)
+        // + Isacceptingbookings (Tutor không tự tắt). Đồng bộ với bộ lọc marketplace search.
         private static bool IsActiveTutorProfile(dynamic profile)
         {
             return profile != null &&
-                   string.Equals(profile.Profilestatus, TutorProfileStatus.Active, StringComparison.OrdinalIgnoreCase);
+                   string.Equals((string?)profile.Profilestatus, TutorProfileStatus.Active, StringComparison.OrdinalIgnoreCase) &&
+                   profile.Ispublic == true &&
+                   profile.Isacceptingbookings == true;
         }
 
         private async Task<List<FeedbackItemResponse>> GetTutorFeedbacksAsync(string tutorId)
