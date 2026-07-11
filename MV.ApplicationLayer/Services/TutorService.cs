@@ -308,7 +308,13 @@ namespace MV.ApplicationLayer.Services
         public async Task<List<TutorPackageResponse>> GetTutorPackagesAsync(string tutorId, bool includeInactive = false)
         {
             var packages = await _unitOfWork.TutorRepository.GetTutorPackagesAsync(tutorId, includeInactive);
-            return packages.Select(MapTutorPackageResponse).ToList();
+
+            // Gắn cờ HasActiveBooking cho từng package (1 truy vấn dùng chung guard).
+            var bookedPackageIds = await TutorScheduleGuard.GetPackageIdsWithFutureSessionsAsync(_context, tutorId);
+
+            return packages
+                .Select(p => MapTutorPackageResponse(p, bookedPackageIds.Contains(p.Packageid)))
+                .ToList();
         }
 
         public async Task<TutorPackageResponse?> CreateTutorPackageAsync(string tutorId, CreateTutorPackageRequest request)
@@ -372,6 +378,59 @@ namespace MV.ApplicationLayer.Services
             package.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
             await _unitOfWork.SaveChangesAsync();
             return true;
+        }
+
+        /// <summary>
+        /// Cập nhật package (tên, loại, khung cố định). Trả null nếu không tìm thấy.
+        /// Chặn (409) nếu package đang có buổi dạy được đặt chưa hoàn tất, hoặc khung mới
+        /// đè lên buổi dạy đã cam kết khác.
+        /// </summary>
+        public async Task<TutorPackageResponse?> UpdateTutorPackageAsync(string tutorId, int packageId, CreateTutorPackageRequest request)
+        {
+            var package = await _unitOfWork.TutorRepository.GetTutorPackageAsync(tutorId, packageId);
+            if (package == null) return null;
+
+            ValidateTutorPackageRequest(request);
+
+            // Guard 1: gói này còn buổi dạy chưa hoàn tất → khóa, không cho sửa.
+            var ownCommitted = await TutorScheduleGuard.GetFutureCommittedSessionsAsync(_context, tutorId, packageId);
+            if (ownCommitted.Count > 0)
+                throw new InvalidOperationException(
+                    "Không thể sửa gói này vì đang có buổi dạy được đặt và chưa hoàn tất. Vui lòng chờ hoàn tất hoặc hủy booking trước.");
+
+            // Guard 2: khung cố định mới không được đè lên buổi dạy đã cam kết (gói khác / lịch khác).
+            var allCommitted = await TutorScheduleGuard.GetFutureCommittedSessionsAsync(_context, tutorId);
+            foreach (var s in request.FixedSlots)
+            {
+                var slotStart = TimeOnly.Parse(s.StartTime).ToTimeSpan();
+                var slotEnd = TimeOnly.Parse(s.EndTime).ToTimeSpan();
+                if (TutorScheduleGuard.OverlapsWeeklySlot(allCommitted, s.DayOfWeek, slotStart, slotEnd))
+                    throw new InvalidOperationException(
+                        $"Không thể đặt khung {s.StartTime}-{s.EndTime} (thứ {s.DayOfWeek}) vì đã có buổi dạy được đặt ở khung giờ này.");
+            }
+
+            var now = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
+            package.Name = request.Name.Trim();
+            package.Packagetype = request.PackageType;
+            package.Updatedat = now;
+
+            // Thay toàn bộ khung cố định (orphan cũ sẽ bị EF xóa do quan hệ bắt buộc).
+            package.Tutorpackagefixedslots.Clear();
+            foreach (var s in request.FixedSlots)
+            {
+                package.Tutorpackagefixedslots.Add(new Tutorpackagefixedslot
+                {
+                    Dayofweek = s.DayOfWeek,
+                    Starttime = TimeOnly.Parse(s.StartTime),
+                    Endtime   = TimeOnly.Parse(s.EndTime),
+                    Createdat = now
+                });
+            }
+
+            await _unitOfWork.SaveChangesAsync();
+
+            // Qua được Guard 1 nghĩa là gói không còn booking → HasActiveBooking = false.
+            return MapTutorPackageResponse(package, hasActiveBooking: false);
         }
 
         // ─── Status Management ────────────────────────────────────────────────
@@ -684,7 +743,7 @@ namespace MV.ApplicationLayer.Services
             }
         }
 
-        private static TutorPackageResponse MapTutorPackageResponse(Tutorpackage package)
+        private static TutorPackageResponse MapTutorPackageResponse(Tutorpackage package, bool hasActiveBooking = false)
         {
             return new TutorPackageResponse
             {
@@ -693,6 +752,7 @@ namespace MV.ApplicationLayer.Services
                 Name = package.Name,
                 PackageType = package.Packagetype,
                 IsActive = package.Isactive,
+                HasActiveBooking = hasActiveBooking,
                 FixedSlots = package.Tutorpackagefixedslots
                     .Select(s => new TutorPackageFixedSlotResponse
                     {

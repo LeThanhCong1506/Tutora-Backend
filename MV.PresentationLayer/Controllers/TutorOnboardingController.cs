@@ -529,6 +529,35 @@ namespace MV.PresentationLayer.Controllers
             }
         }
 
+        [HttpPut("{id}/profile/packages/{packageId:int}")]
+        public async Task<IActionResult> UpdatePackage([FromRoute] string id, [FromRoute] int packageId, [FromBody] CreateTutorPackageRequest request)
+        {
+            var currentUserId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (currentUserId != id)
+            {
+                return StatusCode(403, APIResponse.Fail("Bạn chỉ có thể sửa package của chính mình.", 403));
+            }
+
+            try
+            {
+                var result = await _tutorService.UpdateTutorPackageAsync(id, packageId, request);
+                if (result == null)
+                {
+                    return NotFound(APIResponse.Fail("Không tìm thấy package.", 404));
+                }
+
+                return Ok(APIResponse<TutorPackageResponse>.Success(result, "Cập nhật package thành công."));
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(APIResponse.Fail(ex.Message, 400));
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Conflict(APIResponse.Fail(ex.Message, 409));
+            }
+        }
+
         [HttpDelete("{id}/profile/packages/{packageId:int}")]
         public async Task<IActionResult> DeactivatePackage([FromRoute] string id, [FromRoute] int packageId)
         {

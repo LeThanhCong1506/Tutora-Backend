@@ -43,6 +43,28 @@ namespace MV.ApplicationLayer.Helpers
         }
 
         /// <summary>
+        /// Tập packageId của tutor đang CÒN buổi dạy tương lai chưa hoàn tất.
+        /// Dùng để gắn cờ "package đã có booking" cho FE (1 truy vấn, tránh N+1).
+        /// </summary>
+        public static async Task<HashSet<int>> GetPackageIdsWithFutureSessionsAsync(
+            IAppDbContext context, string tutorId)
+        {
+            var now = TimeZoneHelper.UtcNow;
+            var ids = await context.ClassSessions
+                .Where(l => l.Tutorid == tutorId
+                    && l.Scheduledstart > now
+                    && l.Status != ClassSessionStatus.Cancelled
+                    && l.Status != ClassSessionStatus.CancelledNoshow
+                    && l.Status != ClassSessionStatus.Completed
+                    && l.Status != ClassSessionStatus.NoShow
+                    && l.Booking != null && l.Booking.Packageid != null)
+                .Select(l => l.Booking!.Packageid!.Value)
+                .Distinct()
+                .ToListAsync();
+            return ids.ToHashSet();
+        }
+
+        /// <summary>
         /// Có buổi dạy nào rơi vào khung tuần (thứ ISO 1-7, giờ UTC) này không?
         /// Dùng để chặn đổi/xóa 1 slot lịch rảnh cụ thể.
         /// </summary>
