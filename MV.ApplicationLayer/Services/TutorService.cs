@@ -6,6 +6,7 @@ using MV.DomainLayer.DTO.RequestModel;
 using MV.DomainLayer.DTO.ResponseModel;
 using MV.DomainLayer.Entities;
 using MV.ApplicationLayer.Interfaces;
+using MV.ApplicationLayer.Helpers;
 using System.Text.Json;
 
 namespace MV.ApplicationLayer.Services
@@ -19,6 +20,7 @@ namespace MV.ApplicationLayer.Services
         private readonly ILogger<TutorService> _logger;
         private readonly IEncryptionService _encryption;
         private readonly ITutorProfileUpdateStagingService _updateStaging;
+        private readonly IAppDbContext _context;
 
         // Storage buckets
         private const string CertificateBucket = StorageBucket.CertificateFiles;
@@ -37,7 +39,8 @@ namespace MV.ApplicationLayer.Services
             INotificationService notificationService,
             ILogger<TutorService> logger,
             IEncryptionService encryption,
-            ITutorProfileUpdateStagingService updateStaging)
+            ITutorProfileUpdateStagingService updateStaging,
+            IAppDbContext context)
         {
             _unitOfWork = unitOfWork;
             _storageService = storageService;
@@ -46,6 +49,7 @@ namespace MV.ApplicationLayer.Services
             _logger = logger;
             _encryption = encryption;
             _updateStaging = updateStaging;
+            _context = context;
         }
 
         /// <summary>
@@ -314,6 +318,17 @@ namespace MV.ApplicationLayer.Services
 
             ValidateTutorPackageRequest(request);
 
+            // Guard: không cho tạo khung cố định đè lên buổi dạy đã cam kết (tránh trùng lịch).
+            var committed = await TutorScheduleGuard.GetFutureCommittedSessionsAsync(_context, tutorId);
+            foreach (var s in request.FixedSlots)
+            {
+                var slotStart = TimeOnly.Parse(s.StartTime).ToTimeSpan();
+                var slotEnd = TimeOnly.Parse(s.EndTime).ToTimeSpan();
+                if (TutorScheduleGuard.OverlapsWeeklySlot(committed, s.DayOfWeek, slotStart, slotEnd))
+                    throw new InvalidOperationException(
+                        $"Không thể tạo khung {s.StartTime}-{s.EndTime} (thứ {s.DayOfWeek}) vì đã có buổi dạy được đặt ở khung giờ này.");
+            }
+
             var now = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
             var package = new Tutorpackage
             {
@@ -346,6 +361,12 @@ namespace MV.ApplicationLayer.Services
         {
             var package = await _unitOfWork.TutorRepository.GetTutorPackageAsync(tutorId, packageId);
             if (package == null) return false;
+
+            // Guard: không cho tắt gói khi còn buổi dạy được đặt & chưa hoàn tất thuộc gói này.
+            var committed = await TutorScheduleGuard.GetFutureCommittedSessionsAsync(_context, tutorId, packageId);
+            if (committed.Count > 0)
+                throw new InvalidOperationException(
+                    "Không thể tắt gói này vì đang có buổi dạy được đặt và chưa hoàn tất. Vui lòng chờ hoàn tất hoặc hủy booking trước.");
 
             package.Isactive = false;
             package.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;

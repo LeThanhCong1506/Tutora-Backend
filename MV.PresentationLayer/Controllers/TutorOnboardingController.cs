@@ -523,6 +523,10 @@ namespace MV.PresentationLayer.Controllers
             {
                 return BadRequest(APIResponse.Fail(ex.Message, 400));
             }
+            catch (InvalidOperationException ex)
+            {
+                return Conflict(APIResponse.Fail(ex.Message, 409));
+            }
         }
 
         [HttpDelete("{id}/profile/packages/{packageId:int}")]
@@ -534,13 +538,20 @@ namespace MV.PresentationLayer.Controllers
                 return StatusCode(403, APIResponse.Fail("Bạn chỉ có thể tắt package của chính mình.", 403));
             }
 
-            var result = await _tutorService.DeactivateTutorPackageAsync(id, packageId);
-            if (!result)
+            try
             {
-                return NotFound(APIResponse.Fail("Không tìm thấy package.", 404));
-            }
+                var result = await _tutorService.DeactivateTutorPackageAsync(id, packageId);
+                if (!result)
+                {
+                    return NotFound(APIResponse.Fail("Không tìm thấy package.", 404));
+                }
 
-            return Ok(APIResponse.Success("Đã tắt package thành công."));
+                return Ok(APIResponse.Success("Đã tắt package thành công."));
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Conflict(APIResponse.Fail(ex.Message, 409));
+            }
         }
 
         /// <summary>
