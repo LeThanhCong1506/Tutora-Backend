@@ -48,6 +48,19 @@ namespace MV.ApplicationLayer.Services
                 .ToListAsync();
         }
 
+        public async Task<List<DayOfWeekResponse>> GetDaysOfWeekAsync()
+        {
+            return await _context.DaysOfWeek
+                .OrderBy(d => d.DayOrder)
+                .Select(d => new DayOfWeekResponse
+                {
+                    DayOfWeekId = d.DayofweekId,
+                    DayName = d.DayName,
+                    DayOrder = d.DayOrder
+                })
+                .ToListAsync();
+        }
+
         public async Task<List<ChapterResponse>> GetChaptersAsync(int? subjectId, int? gradeLevelId)
         {
             var query = _context.Chapters.Where(c => c.IsActive);

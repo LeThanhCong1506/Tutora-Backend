@@ -11,6 +11,9 @@ namespace MV.ApplicationLayer.ServiceInterfaces
         Task<List<SubjectResponse>> GetSubjectsAsync();
         Task<List<GradeLevelResponse>> GetGradeLevelsAsync();
 
+        /// <summary>Danh sách thứ trong tuần (sắp theo DayOrder). Read-only.</summary>
+        Task<List<DayOfWeekResponse>> GetDaysOfWeekAsync();
+
         /// <summary>Chương theo môn+lớp (null = tất cả). Chỉ chương active.</summary>
         Task<List<ChapterResponse>> GetChaptersAsync(int? subjectId, int? gradeLevelId);
 

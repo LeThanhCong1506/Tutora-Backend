@@ -60,6 +60,24 @@ namespace MV.PresentationLayer.Controllers
         }
 
         /// <summary>
+        /// Danh sách thứ trong tuần (sắp theo DayOrder).
+        /// GET /api/days-of-week
+        /// </summary>
+        [HttpGet("days-of-week")]
+        public async Task<IActionResult> GetDaysOfWeek()
+        {
+            try
+            {
+                var result = await _lookupService.GetDaysOfWeekAsync();
+                return Ok(APIResponse<List<DayOfWeekResponse>>.Success(result, "Lấy danh sách thứ trong tuần thành công."));
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, APIResponse<object>.Fail(ApiMessages.GenericErrorPrefix + ex.Message, 500));
+            }
+        }
+
+        /// <summary>
         /// Danh sách chương, lọc theo môn+lớp. GET /api/chapters?subjectId=1&gradeLevelId=60
         /// </summary>
         [HttpGet("chapters")]
