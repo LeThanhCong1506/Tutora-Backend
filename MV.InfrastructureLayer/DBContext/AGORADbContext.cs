@@ -1289,6 +1289,7 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
             entity.Property(e => e.Subjectname)
                 .HasMaxLength(100)
                 .HasColumnName("subject_name");
+            entity.Property(e => e.IsActive).HasDefaultValue(true).HasColumnName("is_active");
         });
 
         modelBuilder.Entity<Systemconfig>(entity =>
@@ -1523,6 +1524,7 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
                 .HasMaxLength(100)
                 .HasColumnName("grade_name");
             entity.Property(e => e.Levelorder).HasColumnName("level_order");
+            entity.Property(e => e.IsActive).HasDefaultValue(true).HasColumnName("is_active");
             entity.Property(e => e.Createdat)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnType("timestamp without time zone")
