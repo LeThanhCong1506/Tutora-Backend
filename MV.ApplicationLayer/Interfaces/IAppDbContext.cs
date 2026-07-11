@@ -29,6 +29,7 @@ public interface IAppDbContext
     DbSet<Profilesuspension> Profilesuspensions { get; }
     DbSet<Promotion> Promotions { get; }
     DbSet<Gradelevel> Gradelevels { get; }
+    DbSet<Dayofweek> DaysOfWeek { get; }
     DbSet<Studentgrade> Studentgrades { get; }
     DbSet<Studentprofile> Studentprofiles { get; }
     DbSet<Subject> Subjects { get; }
