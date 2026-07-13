@@ -8,6 +8,7 @@ public static class NotificationType
     public const string BookingNew      = "booking_new";
     public const string BookingAccepted = "booking_accepted";
     public const string BookingDeclined = "booking_declined";
+    public const string BookingCancelled = "booking_cancelled";
     public const string BookingTimeout  = "booking_timeout";
     public const string BookingPaymentDueSoon = "booking_payment_due_soon";
     public const string PaymentSuccess  = "payment_success";

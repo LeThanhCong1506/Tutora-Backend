@@ -367,6 +367,50 @@ public partial class BookingService(
             }
         }
 
+        var cancelledByTutor = !string.IsNullOrWhiteSpace(booking.Tutorid) && booking.Tutorid == userId;
+        var reasonSuffix = string.IsNullOrWhiteSpace(reason) ? "" : $" Lý do: {reason}";
+
+        if (!string.IsNullOrWhiteSpace(booking.Parentid) && !string.IsNullOrWhiteSpace(booking.Tutorid))
+        {
+            try
+            {
+                var senderId = cancelledByTutor ? booking.Tutorid! : booking.Parentid!;
+                var channelId = await chatService.GetOrCreateChannelAsync(booking.Parentid!, booking.Tutorid!);
+                await chatService.SendMessageAsync(senderId, channelId, new ChatMessageCreateRequest
+                {
+                    Content = $"🚫 Đặt lịch #{bookingId} đã bị hủy.{reasonSuffix}",
+                    MessageType = ChatMessageType.BookingCancelled,
+                    Metadata = new { bookingId, status = booking.Status, reason }
+                });
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Không thể gửi tin nhắn hủy booking {BookingId} vào kênh chat", bookingId);
+            }
+        }
+
+        var counterpartId = cancelledByTutor ? booking.Parentid : booking.Tutorid;
+        if (!string.IsNullOrWhiteSpace(counterpartId))
+        {
+            try
+            {
+                await notificationService.CreateNotificationAsync(new NotificationRequest
+                {
+                    Userid = counterpartId,
+                    Title = cancelledByTutor ? "Gia sư đã hủy đặt lịch" : "Đặt lịch đã bị hủy",
+                    Message = cancelledByTutor
+                        ? $"Gia sư đã hủy đặt lịch #{bookingId}.{reasonSuffix}"
+                        : $"Phụ huynh/học sinh đã hủy đặt lịch #{bookingId}.{reasonSuffix}",
+                    Type = NotificationType.BookingCancelled,
+                    Referenceid = bookingId.ToString()
+                });
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Không thể gửi thông báo hủy booking {BookingId}", bookingId);
+            }
+        }
+
         return true;
     }
 
