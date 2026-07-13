@@ -9,5 +9,6 @@ public static class ChatMessageType
     public const string Image           = "image";
     public const string BookingRequest  = "booking_request";
     public const string BookingAccepted = "booking_accepted";
+    public const string BookingDeclined = "booking_declined";
     public const string MeetLink        = "meet_link";
 }

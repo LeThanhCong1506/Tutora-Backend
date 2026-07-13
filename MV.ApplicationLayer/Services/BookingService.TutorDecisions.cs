@@ -156,6 +156,23 @@ public partial class BookingService
 
         try
         {
+            var channelId = await chatService.GetOrCreateChannelAsync(booking.Parentid!, tutorId);
+            await chatService.SendMessageAsync(tutorId, channelId, new ChatMessageCreateRequest
+            {
+                Content = string.IsNullOrWhiteSpace(reason)
+                    ? "❌ Gia sư đã từ chối yêu cầu đặt lịch"
+                    : $"❌ Gia sư đã từ chối yêu cầu đặt lịch. Lý do: {reason}",
+                MessageType = ChatMessageType.BookingDeclined,
+                Metadata = new { bookingId, status = booking.Status, reason }
+            });
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Failed to send decline chat message for booking {BookingId}", bookingId);
+        }
+
+        try
+        {
             await notificationService.CreateNotificationAsync(new NotificationRequest
             {
                 Userid = booking.Parentid!,
@@ -242,6 +259,7 @@ public partial class BookingService
 
         booking.Refundamount = refundAmount;
         booking.Refundstatus = RefundStatus.Refunded;
+        booking.Escrowstatus = EscrowStatus.Refunded;
     }
 
     /// <summary>

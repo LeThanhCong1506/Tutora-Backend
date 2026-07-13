@@ -253,6 +253,7 @@ public partial class ClassSessionService
 
                     booking.Status = BookingStatus.CancelledNoshow;
                     booking.Sessionsremaining = 0;
+                    booking.Escrowstatus = EscrowStatus.Refunded;
 
                     // Return the promotion usage consumed at booking creation (booking is being cancelled)
                     await MV.ApplicationLayer.Helpers.PromotionUsageHelper.ReturnUsageAsync(_context, booking.Promotionid);

@@ -319,6 +319,7 @@ public partial class BookingService(
                 booking.Updatedat = TimeZoneHelper.UtcNow;
                 booking.Refundstatus = RefundStatus.Refunded;
                 booking.Refundamount = refundAmount;
+                booking.Escrowstatus = EscrowStatus.Refunded;
 
                 foreach (var l in booking.ClassSessions.Where(x => x.Status is Scheduled or Reserved))
                     l.Status = Cancelled;

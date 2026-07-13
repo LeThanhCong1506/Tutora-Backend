@@ -205,5 +205,6 @@ public class TutorResponseTimeoutJob(IServiceProvider sp, ILogger<TutorResponseT
 
         booking.Refundamount = refundAmount;
         booking.Refundstatus = RefundStatus.Refunded;
+        booking.Escrowstatus = EscrowStatus.Refunded;
     }
 }
