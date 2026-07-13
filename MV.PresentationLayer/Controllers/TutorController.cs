@@ -54,7 +54,8 @@ namespace MV.PresentationLayer.Controllers
             if (string.IsNullOrEmpty(tutorId))
                 return Unauthorized(APIResponse<object>.Fail(ApiMessages.Unauthorized, 401));
 
-            var result = await _verificationService.GetTutorProfileInfoAsync(tutorId);
+            // Chính chủ xem hồ sơ của mình — luôn xem được dù đang tạm dừng / bị khóa.
+            var result = await _verificationService.GetTutorProfileInfoAsync(tutorId, publicView: false);
 
             if (result == null)
             {
@@ -72,7 +73,8 @@ namespace MV.PresentationLayer.Controllers
             if (string.IsNullOrEmpty(tutorId))
                 return Unauthorized(APIResponse<object>.Fail(ApiMessages.Unauthorized, 401));
 
-            var result = await _verificationService.GetTutorScheduleAsync(tutorId);
+            // Chính chủ xem lịch của mình — luôn xem được dù đang tạm dừng / bị khóa.
+            var result = await _verificationService.GetTutorScheduleAsync(tutorId, publicView: false);
 
             if (result == null)
             {

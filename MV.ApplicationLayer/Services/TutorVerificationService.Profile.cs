@@ -110,13 +110,16 @@ namespace MV.ApplicationLayer.Services
         /// <summary>
         /// Get tutor profile info without schedule/package data.
         /// </summary>
-        public async Task<TutorProfileInfoResponse?> GetTutorProfileInfoAsync(string tutorId)
+        public async Task<TutorProfileInfoResponse?> GetTutorProfileInfoAsync(string tutorId, bool publicView = true)
         {
             var profile = await _dbContext.Tutorprofiles
                 .AsNoTracking()
                 .FirstOrDefaultAsync(t => t.Tutorid == tutorId);
 
-            if (!IsActiveTutorProfile(profile))
+            // publicView = true: áp guard công khai (ẩn khi khóa/tạm dừng).
+            // publicView = false: chính chủ xem → chỉ cần đã duyệt.
+            var visible = publicView ? IsPubliclyVisibleTutorProfile(profile) : IsActiveTutorProfile(profile);
+            if (!visible)
             {
                 return null;
             }
@@ -198,7 +201,7 @@ namespace MV.ApplicationLayer.Services
         /// <summary>
         /// Get tutor schedule including weekly availability and packages.
         /// </summary>
-        public async Task<TutorScheduleResponse?> GetTutorScheduleAsync(string tutorId)
+        public async Task<TutorScheduleResponse?> GetTutorScheduleAsync(string tutorId, bool publicView = true)
         {
             var profile = await _dbContext.Tutorprofiles
                 .AsNoTracking()
@@ -212,7 +215,8 @@ namespace MV.ApplicationLayer.Services
                 })
                 .FirstOrDefaultAsync();
 
-            if (!IsActiveTutorProfile(profile))
+            var visible = publicView ? IsPubliclyVisibleTutorProfile(profile) : IsActiveTutorProfile(profile);
+            if (!visible)
             {
                 return null;
             }
@@ -343,12 +347,19 @@ namespace MV.ApplicationLayer.Services
             return response;
         }
 
-        // Hồ sơ chỉ "công khai" khi: đã duyệt (Active) + Ispublic (không bị Admin khóa)
-        // + Isacceptingbookings (Tutor không tự tắt). Đồng bộ với bộ lọc marketplace search.
+        // Hồ sơ đã duyệt (Active). Dùng cho CHÍNH CHỦ xem hồ sơ của mình — luôn xem được
+        // dù đang tạm dừng nhận booking hay bị Admin khóa (để còn bật lại / xem tình trạng).
         private static bool IsActiveTutorProfile(dynamic profile)
         {
             return profile != null &&
-                   string.Equals((string?)profile.Profilestatus, TutorProfileStatus.Active, StringComparison.OrdinalIgnoreCase) &&
+                   string.Equals((string?)profile.Profilestatus, TutorProfileStatus.Active, StringComparison.OrdinalIgnoreCase);
+        }
+
+        // Hồ sơ hiển thị CÔNG KHAI: đã duyệt + không bị Admin khóa (Ispublic)
+        // + Tutor không tự tắt (Isacceptingbookings). Đồng bộ với bộ lọc marketplace search.
+        private static bool IsPubliclyVisibleTutorProfile(dynamic profile)
+        {
+            return IsActiveTutorProfile(profile) &&
                    profile.Ispublic == true &&
                    profile.Isacceptingbookings == true;
         }
