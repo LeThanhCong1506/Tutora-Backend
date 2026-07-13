@@ -162,6 +162,13 @@ namespace MV.InfrastructureLayer.Repositories
                 query = query.Where(u => u.Tutorprofile!.Teachingareadistrict == district);
             }
 
+            // 13b. Filter by Gender - EXACT MATCH (fast)
+            if (!string.IsNullOrWhiteSpace(parameters.Gender) &&
+                Enum.TryParse<MV.DomainLayer.Enums.Gender>(parameters.Gender, true, out var genderValue))
+            {
+                query = query.Where(u => u.Gender == genderValue);
+            }
+
             // 14. Filter by Grade Level - Search in JSONB gradelevels column
             if (!string.IsNullOrWhiteSpace(parameters.GradeLevel))
             {

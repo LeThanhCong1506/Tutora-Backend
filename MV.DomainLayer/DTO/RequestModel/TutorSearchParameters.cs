@@ -107,6 +107,12 @@ namespace MV.DomainLayer.DTO.RequestModel
         /// </summary>
         public string? VerificationStatus { get; set; }
 
+        /// <summary>
+        /// Filter by tutor gender preference. Options: "male", "female" (case-insensitive).
+        /// Null = no preference.
+        /// </summary>
+        public string? Gender { get; set; }
+
         // ==================== SORTING (Figma: SORT BY dropdown) ====================
 
         /// <summary>

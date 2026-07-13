@@ -186,6 +186,8 @@ builder.Services.AddCors(options =>
         {
             policy.WithOrigins(
                     "https://localhost:7203", "http://localhost:5173", "http://localhost:5174", "http://localhost:5166",
+                    // Vite dev:zalo (--mode zalo) — Mini App local testing
+                    "http://localhost:5181", "http://127.0.0.1:5181",
                     // Next.js dev server (apps/web-next)
                     "http://localhost:3000",
                     "https://swd-391-frontend-d4ek.vercel.app", "http://localhost:5500",
