@@ -183,8 +183,10 @@ namespace MV.ApplicationLayer.Services
                 TeachingAreaCity = profile.Teachingareacity,
                 TeachingAreaDistrict = profile.Teachingareadistrict,
                 TeachingMode = TeachingMode.Online,
+                // Ẩn môn/khối đã bị Admin soft-delete khỏi hồ sơ hiển thị (Subject/Gradelevel.IsActive).
+                // Trang quản lý bảng giá của tutor (GetTutorPricingAsync) vẫn giữ nguyên + kèm cờ cảnh báo.
                 SubjectGradePrices = subjects
-                    .Where(s => s.Isactive)
+                    .Where(s => s.Isactive && s.SubjectIsActive && s.GradeLevelIsActive)
                     .Select(MapSubjectGradePrice)
                     .ToList(),
                 Bio = profile.Bio,

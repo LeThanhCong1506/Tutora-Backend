@@ -95,7 +95,10 @@ namespace MV.ApplicationLayer.Services
 
         public async Task<List<ChapterResponse>> GetChaptersAsync(int? subjectId, int? gradeLevelId)
         {
-            var query = _context.Chapters.Where(c => c.IsActive);
+            // Ẩn chương thuộc môn/khối đã bị soft-delete (Subject/Gradelevel.IsActive), không chỉ Chapter.IsActive.
+            var query = _context.Chapters.Where(c => c.IsActive
+                && c.Subject != null && c.Subject.IsActive
+                && c.Gradelevel != null && c.Gradelevel.IsActive);
             if (subjectId.HasValue) query = query.Where(c => c.SubjectId == subjectId.Value);
             if (gradeLevelId.HasValue) query = query.Where(c => c.GradeLevelId == gradeLevelId.Value);
 

@@ -42,7 +42,7 @@ namespace MV.ApplicationLayer.Services
             {
                 gradeName = await _dbContext.Gradelevels
                     .AsNoTracking()
-                    .Where(g => g.Gradelevelid == request.GradeLevelId.Value)
+                    .Where(g => g.Gradelevelid == request.GradeLevelId.Value && g.IsActive)
                     .Select(g => g.Gradename)
                     .FirstOrDefaultAsync(cancellationToken);
             }
@@ -169,11 +169,12 @@ namespace MV.ApplicationLayer.Services
                     AverageRating = u.Tutorprofile.Averagerating ?? 0,
                     TotalReviews = u.Tutorprofile.Totalreviews ?? 0,
                     CompletedHours = u.Tutorprofile.Completedhours ?? 0,
+                    // Bỏ qua bảng giá gắn môn/khối đã bị soft-delete (Subject/Gradelevel.IsActive).
                     MinPrice = u.Tutorprofile.Tutorsubjectgradeprices
-                        .Where(p => p.Isactive)
+                        .Where(p => p.Isactive && p.Subject.IsActive && p.Gradelevel.IsActive)
                         .Min(p => (decimal?)p.Priceperhour),
                     Subjects = u.Tutorprofile.Tutorsubjectgradeprices
-                        .Where(p => p.Subject != null && p.Subject.Subjectname != null)
+                        .Where(p => p.Subject != null && p.Subject.IsActive && p.Subject.Subjectname != null)
                         .Select(p => p.Subject!.Subjectname!)
                         .Distinct()
                         .ToList()
