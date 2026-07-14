@@ -200,18 +200,22 @@ public class ChatService(
 
                 var senderId = booking.Tutorid ?? SystemActors.System;
 
-        var meetLinks = classSessions
+        // Chỉ gửi link BUỔI ĐẦU vào chat. Các buổi sau chỉ mở sau khi phụ huynh
+        // thanh toán đợt 2 — gửi sẵn link mọi buổi sẽ khiến phụ huynh tưởng vào được
+        // ngay (dù Agora token đã chặn ở BE). Link buổi sau sẽ được gửi khi tutor
+        // check-in từng buổi.
+        var firstSession = classSessions
             .Where(l => !string.IsNullOrWhiteSpace(l.MeetingLink))
-            .Select((l, i) => new ChatMessageCreateRequest
-            {
-                Content = $"📅 Buổi học {i + 1}: {l.ScheduledStart:dd/MM HH:mm} - {l.ScheduledEnd:HH:mm}\n\n🔗 Link tham gia: {l.MeetingLink}",
-                MessageType = ChatMessageType.MeetLink
-            })
-            .ToList();
+            .OrderBy(l => l.ScheduledStart)
+            .FirstOrDefault();
 
-        foreach (var msgDto in meetLinks)
+        if (firstSession != null)
         {
-            await SendMessageAsync(senderId, channel.Channelid, msgDto);
+            await SendMessageAsync(senderId, channel.Channelid, new ChatMessageCreateRequest
+            {
+                Content = $"Buổi học đầu tiên: {firstSession.ScheduledStart:dd/MM HH:mm} - {firstSession.ScheduledEnd:HH:mm}\n\n🔗 Link tham gia: {firstSession.MeetingLink}",
+                MessageType = ChatMessageType.MeetLink
+            });
         }
     }
 

@@ -31,6 +31,12 @@ public class StudentClassSessionDetailResponse : StudentClassSessionSummaryRespo
     public DateTime? CheckoutTime { get; set; }
     public string? TutorAvatar { get; set; }
     public StudentClassSessionReportResponse? Report { get; set; }
+
+    /// <summary>
+    /// True nếu buổi tiếp theo bị khóa do phụ huynh chưa thanh toán đợt 2.
+    /// FE dùng để khóa link vào lớp.
+    /// </summary>
+    public bool RequiresRemainingPayment { get; set; }
 }
 
 public class StudentClassSessionReportResponse
