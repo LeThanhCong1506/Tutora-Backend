@@ -434,6 +434,9 @@ public partial class PaymentService(
                 });
             }
 
+            // Remaining amount is now paid → activate sessions 2..N (were reserved until now).
+            await ActivateRemainingSessionsAsync(bookingId, ct);
+
             await context.SaveChangesAsync(ct);
             await tx.CommitAsync(ct);
 

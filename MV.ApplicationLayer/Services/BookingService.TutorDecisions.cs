@@ -49,10 +49,15 @@ public partial class BookingService
         booking.Updatedat = TimeZoneHelper.UtcNow;
         booking.Responsedeadline = null;
 
-        var scheduledClassSessions = booking.ClassSessions
+        // Payment model = pay-per-phase. Only the FIRST session is paid (deposit), so only it is
+        // activated here. Sessions 2..N stay `reserved` (invisible to lists/calendar/stats) until the
+        // parent pays the remaining amount — see BookingService.ActivateRemainingSessions.
+        var reservedClassSessions = booking.ClassSessions
             .Where(classSession => classSession.Status == ClassSessionStatus.Reserved)
             .OrderBy(classSession => classSession.Scheduledstart)
             .ToList();
+
+        var scheduledClassSessions = reservedClassSessions.Take(1).ToList();
 
         foreach (var classSession in scheduledClassSessions)
         {
