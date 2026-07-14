@@ -11,6 +11,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MV.InfrastructureLayer", "M
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MV.PresentationLayer", "MV.PresentationLayer\MV.PresentationLayer.csproj", "{40417605-EE37-12F6-331C-A4E62580138E}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MV.ApplicationLayer.Tests", "MV.ApplicationLayer.Tests\MV.ApplicationLayer.Tests.csproj", "{8A5BD25F-7332-4EBA-8D2E-392E406CA66C}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -33,6 +35,10 @@ Global
 		{40417605-EE37-12F6-331C-A4E62580138E}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{40417605-EE37-12F6-331C-A4E62580138E}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{40417605-EE37-12F6-331C-A4E62580138E}.Release|Any CPU.Build.0 = Release|Any CPU
+		{8A5BD25F-7332-4EBA-8D2E-392E406CA66C}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{8A5BD25F-7332-4EBA-8D2E-392E406CA66C}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{8A5BD25F-7332-4EBA-8D2E-392E406CA66C}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{8A5BD25F-7332-4EBA-8D2E-392E406CA66C}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

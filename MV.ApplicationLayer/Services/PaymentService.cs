@@ -299,7 +299,7 @@ public partial class PaymentService(
             booking.Paymentdueat = null; // Clear deposit deadline
             booking.Depositpaidat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
             booking.Responsedeadline = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow.AddHours(24);
-            booking.Escrowstatus = Holding;
+            booking.Escrowstatus = EscrowStatus.Holding;
             booking.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 
             // Escrow first-classSession share of tutor receivable to frozen balance

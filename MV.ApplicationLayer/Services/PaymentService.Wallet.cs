@@ -88,7 +88,7 @@ public partial class PaymentService
                 booking.Depositpaidat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
                 booking.Paymentdueat = null;
                 booking.Responsedeadline = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow.AddHours(24);
-                booking.Escrowstatus = Holding;
+                booking.Escrowstatus = EscrowStatus.Holding;
                 booking.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 
                 if (!string.IsNullOrWhiteSpace(booking.Tutorid))

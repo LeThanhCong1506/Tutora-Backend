@@ -42,153 +42,176 @@ public class TutorResponseTimeoutJob(IServiceProvider sp, ILogger<TutorResponseT
 
     private async Task ProcessExpiredResponsesAsync(CancellationToken ct)
     {
+        var now = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
+
+        int[] expiredIds;
+        using (var discoveryScope = sp.CreateScope())
+        {
+            var discoveryDb = discoveryScope.ServiceProvider.GetRequiredService<IAppDbContext>();
+            expiredIds = await discoveryDb.Bookings
+                .AsNoTracking()
+                .Where(b => b.Status == BookingStatus.PendingTutor
+                            && b.Responsedeadline != null
+                            && b.Responsedeadline <= now)
+                .Select(b => b.Bookingid)
+                .ToArrayAsync(ct);
+        }
+
+        if (expiredIds.Length == 0) return;
+
+        logger.LogInformation("Tìm thấy {Count} booking đã hết hạn phản hồi của gia sư.", expiredIds.Length);
+
+        foreach (var bookingId in expiredIds)
+            await ProcessExpiredResponseAsync(bookingId, ct);
+    }
+
+    private async Task ProcessExpiredResponseAsync(int bookingId, CancellationToken ct)
+    {
+        // A fresh scope per booking prevents a rolled-back entity graph from leaking into the next item.
         using var scope = sp.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<IAppDbContext>();
         var notify = scope.ServiceProvider.GetRequiredService<INotificationService>();
         var now = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
+        List<NotificationRequest> notifications = new();
 
-        // Find bookings in pending_tutor status whose response deadline has passed
-        var expired = await db.Bookings
-            .Include(b => b.Chatchannels)
-            .Include(b => b.ClassSessions)
-            .Where(b => b.Status == BookingStatus.PendingTutor
-                        && b.Responsedeadline != null
-                        && b.Responsedeadline < now)
-            .ToListAsync(ct);
-
-        if (expired.Count == 0) return;
-
-        logger.LogInformation("Thành lập {Count} bookings với thời hạn phản hồi của gia sư đã hết hạn.", expired.Count);
-
-        foreach (var b in expired)
+        await using var tx = await db.Database.BeginTransactionAsync(ct);
+        try
         {
-            await using var tx = await db.Database.BeginTransactionAsync(ct);
-            List<NotificationRequest> notifications = new();
-            try
+            // Lock and re-read the booking inside the transaction. Multiple app instances and tutor
+            // decisions now serialize on this row, so only one actor can perform the terminal action.
+            var b = await db.Bookings
+                .FromSqlRaw(SqlQueries.LockBookingById, bookingId)
+                .SingleOrDefaultAsync(ct);
+
+            if (b == null)
             {
-                // Cancel the booking
-                b.Status = BookingStatus.Cancelled;
-                    b.Cancelledby = SystemActors.System;
-                b.Cancelledat = now;
-                b.Cancellationreason = "Gia sư không phản hồi trong 24 giờ";
-                b.Updatedat = now;
-
-                // Close associated chat channels
-                foreach (var ch in b.Chatchannels)
-                    ch.Status = ChatChannelStatus.Closed;
-                foreach (var classSession in b.ClassSessions.Where(l => l.Status == ClassSessionStatus.Reserved))
-                    classSession.Status = ClassSessionStatus.Cancelled;
-
-                await RefundPaidBookingAsync(db, b, now, ct);
-
-                // Return the promotion usage consumed at booking creation
-                await MV.ApplicationLayer.Helpers.PromotionUsageHelper.ReturnUsageAsync(db, b.Promotionid, ct);
-
-                await db.SaveChangesAsync(ct);
-
-                // Notify parent/student
-                if (!string.IsNullOrEmpty(b.Parentid))
-                {
-                    notifications.Add(new NotificationRequest
-                    {
-                        Userid = b.Parentid,
-                        Title = "Booking đã tự động hủy",
-                        Message = $"Booking #{b.Bookingid} đã bị hủy do gia sư không phản hồi trong 24 giờ. Tiền cọc đã được hoàn vào ví của bạn.",
-                        Type = NotificationType.BookingTimeout,
-                        Referenceid = b.Bookingid.ToString()
-                    });
-                }
-
-                // Notify tutor
-                if (!string.IsNullOrEmpty(b.Tutorid))
-                {
-                    notifications.Add(new NotificationRequest
-                    {
-                        Userid = b.Tutorid,
-                        Title = "Booking đã bị hủy",
-                        Message = $"Booking #{b.Bookingid} đã bị hủy do bạn không phản hồi trong 24 giờ.",
-                        Type = NotificationType.BookingTimeout,
-                        Referenceid = b.Bookingid.ToString()
-                    });
-                }
-
                 await tx.CommitAsync(ct);
-                logger.LogInformation("Booking {BookingId} đã tự động hủy do gia sư không phản hồi trong 24 giờ.", b.Bookingid);
-            }
-            catch (Exception ex)
-            {
-                await tx.RollbackAsync(ct);
-                logger.LogError(ex, "Không thể tự động hủy booking {BookingId}.", b.Bookingid);
-                continue;
+                return;
             }
 
-            if (notifications.Count > 0)
+            if (!TutorResponseTimeoutPolicy.CanProcess(b, now))
             {
-                try
+                if (b.Status == BookingStatus.PendingTutor && b.Refundstatus == RefundStatus.Refunded)
                 {
-                    await notify.CreateNotificationsAsync(notifications);
+                    logger.LogWarning(
+                        "Bỏ qua timeout booking {BookingId}: booking vẫn pending_tutor nhưng đã được đánh dấu refunded.",
+                        bookingId);
                 }
-                catch (Exception ex)
-                {
-                    logger.LogError(ex, "Không thể gửi thông báo timeout cho booking {BookingId}.", b.Bookingid);
-                }
+                await tx.CommitAsync(ct);
+                return;
             }
+
+            b.Status = BookingStatus.Cancelled;
+            b.Cancelledby = SystemActors.System;
+            b.Cancelledat = now;
+            b.Cancellationreason = "Gia sư không phản hồi trong 24 giờ";
+            b.Updatedat = now;
+            b.Responsedeadline = null;
+
+            var chatChannels = await db.Chatchannels
+                .Where(ch => ch.Bookingid == bookingId)
+                .ToListAsync(ct);
+            foreach (var ch in chatChannels)
+                ch.Status = ChatChannelStatus.Closed;
+
+            var reservedSessions = await db.ClassSessions
+                .Where(classSession => classSession.Bookingid == bookingId
+                                       && classSession.Status == ClassSessionStatus.Reserved)
+                .ToListAsync(ct);
+            foreach (var classSession in reservedSessions)
+                classSession.Status = ClassSessionStatus.Cancelled;
+
+            await RefundPaidBookingAsync(db, b, now, ct);
+            await PromotionUsageHelper.ReturnUsageAsync(db, b.Promotionid, ct);
+            await db.SaveChangesAsync(ct);
+
+            if (!string.IsNullOrEmpty(b.Parentid))
+            {
+                notifications.Add(new NotificationRequest
+                {
+                    Userid = b.Parentid,
+                    Title = "Booking đã tự động hủy",
+                    Message = $"Booking #{b.Bookingid} đã bị hủy do gia sư không phản hồi trong 24 giờ. Tiền cọc đã được hoàn vào ví của bạn.",
+                    Type = NotificationType.BookingTimeout,
+                    Referenceid = b.Bookingid.ToString()
+                });
+            }
+
+            if (!string.IsNullOrEmpty(b.Tutorid))
+            {
+                notifications.Add(new NotificationRequest
+                {
+                    Userid = b.Tutorid,
+                    Title = "Booking đã bị hủy",
+                    Message = $"Booking #{b.Bookingid} đã bị hủy do bạn không phản hồi trong 24 giờ.",
+                    Type = NotificationType.BookingTimeout,
+                    Referenceid = b.Bookingid.ToString()
+                });
+            }
+
+            await tx.CommitAsync(ct);
+            logger.LogInformation("Booking {BookingId} đã tự động hủy do gia sư không phản hồi trong 24 giờ.", b.Bookingid);
+        }
+        catch (Exception ex)
+        {
+            await tx.RollbackAsync(ct);
+            logger.LogError(ex, "Không thể tự động hủy booking {BookingId}.", bookingId);
+            return;
+        }
+
+        if (notifications.Count == 0) return;
+
+        try
+        {
+            await notify.CreateNotificationsAsync(notifications);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Không thể gửi thông báo timeout cho booking {BookingId}.", bookingId);
         }
     }
 
     private static async Task RefundPaidBookingAsync(IAppDbContext db, Booking booking, DateTime now, CancellationToken ct)
     {
         if (booking.Depositpaidat == null)
-        {
-            booking.Refundstatus = RefundStatus.NoRefund;
-            return;
-        }
+            throw new InvalidOperationException(
+                $"Booking #{booking.Bookingid} is pending tutor response without a paid deposit.");
 
-        var refundAmount = booking.Paymentstatus == PaymentStatus.Escrowed || booking.Remainingpaidat != null
-            ? booking.Finalprice ?? booking.Totalamount ?? 0
-            : booking.Depositamount ?? 0;
+        var refundAmount = TutorResponseTimeoutPolicy.ParentRefundAmount(booking);
 
         if (refundAmount <= 0 || string.IsNullOrWhiteSpace(booking.Parentid))
+            throw new InvalidOperationException(
+                $"Booking #{booking.Bookingid} has no valid refund recipient or amount.");
+
+        var parentWallet = await WalletLockHelper.GetOrCreateForUpdateAsync(db, booking.Parentid, now, ct);
+        parentWallet.Balance = (parentWallet.Balance ?? 0) + refundAmount;
+        parentWallet.Lastupdated = now;
+
+        db.Wallettransactions.Add(new Wallettransaction
         {
-            booking.Refundstatus = RefundStatus.NoRefund;
-            return;
-        }
+            Wallet = parentWallet,
+            Amount = refundAmount,
+            Transactiontype = TransactionType.Refund,
+            Referencetable = ReferenceTable.Booking,
+            Referenceid = booking.Bookingid,
+            Description = $"Hoàn tiền booking #{booking.Bookingid} do gia sư không phản hồi",
+            Createdat = now
+        });
 
-        var parentWallet = await db.Wallets
-            .FromSqlRaw(SqlQueries.LockWalletByUserId, booking.Parentid)
-            .FirstOrDefaultAsync(ct);
+        var tutorEscrowAmount = TutorResponseTimeoutPolicy.TutorEscrowAmount(booking);
 
-        if (parentWallet != null)
+        if (tutorEscrowAmount > 0)
         {
-            parentWallet.Balance = (parentWallet.Balance ?? 0) + refundAmount;
-            parentWallet.Lastupdated = now;
+            if (string.IsNullOrWhiteSpace(booking.Tutorid))
+                throw new InvalidOperationException($"Booking #{booking.Bookingid} has escrow but no tutor id.");
 
-            db.Wallettransactions.Add(new Wallettransaction
-            {
-                Wallet = parentWallet,
-                Amount = refundAmount,
-                Transactiontype = TransactionType.Refund,
-                Referencetable = ReferenceTable.Booking,
-                Referenceid = booking.Bookingid,
-                Description = $"Hoàn tiền booking #{booking.Bookingid} do gia sư không phản hồi",
-                Createdat = now
-            });
-        }
+            var tutorWallet = await WalletLockHelper.GetRequiredForUpdateAsync(db, booking.Tutorid, ct);
+            if ((tutorWallet.Frozenbalance ?? 0) < tutorEscrowAmount)
+                throw new InvalidOperationException(
+                    $"Tutor escrow balance is insufficient for booking #{booking.Bookingid}.");
 
-        if (!string.IsNullOrWhiteSpace(booking.Tutorid))
-        {
-            var tutorWallet = await db.Wallets
-                .FromSqlRaw(SqlQueries.LockWalletByUserId, booking.Tutorid)
-                .FirstOrDefaultAsync(ct);
-
-            if (tutorWallet != null)
-            {
-                var tutorEscrowAmount = booking.Paymentstatus == PaymentStatus.Escrowed || booking.Remainingpaidat != null
-                    ? booking.Tutorfee ?? 0
-                    : Math.Round((booking.Tutorfee ?? 0) / Math.Max(booking.Totalsessions ?? 1, 1), 2);
-
-                tutorWallet.Frozenbalance = Math.Max(0, (tutorWallet.Frozenbalance ?? 0) - tutorEscrowAmount);
-                tutorWallet.Lastupdated = now;
+            tutorWallet.Frozenbalance = (tutorWallet.Frozenbalance ?? 0) - tutorEscrowAmount;
+            tutorWallet.Lastupdated = now;
 
                 db.Wallettransactions.Add(new Wallettransaction
                 {
@@ -205,5 +228,6 @@ public class TutorResponseTimeoutJob(IServiceProvider sp, ILogger<TutorResponseT
 
         booking.Refundamount = refundAmount;
         booking.Refundstatus = RefundStatus.Refunded;
+        booking.Escrowstatus = EscrowStatus.Refunded;
     }
 }

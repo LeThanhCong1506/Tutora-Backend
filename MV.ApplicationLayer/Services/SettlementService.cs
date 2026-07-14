@@ -223,6 +223,7 @@ public class SettlementService : ISettlementService
             return 0;
 
         booking.Status = BookingStatus.Completed;
+        booking.Escrowstatus = EscrowStatus.Released;
 
         // Flush pending classSession status changes so the Completed count below reflects them.
         await _context.SaveChangesAsync();
