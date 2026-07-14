@@ -7,6 +7,7 @@ on:
       # Chỉ trigger khi code thay đổi, bỏ qua docs/config không ảnh hưởng build
       - '**/*.cs'
       - '**/*.csproj'
+      - '**/*.sln'
       - '**/appsettings*.json'
       - 'Dockerfile'
       - 'docker-compose.yml'
@@ -16,6 +17,7 @@ on:
     paths:
       - '**/*.cs'
       - '**/*.csproj'
+      - '**/*.sln'
       - 'Dockerfile'
   workflow_dispatch:
     inputs:
@@ -53,7 +55,7 @@ jobs:
 
       - run: dotnet restore
       - run: dotnet build --configuration Release --no-restore
-      - run: dotnet test --no-build --verbosity normal
+      - run: dotnet test --configuration Release --no-build --no-restore --verbosity normal
 
   # ============================================================
   # JOB 2: Docker build & push
