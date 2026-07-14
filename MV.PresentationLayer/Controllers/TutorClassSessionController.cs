@@ -40,6 +40,22 @@ public class TutorClassSessionController : ControllerBase
     }
 
     /// <summary>
+    /// Get tutor "classes" list — one row per booking, grouped/aggregated server-side
+    /// (subject, schedule, progress, derived status). Powers the "Quản lý lớp học" screen.
+    /// </summary>
+    [HttpGet("/api/tutor/classes")]
+    public async Task<ActionResult<APIResponse<TutorClassListResponse>>> GetClasses(
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 10,
+        [FromQuery] string? status = null,
+        [FromQuery] string? search = null)
+    {
+        var tutorId = UserHelper.GetUserId(User);
+        var result = await _classSessionService.GetTutorClassesAsync(tutorId, page, pageSize, status, search);
+        return Ok(APIResponse<TutorClassListResponse>.Success(result, "Lấy danh sách lớp học thành công."));
+    }
+
+    /// <summary>
     /// Get tutor calendar view
     /// </summary>
     [HttpGet("calendar")]

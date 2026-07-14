@@ -125,6 +125,43 @@ public partial class ClassSessionService : IClassSessionService
         return new PagedList<ClassSessionResponse>(dtos, totalCount, page, pageSize);
     }
 
+    public async Task<TutorClassListResponse> GetTutorClassesAsync(string tutorId, int page, int pageSize, string? status, string? search)
+    {
+        var (items, total) = await _classSessionRepo.GetTutorClassesPagedAsync(
+            tutorId, page, pageSize, status, search, TimeZoneHelper.UtcNow);
+
+        return new TutorClassListResponse
+        {
+            Items = items.Select(a => new TutorClassSummaryResponse
+            {
+                BookingId = a.BookingId,
+                SubjectName = a.SubjectName,
+                StudentName = a.StudentName,
+                TotalSessions = a.TotalSessions,
+                CompletedSessions = a.CompletedSessions,
+                Schedule = a.Schedule,
+                NextSessionStart = a.NextSessionStart,
+                Status = DeriveClassStatus(a),
+            }).ToList(),
+            TotalCount = total,
+            Page = page,
+            PageSize = pageSize,
+        };
+    }
+
+    /// <summary>
+    /// Derived class status shown on the tutor list. Mirrors the flags computed at the DB in
+    /// <c>GetTutorClassesPagedAsync</c>: all sessions terminal → completed; otherwise
+    /// in_progress > pending_confirmation > scheduled.
+    /// </summary>
+    private static string DeriveClassStatus(TutorClassAggregate a)
+    {
+        if (!a.HasNonTerminal) return ClassSessionStatus.Completed;
+        if (a.HasInProgress) return ClassSessionStatus.InProgress;
+        if (a.HasPending) return ClassSessionStatus.PendingConfirmation;
+        return ClassSessionStatus.Scheduled;
+    }
+
     public async Task<PagedList<ClassSessionResponse>> GetParentClassSessionsAsync(string parentId, int page, int pageSize, DateTime? fromDate, string? status)
     {
         var studentIds = await _studentRepo.GetStudentIdsByParentIdAsync(parentId);
@@ -398,8 +435,13 @@ public partial class ClassSessionService : IClassSessionService
         return (items, total);
     }
 
-    public Task<StudentClassSessionDetailResponse?> GetStudentClassSessionDetailAsync(int classSessionId, string studentProfileId)
-        => _classSessionRepo.GetStudentClassSessionDetailAsync(classSessionId, studentProfileId);
+    public async Task<StudentClassSessionDetailResponse?> GetStudentClassSessionDetailAsync(int classSessionId, string studentProfileId)
+    {
+        var detail = await _classSessionRepo.GetStudentClassSessionDetailAsync(classSessionId, studentProfileId);
+        if (detail != null)
+            detail.RequiresRemainingPayment = await IsSessionBlockedByRemainingPaymentAsync(classSessionId);
+        return detail;
+    }
 
     public Task<IReadOnlyList<StudentClassSessionSummaryResponse>> GetStudentPendingClassSessionsAsync(string studentProfileId)
         => _classSessionRepo.GetStudentPendingClassSessionsAsync(studentProfileId);
