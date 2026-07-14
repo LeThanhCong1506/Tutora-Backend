@@ -745,6 +745,36 @@ namespace MV.ApplicationLayer.Services
                     throw new ArgumentException("StartTime phải trước EndTime");
                 }
             }
+
+            // Không cho phép các khung giờ trong cùng một ngày đè/trùng lên nhau.
+            // Mỗi khung thời gian chỉ được có duy nhất một lịch dạy — ví dụ 20:00-22:00 và
+            // 21:00-22:00 (thứ 2) là chồng lấn nên phải báo lỗi.
+            var slotsByDay = request.FixedSlots
+                .Select(s => new
+                {
+                    s.DayOfWeek,
+                    Start = TimeOnly.Parse(s.StartTime),
+                    End = TimeOnly.Parse(s.EndTime)
+                })
+                .GroupBy(s => s.DayOfWeek);
+
+            foreach (var day in slotsByDay)
+            {
+                var ordered = day.OrderBy(s => s.Start).ToList();
+                var maxEnd = ordered[0].End;
+                for (int i = 1; i < ordered.Count; i++)
+                {
+                    // Đã sắp theo Start tăng dần: nếu Start của khung sau < End lớn nhất
+                    // của các khung trước đó thì hai khung chồng lấn thời gian.
+                    if (ordered[i].Start < maxEnd)
+                    {
+                        throw new ArgumentException(
+                            $"Các khung giờ trong cùng một ngày (thứ {day.Key}) không được trùng/đè lên nhau. " +
+                            "Mỗi khung thời gian chỉ được xếp một lịch dạy.");
+                    }
+                    if (ordered[i].End > maxEnd) maxEnd = ordered[i].End;
+                }
+            }
         }
 
         private static TutorPackageResponse MapTutorPackageResponse(Tutorpackage package, bool hasActiveBooking = false)
