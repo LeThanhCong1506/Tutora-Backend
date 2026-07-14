@@ -308,17 +308,21 @@ public partial class BookingService(
                     if ((tutorWallet.Frozenbalance ?? 0) < tutorEscrowAmount)
                         throw new InvalidOperationException($"Tutor escrow balance is insufficient for booking #{bookingId}.");
 
-                        context.Wallettransactions.Add(new Wallettransaction
-                        {
-                            Wallet = tutorWallet,
-                            Amount = -tutorEscrowAmount,
-                            Transactiontype = TransactionType.EscrowReversal,
-                            Referencetable = ReferenceTable.Booking,
-                            Referenceid = bookingId,
-                            Description = $"Giải phóng escrow booking #{bookingId} do hủy",
-                            Createdat = TimeZoneHelper.UtcNow
-                        });
-                    }
+                    // Rút escrow khỏi frozen (tutor không thực nhận khi booking bị hủy).
+                    tutorWallet.Frozenbalance = Math.Max(0, (tutorWallet.Frozenbalance ?? 0) - tutorEscrowAmount);
+                    tutorWallet.Lastupdated = TimeZoneHelper.UtcNow;
+
+                    context.Wallettransactions.Add(new Wallettransaction
+                    {
+                        Wallet = tutorWallet,
+                        Amount = -tutorEscrowAmount,
+                        Transactiontype = TransactionType.EscrowReversal,
+                        Referencetable = ReferenceTable.Booking,
+                        Referenceid = bookingId,
+                        Description = $"Giải phóng escrow booking #{bookingId} do hủy",
+                        Createdat = TimeZoneHelper.UtcNow
+                    });
+                }
                 }
 
             booking.Status = BookingStatus.Cancelled;

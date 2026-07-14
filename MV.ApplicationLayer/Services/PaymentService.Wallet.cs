@@ -39,6 +39,10 @@ public partial class PaymentService
             if (booking.Status != BookingStatus.DepositPaid && booking.Status != BookingStatus.PendingRemainingPayment
                 && booking.Status != BookingStatus.Ongoing)
                 throw new BookingException(BookingErrorCodes.InvalidBookingStatus, "Booking not ready for remaining payment", 409);
+            // Chặn thanh toán phần còn lại khi đã quá hạn (đồng bộ với luồng PayOS ConfirmRemainingAsync).
+            // Tránh "hồi sinh" booking mà hệ thống đã/đang finalize-early và race với PaymentTimeoutJob.
+            if (booking.Paymentdueat <= MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow)
+                throw new BookingException(BookingErrorCodes.BookingExpired, "Đã quá hạn thanh toán phần còn lại", 409);
         }
 
         if (booking.Paymentstatus == Escrowed || booking.Status == BookingStatus.Paid)

@@ -148,7 +148,7 @@ public partial class ClassSessionService
                         _context.Wallettransactions.Add(new Wallettransaction
                         {
                             Walletid = tutorWallet.Walletid,
-                            Amount = tutorEscrowClamped,
+                            Amount = -tutorEscrowClamped,
                             Transactiontype = TransactionType.EscrowReversal,
                             Referencetable = ReferenceTable.Booking,
                             Referenceid = classSession.Bookingid,
@@ -217,7 +217,7 @@ public partial class ClassSessionService
                         _context.Wallettransactions.Add(new Wallettransaction
                         {
                             Walletid = tutorWallet.Walletid,
-                            Amount = tutorEscrowRelease,
+                            Amount = -tutorEscrowRelease,
                             Transactiontype = TransactionType.EscrowReversal,
                             Referencetable = ReferenceTable.Booking,
                             Referenceid = classSession.Bookingid,

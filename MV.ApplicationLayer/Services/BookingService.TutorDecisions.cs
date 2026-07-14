@@ -255,17 +255,16 @@ public partial class BookingService
             tutorWallet.Frozenbalance = (tutorWallet.Frozenbalance ?? 0) - tutorEscrowAmount;
             tutorWallet.Lastupdated = now;
 
-                context.Wallettransactions.Add(new Wallettransaction
-                {
-                    Wallet = tutorWallet,
-                    Amount = -tutorEscrowAmount,
-                    Transactiontype = TransactionType.EscrowReversal,
-                    Referencetable = ReferenceTable.Booking,
-                    Referenceid = booking.Bookingid,
-                    Description = $"{description} - release escrow",
-                    Createdat = TimeZoneHelper.UtcNow
-                });
-            }
+            context.Wallettransactions.Add(new Wallettransaction
+            {
+                Wallet = tutorWallet,
+                Amount = -tutorEscrowAmount,
+                Transactiontype = TransactionType.EscrowReversal,
+                Referencetable = ReferenceTable.Booking,
+                Referenceid = booking.Bookingid,
+                Description = $"{description} - release escrow",
+                Createdat = TimeZoneHelper.UtcNow
+            });
         }
 
         booking.Refundamount = refundAmount;

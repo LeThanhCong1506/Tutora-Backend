@@ -213,17 +213,16 @@ public class TutorResponseTimeoutJob(IServiceProvider sp, ILogger<TutorResponseT
             tutorWallet.Frozenbalance = (tutorWallet.Frozenbalance ?? 0) - tutorEscrowAmount;
             tutorWallet.Lastupdated = now;
 
-                db.Wallettransactions.Add(new Wallettransaction
-                {
-                    Wallet = tutorWallet,
-                    Amount = -tutorEscrowAmount,
-                    Transactiontype = TransactionType.EscrowReversal,
-                    Referencetable = ReferenceTable.Booking,
-                    Referenceid = booking.Bookingid,
-                    Description = $"Giải phóng escrow booking #{booking.Bookingid} do gia sư không phản hồi",
-                    Createdat = now
-                });
-            }
+            db.Wallettransactions.Add(new Wallettransaction
+            {
+                Wallet = tutorWallet,
+                Amount = -tutorEscrowAmount,
+                Transactiontype = TransactionType.EscrowReversal,
+                Referencetable = ReferenceTable.Booking,
+                Referenceid = booking.Bookingid,
+                Description = $"Giải phóng escrow booking #{booking.Bookingid} do gia sư không phản hồi",
+                Createdat = now
+            });
         }
 
         booking.Refundamount = refundAmount;
