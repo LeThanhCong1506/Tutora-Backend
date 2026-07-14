@@ -567,7 +567,7 @@ namespace MV.ApplicationLayer.Services
             var invalidSubjectIds = subjectIds.Except(existingSubjectIds).ToList();
             if (invalidSubjectIds.Any())
             {
-                throw new ArgumentException($"Subject IDs không tồn tại: {string.Join(", ", invalidSubjectIds)}");
+                throw new ArgumentException($"Subject IDs không tồn tại hoặc đã ngừng sử dụng: {string.Join(", ", invalidSubjectIds)}");
             }
 
             var gradeLevelIds = prices.Select(p => p.GradeLevelId).Distinct().ToList();
@@ -575,7 +575,7 @@ namespace MV.ApplicationLayer.Services
             var invalidGradeLevelIds = gradeLevelIds.Except(existingGradeLevelIds).ToList();
             if (invalidGradeLevelIds.Any())
             {
-                throw new ArgumentException($"GradeLevel IDs không tồn tại: {string.Join(", ", invalidGradeLevelIds)}");
+                throw new ArgumentException($"GradeLevel IDs không tồn tại hoặc đã ngừng sử dụng: {string.Join(", ", invalidGradeLevelIds)}");
             }
 
             // Rule 1 & 2: validate session duration and sessions/week against tutor availability
@@ -698,7 +698,11 @@ namespace MV.ApplicationLayer.Services
                 DurationMinutesPerSession = price.Durationminutespersession,
                 SessionsPerWeek = price.Sessionsperweek,
                 Currency = price.Currency,
-                IsActive = price.Isactive
+                IsActive = price.Isactive,
+                // Cờ để FE biết môn/khối đã bị Admin soft-delete: cảnh báo/khóa dòng này.
+                // Nav property được load sẵn qua Include; mặc định true nếu chưa load được.
+                SubjectIsActive = price.Subject?.IsActive ?? true,
+                GradeLevelIsActive = price.Gradelevel?.IsActive ?? true
             };
         }
 
