@@ -122,7 +122,11 @@ public partial class PaymentService
             }
             else
             {
-                booking.Status = BookingStatus.Paid;
+                // Đã trả đủ (qua ví): còn buổi chưa hoàn tất → "ongoing"; hết buổi → "paid"
+                // (SettlementService đưa về completed khi Sessionsremaining = 0). Đồng bộ với ConfirmRemainingAsync.
+                booking.Status = (booking.Sessionsremaining ?? 0) > 0
+                    ? BookingStatus.Ongoing
+                    : BookingStatus.Paid;
                 booking.Paymentstatus = Escrowed;
                 booking.Remainingpaidat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
                 booking.Paymentdueat = null;
