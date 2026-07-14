@@ -103,6 +103,15 @@ public class ParentService : IParentService
 
         if (classSession == null) return null;
 
+        // Buổi tiếp theo bị khóa nếu chưa thanh toán đợt 2 (các buổi còn lại).
+        var requiresRemainingPayment = classSession.Booking != null
+            && (classSession.Booking.Status == BookingStatus.DepositPaid
+                || classSession.Booking.Status == BookingStatus.PendingRemainingPayment)
+            && classSession.Booking.Remainingpaidat == null
+            && await _context.ClassSessions.AnyAsync(
+                l => l.Bookingid == classSession.Bookingid && l.Classsessionid != classSessionId
+                && (l.Status == Completed || l.Status == PendingConfirmation || l.Status == InProgress));
+
         return new ClassSessionDetailResponse
         {
             ClassSessionId = classSession.Classsessionid,
@@ -126,6 +135,7 @@ public class ParentService : IParentService
             Homework = classSession.Homework,
             TutorNotes = classSession.Tutornotes,
             MeetingLink = classSession.Meetinglink,
+            RequiresRemainingPayment = requiresRemainingPayment,
             ClassSessionPrice = classSession.Lessonprice,
             Student = classSession.Booking?.Student != null ? new ClassSessionStudentResponse
             {

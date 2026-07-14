@@ -53,7 +53,14 @@ public partial class BookingService
                     booking.Updatedat = TimeZoneHelper.UtcNow;
                     booking.Responsedeadline = null;
 
-                    foreach (var classSession in booking.ClassSessions.Where(x => x.Status == ClassSessionStatus.Reserved))
+                    // Pay-per-phase: cọc chỉ trả cho buổi ĐẦU → chỉ kích hoạt buổi đầu.
+                    // Các buổi 2..N giữ `reserved` cho tới khi phụ huynh trả phần còn lại
+                    // (khi đó PaymentService.ActivateRemainingSessionsAsync sẽ kích hoạt).
+                    var firstReserved = booking.ClassSessions
+                        .Where(x => x.Status == ClassSessionStatus.Reserved)
+                        .OrderBy(x => x.Scheduledstart)
+                        .Take(1);
+                    foreach (var classSession in firstReserved)
                     {
                         classSession.Status = ClassSessionStatus.Scheduled;
                         classSession.Meetinglink ??= classSession.Classsessionid.ToString();

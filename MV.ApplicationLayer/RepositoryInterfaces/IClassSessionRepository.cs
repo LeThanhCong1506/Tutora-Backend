@@ -19,6 +19,9 @@ public interface IClassSessionRepository
     Task<(IReadOnlyList<ClassSession> Items, int Total)> GetByStudentIdsPagedAsync(
         IEnumerable<string> studentIds, int page, int pageSize, DateTime? fromDate, string? status);
 
+    Task<(IReadOnlyList<TutorClassAggregate> Items, int Total)> GetTutorClassesPagedAsync(
+        string tutorId, int page, int pageSize, string? status, string? search, DateTime nowUtc);
+
     /// <summary>Loads a classSession with all navigation props needed for ClassSessionResponse mapping.</summary>
     Task<ClassSession?> GetByIdWithDetailsAsync(int classSessionId);
 

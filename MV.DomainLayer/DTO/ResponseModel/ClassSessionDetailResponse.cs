@@ -45,6 +45,12 @@ public class ClassSessionDetailResponse
     public string? TutorNotes { get; set; }
     public string? MeetingLink { get; set; }
 
+    /// <summary>
+    /// True nếu đây là buổi TIẾP THEO nhưng phụ huynh chưa thanh toán đợt 2 (các buổi
+    /// còn lại). FE dùng cờ này để khóa link/nút vào lớp và hiển thị CTA thanh toán.
+    /// </summary>
+    public bool RequiresRemainingPayment { get; set; }
+
     // Price info
     public decimal? ClassSessionPrice { get; set; }
 

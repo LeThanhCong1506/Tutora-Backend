@@ -36,6 +36,13 @@ public interface IClassSessionService
     Task<PagedList<ClassSessionResponse>> GetTutorClassSessionsAsync(string tutorId, int page, int pageSize, DateTime? fromDate, string? status);
 
     /// <summary>
+    /// Paged "class" list (one row per booking) for the tutor "Quản lý lớp học" screen. Grouping,
+    /// progress and derived status are computed server-side. <paramref name="status"/> is the derived
+    /// class status; <paramref name="search"/> matches subject or student name.
+    /// </summary>
+    Task<TutorClassListResponse> GetTutorClassesAsync(string tutorId, int page, int pageSize, string? status, string? search);
+
+    /// <summary>
     /// Paged classSession list from the parent's perspective, filterable by date and status.
     /// </summary>
     Task<PagedList<ClassSessionResponse>> GetParentClassSessionsAsync(string parentId, int page, int pageSize, DateTime? fromDate, string? status);
@@ -90,6 +97,13 @@ public interface IClassSessionService
     /// Returns the public URL of the uploaded file.
     /// </summary>
     Task<string> UploadAttachmentAsync(int classSessionId, string tutorId, IFormFile file);
+
+    /// <summary>
+    /// True nếu buổi học là buổi TIẾP THEO của booking nhưng phụ huynh CHƯA thanh toán
+    /// đợt 2 (các buổi còn lại). Buổi đầu luôn false. Dùng để chặn cấp token Agora và
+    /// để FE khóa link buổi chưa được thanh toán.
+    /// </summary>
+    Task<bool> IsSessionBlockedByRemainingPaymentAsync(int classSessionId);
 
     // ── No-show handling ───────────────────────────────────────────────────
 

@@ -23,6 +23,7 @@ namespace MV.PresentationLayer.Controllers;
 [Authorize]
 public class AgoraController(
     IAgoraRTCService agoraService,
+    IClassSessionService classSessionService,
     IAppDbContext context) : ControllerBase
 {
     private string UserId => User.FindFirstValue(ClaimTypes.NameIdentifier)
@@ -58,6 +59,15 @@ public class AgoraController(
         var hasAccess = await CheckClassSessionAccessAsync(classSession, userId);
         if (!hasAccess)
             return Forbid();
+
+        // Chặn vào lớp buổi TIẾP THEO khi phụ huynh chưa thanh toán đợt 2 (các buổi còn
+        // lại). Áp cho cả tutor lẫn học viên/phụ huynh; miễn Admin để còn giám sát.
+        if (CurrentUserRole != UserRole.Admin
+            && await classSessionService.IsSessionBlockedByRemainingPaymentAsync(classSessionId))
+        {
+            return BadRequest(APIResponse<object>.Fail(
+                "Phụ huynh chưa thanh toán các buổi học còn lại. Vui lòng hoàn tất thanh toán trước khi vào lớp buổi tiếp theo.", 400));
+        }
 
         // Buổi học phải đang diễn ra hoặc sắp diễn ra (không quá 30 phút trước giờ bắt đầu)
         var now = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;

@@ -158,6 +158,8 @@ public partial class PaymentService
                     });
                 }
 
+                // Remaining amount is now paid → activate sessions 2..N (were reserved until now).
+                await ActivateRemainingSessionsAsync(bookingId, ct);
             }
 
             await context.SaveChangesAsync(ct);
@@ -228,5 +230,33 @@ public partial class PaymentService
         {
             logger.LogError(ex, "Không thể gửi thông báo thanh toán cho booking {BookingId}", booking.Bookingid);
         }
+    }
+
+    /// <summary>
+    /// Activates the remaining sessions of a booking once the parent has paid the remaining amount.
+    /// Sessions 2..N were created up-front at booking time in <c>reserved</c> state (invisible to
+    /// lists/calendar/stats); this flips them to <c>scheduled</c> and assigns their Agora meet link.
+    /// The first session was already activated on tutor acceptance. Runs inside the caller's
+    /// transaction — it tracks + mutates but does NOT SaveChanges/Commit.
+    /// </summary>
+    private async Task ActivateRemainingSessionsAsync(int bookingId, CancellationToken ct)
+    {
+        var reserved = await context.ClassSessions
+            .Where(l => l.Bookingid == bookingId && l.Status == ClassSessionStatus.Reserved)
+            .OrderBy(l => l.Scheduledstart)
+            .ToListAsync(ct);
+
+        if (reserved.Count == 0) return;
+
+        foreach (var classSession in reserved)
+        {
+            classSession.Status = ClassSessionStatus.Scheduled;
+            // Agora RTC: channel = classSessionId (deterministic), same convention as first session.
+            if (string.IsNullOrWhiteSpace(classSession.Meetinglink))
+                classSession.Meetinglink = classSession.Classsessionid.ToString();
+        }
+
+        logger.LogInformation("Activated {Count} remaining sessions for booking {BookingId} after remaining payment",
+            reserved.Count, bookingId);
     }
 }
