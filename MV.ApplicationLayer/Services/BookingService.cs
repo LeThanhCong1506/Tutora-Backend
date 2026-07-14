@@ -307,7 +307,7 @@ public partial class BookingService(
                         {
                             Wallet = tutorWallet,
                             Amount = -tutorEscrowAmount,
-                            Transactiontype = TransactionType.EscrowRelease,
+                            Transactiontype = TransactionType.EscrowReversal,
                             Referencetable = ReferenceTable.Booking,
                             Referenceid = bookingId,
                             Description = $"Giải phóng escrow booking #{bookingId} do hủy",

@@ -231,7 +231,7 @@ public partial class BookingService
                 {
                     Wallet = tutorWallet,
                     Amount = -tutorEscrowAmount,
-                    Transactiontype = TransactionType.EscrowRelease,
+                    Transactiontype = TransactionType.EscrowReversal,
                     Referencetable = ReferenceTable.Booking,
                     Referenceid = booking.Bookingid,
                     Description = $"{description} - release escrow",
