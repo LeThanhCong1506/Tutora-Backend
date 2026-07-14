@@ -254,7 +254,6 @@ public partial class ClassSessionService : IClassSessionService
             BookingId = classSession.Bookingid ?? 0,
             TutorId = classSession.Tutorid,
             StudentId = classSession.Studentid,
-            // Trả về giờ Việt Nam để frontend hiển thị đúng
             ScheduledStart = classSession.Scheduledstart,
             ScheduledEnd = classSession.Scheduledend,
             MeetingLink = classSession.Meetinglink,
@@ -276,7 +275,8 @@ public partial class ClassSessionService : IClassSessionService
             Subject = subject != null ? new SubjectResponse
             {
                 SubjectId = subject.Subjectid,
-                SubjectName = subject.Subjectname
+                SubjectName = subject.Subjectname,
+                IsActive = subject.IsActive
             } : null,
             Tutor = classSession.Tutor?.Tutor != null ? new TutorMiniResponse
             {

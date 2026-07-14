@@ -545,7 +545,8 @@ namespace MV.ApplicationLayer.Services
             {
                 GradeLevelId = s.GradelevelNavigation.Gradelevelid,
                 GradeName = s.GradelevelNavigation.Gradename,
-                LevelOrder = s.GradelevelNavigation.Levelorder
+                LevelOrder = s.GradelevelNavigation.Levelorder,
+                IsActive = s.GradelevelNavigation.IsActive
             },
             LearningGoals = s.Learninggoals,
             AvatarURL = s.Avatarurl,

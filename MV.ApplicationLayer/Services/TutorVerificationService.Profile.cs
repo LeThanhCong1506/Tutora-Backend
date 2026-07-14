@@ -3,6 +3,7 @@ using Microsoft.Extensions.Caching.Distributed;
 using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO.ResponseModel;
 using MV.DomainLayer.Helpers;
+using MV.ApplicationLayer.Helpers;
 using System.Text.Json;
 using static MV.DomainLayer.Constants.ClassSessionStatus;
 
@@ -265,6 +266,14 @@ namespace MV.ApplicationLayer.Services
                         .ToList()
                 })
                 .ToListAsync();
+
+            // Gắn cờ HasActiveBooking cho từng package (đồng bộ với GetTutorPackagesAsync).
+            // Nếu bỏ qua, cờ mặc định là false → màn lịch báo sai "package chưa có booking".
+            var bookedPackageIds = await TutorScheduleGuard.GetPackageIdsWithFutureSessionsAsync(_dbContext, tutorId);
+            foreach (var pkg in packages)
+            {
+                pkg.HasActiveBooking = bookedPackageIds.Contains(pkg.PackageId);
+            }
 
             var response = new TutorScheduleResponse
             {
