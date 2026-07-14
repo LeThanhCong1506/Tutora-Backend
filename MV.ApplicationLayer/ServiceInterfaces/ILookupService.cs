@@ -26,12 +26,12 @@ namespace MV.ApplicationLayer.ServiceInterfaces
         // Subject
         Task<SubjectResponse> CreateSubjectAsync(SubjectRequest req);
         Task<SubjectResponse?> UpdateSubjectAsync(int id, SubjectRequest req);
-        Task<bool> DeleteSubjectAsync(int id);
+        Task<LookupDeleteResult> DeleteSubjectAsync(int id);
 
         // GradeLevel
         Task<GradeLevelResponse> CreateGradeLevelAsync(GradeLevelRequest req);
         Task<GradeLevelResponse?> UpdateGradeLevelAsync(int id, GradeLevelRequest req);
-        Task<bool> DeleteGradeLevelAsync(int id);
+        Task<LookupDeleteResult> DeleteGradeLevelAsync(int id);
 
         // Chapter
         Task<ChapterResponse> CreateChapterAsync(ChapterRequest req);
@@ -52,4 +52,10 @@ namespace MV.ApplicationLayer.ServiceInterfaces
     {
         public LookupInUseException(string message) : base(message) { }
     }
+
+    /// <summary>
+    /// Kết quả soft-delete Subject/GradeLevel: có tìm thấy không, và đang có bao nhiêu
+    /// Tutorsubjectgradeprice active tham chiếu (chỉ để cảnh báo Admin/Staff, không chặn xoá).
+    /// </summary>
+    public record LookupDeleteResult(bool Found, int AffectedCount);
 }

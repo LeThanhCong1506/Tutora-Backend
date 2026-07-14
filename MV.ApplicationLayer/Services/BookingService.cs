@@ -67,6 +67,10 @@ public partial class BookingService(
             .FirstOrDefaultAsync(p => p.Id == dto.TutorSubjectGradePriceId && p.Tutorid == dto.TutorId && p.Isactive)
             ?? throw new BookingException(BookingErrorCodes.TutorNotTeachSubject, "Gia sư không dạy môn/lớp này", 409);
 
+        if (price.Subject?.IsActive != true || price.Gradelevel?.IsActive != true)
+            throw new BookingException(BookingErrorCodes.SubjectOrGradeLevelInactive,
+                "Môn học/khối lớp này đã ngừng cung cấp trên hệ thống", 409);
+
         var package = await context.Tutorpackages
             .Include(c => c.Tutorpackagefixedslots)
             .FirstOrDefaultAsync(c => c.Packageid == dto.PackageId && c.Tutorid == dto.TutorId && c.Isactive)
@@ -615,7 +619,8 @@ public partial class BookingService(
             Subject = subject == null ? null : new SubjectResponse
             {
                 SubjectId = subject.Subjectid,
-                SubjectName = subject.Subjectname
+                SubjectName = subject.Subjectname,
+                IsActive = subject.IsActive
             },
             Package = b.Package == null ? null : new BookingPackageResponse
             {
@@ -628,7 +633,8 @@ public partial class BookingService(
             {
                 GradeLevelId = grade.Gradelevelid,
                 GradeName = grade.Gradename,
-                LevelOrder = grade.Levelorder
+                LevelOrder = grade.Levelorder,
+                IsActive = grade.IsActive
             },
             PackageType = b.Package?.Packagetype,
             SessionCount = b.Totalsessions ?? 0,

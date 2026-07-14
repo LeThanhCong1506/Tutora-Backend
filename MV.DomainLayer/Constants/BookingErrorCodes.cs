@@ -12,6 +12,7 @@ public static class BookingErrorCodes
     public const string SubjectNotFound = "SUBJECT_NOT_FOUND";
     public const string TutorNotAvailable = "TUTOR_NOT_AVAILABLE";
     public const string TutorNotTeachSubject = "TUTOR_NOT_TEACH_SUBJECT";
+    public const string SubjectOrGradeLevelInactive = "SUBJECT_GRADE_LEVEL_INACTIVE";
     public const string PromotionInvalid = "PROMOTION_INVALID";
     public const string PromotionMinOrder = "PROMOTION_MIN_ORDER";
     public const string PromotionCodeExists = "PROMOTION_CODE_EXISTS";

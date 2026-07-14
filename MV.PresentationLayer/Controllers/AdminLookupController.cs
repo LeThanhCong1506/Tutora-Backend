@@ -55,8 +55,7 @@ public class AdminLookupController : ControllerBase
 
     [HttpDelete("subjects/{id:int}")]
     public Task<ActionResult<APIResponse<object>>> DeleteSubject(int id)
-        => DeleteGuarded(() => _lookup.DeleteSubjectAsync(id), "môn học",
-            "Soft delete môn học thành công (đã ngừng sử dụng).");
+        => DeleteGuarded(() => _lookup.DeleteSubjectAsync(id), "môn học");
 
     // GradeLevels
 
@@ -90,8 +89,7 @@ public class AdminLookupController : ControllerBase
 
     [HttpDelete("grade-levels/{id:int}")]
     public Task<ActionResult<APIResponse<object>>> DeleteGradeLevel(int id)
-        => DeleteGuarded(() => _lookup.DeleteGradeLevelAsync(id), "khối lớp",
-            "Soft delete khối lớp thành công (đã ngừng sử dụng).");
+        => DeleteGuarded(() => _lookup.DeleteGradeLevelAsync(id), "khối lớp");
 
     // Chapters
 
@@ -163,5 +161,21 @@ public class AdminLookupController : ControllerBase
         {
             return Conflict(APIResponse.Fail(ex.Message, 409));
         }
+    }
+
+    /// <summary>Bọc soft-delete Subject/GradeLevel: not-found -> 404, ok -> 200 kèm cảnh báo
+    /// số gói giá của tutor đang tham chiếu (không chặn, không cascade — booking/lớp đang dạy
+    /// vẫn tiếp tục hoạt động bình thường).</summary>
+    private async Task<ActionResult<APIResponse<object>>> DeleteGuarded(
+        Func<Task<LookupDeleteResult>> deleteFn, string label)
+    {
+        var result = await deleteFn();
+        if (!result.Found)
+            return NotFound(APIResponse.Fail($"Không tìm thấy {label}.", 404));
+
+        var message = result.AffectedCount > 0
+            ? $"Đã ngừng sử dụng {label} (đang có {result.AffectedCount} gói giá của tutor tham chiếu — các booking/lớp đang dạy không bị ảnh hưởng)."
+            : $"Soft delete {label} thành công (đã ngừng sử dụng).";
+        return Ok(APIResponse<object>.Success(message));
     }
 }

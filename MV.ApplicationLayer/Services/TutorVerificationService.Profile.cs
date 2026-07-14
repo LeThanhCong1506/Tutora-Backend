@@ -142,8 +142,10 @@ namespace MV.ApplicationLayer.Services
                     ts.Id,
                     ts.Subjectid,
                     SubjectName = ts.Subject != null ? ts.Subject.Subjectname : null,
+                    SubjectIsActive = ts.Subject == null || ts.Subject.IsActive,
                     ts.Gradelevelid,
                     GradeLevelName = ts.Gradelevel != null ? ts.Gradelevel.Gradename : null,
+                    GradeLevelIsActive = ts.Gradelevel == null || ts.Gradelevel.IsActive,
                     ts.Priceperhour,
                     ts.Durationminutespersession,
                     ts.Sessionsperweek,
@@ -432,7 +434,9 @@ namespace MV.ApplicationLayer.Services
                 DurationMinutesPerSession = subject.Durationminutespersession,
                 SessionsPerWeek = subject.Sessionsperweek,
                 Currency = subject.Currency,
-                IsActive = subject.Isactive
+                IsActive = subject.Isactive,
+                SubjectIsActive = subject.SubjectIsActive,
+                GradeLevelIsActive = subject.GradeLevelIsActive
             };
         }
 

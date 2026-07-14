@@ -155,13 +155,19 @@ namespace MV.ApplicationLayer.Services
 
         // Soft-delete: chỉ đặt IsActive=false, GIỮ NGUYÊN dữ liệu để không phá tham chiếu
         // (câu hỏi, chương, bảng giá, hồ sơ...). Khôi phục bằng Update IsActive=true.
-        public async Task<bool> DeleteSubjectAsync(int id)
+        // Không cascade sang Tutorsubjectgradeprice: booking/lớp đang dạy dựa trên môn này
+        // phải tiếp tục hoạt động bình thường; chỉ báo số lượng bị ảnh hưởng để Admin/Staff biết.
+        public async Task<LookupDeleteResult> DeleteSubjectAsync(int id)
         {
             var entity = await _context.Subjects.FirstOrDefaultAsync(s => s.Subjectid == id);
-            if (entity == null) return false;
+            if (entity == null) return new LookupDeleteResult(false, 0);
+
+            var affectedCount = await _context.Tutorsubjectgradeprices
+                .CountAsync(p => p.Subjectid == id && p.Isactive);
+
             entity.IsActive = false;
             await _context.SaveChangesAsync();
-            return true;
+            return new LookupDeleteResult(true, affectedCount);
         }
 
         // GradeLevel
@@ -192,13 +198,19 @@ namespace MV.ApplicationLayer.Services
 
         // Soft-delete: chỉ đặt IsActive=false, GIỮ NGUYÊN dữ liệu (câu hỏi, chương,
         // bảng giá, hồ sơ học sinh...). Khôi phục bằng Update IsActive=true.
-        public async Task<bool> DeleteGradeLevelAsync(int id)
+        // Không cascade sang Tutorsubjectgradeprice: booking/lớp đang dạy dựa trên khối lớp này
+        // phải tiếp tục hoạt động bình thường; chỉ báo số lượng bị ảnh hưởng để Admin/Staff biết.
+        public async Task<LookupDeleteResult> DeleteGradeLevelAsync(int id)
         {
             var entity = await _context.Gradelevels.FirstOrDefaultAsync(g => g.Gradelevelid == id);
-            if (entity == null) return false;
+            if (entity == null) return new LookupDeleteResult(false, 0);
+
+            var affectedCount = await _context.Tutorsubjectgradeprices
+                .CountAsync(p => p.Gradelevelid == id && p.Isactive);
+
             entity.IsActive = false;
             await _context.SaveChangesAsync();
-            return true;
+            return new LookupDeleteResult(true, affectedCount);
         }
 
         // Chapter
