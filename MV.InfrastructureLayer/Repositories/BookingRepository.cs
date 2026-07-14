@@ -27,6 +27,37 @@ public class BookingRepository(AgoraDbContext context) : IBookingRepository
             .Include(b => b.ClassSessions)
             .FirstOrDefaultAsync(b => b.Bookingid == id);
 
+    public async Task<Booking?> FindWithRelationsForUpdateAsync(int id, CancellationToken ct = default)
+    {
+        var booking = await context.Bookings
+            .FromSqlRaw(SqlQueries.LockBookingById, id)
+            .SingleOrDefaultAsync(ct);
+
+        if (booking == null) return null;
+
+        await context.Entry(booking).Reference(b => b.Student).LoadAsync(ct);
+        if (booking.Student != null)
+        {
+            await context.Entry(booking.Student).Reference(s => s.Linkeduser).LoadAsync(ct);
+            await context.Entry(booking.Student).Reference(s => s.GradelevelNavigation).LoadAsync(ct);
+        }
+
+        await context.Entry(booking).Reference(b => b.Tutor).LoadAsync(ct);
+        if (booking.Tutor != null)
+            await context.Entry(booking.Tutor).Reference(t => t.Tutor).LoadAsync(ct);
+
+        await context.Entry(booking).Reference(b => b.Tutorsubjectgradeprice).LoadAsync(ct);
+        if (booking.Tutorsubjectgradeprice != null)
+        {
+            await context.Entry(booking.Tutorsubjectgradeprice).Reference(p => p.Subject).LoadAsync(ct);
+            await context.Entry(booking.Tutorsubjectgradeprice).Reference(p => p.Gradelevel).LoadAsync(ct);
+        }
+
+        await context.Entry(booking).Reference(b => b.Package).LoadAsync(ct);
+        await context.Entry(booking).Collection(b => b.ClassSessions).LoadAsync(ct);
+        return booking;
+    }
+
     public Task<Booking?> FindByIdForUserAsync(int id, string userId)
         => context.Bookings
             .Include(b => b.Student)

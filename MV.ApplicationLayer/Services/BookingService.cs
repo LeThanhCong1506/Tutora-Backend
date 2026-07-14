@@ -222,150 +222,149 @@ public partial class BookingService(
 
     public async Task<bool> CancelBookingAsync(int bookingId, string userId, string? reason = null)
     {
-        var booking = await context.Bookings
-            .Include(b => b.Student)
-            .Include(b => b.ClassSessions)
-            .FirstOrDefaultAsync(b => b.Bookingid == bookingId &&
-                (b.Parentid == userId || b.Studentid == userId || b.Student.Linkeduserid == userId || b.Tutorid == userId));
-        if (booking == null) return false;
-        if (booking.Status != BookingStatus.PendingTutor &&
-            booking.Status != BookingStatus.Accepted &&
-            booking.Status != BookingStatus.PendingPayment &&
-            booking.Status != BookingStatus.DepositPaid &&
-            booking.Status != BookingStatus.PendingRemainingPayment &&
-            booking.Status != BookingStatus.Ongoing &&
-            booking.Status != BookingStatus.Paid)
-            return false;
+        Booking booking;
+        var now = TimeZoneHelper.UtcNow;
+        var needsRefund = false;
+        var refundAmount = 0m;
 
-        var needsRefund = booking.Paymentstatus == DepositEscrowed
-            || booking.Paymentstatus == Escrowed
-            || booking.Paymentstatus == Paid;
-
-        if (needsRefund && HasStartedOrSettledLesson(booking, TimeZoneHelper.UtcNow))
+        await using var tx = await context.Database.BeginTransactionAsync();
+        try
         {
-            logger.LogWarning(
-                "Rejected paid cancellation for booking {BookingId} because at least one lesson has already started, completed, settled, or entered dispute/no-show.",
-                bookingId);
-            return false;
-        }
-
-        if (needsRefund)
-        {
-            decimal refundAmount = booking.Paymentstatus == DepositEscrowed
-                ? booking.Depositamount ?? 0
-                : booking.Finalprice ?? booking.Totalamount ?? 0;
-
-            var tutorFee = booking.Tutorfee ?? 0;
-            var cancelSessions = booking.Totalsessions ?? 1;
-            decimal tutorEscrowAmount = booking.Paymentstatus == DepositEscrowed
-                ? Math.Round(tutorFee / cancelSessions, 2)
-                : tutorFee;
-
-            await using var tx = await context.Database.BeginTransactionAsync(IsolationLevel.Serializable);
-            try
+            var lockedBooking = await bookingRepo.FindWithRelationsForUpdateAsync(bookingId);
+            if (lockedBooking == null)
             {
-                if (!string.IsNullOrWhiteSpace(booking.Parentid) && refundAmount > 0)
+                await tx.CommitAsync();
+                return false;
+            }
+
+            booking = lockedBooking;
+            if (booking.Parentid != userId
+                 && booking.Studentid != userId
+                 && booking.Student?.Linkeduserid != userId
+                 && booking.Tutorid != userId)
+            {
+                await tx.CommitAsync();
+                return false;
+            }
+
+            if (booking.Status != BookingStatus.PendingTutor &&
+                booking.Status != BookingStatus.Accepted &&
+                booking.Status != BookingStatus.PendingPayment &&
+                booking.Status != BookingStatus.DepositPaid &&
+                booking.Status != BookingStatus.PendingRemainingPayment &&
+                booking.Status != BookingStatus.Ongoing &&
+                booking.Status != BookingStatus.Paid)
+            {
+                await tx.CommitAsync();
+                return false;
+            }
+
+            needsRefund = booking.Paymentstatus == DepositEscrowed
+                || booking.Paymentstatus == Escrowed
+                || booking.Paymentstatus == Paid;
+
+            if (needsRefund && HasStartedOrSettledLesson(booking, now))
+            {
+                logger.LogWarning(
+                    "Rejected paid cancellation for booking {BookingId} because at least one lesson has already started, completed, settled, or entered dispute/no-show.",
+                    bookingId);
+                await tx.CommitAsync();
+                return false;
+            }
+
+            if (needsRefund)
+            {
+                refundAmount = TutorResponseTimeoutPolicy.ParentRefundAmount(booking);
+
+                if (refundAmount <= 0 || string.IsNullOrWhiteSpace(booking.Parentid))
+                    throw new InvalidOperationException($"Booking #{bookingId} has no valid refund recipient or amount.");
+
+                var parentWallet = await WalletLockHelper.GetOrCreateForUpdateAsync(context, booking.Parentid, now);
+                parentWallet.Balance = (parentWallet.Balance ?? 0) + refundAmount;
+                parentWallet.Lastupdated = now;
+                context.Wallettransactions.Add(new Wallettransaction
                 {
-                    var parentWallet = await context.Wallets
-                .FromSqlRaw(SqlQueries.LockWalletByUserId, booking.Parentid)
-                        .FirstOrDefaultAsync();
+                    Wallet = parentWallet,
+                    Amount = refundAmount,
+                    Transactiontype = TransactionType.Refund,
+                    Referencetable = ReferenceTable.Booking,
+                    Referenceid = bookingId,
+                    Description = $"Hoàn tiền booking #{bookingId}",
+                    Createdat = now
+                });
 
-                    if (parentWallet != null)
+                var tutorEscrowAmount = TutorResponseTimeoutPolicy.TutorEscrowAmount(booking);
+
+                if (tutorEscrowAmount > 0)
+                {
+                    if (string.IsNullOrWhiteSpace(booking.Tutorid))
+                        throw new InvalidOperationException($"Booking #{bookingId} has escrow but no tutor id.");
+
+                    var tutorWallet = await WalletLockHelper.GetRequiredForUpdateAsync(context, booking.Tutorid);
+                    if ((tutorWallet.Frozenbalance ?? 0) < tutorEscrowAmount)
+                        throw new InvalidOperationException($"Tutor escrow balance is insufficient for booking #{bookingId}.");
+
+                    tutorWallet.Frozenbalance = (tutorWallet.Frozenbalance ?? 0) - tutorEscrowAmount;
+                    tutorWallet.Lastupdated = now;
+                    context.Wallettransactions.Add(new Wallettransaction
                     {
-                        parentWallet.Balance = (parentWallet.Balance ?? 0) + refundAmount;
-                        parentWallet.Lastupdated = TimeZoneHelper.UtcNow;
-
-                        context.Wallettransactions.Add(new Wallettransaction
-                        {
-                            Wallet = parentWallet,
-                            Amount = refundAmount,
-                            Transactiontype = TransactionType.Refund,
-                            Referencetable = ReferenceTable.Booking,
-                            Referenceid = bookingId,
-                            Description = $"Hoàn tiền booking #{bookingId}",
-                            Createdat = TimeZoneHelper.UtcNow
-                        });
-                    }
+                        Wallet = tutorWallet,
+                        Amount = -tutorEscrowAmount,
+                        Transactiontype = TransactionType.EscrowRelease,
+                        Referencetable = ReferenceTable.Booking,
+                        Referenceid = bookingId,
+                        Description = $"Giải phóng escrow booking #{bookingId} do hủy",
+                        Createdat = now
+                    });
                 }
 
-                if (!string.IsNullOrWhiteSpace(booking.Tutorid) && tutorEscrowAmount > 0)
-                {
-                    var tutorWallet = await context.Wallets
-                .FromSqlRaw(SqlQueries.LockWalletByUserId, booking.Tutorid)
-                        .FirstOrDefaultAsync();
-
-                    if (tutorWallet != null)
-                    {
-                        tutorWallet.Frozenbalance = Math.Max(0, (tutorWallet.Frozenbalance ?? 0) - tutorEscrowAmount);
-                        tutorWallet.Lastupdated = TimeZoneHelper.UtcNow;
-
-                        context.Wallettransactions.Add(new Wallettransaction
-                        {
-                            Wallet = tutorWallet,
-                            Amount = -tutorEscrowAmount,
-                            Transactiontype = TransactionType.EscrowRelease,
-                            Referencetable = ReferenceTable.Booking,
-                            Referenceid = bookingId,
-                            Description = $"Giải phóng escrow booking #{bookingId} do hủy",
-                            Createdat = TimeZoneHelper.UtcNow
-                        });
-                    }
-                }
-
-                booking.Status = BookingStatus.Cancelled;
-                booking.Cancellationreason = reason;
-                booking.Cancelledby = userId;
-                booking.Cancelledat = TimeZoneHelper.UtcNow;
-                booking.Updatedat = TimeZoneHelper.UtcNow;
                 booking.Refundstatus = RefundStatus.Refunded;
                 booking.Refundamount = refundAmount;
                 booking.Escrowstatus = EscrowStatus.Refunded;
-
-                foreach (var l in booking.ClassSessions.Where(x => x.Status is Scheduled or Reserved))
-                    l.Status = Cancelled;
-
-                // Return the promotion usage consumed at booking creation
-                await MV.ApplicationLayer.Helpers.PromotionUsageHelper.ReturnUsageAsync(context, booking.Promotionid);
-
-                await context.SaveChangesAsync();
-                await tx.CommitAsync();
-
-                if (!string.IsNullOrWhiteSpace(booking.Parentid) && refundAmount > 0)
-                {
-                    await notificationService.CreateNotificationAsync(new MV.DomainLayer.DTO.RequestModel.NotificationRequest
-                    {
-                        Userid = booking.Parentid,
-                        Title = "Hoàn tiền thành công",
-                        Message = $"Booking #{bookingId} đã được hủy. Số tiền {refundAmount:N0}đ đã được hoàn vào ví của bạn.",
-                        Type = NotificationType.PaymentRefundSuccess,
-                        Referenceid = bookingId.ToString()
-                    });
-                }
             }
-            catch (Exception ex)
+            else
             {
-                await tx.RollbackAsync();
-                logger.LogError(ex, "Lỗi khi hoàn tiền booking {BookingId}", bookingId);
-                booking.Refundstatus = RefundStatus.RefundFailed;
-                await context.SaveChangesAsync();
+                booking.Refundstatus = RefundStatus.NoRefund;
             }
-        }
-        else
-        {
-            booking.Refundstatus = RefundStatus.NoRefund;
+
             booking.Status = BookingStatus.Cancelled;
             booking.Cancellationreason = reason;
             booking.Cancelledby = userId;
-            booking.Cancelledat = TimeZoneHelper.UtcNow;
-            booking.Updatedat = TimeZoneHelper.UtcNow;
+            booking.Cancelledat = now;
+            booking.Updatedat = now;
+            booking.Responsedeadline = null;
 
-            foreach (var l in booking.ClassSessions.Where(x => x.Status is Scheduled or Reserved))
-                l.Status = Cancelled;
+            foreach (var classSession in booking.ClassSessions.Where(x => x.Status is Scheduled or Reserved))
+                classSession.Status = Cancelled;
 
-            // Return the promotion usage consumed at booking creation
-            await MV.ApplicationLayer.Helpers.PromotionUsageHelper.ReturnUsageAsync(context, booking.Promotionid);
-
+            await PromotionUsageHelper.ReturnUsageAsync(context, booking.Promotionid);
             await context.SaveChangesAsync();
+            await tx.CommitAsync();
+        }
+        catch (Exception ex)
+        {
+            await tx.RollbackAsync();
+            logger.LogError(ex, "Lỗi khi hủy/hoàn tiền booking {BookingId}", bookingId);
+            throw;
+        }
+
+        if (needsRefund && !string.IsNullOrWhiteSpace(booking.Parentid) && refundAmount > 0)
+        {
+            try
+            {
+                await notificationService.CreateNotificationAsync(new NotificationRequest
+                {
+                    Userid = booking.Parentid,
+                    Title = "Hoàn tiền thành công",
+                    Message = $"Booking #{bookingId} đã được hủy. Số tiền {refundAmount:N0}đ đã được hoàn vào ví của bạn.",
+                    Type = NotificationType.PaymentRefundSuccess,
+                    Referenceid = bookingId.ToString()
+                });
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Không thể gửi thông báo hoàn tiền cho booking {BookingId}", bookingId);
+            }
         }
 
         return true;

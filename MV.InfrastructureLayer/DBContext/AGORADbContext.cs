@@ -318,7 +318,8 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
             entity.Property(e => e.Sessionsremaining).HasColumnName("sessions_remaining");
             entity.Property(e => e.Status)
                 .HasMaxLength(30)
-                .HasColumnName("status");
+                .HasColumnName("status")
+                .IsConcurrencyToken();
             entity.Property(e => e.Studentid)
                 .HasMaxLength(50)
                 .HasColumnName("student_id");
