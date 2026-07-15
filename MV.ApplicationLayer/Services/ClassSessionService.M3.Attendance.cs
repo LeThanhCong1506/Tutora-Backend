@@ -26,7 +26,7 @@ public partial class ClassSessionService
         if (classSession.Status != Scheduled)
             throw new ClassSessionException(ClassSessionErrorCodes.InvalidClassSessionStatus, "Buổi học không ở trạng thái đã lên lịch", 400);
 
-        // Block check-in for subsequent classSessions if remaining 50% not paid yet
+        // Block check-in for subsequent sessions until all remaining sessions are paid.
         if (classSession.Booking != null &&
             (classSession.Booking.Status == BookingStatus.DepositPaid || classSession.Booking.Status == BookingStatus.PendingRemainingPayment) &&
             classSession.Booking.Remainingpaidat == null)

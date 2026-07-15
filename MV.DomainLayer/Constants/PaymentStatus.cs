@@ -9,7 +9,7 @@ public static class PaymentStatus
     /// <summary>Initial payment status when booking is created, before any payment.</summary>
     public const string Pending = "Pending";
 
-    /// <summary>Deposit portion held in escrow (50% of total, first phase).</summary>
+    /// <summary>First-session payment held in escrow.</summary>
     public const string DepositEscrowed = "DepositEscrowed";
 
     /// <summary>Full amount held in escrow (both deposit + remaining paid).</summary>

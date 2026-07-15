@@ -635,6 +635,13 @@ public partial class BookingService(
                 ClassSessionPrice = l.Lessonprice
             })
             .ToList();
+        var baseAmount = Math.Max((b.Totalamount ?? 0m) - (b.Discountapplied ?? 0m), 0m);
+        var calculatedFees = BookingFeeCalculator.Calculate(baseAmount);
+        var parentFee = b.Parentfee ?? calculatedFees.ParentFee;
+        var tutorServiceFee = b.Platformfee.HasValue
+            ? Math.Max(b.Platformfee.Value - parentFee, 0m)
+            : calculatedFees.TutorFeeCut;
+        var tutorReceivable = Math.Max(baseAmount - tutorServiceFee, 0m);
 
         return new BookingResponse
         {
@@ -683,6 +690,10 @@ public partial class BookingService(
             TotalAmount = b.Totalamount,
             Currency = b.Currency,
             DiscountApplied = b.Discountapplied,
+            BaseAmount = baseAmount,
+            ParentFee = parentFee,
+            TutorServiceFee = tutorServiceFee,
+            TutorReceivable = tutorReceivable,
             FinalPrice = b.Finalprice,
             PlatformFee = b.Platformfee,
             Status = b.Status,
