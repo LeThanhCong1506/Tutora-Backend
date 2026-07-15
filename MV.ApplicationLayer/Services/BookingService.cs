@@ -715,6 +715,9 @@ public partial class BookingService(
             // Pattern này đúng cả local lẫn cloud deployment.
             CreatedAt = b.Createdat,
             PaymentDueAt = b.Paymentdueat,
+            ResponseDeadline = b.Responsedeadline.HasValue
+                ? DateTime.SpecifyKind(b.Responsedeadline.Value, DateTimeKind.Utc)
+                : null,
             DepositAmount = b.Depositamount
                 ?? (b.Finalprice.HasValue && b.Totalsessions.HasValue && b.Totalsessions > 0
                     ? Math.Floor(b.Finalprice.Value / b.Totalsessions.Value)

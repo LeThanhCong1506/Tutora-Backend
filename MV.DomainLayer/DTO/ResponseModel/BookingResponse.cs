@@ -99,6 +99,8 @@ public class BookingResponse
     public DateTime? StartDate { get; set; }
     public DateTime? CreatedAt { get; set; }
     public DateTime? PaymentDueAt { get; set; }
+    /// <summary>UTC deadline for the tutor to accept or decline a pending booking.</summary>
+    public DateTime? ResponseDeadline { get; set; }
     public decimal? DepositAmount { get; set; }
     public decimal? RemainingAmount { get; set; }
     public DateTime? DepositPaidAt { get; set; }
