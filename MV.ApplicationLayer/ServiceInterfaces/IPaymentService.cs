@@ -23,7 +23,7 @@ public interface IPaymentService
     /// <summary>
     /// Admin manually confirms a payment for a booking (offline / cash flow).
     /// </summary>
-    Task ConfirmPaymentByAdminAsync(int bookingId, AdminConfirmPaymentRequest request, CancellationToken ct = default);
+    Task ConfirmPaymentByAdminAsync(int bookingId, AdminConfirmPaymentRequest request, string? actorUserId = null, CancellationToken ct = default);
 
     /// <summary>
     /// Test helper: admin confirms the current unpaid booking phase without manually passing the amount.

@@ -46,7 +46,7 @@ public partial class PaymentService(
 
         var data = request.Data;
         logger.LogInformation("Processing webhook orderCode: {OrderCode}, amount: {Amount}", data.OrderCode, data.Amount);
-        await ConfirmPaymentInternalAsync(data.OrderCode, data.Amount, data.Reference, ct);
+        await ConfirmPaymentInternalAsync(data.OrderCode, data.Amount, data.Reference, PaymentTransactionCapture.FromPayOSWebhook(request), ct);
     }
 
     public async Task<bool> VerifyWebhookSignatureAsync(string payload, string signature)
@@ -64,9 +64,9 @@ public partial class PaymentService(
         }
     }
 
-    public async Task ConfirmPaymentByAdminAsync(int bookingId, AdminConfirmPaymentRequest request, CancellationToken ct = default)
+    public async Task ConfirmPaymentByAdminAsync(int bookingId, AdminConfirmPaymentRequest request, string? actorUserId = null, CancellationToken ct = default)
     {
-        if (request?.Amount <= 0)
+        if (request == null || request.Amount <= 0)
             throw new BookingException(BookingErrorCodes.InvalidInput, "Dữ liệu đầu vào không hợp lệ", 400);
 
         var booking = await bookingRepo.FindTrackedAsync(bookingId, ct)
@@ -75,7 +75,7 @@ public partial class PaymentService(
         // Ensure deposit/remaining amounts are calculated for old bookings
         EnsureDepositAmountsCalculated(booking);
 
-        var txId = string.IsNullOrWhiteSpace(request?.TransactionId)
+        var txId = string.IsNullOrWhiteSpace(request.TransactionId)
             ? $"admin-{bookingId}-{MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow:yyyyMMddHHmmss}"
             : request.TransactionId.Trim();
 
@@ -86,7 +86,8 @@ public partial class PaymentService(
         else
             orderCode = OrderCodeHelper.GenerateRemainingOrderCode(bookingId);
 
-        await ConfirmPaymentInternalAsync(orderCode, (int)request.Amount, txId, ct);
+        var capture = PaymentTransactionCapture.FromManual(request.PaidAt, actorUserId, null, txId);
+        await ConfirmPaymentInternalAsync(orderCode, (int)request.Amount, txId, capture, ct);
     }
 
     public async Task<TestConfirmBookingPaymentResponse> ConfirmCurrentBookingPaymentForTestAsync(
@@ -119,7 +120,7 @@ public partial class PaymentService(
             ? OrderCodeHelper.GenerateBookingOrderCode(bookingId)
             : OrderCodeHelper.GenerateRemainingOrderCode(bookingId);
 
-        await ConfirmPaymentInternalAsync(orderCode, (int)amount, txId, ct);
+        await ConfirmPaymentInternalAsync(orderCode, (int)amount, txId, null, ct);
 
         return new TestConfirmBookingPaymentResponse
         {
@@ -174,17 +175,31 @@ public partial class PaymentService(
             else if (isRemainingLink)
                 isThisLinkPaidInDb = booking.Remainingpaidat != null;
 
-            // If PayOS says PAID but webhook hasn't updated our DB yet, confirm payment now
-            if (payosReportsPaid && !isThisLinkPaidInDb)
+            var purpose = isDepositLink
+                ? PaymentTransactionPurpose.BookingDeposit
+                : PaymentTransactionPurpose.BookingRemaining;
+            var hasRecordedPaymentTransaction = payosReportsPaid
+                && isThisLinkPaidInDb
+                && await context.PaymentTransactions.AsNoTracking().AnyAsync(t =>
+                    t.Channel == PaymentTransactionChannel.PayOS
+                    && t.Bookingid == bookingId
+                    && t.Purpose == purpose
+                    && t.Ordercode == info.OrderCode);
+
+            // Confirm when the webhook has not updated the booking yet. Also re-enter
+            // the idempotent confirm path to backfill transactions for bookings that
+            // were already marked paid before payment_transactions was introduced.
+            if (payosReportsPaid && (!isThisLinkPaidInDb || !hasRecordedPaymentTransaction))
             {
+                var capture = PaymentTransactionCapture.FromPayOSPaymentLink(info);
                 if (isDepositLink)
                 {
                     logger.LogInformation("PayOS reports PAID for booking {BookingId} deposit but DB not updated yet. Confirming.", bookingId);
                     try
                     {
                         var orderCode = OrderCodeHelper.GenerateBookingOrderCode(bookingId);
-                    var txId = $"poll-{bookingId}-{PaymentPhase.DepositShort}-{MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow:yyyyMMddHHmmss}";
-                        await ConfirmPaymentInternalAsync(orderCode, (int)info.Amount, txId, CancellationToken.None);
+                        var txId = capture.GetProviderTransactionId($"payos-link-{info.Id}")!;
+                        await ConfirmPaymentInternalAsync(orderCode, (int)info.Amount, txId, capture, CancellationToken.None);
                     }
                     catch (Exception confirmEx)
                     {
@@ -197,8 +212,8 @@ public partial class PaymentService(
                     try
                     {
                         var orderCode = OrderCodeHelper.GenerateRemainingOrderCode(bookingId);
-                    var txId = $"poll-{bookingId}-{PaymentPhase.RemainingShort}-{MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow:yyyyMMddHHmmss}";
-                        await ConfirmPaymentInternalAsync(orderCode, (int)info.Amount, txId, CancellationToken.None);
+                        var txId = capture.GetProviderTransactionId($"payos-link-{info.Id}")!;
+                        await ConfirmPaymentInternalAsync(orderCode, (int)info.Amount, txId, capture, CancellationToken.None);
                     }
                     catch (Exception confirmEx)
                     {
@@ -231,20 +246,20 @@ public partial class PaymentService(
         }
     }
 
-    private async Task ConfirmPaymentInternalAsync(long orderCode, int amount, string txId, CancellationToken ct)
+    private async Task ConfirmPaymentInternalAsync(long orderCode, int amount, string txId, PaymentTransactionCapture? capture, CancellationToken ct)
     {
         bool isDeposit = OrderCodeHelper.IsBookingOrderCode(orderCode);
         bool isRemaining = OrderCodeHelper.IsRemainingOrderCode(orderCode);
 
         if (isDeposit)
-            await ConfirmDepositAsync(orderCode, amount, txId, ct);
+            await ConfirmDepositAsync(orderCode, amount, txId, capture, ct);
         else if (isRemaining)
-            await ConfirmRemainingAsync(orderCode, amount, txId, ct);
+            await ConfirmRemainingAsync(orderCode, amount, txId, capture, ct);
         else
             throw new BookingException(BookingErrorCodes.InvalidInput, "Kiểu mã đơn hàng không hợp lệ", 400);
     }
 
-    private async Task ConfirmDepositAsync(long orderCode, int amount, string txId, CancellationToken ct)
+    private async Task ConfirmDepositAsync(long orderCode, int amount, string txId, PaymentTransactionCapture? capture, CancellationToken ct)
     {
         await using var tx = await context.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, ct);
         try
@@ -257,12 +272,35 @@ public partial class PaymentService(
             if (booking.Depositpaidat != null || booking.Paymentstatus == Escrowed || booking.Status == BookingStatus.Paid)
             {
                 logger.LogWarning("Booking {Id} deposit already paid", bookingId);
+                await AddBookingPaymentTransactionIfMissingAsync(
+                    capture,
+                    booking,
+                    PaymentTransactionPurpose.BookingDeposit,
+                    amount,
+                    orderCode,
+                    txId,
+                    "Deposit payment webhook received after it was already processed.",
+                    ct);
+                if (capture != null)
+                {
+                    await context.SaveChangesAsync(ct);
+                    await tx.CommitAsync(ct);
+                }
                 return;
             }
 
             if (booking.Paymentdueat.HasValue && booking.Paymentdueat.Value <= MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow)
             {
                 await RefundOrphanPaymentToWalletAsync(booking, amount, txId, ct);
+                await AddBookingPaymentTransactionIfMissingAsync(
+                    capture,
+                    booking,
+                    PaymentTransactionPurpose.BookingDeposit,
+                    amount,
+                    orderCode,
+                    txId,
+                    "Deposit payment received after booking deadline and refunded to wallet.",
+                    ct);
                 await context.SaveChangesAsync(ct);
                 await tx.CommitAsync(ct);
                 logger.LogInformation("Orphan deposit refunded to wallet for expired booking {Id}, amount {Amount}.", bookingId, amount);
@@ -332,6 +370,16 @@ public partial class PaymentService(
                 booking.Remainingpaidat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
             }
 
+            await AddBookingPaymentTransactionIfMissingAsync(
+                capture,
+                booking,
+                PaymentTransactionPurpose.BookingDeposit,
+                amount,
+                orderCode,
+                txId,
+                "Booking deposit payment.",
+                ct);
+
             await context.SaveChangesAsync(ct);
             await tx.CommitAsync(ct);
 
@@ -347,7 +395,7 @@ public partial class PaymentService(
         }
     }
 
-    private async Task ConfirmRemainingAsync(long orderCode, int amount, string txId, CancellationToken ct)
+    private async Task ConfirmRemainingAsync(long orderCode, int amount, string txId, PaymentTransactionCapture? capture, CancellationToken ct)
     {
         await using var tx = await context.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, ct);
         try
@@ -360,6 +408,20 @@ public partial class PaymentService(
             if (booking.Remainingpaidat != null || booking.Paymentstatus == Escrowed || booking.Status == BookingStatus.Paid)
             {
                 logger.LogWarning("Booking {Id} remaining already paid", bookingId);
+                await AddBookingPaymentTransactionIfMissingAsync(
+                    capture,
+                    booking,
+                    PaymentTransactionPurpose.BookingRemaining,
+                    amount,
+                    orderCode,
+                    txId,
+                    "Remaining payment webhook received after it was already processed.",
+                    ct);
+                if (capture != null)
+                {
+                    await context.SaveChangesAsync(ct);
+                    await tx.CommitAsync(ct);
+                }
                 return;
             }
 
@@ -376,6 +438,15 @@ public partial class PaymentService(
             if (isExpiredOrFinalized)
             {
                 await RefundOrphanPaymentToWalletAsync(booking, amount, txId, ct);
+                await AddBookingPaymentTransactionIfMissingAsync(
+                    capture,
+                    booking,
+                    PaymentTransactionPurpose.BookingRemaining,
+                    amount,
+                    orderCode,
+                    txId,
+                    "Remaining payment received after booking deadline and refunded to wallet.",
+                    ct);
                 await context.SaveChangesAsync(ct);
                 await tx.CommitAsync(ct);
                 logger.LogInformation("Orphan remaining payment refunded to wallet for expired booking {Id}, amount {Amount}.", bookingId, amount);
@@ -443,6 +514,16 @@ public partial class PaymentService(
             // Remaining amount is now paid → activate sessions 2..N (were reserved until now).
             await ActivateRemainingSessionsAsync(bookingId, ct);
 
+            await AddBookingPaymentTransactionIfMissingAsync(
+                capture,
+                booking,
+                PaymentTransactionPurpose.BookingRemaining,
+                amount,
+                orderCode,
+                txId,
+                "Booking remaining payment.",
+                ct);
+
             await context.SaveChangesAsync(ct);
             await tx.CommitAsync(ct);
 
@@ -455,6 +536,76 @@ public partial class PaymentService(
             await tx.RollbackAsync(ct);
             throw;
         }
+    }
+
+    private async Task AddBookingPaymentTransactionIfMissingAsync(
+        PaymentTransactionCapture? capture,
+        Booking booking,
+        string purpose,
+        int amount,
+        long orderCode,
+        string txId,
+        string note,
+        CancellationToken ct)
+    {
+        if (capture == null)
+            return;
+
+        var description = purpose == PaymentTransactionPurpose.BookingDeposit
+            ? "Booking deposit payment"
+            : "Booking remaining payment";
+
+        var incoming = capture.Create(
+            purpose,
+            PaymentTransactionDirection.Inbound,
+            amount,
+            booking.Parentid,
+            orderCode,
+            txId,
+            bookingId: booking.Bookingid,
+            description: description,
+            note: note);
+
+        var providerTransactionId = incoming.Providertransactionid;
+        var existing = await context.PaymentTransactions.FirstOrDefaultAsync(t =>
+            t.Channel == capture.Channel
+            && ((!string.IsNullOrWhiteSpace(providerTransactionId)
+                    && t.Providertransactionid == providerTransactionId)
+                || (t.Bookingid == booking.Bookingid
+                    && t.Purpose == purpose
+                    && t.Ordercode == orderCode)), ct);
+
+        if (existing == null)
+        {
+            context.PaymentTransactions.Add(incoming);
+            return;
+        }
+
+        // Polling may confirm first and webhook may arrive later. Keep one row per
+        // PayOS order, then enrich the polling row with the signed webhook payload.
+        if (capture.HasPayOSWebhook)
+            EnrichPaymentTransaction(existing, incoming);
+    }
+
+    private static void EnrichPaymentTransaction(PaymentTransaction target, PaymentTransaction source)
+    {
+        target.Providertransactionid = source.Providertransactionid ?? target.Providertransactionid;
+        target.Paymentlinkid = source.Paymentlinkid ?? target.Paymentlinkid;
+        target.Description = source.Description ?? target.Description;
+        target.Paidat = source.Paidat ?? target.Paidat;
+        target.Note = source.Note ?? target.Note;
+        target.Webhookcode = source.Webhookcode ?? target.Webhookcode;
+        target.Webhookdesc = source.Webhookdesc ?? target.Webhookdesc;
+        target.Webhooksuccess = source.Webhooksuccess ?? target.Webhooksuccess;
+        target.Providercode = source.Providercode ?? target.Providercode;
+        target.Providerdesc = source.Providerdesc ?? target.Providerdesc;
+        target.Sourceaccountbankid = source.Sourceaccountbankid ?? target.Sourceaccountbankid;
+        target.Sourceaccountbankname = source.Sourceaccountbankname ?? target.Sourceaccountbankname;
+        target.Sourceaccountnumber = source.Sourceaccountnumber ?? target.Sourceaccountnumber;
+        target.Sourceaccountname = source.Sourceaccountname ?? target.Sourceaccountname;
+        target.Destinationaccountnumber = source.Destinationaccountnumber ?? target.Destinationaccountnumber;
+        target.Destinationaccountname = source.Destinationaccountname ?? target.Destinationaccountname;
+        target.Providerpayload = source.Providerpayload ?? target.Providerpayload;
     }
 
     private static void EnsureDepositAmountsCalculated(Booking booking)

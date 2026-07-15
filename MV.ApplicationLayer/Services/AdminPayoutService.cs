@@ -1,5 +1,6 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using MV.ApplicationLayer.Helpers;
 using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO.RequestModel;
@@ -333,7 +334,20 @@ public class AdminPayoutService(
         withdrawal.Decision       = decision;
         withdrawal.Completionnote = note;
 
-        await withdrawalRepo.SaveChangesAsync(ct);
+        var capture = PaymentTransactionCapture.FromManual(withdrawal.Processedat, actorUserId, note);
+        context.PaymentTransactions.Add(capture.Create(
+            PaymentTransactionPurpose.Withdrawal,
+            PaymentTransactionDirection.Outbound,
+            withdrawal.Amount ?? 0,
+            withdrawal.Userid,
+            null,
+            withdrawalId: withdrawal.Withdrawalid,
+            description: "Manual withdrawal payout",
+            destinationAccountNumber: withdrawal.Accountnumber,
+            destinationAccountName: withdrawal.Accountholdername,
+            destinationBankName: withdrawal.Bankname));
+
+        await context.SaveChangesAsync(ct);
 
         try
         {

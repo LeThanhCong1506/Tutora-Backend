@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -134,6 +134,23 @@ public class WalletService(
 
             topup.Status = TopupStatus.Completed;
             topup.Completedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
+
+            var capture = PaymentTransactionCapture.FromPayOSWebhook(request);
+            var providerTransactionId = capture.GetProviderTransactionId(data.Reference);
+            if (string.IsNullOrWhiteSpace(providerTransactionId)
+                || !await context.PaymentTransactions.AsNoTracking().AnyAsync(t =>
+                    t.Channel == capture.Channel && t.Providertransactionid == providerTransactionId, ct))
+            {
+                context.PaymentTransactions.Add(capture.Create(
+                    PaymentTransactionPurpose.WalletTopup,
+                    PaymentTransactionDirection.Inbound,
+                    topup.Amount ?? data.Amount,
+                    topup.Userid,
+                    data.OrderCode,
+                    data.Reference,
+                    topupRequestId: topup.Topuprequestid,
+                    description: "Wallet top-up payment"));
+            }
 
             await context.SaveChangesAsync(ct);
             await tx.CommitAsync(ct);

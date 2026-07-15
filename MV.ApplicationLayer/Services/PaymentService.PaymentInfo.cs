@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging;
 using MV.ApplicationLayer.Helpers;
 using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO.ResponseModel;
@@ -67,7 +67,7 @@ public partial class PaymentService
                 if (linkStatus == PayOSLinkStatus.Paid)
                 {
                     logger.LogWarning("Deposit link for booking {BookingId} already PAID at PayOS; confirming instead of creating a new link.", bookingId);
-                    await SelfHealConfirmAsync(existingLink.OrderCode, depositAmount, bookingId, PaymentPhase.DepositShort);
+                    await SelfHealConfirmAsync(existingLink, depositAmount, bookingId, PaymentPhase.DepositShort);
                     throw new BookingException(BookingErrorCodes.BookingAlreadyPaid, "Booking đã được thanh toán rồi", 409);
                 }
 
@@ -170,7 +170,7 @@ public partial class PaymentService
                     if (linkStatus == PayOSLinkStatus.Paid)
                     {
                         logger.LogWarning("Remaining link for booking {BookingId} already PAID at PayOS; confirming instead of creating a new link.", bookingId);
-                        await SelfHealConfirmAsync(existingLink.OrderCode, remainingAmount, bookingId, PaymentPhase.RemainingShort);
+                        await SelfHealConfirmAsync(existingLink, remainingAmount, bookingId, PaymentPhase.RemainingShort);
                         throw new BookingException(BookingErrorCodes.BookingAlreadyPaid, "Booking đã được thanh toán rồi", 409);
                     }
 
@@ -213,12 +213,17 @@ public partial class PaymentService
     /// Idempotent: nếu đã được webhook/poll xác nhận song song thì bỏ qua an toàn.
     /// Tự nuốt mọi lỗi để phía gọi chỉ cần phát sinh BookingAlreadyPaid.
     /// </summary>
-    private async Task SelfHealConfirmAsync(long orderCode, int amount, int bookingId, string phaseShort)
+    private async Task SelfHealConfirmAsync(
+        PayOS.Models.V2.PaymentRequests.PaymentLink paymentLink,
+        int amount,
+        int bookingId,
+        string phaseShort)
     {
-        var txId = $"selfheal-{bookingId}-{phaseShort}-{MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow:yyyyMMddHHmmss}";
+        var capture = PaymentTransactionCapture.FromPayOSPaymentLink(paymentLink);
+        var txId = capture.GetProviderTransactionId($"payos-link-{paymentLink.Id}")!;
         try
         {
-            await ConfirmPaymentInternalAsync(orderCode, amount, txId, CancellationToken.None);
+            await ConfirmPaymentInternalAsync(paymentLink.OrderCode, amount, txId, capture, CancellationToken.None);
             logger.LogInformation("Self-heal confirmed payment for booking {BookingId} (phase {Phase}).", bookingId, phaseShort);
         }
         catch (Exception ex)

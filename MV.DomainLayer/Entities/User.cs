@@ -75,6 +75,8 @@ public partial class User
 
     public virtual ICollection<AiCreditTransaction> AiCreditTransactions { get; set; } = new List<AiCreditTransaction>();
 
+    public virtual BankAccount? BankAccount { get; set; }
+
     public virtual ICollection<DisputeEvidence> DisputeEvidences { get; set; } = new List<DisputeEvidence>();
 
     public virtual ICollection<Chatmessage> Chatmessages { get; set; } = new List<Chatmessage>();

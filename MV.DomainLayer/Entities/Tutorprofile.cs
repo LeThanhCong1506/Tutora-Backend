@@ -74,13 +74,6 @@ public partial class Tutorprofile
     // /// <summary>online | offline | both</summary>
     // public string? Teachingmode { get; set; }
 
-    public string? Bankname { get; set; }
-
-    public string? Bankaccountnumber { get; set; }
-
-    public string? Bankaccountname { get; set; }
-
-    public DateTime? Bankchangedat { get; set; }
 
     public virtual ICollection<Booking> Bookings { get; set; } = new List<Booking>();
 

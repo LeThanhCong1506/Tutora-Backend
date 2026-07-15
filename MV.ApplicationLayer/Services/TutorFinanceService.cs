@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.Constants;
@@ -185,34 +185,49 @@ public class TutorFinanceService(
 
     public async Task<TutorBankInfoResponse> GetBankInfoAsync(string tutorId, CancellationToken ct = default)
     {
-        var tutor = await context.Tutorprofiles
+        var tutorExists = await context.Tutorprofiles
             .AsNoTracking()
-            .Where(t => t.Tutorid == tutorId)
-            .FirstOrDefaultAsync(ct);
+            .AnyAsync(t => t.Tutorid == tutorId, ct);
 
-        if (tutor == null)
+        if (!tutorExists)
             throw new TutorProfileNotFoundException();
+
+        var bankAccount = await context.BankAccounts
+            .AsNoTracking()
+            .FirstOrDefaultAsync(b => b.Userid == tutorId, ct);
 
         return new TutorBankInfoResponse
         {
-            BankName = tutor.Bankname,
-            AccountNumber = tutor.Bankaccountnumber,
-            AccountHolderName = tutor.Bankaccountname,
-            BankChangedAt = tutor.Bankchangedat
+            BankName = bankAccount?.Bankname,
+            AccountNumber = bankAccount?.Accountnumber,
+            AccountHolderName = bankAccount?.Accountholdername,
+            BankChangedAt = bankAccount?.Updatedat
         };
     }
-
     public async Task<TutorBankInfoResponse> UpdateBankInfoAsync(string tutorId, UpdateTutorBankInfoRequest request, CancellationToken ct = default)
     {
         var tutor = await context.Tutorprofiles.FirstOrDefaultAsync(t => t.Tutorid == tutorId, ct);
         if (tutor == null)
             throw new TutorProfileNotFoundException();
 
-        tutor.Bankname = request.BankName;
-        tutor.Bankaccountnumber = request.AccountNumber;
-        tutor.Bankaccountname = request.AccountHolderName;
-        tutor.Bankchangedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
-        tutor.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
+        var now = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
+        var bankAccount = await context.BankAccounts.FirstOrDefaultAsync(b => b.Userid == tutorId, ct);
+
+        if (bankAccount == null)
+        {
+            bankAccount = new BankAccount
+            {
+                Userid = tutorId,
+                Createdat = now
+            };
+            context.BankAccounts.Add(bankAccount);
+        }
+
+        bankAccount.Bankname = request.BankName;
+        bankAccount.Accountnumber = request.AccountNumber;
+        bankAccount.Accountholdername = request.AccountHolderName;
+        bankAccount.Updatedat = now;
+        tutor.Updatedat = now;
 
         await context.SaveChangesAsync(ct);
 
@@ -220,13 +235,12 @@ public class TutorFinanceService(
 
         return new TutorBankInfoResponse
         {
-            BankName = tutor.Bankname,
-            AccountNumber = tutor.Bankaccountnumber,
-            AccountHolderName = tutor.Bankaccountname,
-            BankChangedAt = tutor.Bankchangedat
+            BankName = bankAccount.Bankname,
+            AccountNumber = bankAccount.Accountnumber,
+            AccountHolderName = bankAccount.Accountholdername,
+            BankChangedAt = bankAccount.Updatedat
         };
     }
-
     public async Task<WithdrawalDetailResponse> CreateWithdrawalAsync(string tutorId, CreateWithdrawalRequest request, CancellationToken ct = default)
     {
         await using var transaction = await context.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, ct);
@@ -254,14 +268,18 @@ public class TutorFinanceService(
             if (pendingWithdrawal)
                 throw new PendingWithdrawalException();
 
-            var tutor = await context.Tutorprofiles
+            var tutorExists = await context.Tutorprofiles
                 .AsNoTracking()
-                .FirstOrDefaultAsync(t => t.Tutorid == tutorId, ct);
+                .AnyAsync(t => t.Tutorid == tutorId, ct);
+            var bankAccount = await context.BankAccounts
+                .AsNoTracking()
+                .FirstOrDefaultAsync(b => b.Userid == tutorId, ct);
 
-            if (tutor == null
-                || string.IsNullOrEmpty(tutor.Bankname)
-                || string.IsNullOrEmpty(tutor.Bankaccountnumber)
-                || string.IsNullOrEmpty(tutor.Bankaccountname))
+            if (!tutorExists
+                || bankAccount == null
+                || string.IsNullOrEmpty(bankAccount.Bankname)
+                || string.IsNullOrEmpty(bankAccount.Accountnumber)
+                || string.IsNullOrEmpty(bankAccount.Accountholdername))
                 throw new BankInfoRequiredException();
 
             if (request.Amount < MinWithdrawalAmount)
@@ -275,9 +293,9 @@ public class TutorFinanceService(
                 Userid = tutorId,
                 Walletid = wallet.Walletid,
                 Amount = request.Amount,
-                Bankname = tutor.Bankname,
-                Accountnumber = tutor.Bankaccountnumber,
-                Accountholdername = tutor.Bankaccountname,
+                Bankname = bankAccount.Bankname,
+                Accountnumber = bankAccount.Accountnumber,
+                Accountholdername = bankAccount.Accountholdername,
                 Status = WithdrawalStatus.PendingReview,
                 Decision = TrustScoringConstants.Decisions.ManualReview,
                 Requestedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow

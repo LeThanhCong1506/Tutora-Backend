@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using MV.ApplicationLayer.Interfaces;
 using MV.DomainLayer.Entities;
 using Microsoft.EntityFrameworkCore;
@@ -16,6 +16,8 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
         : base(options)
     {
     }
+
+    public virtual DbSet<BankAccount> BankAccounts { get; set; }
 
     public virtual DbSet<Booking> Bookings { get; set; }
 
@@ -101,6 +103,8 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
 
     public virtual DbSet<Wallettransaction> Wallettransactions { get; set; }
 
+    public virtual DbSet<PaymentTransaction> PaymentTransactions { get; set; }
+
     public virtual DbSet<Withdrawalrequest> Withdrawalrequests { get; set; }
 
     public virtual DbSet<WithdrawalScore> Withdrawalscores { get; set; }
@@ -118,6 +122,41 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
         modelBuilder.Entity<Studentprofile>().HasQueryFilter(e => EF.Property<DateTime?>(e, "Deletedat") == null);
         modelBuilder.Entity<Tutorprofile>().HasQueryFilter(e => EF.Property<DateTime?>(e, "Deletedat") == null);
 
+        modelBuilder.Entity<BankAccount>(entity =>
+        {
+            entity.HasKey(e => e.Bankaccountid).HasName("bank_accounts_pkey");
+
+            entity.ToTable("bank_accounts");
+
+            entity.HasIndex(e => e.Userid, "bank_accounts_userid_key").IsUnique();
+
+            entity.Property(e => e.Bankaccountid).HasColumnName("bank_account_id");
+            entity.Property(e => e.Userid)
+                .HasMaxLength(50)
+                .HasColumnName("user_id");
+            entity.Property(e => e.Bankname)
+                .HasMaxLength(100)
+                .HasColumnName("bank_name");
+            entity.Property(e => e.Accountnumber)
+                .HasMaxLength(50)
+                .HasColumnName("account_number");
+            entity.Property(e => e.Accountholdername)
+                .HasMaxLength(100)
+                .HasColumnName("account_holder_name");
+            entity.Property(e => e.Createdat)
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
+                .HasColumnType("timestamp without time zone")
+                .HasColumnName("created_at");
+            entity.Property(e => e.Updatedat)
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
+                .HasColumnType("timestamp without time zone")
+                .HasColumnName("updated_at");
+
+            entity.HasOne(d => d.User).WithOne(p => p.BankAccount)
+                .HasForeignKey<BankAccount>(d => d.Userid)
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("bank_accounts_userid_fkey");
+        });
         modelBuilder.Entity<FraudLog>(entity =>
         {
             entity.HasKey(e => e.Logid).HasName("fraud_logs_pkey");
@@ -1493,20 +1532,7 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
             entity.Property(e => e.Videointrourl)
                 .HasMaxLength(1000)
                 .HasColumnName("video_intro_url");
-            entity.Property(e => e.Bankname)
-                .HasMaxLength(100)
-                .HasColumnName("bank_name");
-            entity.Property(e => e.Bankaccountnumber)
-                .HasMaxLength(50)
-                .HasColumnName("bank_account_number");
-            entity.Property(e => e.Bankaccountname)
-                .HasMaxLength(100)
-                .HasColumnName("bank_account_name");
-            entity.Property(e => e.Bankchangedat)
-                .HasColumnType("timestamp without time zone")
-                .HasColumnName("bank_changed_at");
-
-            entity.HasOne(d => d.Tutor).WithOne(p => p.Tutorprofile)
+entity.HasOne(d => d.Tutor).WithOne(p => p.Tutorprofile)
                 .HasForeignKey<Tutorprofile>(d => d.Tutorid)
                 .HasConstraintName("tutorprofiles_tutorid_fkey");
         });
@@ -2081,6 +2107,128 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
                 .HasConstraintName("wallets_userid_fkey");
         });
 
+        modelBuilder.Entity<PaymentTransaction>(entity =>
+        {
+            entity.HasKey(e => e.Paymenttransactionid).HasName("payment_transactions_pkey");
+
+            entity.ToTable("payment_transactions");
+
+            entity.HasIndex(e => new { e.Channel, e.Providertransactionid }, "uq_payment_transactions_channel_provider_transaction_id")
+                .IsUnique()
+                .HasFilter("provider_transaction_id IS NOT NULL");
+            entity.HasIndex(e => e.Userid, "idx_payment_transactions_user_id");
+            entity.HasIndex(e => e.Ordercode, "idx_payment_transactions_order_code");
+            entity.HasIndex(e => e.Bookingid, "idx_payment_transactions_booking_id");
+            entity.HasIndex(e => e.Topuprequestid, "idx_payment_transactions_topup_request_id");
+            entity.HasIndex(e => e.Withdrawalid, "idx_payment_transactions_withdrawal_id");
+            entity.HasIndex(e => e.Paidat, "idx_payment_transactions_paid_at");
+
+            entity.Property(e => e.Paymenttransactionid).HasColumnName("payment_transaction_id");
+            entity.Property(e => e.Userid)
+                .HasMaxLength(50)
+                .HasColumnName("user_id");
+            entity.Property(e => e.Channel)
+                .HasMaxLength(20)
+                .HasColumnName("channel");
+            entity.Property(e => e.Direction)
+                .HasMaxLength(20)
+                .HasColumnName("direction");
+            entity.Property(e => e.Purpose)
+                .HasMaxLength(50)
+                .HasColumnName("purpose");
+            entity.Property(e => e.Status)
+                .HasMaxLength(20)
+                .HasDefaultValueSql("'Succeeded'::character varying")
+                .HasColumnName("status");
+            entity.Property(e => e.Amount)
+                .HasPrecision(15, 2)
+                .HasColumnName("amount");
+            entity.Property(e => e.Currency)
+                .HasMaxLength(10)
+                .HasDefaultValueSql("'VND'::character varying")
+                .HasColumnName("currency");
+            entity.Property(e => e.Ordercode).HasColumnName("order_code");
+            entity.Property(e => e.Providertransactionid).HasColumnName("provider_transaction_id");
+            entity.Property(e => e.Paymentlinkid)
+                .HasMaxLength(255)
+                .HasColumnName("payment_link_id");
+            entity.Property(e => e.Bookingid).HasColumnName("booking_id");
+            entity.Property(e => e.Topuprequestid).HasColumnName("topup_request_id");
+            entity.Property(e => e.Withdrawalid).HasColumnName("withdrawal_id");
+            entity.Property(e => e.Description).HasColumnName("description");
+            entity.Property(e => e.Paidat)
+                .HasColumnType("timestamp without time zone")
+                .HasColumnName("paid_at");
+            entity.Property(e => e.Createdat)
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
+                .HasColumnType("timestamp without time zone")
+                .HasColumnName("created_at");
+            entity.Property(e => e.Processedby)
+                .HasMaxLength(50)
+                .HasColumnName("processed_by");
+            entity.Property(e => e.Note).HasColumnName("note");
+            entity.Property(e => e.Webhookcode)
+                .HasMaxLength(50)
+                .HasColumnName("webhook_code");
+            entity.Property(e => e.Webhookdesc).HasColumnName("webhook_desc");
+            entity.Property(e => e.Webhooksuccess).HasColumnName("webhook_success");
+            entity.Property(e => e.Providercode)
+                .HasMaxLength(50)
+                .HasColumnName("provider_code");
+            entity.Property(e => e.Providerdesc).HasColumnName("provider_desc");
+            entity.Property(e => e.Sourceaccountbankid)
+                .HasMaxLength(50)
+                .HasColumnName("source_account_bank_id");
+            entity.Property(e => e.Sourceaccountbankname)
+                .HasMaxLength(100)
+                .HasColumnName("source_account_bank_name");
+            entity.Property(e => e.Sourceaccountnumber)
+                .HasMaxLength(50)
+                .HasColumnName("source_account_number");
+            entity.Property(e => e.Sourceaccountname)
+                .HasMaxLength(200)
+                .HasColumnName("source_account_name");
+            entity.Property(e => e.Destinationaccountbankid)
+                .HasMaxLength(50)
+                .HasColumnName("destination_account_bank_id");
+            entity.Property(e => e.Destinationaccountbankname)
+                .HasMaxLength(100)
+                .HasColumnName("destination_account_bank_name");
+            entity.Property(e => e.Destinationaccountnumber)
+                .HasMaxLength(50)
+                .HasColumnName("destination_account_number");
+            entity.Property(e => e.Destinationaccountname)
+                .HasMaxLength(200)
+                .HasColumnName("destination_account_name");
+            entity.Property(e => e.Providerpayload)
+                .HasColumnType("jsonb")
+                .HasColumnName("provider_payload");
+
+            entity.HasOne(d => d.User).WithMany()
+                .HasForeignKey(d => d.Userid)
+                .OnDelete(DeleteBehavior.SetNull)
+                .HasConstraintName("payment_transactions_user_id_fkey");
+
+            entity.HasOne(d => d.ProcessedbyNavigation).WithMany()
+                .HasForeignKey(d => d.Processedby)
+                .OnDelete(DeleteBehavior.SetNull)
+                .HasConstraintName("payment_transactions_processed_by_fkey");
+
+            entity.HasOne(d => d.Booking).WithMany()
+                .HasForeignKey(d => d.Bookingid)
+                .OnDelete(DeleteBehavior.SetNull)
+                .HasConstraintName("payment_transactions_booking_id_fkey");
+
+            entity.HasOne(d => d.Topuprequest).WithMany()
+                .HasForeignKey(d => d.Topuprequestid)
+                .OnDelete(DeleteBehavior.SetNull)
+                .HasConstraintName("payment_transactions_topup_request_id_fkey");
+
+            entity.HasOne(d => d.Withdrawal).WithMany()
+                .HasForeignKey(d => d.Withdrawalid)
+                .OnDelete(DeleteBehavior.SetNull)
+                .HasConstraintName("payment_transactions_withdrawal_id_fkey");
+        });
         modelBuilder.Entity<Wallettransaction>(entity =>
         {
             entity.HasKey(e => e.Transactionid).HasName("wallettransactions_pkey");

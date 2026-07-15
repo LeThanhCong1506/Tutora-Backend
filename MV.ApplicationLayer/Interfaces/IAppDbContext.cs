@@ -8,6 +8,7 @@ public interface IAppDbContext
 {
     DatabaseFacade Database { get; }
 
+    DbSet<BankAccount> BankAccounts { get; }
     DbSet<Booking> Bookings { get; }
     DbSet<FraudLog> Fraudlogs { get; }
     DbSet<LoginHistory> Loginhistories { get; }
@@ -48,6 +49,7 @@ public interface IAppDbContext
     DbSet<Userwarning> Userwarnings { get; }
     DbSet<Wallet> Wallets { get; }
     DbSet<Wallettransaction> Wallettransactions { get; }
+    DbSet<PaymentTransaction> PaymentTransactions { get; }
     DbSet<Withdrawalrequest> Withdrawalrequests { get; }
     DbSet<WithdrawalScore> Withdrawalscores { get; }
     DbSet<Systemalert> Systemalerts { get; }
