@@ -79,7 +79,17 @@ public class BookingResponse
     public decimal? TotalAmount { get; set; }
     public string? Currency { get; set; }
     public decimal? DiscountApplied { get; set; }
+    /// <summary>Học phí sau khuyến mãi, trước phí dịch vụ.</summary>
+    public decimal? BaseAmount { get; set; }
+    /// <summary>Phí dịch vụ thu từ phụ huynh.</summary>
+    public decimal? ParentFee { get; set; }
+    /// <summary>Phí dịch vụ khấu trừ từ gia sư.</summary>
+    public decimal? TutorServiceFee { get; set; }
+    /// <summary>Số tiền gia sư thực nhận cho toàn bộ booking.</summary>
+    public decimal? TutorReceivable { get; set; }
+    /// <summary>Tổng tiền phụ huynh cần thanh toán, gồm học phí và phí phía phụ huynh.</summary>
     public decimal? FinalPrice { get; set; }
+    /// <summary>Tổng phí nền tảng thu từ cả phụ huynh và gia sư.</summary>
     public decimal? PlatformFee { get; set; }
     public string? Status { get; set; }
     public string? PaymentStatus { get; set; }
