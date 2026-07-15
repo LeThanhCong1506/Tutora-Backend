@@ -11,20 +11,27 @@ namespace MV.ApplicationLayer.ServiceInterfaces
         Task<List<SubjectResponse>> GetSubjectsAsync();
         Task<List<GradeLevelResponse>> GetGradeLevelsAsync();
 
+        /// <summary>Danh sách thứ trong tuần (sắp theo DayOrder). Read-only.</summary>
+        Task<List<DayOfWeekResponse>> GetDaysOfWeekAsync();
+
         /// <summary>Chương theo môn+lớp (null = tất cả). Chỉ chương active.</summary>
         Task<List<ChapterResponse>> GetChaptersAsync(int? subjectId, int? gradeLevelId);
 
         Task<List<QuestionTypeResponse>> GetQuestionTypesAsync();
 
+        // Admin: liệt kê TẤT CẢ (gồm mục đã ngừng dùng) để quản lý.
+        Task<List<SubjectResponse>> GetAllSubjectsAsync();
+        Task<List<GradeLevelResponse>> GetAllGradeLevelsAsync();
+
         // Subject
         Task<SubjectResponse> CreateSubjectAsync(SubjectRequest req);
         Task<SubjectResponse?> UpdateSubjectAsync(int id, SubjectRequest req);
-        Task<bool> DeleteSubjectAsync(int id);
+        Task<LookupDeleteResult> DeleteSubjectAsync(int id);
 
         // GradeLevel
         Task<GradeLevelResponse> CreateGradeLevelAsync(GradeLevelRequest req);
         Task<GradeLevelResponse?> UpdateGradeLevelAsync(int id, GradeLevelRequest req);
-        Task<bool> DeleteGradeLevelAsync(int id);
+        Task<LookupDeleteResult> DeleteGradeLevelAsync(int id);
 
         // Chapter
         Task<ChapterResponse> CreateChapterAsync(ChapterRequest req);
@@ -45,4 +52,10 @@ namespace MV.ApplicationLayer.ServiceInterfaces
     {
         public LookupInUseException(string message) : base(message) { }
     }
+
+    /// <summary>
+    /// Kết quả soft-delete Subject/GradeLevel: có tìm thấy không, và đang có bao nhiêu
+    /// Tutorsubjectgradeprice active tham chiếu (chỉ để cảnh báo Admin/Staff, không chặn xoá).
+    /// </summary>
+    public record LookupDeleteResult(bool Found, int AffectedCount);
 }

@@ -379,26 +379,9 @@ namespace MV.ApplicationLayer.Services
 
         private async Task<bool> HasFutureClassSessionInSlotAsync(string tutorId, int utcDayOfWeek, TimeSpan utcSlotStart, TimeSpan utcSlotEnd)
         {
-            var classSessions = await _context.ClassSessions
-                .Where(l => l.Tutorid == tutorId
-                    && l.Scheduledstart > TimeZoneHelper.UtcNow
-                    && l.Status != ClassSessionStatus.Cancelled
-                    && l.Status != ClassSessionStatus.CancelledNoshow
-                    && l.Status != ClassSessionStatus.Completed
-                    && l.Status != ClassSessionStatus.NoShow)
-                .Select(l => new { l.Scheduledstart, l.Scheduledend })
-                .ToListAsync();
-
-            return classSessions.Any(l =>
-            {
-                // ClassSessions are stored in UTC, availability slots are now stored in UTC too
-                // Convert C# DayOfWeek (0=Sunday, 1=Monday...) to ISO format (1=Monday, 7=Sunday)
-                var classSessionIsoDayOfWeek = l.Scheduledstart.DayOfWeek == DayOfWeek.Sunday ? 7 : (int)l.Scheduledstart.DayOfWeek;
-
-                return classSessionIsoDayOfWeek == utcDayOfWeek
-                    && l.Scheduledstart.TimeOfDay < utcSlotEnd
-                    && l.Scheduledend.TimeOfDay > utcSlotStart;
-            });
+            // Dùng guard chung (nguồn sự thật duy nhất) — xem TutorScheduleGuard.
+            var sessions = await TutorScheduleGuard.GetFutureCommittedSessionsAsync(_context, tutorId);
+            return TutorScheduleGuard.OverlapsWeeklySlot(sessions, utcDayOfWeek, utcSlotStart, utcSlotEnd);
         }
 
         /// <summary>

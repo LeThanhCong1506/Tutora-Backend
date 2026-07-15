@@ -148,8 +148,8 @@ public partial class ClassSessionService
                         _context.Wallettransactions.Add(new Wallettransaction
                         {
                             Walletid = tutorWallet.Walletid,
-                            Amount = tutorEscrowClamped,
-                            Transactiontype = TransactionType.EscrowRelease,
+                            Amount = -tutorEscrowClamped,
+                            Transactiontype = TransactionType.EscrowReversal,
                             Referencetable = ReferenceTable.Booking,
                             Referenceid = classSession.Bookingid,
                             Description = $"Giải phóng escrow no-show classSession #{classSessionId}",
@@ -217,8 +217,8 @@ public partial class ClassSessionService
                         _context.Wallettransactions.Add(new Wallettransaction
                         {
                             Walletid = tutorWallet.Walletid,
-                            Amount = tutorEscrowRelease,
-                            Transactiontype = TransactionType.EscrowRelease,
+                            Amount = -tutorEscrowRelease,
+                            Transactiontype = TransactionType.EscrowReversal,
                             Referencetable = ReferenceTable.Booking,
                             Referenceid = classSession.Bookingid,
                             Description = $"Giải phóng escrow no-show change tutor - booking #{classSession.Bookingid} ({remaining} buổi còn lại)",

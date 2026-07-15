@@ -5,7 +5,15 @@ public static class TransactionType
     public const string Deposit = "Deposit";
     public const string Payment = "Payment";
     public const string EscrowCredit = "EscrowCredit";
+
+    /// <summary>Giải ngân escrow vào số dư khả dụng của tutor khi buổi học HOÀN TẤT — đây là thu nhập thật.
+    /// Chỉ loại này mới được tính vào totalEarned/earnings.</summary>
     public const string EscrowRelease = "EscrowRelease";
+
+    /// <summary>Hoàn/rút escrow khỏi frozen khi booking bị hủy, tutor từ chối, tutor không phản hồi,
+    /// hoặc no-show — tutor KHÔNG thực nhận. KHÔNG được tính vào thu nhập.</summary>
+    public const string EscrowReversal = "EscrowReversal";
+
     public const string Withdrawal = "Withdrawal";
     public const string Refund = "Refund";
     public const string DepositPayment = "DepositPayment";

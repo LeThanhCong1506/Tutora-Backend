@@ -217,7 +217,7 @@ public class TutorResponseTimeoutJob(IServiceProvider sp, ILogger<TutorResponseT
             {
                 Wallet = tutorWallet,
                 Amount = -tutorEscrowAmount,
-                Transactiontype = TransactionType.EscrowRelease,
+                Transactiontype = TransactionType.EscrowReversal,
                 Referencetable = ReferenceTable.Booking,
                 Referenceid = booking.Bookingid,
                 Description = $"Giải phóng escrow booking #{booking.Bookingid} do gia sư không phản hồi",

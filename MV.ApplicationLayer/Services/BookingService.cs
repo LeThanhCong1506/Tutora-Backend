@@ -67,6 +67,10 @@ public partial class BookingService(
             .FirstOrDefaultAsync(p => p.Id == dto.TutorSubjectGradePriceId && p.Tutorid == dto.TutorId && p.Isactive)
             ?? throw new BookingException(BookingErrorCodes.TutorNotTeachSubject, "Gia sư không dạy môn/lớp này", 409);
 
+        if (price.Subject?.IsActive != true || price.Gradelevel?.IsActive != true)
+            throw new BookingException(BookingErrorCodes.SubjectOrGradeLevelInactive,
+                "Môn học/khối lớp này đã ngừng cung cấp trên hệ thống", 409);
+
         var package = await context.Tutorpackages
             .Include(c => c.Tutorpackagefixedslots)
             .FirstOrDefaultAsync(c => c.Packageid == dto.PackageId && c.Tutorid == dto.TutorId && c.Isactive)
@@ -304,28 +308,22 @@ public partial class BookingService(
                     if ((tutorWallet.Frozenbalance ?? 0) < tutorEscrowAmount)
                         throw new InvalidOperationException($"Tutor escrow balance is insufficient for booking #{bookingId}.");
 
-                    tutorWallet.Frozenbalance = (tutorWallet.Frozenbalance ?? 0) - tutorEscrowAmount;
-                    tutorWallet.Lastupdated = now;
+                    // Rút escrow khỏi frozen (tutor không thực nhận khi booking bị hủy).
+                    tutorWallet.Frozenbalance = Math.Max(0, (tutorWallet.Frozenbalance ?? 0) - tutorEscrowAmount);
+                    tutorWallet.Lastupdated = TimeZoneHelper.UtcNow;
+
                     context.Wallettransactions.Add(new Wallettransaction
                     {
                         Wallet = tutorWallet,
                         Amount = -tutorEscrowAmount,
-                        Transactiontype = TransactionType.EscrowRelease,
+                        Transactiontype = TransactionType.EscrowReversal,
                         Referencetable = ReferenceTable.Booking,
                         Referenceid = bookingId,
                         Description = $"Giải phóng escrow booking #{bookingId} do hủy",
-                        Createdat = now
+                        Createdat = TimeZoneHelper.UtcNow
                     });
                 }
-
-                booking.Refundstatus = RefundStatus.Refunded;
-                booking.Refundamount = refundAmount;
-                booking.Escrowstatus = EscrowStatus.Refunded;
-            }
-            else
-            {
-                booking.Refundstatus = RefundStatus.NoRefund;
-            }
+                }
 
             booking.Status = BookingStatus.Cancelled;
             booking.Cancellationreason = reason;
@@ -666,7 +664,8 @@ public partial class BookingService(
             Subject = subject == null ? null : new SubjectResponse
             {
                 SubjectId = subject.Subjectid,
-                SubjectName = subject.Subjectname
+                SubjectName = subject.Subjectname,
+                IsActive = subject.IsActive
             },
             Package = b.Package == null ? null : new BookingPackageResponse
             {
@@ -679,7 +678,8 @@ public partial class BookingService(
             {
                 GradeLevelId = grade.Gradelevelid,
                 GradeName = grade.Gradename,
-                LevelOrder = grade.Levelorder
+                LevelOrder = grade.Levelorder,
+                IsActive = grade.IsActive
             },
             PackageType = b.Package?.Packagetype,
             SessionCount = b.Totalsessions ?? 0,

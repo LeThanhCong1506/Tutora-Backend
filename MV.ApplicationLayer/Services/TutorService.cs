@@ -6,6 +6,7 @@ using MV.DomainLayer.DTO.RequestModel;
 using MV.DomainLayer.DTO.ResponseModel;
 using MV.DomainLayer.Entities;
 using MV.ApplicationLayer.Interfaces;
+using MV.ApplicationLayer.Helpers;
 using System.Text.Json;
 
 namespace MV.ApplicationLayer.Services
@@ -19,6 +20,7 @@ namespace MV.ApplicationLayer.Services
         private readonly ILogger<TutorService> _logger;
         private readonly IEncryptionService _encryption;
         private readonly ITutorProfileUpdateStagingService _updateStaging;
+        private readonly IAppDbContext _context;
 
         // Storage buckets
         private const string CertificateBucket = StorageBucket.CertificateFiles;
@@ -37,7 +39,8 @@ namespace MV.ApplicationLayer.Services
             INotificationService notificationService,
             ILogger<TutorService> logger,
             IEncryptionService encryption,
-            ITutorProfileUpdateStagingService updateStaging)
+            ITutorProfileUpdateStagingService updateStaging,
+            IAppDbContext context)
         {
             _unitOfWork = unitOfWork;
             _storageService = storageService;
@@ -46,6 +49,7 @@ namespace MV.ApplicationLayer.Services
             _logger = logger;
             _encryption = encryption;
             _updateStaging = updateStaging;
+            _context = context;
         }
 
         /// <summary>
@@ -304,7 +308,13 @@ namespace MV.ApplicationLayer.Services
         public async Task<List<TutorPackageResponse>> GetTutorPackagesAsync(string tutorId, bool includeInactive = false)
         {
             var packages = await _unitOfWork.TutorRepository.GetTutorPackagesAsync(tutorId, includeInactive);
-            return packages.Select(MapTutorPackageResponse).ToList();
+
+            // Gắn cờ HasActiveBooking cho từng package (1 truy vấn dùng chung guard).
+            var bookedPackageIds = await TutorScheduleGuard.GetPackageIdsWithFutureSessionsAsync(_context, tutorId);
+
+            return packages
+                .Select(p => MapTutorPackageResponse(p, bookedPackageIds.Contains(p.Packageid)))
+                .ToList();
         }
 
         public async Task<TutorPackageResponse?> CreateTutorPackageAsync(string tutorId, CreateTutorPackageRequest request)
@@ -313,6 +323,17 @@ namespace MV.ApplicationLayer.Services
             if (profile == null) return null;
 
             ValidateTutorPackageRequest(request);
+
+            // Guard: không cho tạo khung cố định đè lên buổi dạy đã cam kết (tránh trùng lịch).
+            var committed = await TutorScheduleGuard.GetFutureCommittedSessionsAsync(_context, tutorId);
+            foreach (var s in request.FixedSlots)
+            {
+                var slotStart = TimeOnly.Parse(s.StartTime).ToTimeSpan();
+                var slotEnd = TimeOnly.Parse(s.EndTime).ToTimeSpan();
+                if (TutorScheduleGuard.OverlapsWeeklySlot(committed, s.DayOfWeek, slotStart, slotEnd))
+                    throw new InvalidOperationException(
+                        $"Không thể tạo khung {s.StartTime}-{s.EndTime} (thứ {s.DayOfWeek}) vì đã có buổi dạy được đặt ở khung giờ này.");
+            }
 
             var now = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
             var package = new Tutorpackage
@@ -347,10 +368,69 @@ namespace MV.ApplicationLayer.Services
             var package = await _unitOfWork.TutorRepository.GetTutorPackageAsync(tutorId, packageId);
             if (package == null) return false;
 
+            // Guard: không cho tắt gói khi còn buổi dạy được đặt & chưa hoàn tất thuộc gói này.
+            var committed = await TutorScheduleGuard.GetFutureCommittedSessionsAsync(_context, tutorId, packageId);
+            if (committed.Count > 0)
+                throw new InvalidOperationException(
+                    "Không thể tắt gói này vì đang có buổi dạy được đặt và chưa hoàn tất. Vui lòng chờ hoàn tất hoặc hủy booking trước.");
+
             package.Isactive = false;
             package.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
             await _unitOfWork.SaveChangesAsync();
             return true;
+        }
+
+        /// <summary>
+        /// Cập nhật package (tên, loại, khung cố định). Trả null nếu không tìm thấy.
+        /// Chặn (409) nếu package đang có buổi dạy được đặt chưa hoàn tất, hoặc khung mới
+        /// đè lên buổi dạy đã cam kết khác.
+        /// </summary>
+        public async Task<TutorPackageResponse?> UpdateTutorPackageAsync(string tutorId, int packageId, CreateTutorPackageRequest request)
+        {
+            var package = await _unitOfWork.TutorRepository.GetTutorPackageAsync(tutorId, packageId);
+            if (package == null) return null;
+
+            ValidateTutorPackageRequest(request);
+
+            // Guard 1: gói này còn buổi dạy chưa hoàn tất → khóa, không cho sửa.
+            var ownCommitted = await TutorScheduleGuard.GetFutureCommittedSessionsAsync(_context, tutorId, packageId);
+            if (ownCommitted.Count > 0)
+                throw new InvalidOperationException(
+                    "Không thể sửa gói này vì đang có buổi dạy được đặt và chưa hoàn tất. Vui lòng chờ hoàn tất hoặc hủy booking trước.");
+
+            // Guard 2: khung cố định mới không được đè lên buổi dạy đã cam kết (gói khác / lịch khác).
+            var allCommitted = await TutorScheduleGuard.GetFutureCommittedSessionsAsync(_context, tutorId);
+            foreach (var s in request.FixedSlots)
+            {
+                var slotStart = TimeOnly.Parse(s.StartTime).ToTimeSpan();
+                var slotEnd = TimeOnly.Parse(s.EndTime).ToTimeSpan();
+                if (TutorScheduleGuard.OverlapsWeeklySlot(allCommitted, s.DayOfWeek, slotStart, slotEnd))
+                    throw new InvalidOperationException(
+                        $"Không thể đặt khung {s.StartTime}-{s.EndTime} (thứ {s.DayOfWeek}) vì đã có buổi dạy được đặt ở khung giờ này.");
+            }
+
+            var now = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
+            package.Name = request.Name.Trim();
+            package.Packagetype = request.PackageType;
+            package.Updatedat = now;
+
+            // Thay toàn bộ khung cố định (orphan cũ sẽ bị EF xóa do quan hệ bắt buộc).
+            package.Tutorpackagefixedslots.Clear();
+            foreach (var s in request.FixedSlots)
+            {
+                package.Tutorpackagefixedslots.Add(new Tutorpackagefixedslot
+                {
+                    Dayofweek = s.DayOfWeek,
+                    Starttime = TimeOnly.Parse(s.StartTime),
+                    Endtime   = TimeOnly.Parse(s.EndTime),
+                    Createdat = now
+                });
+            }
+
+            await _unitOfWork.SaveChangesAsync();
+
+            // Qua được Guard 1 nghĩa là gói không còn booking → HasActiveBooking = false.
+            return MapTutorPackageResponse(package, hasActiveBooking: false);
         }
 
         // ─── Status Management ────────────────────────────────────────────────
@@ -487,7 +567,7 @@ namespace MV.ApplicationLayer.Services
             var invalidSubjectIds = subjectIds.Except(existingSubjectIds).ToList();
             if (invalidSubjectIds.Any())
             {
-                throw new ArgumentException($"Subject IDs không tồn tại: {string.Join(", ", invalidSubjectIds)}");
+                throw new ArgumentException($"Subject IDs không tồn tại hoặc đã ngừng sử dụng: {string.Join(", ", invalidSubjectIds)}");
             }
 
             var gradeLevelIds = prices.Select(p => p.GradeLevelId).Distinct().ToList();
@@ -495,7 +575,7 @@ namespace MV.ApplicationLayer.Services
             var invalidGradeLevelIds = gradeLevelIds.Except(existingGradeLevelIds).ToList();
             if (invalidGradeLevelIds.Any())
             {
-                throw new ArgumentException($"GradeLevel IDs không tồn tại: {string.Join(", ", invalidGradeLevelIds)}");
+                throw new ArgumentException($"GradeLevel IDs không tồn tại hoặc đã ngừng sử dụng: {string.Join(", ", invalidGradeLevelIds)}");
             }
 
             // Rule 1 & 2: validate session duration and sessions/week against tutor availability
@@ -618,7 +698,11 @@ namespace MV.ApplicationLayer.Services
                 DurationMinutesPerSession = price.Durationminutespersession,
                 SessionsPerWeek = price.Sessionsperweek,
                 Currency = price.Currency,
-                IsActive = price.Isactive
+                IsActive = price.Isactive,
+                // Cờ để FE biết môn/khối đã bị Admin soft-delete: cảnh báo/khóa dòng này.
+                // Nav property được load sẵn qua Include; mặc định true nếu chưa load được.
+                SubjectIsActive = price.Subject?.IsActive ?? true,
+                GradeLevelIsActive = price.Gradelevel?.IsActive ?? true
             };
         }
 
@@ -661,9 +745,39 @@ namespace MV.ApplicationLayer.Services
                     throw new ArgumentException("StartTime phải trước EndTime");
                 }
             }
+
+            // Không cho phép các khung giờ trong cùng một ngày đè/trùng lên nhau.
+            // Mỗi khung thời gian chỉ được có duy nhất một lịch dạy — ví dụ 20:00-22:00 và
+            // 21:00-22:00 (thứ 2) là chồng lấn nên phải báo lỗi.
+            var slotsByDay = request.FixedSlots
+                .Select(s => new
+                {
+                    s.DayOfWeek,
+                    Start = TimeOnly.Parse(s.StartTime),
+                    End = TimeOnly.Parse(s.EndTime)
+                })
+                .GroupBy(s => s.DayOfWeek);
+
+            foreach (var day in slotsByDay)
+            {
+                var ordered = day.OrderBy(s => s.Start).ToList();
+                var maxEnd = ordered[0].End;
+                for (int i = 1; i < ordered.Count; i++)
+                {
+                    // Đã sắp theo Start tăng dần: nếu Start của khung sau < End lớn nhất
+                    // của các khung trước đó thì hai khung chồng lấn thời gian.
+                    if (ordered[i].Start < maxEnd)
+                    {
+                        throw new ArgumentException(
+                            $"Các khung giờ trong cùng một ngày (thứ {day.Key}) không được trùng/đè lên nhau. " +
+                            "Mỗi khung thời gian chỉ được xếp một lịch dạy.");
+                    }
+                    if (ordered[i].End > maxEnd) maxEnd = ordered[i].End;
+                }
+            }
         }
 
-        private static TutorPackageResponse MapTutorPackageResponse(Tutorpackage package)
+        private static TutorPackageResponse MapTutorPackageResponse(Tutorpackage package, bool hasActiveBooking = false)
         {
             return new TutorPackageResponse
             {
@@ -672,6 +786,7 @@ namespace MV.ApplicationLayer.Services
                 Name = package.Name,
                 PackageType = package.Packagetype,
                 IsActive = package.Isactive,
+                HasActiveBooking = hasActiveBooking,
                 FixedSlots = package.Tutorpackagefixedslots
                     .Select(s => new TutorPackageFixedSlotResponse
                     {

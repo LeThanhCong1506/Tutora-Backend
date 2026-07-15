@@ -18,4 +18,5 @@ public partial class Tutoravailability
     public DateTime? Createdat { get; set; }
 
     public virtual Tutorprofile? Tutor { get; set; }
+    public virtual Dayofweek? DayofweekNavigation { get; set; }
 }

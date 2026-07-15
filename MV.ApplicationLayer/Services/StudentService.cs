@@ -343,23 +343,25 @@ namespace MV.ApplicationLayer.Services
         public async Task<StudentLinkStatusResponse> GetLinkStatusAsync(string studentUserId)
         {
             var profiles = await _unitOfWork.StudentRepository.GetByLinkedUserIdAsync(studentUserId);
-            var student = profiles.FirstOrDefault(p => p.Parentid != null);
+            var student = profiles.FirstOrDefault(p => p.Parentid != null) ?? profiles.FirstOrDefault();
 
             if (student == null)
             {
                 return new StudentLinkStatusResponse { Linked = false };
             }
 
+            var linked = student.Parentid != null;
+
             string? parentName = null;
-            if (student.Parentid != null)
+            if (linked)
             {
-                var parent = await _unitOfWork.UserRepository.GetUserByIdAsync(student.Parentid);
+                var parent = await _unitOfWork.UserRepository.GetUserByIdAsync(student.Parentid!);
                 parentName = parent?.Fullname;
             }
 
             return new StudentLinkStatusResponse
             {
-                Linked = true,
+                Linked = linked,
                 ParentName = parentName,
                 ParentId = student.Parentid,
                 StudentProfile = MapToResponse(student)
@@ -543,7 +545,8 @@ namespace MV.ApplicationLayer.Services
             {
                 GradeLevelId = s.GradelevelNavigation.Gradelevelid,
                 GradeName = s.GradelevelNavigation.Gradename,
-                LevelOrder = s.GradelevelNavigation.Levelorder
+                LevelOrder = s.GradelevelNavigation.Levelorder,
+                IsActive = s.GradelevelNavigation.IsActive
             },
             LearningGoals = s.Learninggoals,
             AvatarURL = s.Avatarurl,

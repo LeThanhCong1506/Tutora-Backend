@@ -26,19 +26,10 @@ public partial class ClassSessionService
         if (classSession.Status != Scheduled)
             throw new ClassSessionException(ClassSessionErrorCodes.InvalidClassSessionStatus, "Buổi học không ở trạng thái đã lên lịch", 400);
 
-        // Block check-in for subsequent sessions until all remaining sessions are paid.
-        if (classSession.Booking != null &&
-            (classSession.Booking.Status == BookingStatus.DepositPaid || classSession.Booking.Status == BookingStatus.PendingRemainingPayment) &&
-            classSession.Booking.Remainingpaidat == null)
-        {
-            var hasCompletedClassSession = await _context.ClassSessions.AnyAsync(
-                l => l.Bookingid == classSession.Bookingid && l.Classsessionid != classSessionId
-                && (l.Status == Completed || l.Status == PendingConfirmation || l.Status == InProgress));
-
-            if (hasCompletedClassSession)
-                throw new ClassSessionException(BookingErrorCodes.RemainingNotPaid,
-                    "Phụ huynh chưa thanh toán các buổi học còn lại. Vui lòng đợi thanh toán trước khi bắt đầu buổi tiếp theo.", 400);
-        }
+        // Block check-in for subsequent classSessions if remaining 50% not paid yet
+        if (await IsNextSessionBlockedByRemainingPaymentAsync(classSession.Booking, classSession.Bookingid, classSessionId))
+            throw new ClassSessionException(BookingErrorCodes.RemainingNotPaid,
+                "Phụ huynh chưa thanh toán các buổi học còn lại. Vui lòng đợi thanh toán trước khi bắt đầu buổi tiếp theo.", 400);
 
         var now = TimeZoneHelper.UtcNow;
         var minutesDiff = Math.Abs((now - classSession.Scheduledstart).TotalMinutes);
@@ -334,5 +325,44 @@ public partial class ClassSessionService
 
         _logger.LogInformation("Uploaded attachment {FileName} for classSession {ClassSessionId} → {Url}", file.FileName, classSessionId, fileUrl);
         return fileUrl;
+    }
+
+    /// <summary>
+    /// True nếu buổi học <paramref name="currentSessionId"/> là buổi TIẾP THEO của booking
+    /// nhưng phụ huynh CHƯA thanh toán đợt 2. Điều kiện: booking đang ở deposit_paid /
+    /// pending_remaining_payment, chưa có Remainingpaidat, và đã có ít nhất 1 buổi khác của
+    /// booking đã bắt đầu/hoàn tất (completed / pending_confirmation / in_progress).
+    /// Buổi ĐẦU luôn cho phép (chưa có buổi nào trước đó). Dùng chung cho check-in và cấp
+    /// token Agora để chặn học tiếp khi chưa trả tiền các buổi còn lại.
+    /// </summary>
+    private async Task<bool> IsNextSessionBlockedByRemainingPaymentAsync(
+        Booking? booking, int? bookingId, int currentSessionId)
+    {
+        if (booking == null || bookingId == null)
+            return false;
+
+        if (booking.Status != BookingStatus.DepositPaid && booking.Status != BookingStatus.PendingRemainingPayment)
+            return false;
+
+        if (booking.Remainingpaidat != null)
+            return false;
+
+        return await _context.ClassSessions.AnyAsync(
+            l => l.Bookingid == bookingId && l.Classsessionid != currentSessionId
+            && (l.Status == Completed || l.Status == PendingConfirmation || l.Status == InProgress));
+    }
+
+    /// <inheritdoc />
+    public async Task<bool> IsSessionBlockedByRemainingPaymentAsync(int classSessionId)
+    {
+        var classSession = await _context.ClassSessions
+            .Include(l => l.Booking)
+            .FirstOrDefaultAsync(l => l.Classsessionid == classSessionId);
+
+        if (classSession == null)
+            return false;
+
+        return await IsNextSessionBlockedByRemainingPaymentAsync(
+            classSession.Booking, classSession.Bookingid, classSessionId);
     }
 }

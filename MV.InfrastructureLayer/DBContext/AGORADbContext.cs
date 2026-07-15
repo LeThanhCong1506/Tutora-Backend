@@ -65,7 +65,7 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
 
     public virtual DbSet<Gradelevel> Gradelevels { get; set; }
 
-
+    public virtual DbSet<Dayofweek> DaysOfWeek { get; set; }
 
     public virtual DbSet<Studentgrade> Studentgrades { get; set; }
 
@@ -1290,6 +1290,7 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
             entity.Property(e => e.Subjectname)
                 .HasMaxLength(100)
                 .HasColumnName("subject_name");
+            entity.Property(e => e.IsActive).HasDefaultValue(true).HasColumnName("is_active");
         });
 
         modelBuilder.Entity<Systemconfig>(entity =>
@@ -1330,7 +1331,7 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnType("timestamp without time zone")
                 .HasColumnName("created_at");
-            entity.Property(e => e.Dayofweek).HasColumnName("day_of_week");
+            entity.Property(e => e.Dayofweek).HasColumnName("day_of_week_id");
             entity.Property(e => e.Endtime).HasColumnName("end_time");
             entity.Property(e => e.Starttime).HasColumnName("start_time");
             entity.Property(e => e.Tutorid)
@@ -1341,6 +1342,30 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
                 .HasForeignKey(d => d.Tutorid)
                 .OnDelete(DeleteBehavior.Cascade)
                 .HasConstraintName("tutoravailability_tutorid_fkey");
+
+            entity.HasOne(d => d.DayofweekNavigation).WithMany(p => p.Tutoravailabilities)
+                .HasForeignKey(d => d.Dayofweek)
+                .HasConstraintName("tutoravailability_dayofweek_fkey");
+        });
+
+        modelBuilder.Entity<Dayofweek>(entity =>
+        {
+            entity.HasKey(e => e.DayofweekId).HasName("days_of_week_pkey");
+
+            entity.ToTable("days_of_week");
+
+            entity.HasIndex(e => e.DayName, "uq_days_of_week_name").IsUnique();
+            entity.HasIndex(e => e.DayOrder, "uq_days_of_week_order").IsUnique();
+
+            entity.Property(e => e.DayofweekId).HasColumnName("day_of_week_id").ValueGeneratedNever();
+            entity.Property(e => e.DayName)
+                .HasMaxLength(20)
+                .HasColumnName("day_name");
+            entity.Property(e => e.DayOrder).HasColumnName("day_order");
+            entity.Property(e => e.Createdat)
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
+                .HasColumnType("timestamp without time zone")
+                .HasColumnName("created_at");
         });
 
         modelBuilder.Entity<Tutorcertificate>(entity =>
@@ -1500,6 +1525,7 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
                 .HasMaxLength(100)
                 .HasColumnName("grade_name");
             entity.Property(e => e.Levelorder).HasColumnName("level_order");
+            entity.Property(e => e.IsActive).HasDefaultValue(true).HasColumnName("is_active");
             entity.Property(e => e.Createdat)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnType("timestamp without time zone")
@@ -1751,7 +1777,7 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnType("timestamp without time zone")
                 .HasColumnName("created_at");
-            entity.Property(e => e.Dayofweek).HasColumnName("day_of_week");
+            entity.Property(e => e.Dayofweek).HasColumnName("day_of_week_id");
             entity.Property(e => e.Endtime).HasColumnName("end_time");
             entity.Property(e => e.Starttime).HasColumnName("start_time");
 
@@ -1759,6 +1785,10 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
                 .HasForeignKey(d => d.Packageid)
                 .OnDelete(DeleteBehavior.Cascade)
                 .HasConstraintName("fk_tutorpackagefixedslots_package");
+
+            entity.HasOne(d => d.DayofweekNavigation).WithMany(p => p.Tutorpackagefixedslots)
+                .HasForeignKey(d => d.Dayofweek)
+                .HasConstraintName("fk_tutorpackagefixedslots_day_of_week");
         });
 
         modelBuilder.Entity<Tutorsubscription>(entity =>

@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using MV.ApplicationLayer.ServiceInterfaces;
+using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO;
 using MV.DomainLayer.DTO.RequestModel.Question;
 using MV.DomainLayer.DTO.ResponseModel;
@@ -13,7 +14,7 @@ namespace MV.PresentationLayer.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/admin/lookup")]
-[Authorize]
+[Authorize(Roles = UserRole.AdminOrStaff)]
 public class AdminLookupController : ControllerBase
 {
     private readonly ILookupService _lookup;
@@ -24,6 +25,14 @@ public class AdminLookupController : ControllerBase
     }
 
     // Subjects
+    /// <summary>Liệt kê tất cả môn học (gồm cả đã ngừng dùng). GET /api/admin/lookup/subjects</summary>
+    [HttpGet("subjects")]
+    public async Task<ActionResult<APIResponse<List<SubjectResponse>>>> GetSubjects()
+    {
+        var result = await _lookup.GetAllSubjectsAsync();
+        return Ok(APIResponse<List<SubjectResponse>>.Success(result, "Lấy danh sách môn học thành công."));
+    }
+
     [HttpPost("subjects")]
     public async Task<ActionResult<APIResponse<SubjectResponse>>> CreateSubject(
         [FromBody] SubjectRequest req)
@@ -49,6 +58,14 @@ public class AdminLookupController : ControllerBase
         => DeleteGuarded(() => _lookup.DeleteSubjectAsync(id), "môn học");
 
     // GradeLevels
+
+    /// <summary>Liệt kê tất cả khối lớp (gồm cả đã ngừng dùng). GET /api/admin/lookup/grade-levels</summary>
+    [HttpGet("grade-levels")]
+    public async Task<ActionResult<APIResponse<List<GradeLevelResponse>>>> GetGradeLevels()
+    {
+        var result = await _lookup.GetAllGradeLevelsAsync();
+        return Ok(APIResponse<List<GradeLevelResponse>>.Success(result, "Lấy danh sách khối lớp thành công."));
+    }
 
     [HttpPost("grade-levels")]
     public async Task<ActionResult<APIResponse<GradeLevelResponse>>> CreateGradeLevel(
@@ -128,20 +145,37 @@ public class AdminLookupController : ControllerBase
 
     // Helpers
 
-    /// <summary>Bọc xoá: not-found -> 404, đang tham chiếu -> 409, ok -> 200.</summary>
+    /// <summary>Bọc xoá: not-found -> 404, đang tham chiếu -> 409, ok -> 200.
+    /// Truyền successMessage cho trường hợp soft-delete.</summary>
     private async Task<ActionResult<APIResponse<object>>> DeleteGuarded(
-        Func<Task<bool>> deleteFn, string label)
+        Func<Task<bool>> deleteFn, string label, string? successMessage = null)
     {
         try
         {
             var ok = await deleteFn();
             return ok
-                ? Ok(APIResponse<object>.Success($"Xoá {label} thành công."))
+                ? Ok(APIResponse<object>.Success(successMessage ?? $"Xoá {label} thành công."))
                 : NotFound(APIResponse.Fail($"Không tìm thấy {label}.", 404));
         }
         catch (LookupInUseException ex)
         {
             return Conflict(APIResponse.Fail(ex.Message, 409));
         }
+    }
+
+    /// <summary>Bọc soft-delete Subject/GradeLevel: not-found -> 404, ok -> 200 kèm cảnh báo
+    /// số gói giá của tutor đang tham chiếu (không chặn, không cascade — booking/lớp đang dạy
+    /// vẫn tiếp tục hoạt động bình thường).</summary>
+    private async Task<ActionResult<APIResponse<object>>> DeleteGuarded(
+        Func<Task<LookupDeleteResult>> deleteFn, string label)
+    {
+        var result = await deleteFn();
+        if (!result.Found)
+            return NotFound(APIResponse.Fail($"Không tìm thấy {label}.", 404));
+
+        var message = result.AffectedCount > 0
+            ? $"Đã ngừng sử dụng {label} (đang có {result.AffectedCount} gói giá của tutor tham chiếu — các booking/lớp đang dạy không bị ảnh hưởng)."
+            : $"Soft delete {label} thành công (đã ngừng sử dụng).";
+        return Ok(APIResponse<object>.Success(message));
     }
 }

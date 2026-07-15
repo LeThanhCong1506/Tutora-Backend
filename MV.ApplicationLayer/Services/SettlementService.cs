@@ -307,6 +307,34 @@ public class SettlementService : ISettlementService
                 if (tutorAmount > 0)
                     tutorWallet.Balance += tutorAmount;
                 tutorWallet.Lastupdated = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
+
+                // Ghi ledger cho phía tutor (trước đây thiếu → totalEarned báo thiếu & sổ cái không khớp):
+                //  - Phần tutor thực nhận cho buổi đã dạy → EscrowRelease (tính vào thu nhập).
+                if (tutorAmount > 0)
+                    _context.Wallettransactions.Add(new Wallettransaction
+                    {
+                        Walletid = tutorWallet.Walletid,
+                        Amount = tutorAmount,
+                        Transactiontype = TransactionType.EscrowRelease,
+                        Referencetable = ReferenceTable.Booking,
+                        Referenceid = classSession.Bookingid,
+                        Description = $"Giải ngân buổi học #{classSession.Classsessionid} ({100 - refundPercentage}%)",
+                        Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
+                    });
+
+                //  - Phần escrow bị rút để hoàn cho phụ huynh → EscrowReversal (không phải thu nhập).
+                var tutorReversed = Math.Round(tutorEscrowPerSession - tutorAmount, 2);
+                if (tutorReversed > 0)
+                    _context.Wallettransactions.Add(new Wallettransaction
+                    {
+                        Walletid = tutorWallet.Walletid,
+                        Amount = -tutorReversed,
+                        Transactiontype = TransactionType.EscrowReversal,
+                        Referencetable = ReferenceTable.Booking,
+                        Referenceid = classSession.Bookingid,
+                        Description = $"Hoàn escrow buổi học #{classSession.Classsessionid} ({refundPercentage}%)",
+                        Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
+                    });
             }
 
             // Credit parent wallet with what they actually paid (Finalprice-based, not Lessonprice)

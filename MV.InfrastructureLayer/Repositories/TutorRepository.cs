@@ -229,7 +229,7 @@ namespace MV.InfrastructureLayer.Repositories
         public async Task<List<int>> GetExistingSubjectIdsAsync(List<int> subjectIds)
         {
             return await _context.Subjects
-                .Where(s => subjectIds.Contains(s.Subjectid))
+                .Where(s => subjectIds.Contains(s.Subjectid) && s.IsActive)
                 .Select(s => s.Subjectid)
                 .ToListAsync();
         }
@@ -237,7 +237,7 @@ namespace MV.InfrastructureLayer.Repositories
         public async Task<List<int>> GetExistingGradeLevelIdsAsync(List<int> gradeLevelIds)
         {
             return await _context.Gradelevels
-                .Where(g => gradeLevelIds.Contains(g.Gradelevelid))
+                .Where(g => gradeLevelIds.Contains(g.Gradelevelid) && g.IsActive)
                 .Select(g => g.Gradelevelid)
                 .ToListAsync();
         }

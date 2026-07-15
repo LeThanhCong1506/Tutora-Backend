@@ -20,6 +20,7 @@ namespace MV.ApplicationLayer.Services
         private readonly IFileStorageService _storage;
         private readonly INotificationService _notificationService;
         private readonly IEncryptionService _encryption;
+        private readonly IAppDbContext _context;
         private const string UserAvatarBucket = StorageBucket.Avatars;
 
         public UserService(
@@ -28,7 +29,8 @@ namespace MV.ApplicationLayer.Services
             ITutorVerificationService verificationService,
             IFileStorageService storage,
             INotificationService notificationService,
-            IEncryptionService encryption)
+            IEncryptionService encryption,
+            IAppDbContext context)
         {
             _unitOfWork = unitOfWork;
             _passwordRepository = passwordRepository;
@@ -36,6 +38,7 @@ namespace MV.ApplicationLayer.Services
             _storage = storage;
             _notificationService = notificationService;
             _encryption = encryption;
+            _context = context;
         }
 
         // ─── Queries ──────────────────────────────────────────────────────────

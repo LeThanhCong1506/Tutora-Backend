@@ -146,7 +146,8 @@ public partial class PaymentService(
             BookingId = bookingId,
             Status = booking.Paymentstatus ?? ApiMessages.Unknown,
             Amount = (int)(booking.Finalprice ?? 0),
-            IsPaid = booking.Status == BookingStatus.Paid,
+            // "Đã trả đủ" = trạng thái paid HOẶC đã đóng cả cọc lẫn phần còn lại (khi status là ongoing).
+            IsPaid = booking.Status == BookingStatus.Paid || (booking.Depositpaidat != null && booking.Remainingpaidat != null),
             DepositAmount = booking.Depositamount ?? 0,
             RemainingAmount = booking.Remainingamount ?? 0,
             IsDepositPaid = booking.Depositpaidat != null,
@@ -403,8 +404,13 @@ public partial class PaymentService(
                 && booking.Status != BookingStatus.Ongoing)
                 throw new BookingException(BookingErrorCodes.InvalidBookingStatus, "Booking không đũ điều kiện nhận thanh toán phần còn lại", 409);
 
-            // Update booking for fully paid
-            booking.Status = BookingStatus.Paid;
+            // Update booking for fully paid.
+            // Đã trả đủ: nếu còn buổi chưa hoàn tất (Sessionsremaining > 0) thì chuyển sang
+            // "đang học" (ongoing); nếu đã dạy hết thì để "paid" (SettlementService sẽ đưa về
+            // completed khi Sessionsremaining = 0). Tránh kẹt vĩnh viễn ở "paid" giữa lúc đang học.
+            booking.Status = (booking.Sessionsremaining ?? 0) > 0
+                ? BookingStatus.Ongoing
+                : BookingStatus.Paid;
             booking.Paymentstatus = Escrowed;
             booking.Remainingpaidat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
             booking.Paymentdueat = null; // Clear remaining deadline
@@ -433,6 +439,9 @@ public partial class PaymentService(
                     Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
                 });
             }
+
+            // Remaining amount is now paid → activate sessions 2..N (were reserved until now).
+            await ActivateRemainingSessionsAsync(bookingId, ct);
 
             await context.SaveChangesAsync(ct);
             await tx.CommitAsync(ct);

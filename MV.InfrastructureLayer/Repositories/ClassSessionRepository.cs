@@ -4,6 +4,7 @@ using MV.DomainLayer.Entities;
 using MV.DomainLayer.Helpers;
 using MV.InfrastructureLayer.DBContext;
 using MV.ApplicationLayer.RepositoryInterfaces;
+using MV.DomainLayer.Constants;
 using static MV.DomainLayer.Constants.ClassSessionStatus;
 namespace MV.InfrastructureLayer.Repositories;
 
@@ -91,6 +92,117 @@ public class ClassSessionRepository(AgoraDbContext context) : IClassSessionRepos
             .Include(l => l.Booking).ThenInclude(b => b!.Student)
             .Include(l => l.Tutor).ThenInclude(t => t!.Tutor)
             .FirstOrDefaultAsync(l => l.Classsessionid == classSessionId);
+
+    public async Task<(IReadOnlyList<TutorClassAggregate> Items, int Total)> GetTutorClassesPagedAsync(
+        string tutorId, int page, int pageSize, string? status, string? search, DateTime nowUtc)
+    {
+        // Source from Bookings (one row already = one "class") rather than GroupBy over sessions —
+        // this translates cleanly to SQL (navigation props are 1-1) and lets us exclude dead/not-yet-
+        // activated bookings up front. Session counts are correlated subqueries on b.ClassSessions.
+        var grouped = context.Bookings
+            .AsNoTracking()
+            .Where(b => b.Tutorid == tutorId
+                        && b.Status != BookingStatus.PendingTutor
+                        && b.Status != BookingStatus.PendingPayment
+                        && b.Status != BookingStatus.Accepted
+                        && b.Status != BookingStatus.Cancelled
+                        && b.Status != BookingStatus.CancelledNoshow
+                        && b.Status != BookingStatus.PaymentTimeout)
+            // Only count "activated" sessions: exclude both cancelled AND `reserved`. Sessions 2..N
+            // are created up-front as `reserved` and stay invisible until the parent pays the remaining
+            // amount — so a freshly-accepted booking must report 1 session, not the full package size.
+            .Select(b => new TutorClassAggregate
+            {
+                BookingId = b.Bookingid,
+                SubjectName = b.Tutorsubjectgradeprice!.Subject!.Subjectname,
+                StudentName = b.Student!.Fullname,
+                TotalSessions = b.ClassSessions.Count(l => l.Status != ClassSessionStatus.Cancelled && l.Status != ClassSessionStatus.CancelledNoshow && l.Status != ClassSessionStatus.Reserved),
+                CompletedSessions = b.ClassSessions.Count(l => l.Status == ClassSessionStatus.Completed),
+                ActiveSessions = b.ClassSessions.Count(l => l.Status != ClassSessionStatus.Cancelled && l.Status != ClassSessionStatus.CancelledNoshow && l.Status != ClassSessionStatus.Reserved),
+                HasInProgress = b.ClassSessions.Any(l => l.Status == ClassSessionStatus.InProgress),
+                HasPending = b.ClassSessions.Any(l => l.Status == ClassSessionStatus.PendingConfirmation),
+                HasNonTerminal = b.ClassSessions.Any(l => l.Status != ClassSessionStatus.Completed
+                                            && l.Status != ClassSessionStatus.Cancelled
+                                            && l.Status != ClassSessionStatus.CancelledNoshow
+                                            && l.Status != ClassSessionStatus.Reserved),
+                NextSessionStart = b.ClassSessions
+                    .Where(l => l.Scheduledstart > nowUtc
+                                && l.Status != ClassSessionStatus.Cancelled
+                                && l.Status != ClassSessionStatus.CancelledNoshow
+                                && l.Status != ClassSessionStatus.Reserved)
+                    .Min(l => (DateTime?)l.Scheduledstart),
+                LatestStart = b.ClassSessions
+                    .Where(l => l.Status != ClassSessionStatus.Reserved)
+                    .Max(l => (DateTime?)l.Scheduledstart) ?? DateTime.MinValue,
+            });
+
+        // Only keep bookings that already have at least one activated session (not just reserved).
+        grouped = grouped.Where(x => x.ActiveSessions > 0);
+
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var term = search.Trim().ToLower();
+            grouped = grouped.Where(x =>
+                (x.StudentName != null && x.StudentName.ToLower().Contains(term)) ||
+                (x.SubjectName != null && x.SubjectName.ToLower().Contains(term)));
+        }
+
+        // Derive class status inline so we can filter by it at the DB.
+        // completed → all non-cancelled sessions completed; else in_progress / pending / scheduled.
+        if (!string.IsNullOrWhiteSpace(status))
+        {
+            grouped = status switch
+            {
+                ClassSessionStatus.Completed => grouped.Where(x => !x.HasNonTerminal),
+                ClassSessionStatus.InProgress => grouped.Where(x => x.HasNonTerminal && x.HasInProgress),
+                ClassSessionStatus.PendingConfirmation => grouped.Where(x => x.HasNonTerminal && !x.HasInProgress && x.HasPending),
+                ClassSessionStatus.Scheduled => grouped.Where(x => x.HasNonTerminal && !x.HasInProgress && !x.HasPending),
+                _ => grouped,
+            };
+        }
+
+        var total = await grouped.CountAsync();
+
+        // Sort by next upcoming session (classes with an upcoming session first).
+        var items = await grouped
+            .OrderBy(x => x.NextSessionStart == null ? 1 : 0)
+            .ThenBy(x => x.NextSessionStart)
+            .ThenByDescending(x => x.LatestStart)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync();
+
+        // Schedule string (distinct weekday+time slots, max 3) — cheap to build per page in memory.
+        var bookingIds = items.Select(x => x.BookingId).ToList();
+        var slots = await context.ClassSessions
+            .AsNoTracking()
+            .Where(l => l.Bookingid != null && bookingIds.Contains(l.Bookingid.Value)
+                        && l.Status != ClassSessionStatus.Cancelled
+                        && l.Status != ClassSessionStatus.CancelledNoshow
+                        && l.Status != ClassSessionStatus.Reserved)
+            .Select(l => new { BookingId = l.Bookingid!.Value, l.Scheduledstart })
+            .ToListAsync();
+
+        var scheduleByBooking = slots
+            .GroupBy(s => s.BookingId)
+            .ToDictionary(
+                g => g.Key,
+                g => g.OrderBy(s => s.Scheduledstart)
+                      .Select(s => FormatSlot(s.Scheduledstart))
+                      .Distinct()
+                      .Take(3)
+                      .ToList());
+
+        foreach (var item in items)
+            item.Schedule = scheduleByBooking.TryGetValue(item.BookingId, out var s) ? string.Join(", ", s) : null;
+
+        return (items, total);
+    }
+
+    private static readonly string[] Weekdays = ["CN", "T2", "T3", "T4", "T5", "T6", "T7"];
+
+    private static string FormatSlot(DateTime start)
+        => $"{Weekdays[(int)start.DayOfWeek]} {start:HH:mm}";
 
     public async Task<(IReadOnlyList<StudentClassSessionSummaryResponse> Items, int Total)> GetStudentClassSessionsPagedAsync(
         string studentId, int page, int pageSize, string? status)
