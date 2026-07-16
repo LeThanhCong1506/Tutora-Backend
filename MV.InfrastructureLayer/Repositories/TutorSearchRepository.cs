@@ -87,6 +87,7 @@ namespace MV.InfrastructureLayer.Repositories
                     EF.Functions.ILike(u.Tutorprofile!.Headline ?? "", $"%{searchTerm}%") ||
                     EF.Functions.ILike(u.Tutorprofile!.Education ?? "", $"%{searchTerm}%") ||
                     u.Tutorprofile.Tutorsubjectgradeprices.Any(ts =>
+                        ts.Subject!.IsActive &&
                         EF.Functions.ILike(ts.Subject!.Subjectname ?? "", $"%{searchTerm}%"))
                 );
             }
@@ -100,6 +101,7 @@ namespace MV.InfrastructureLayer.Repositories
                     query = query.Where(u =>
                         u.Tutorprofile!.Tutorsubjectgradeprices.Any(ts =>
                             ts.Subject != null &&
+                            ts.Subject.IsActive &&
                             ts.Subject.Subjectname != null &&
                             subjectKeywords.Any(keyword =>
                                 ts.Subject.Subjectname.ToLower().Contains(keyword))));
@@ -111,7 +113,7 @@ namespace MV.InfrastructureLayer.Repositories
             {
                 query = query.Where(u =>
                     u.Tutorprofile!.Tutorsubjectgradeprices.Any(ts =>
-                        parameters.SubjectIds.Contains(ts.Subjectid)));
+                        parameters.SubjectIds.Contains(ts.Subjectid) && ts.Subject!.IsActive));
             }
 
             // 4. Filter by Subscription Types - EXACT MATCH (fast)
@@ -169,7 +171,7 @@ namespace MV.InfrastructureLayer.Repositories
                 var pattern = $"%{gradeLevelKey}%";
 
                 var matchingTutorIds = _context.Tutorsubjectgradeprices
-                    .Where(p => p.Gradelevel.Gradename != null && EF.Functions.ILike(p.Gradelevel.Gradename, pattern))
+                    .Where(p => p.Gradelevel.IsActive && p.Gradelevel.Gradename != null && EF.Functions.ILike(p.Gradelevel.Gradename, pattern))
                     .Select(ts => ts.Tutorid)
                     .ToList();
                 
@@ -199,10 +201,10 @@ namespace MV.InfrastructureLayer.Repositories
             // ==================== LESSON & STUDENT COUNTS (cho trang hiện tại) ====================
             var tutorIds = items.Select(u => u.Userid).ToList();
 
-            var lessonCounts = await _context.Lessons
+            var classSessionCounts = await _context.ClassSessions
                 .Where(l => l.Tutorid != null && tutorIds.Contains(l.Tutorid)
-                    && l.Status != LessonStatus.Cancelled
-                    && l.Status != LessonStatus.CancelledNoshow
+                    && l.Status != ClassSessionStatus.Cancelled
+                    && l.Status != ClassSessionStatus.CancelledNoshow
                     && l.Booking != null && PaidBookingStatuses.Contains(l.Booking.Status!))
                 .GroupBy(l => l.Tutorid!)
                 .Select(g => new { TutorId = g.Key, Count = g.Count() })
@@ -221,7 +223,7 @@ namespace MV.InfrastructureLayer.Repositories
             var results = items.Select(u =>
             {
                 var dto = MapToSearchResult(u);
-                dto.TotalLessons = lessonCounts.TryGetValue(u.Userid, out var lessonCount) ? lessonCount : 0;
+                dto.TotalClassSessions = classSessionCounts.TryGetValue(u.Userid, out var classSessionCount) ? classSessionCount : 0;
                 dto.TotalStudents = studentCounts.TryGetValue(u.Userid, out var studentCount) ? studentCount : 0;
                 return dto;
             }).ToList();
@@ -307,7 +309,7 @@ namespace MV.InfrastructureLayer.Repositories
         {
             var subjects = await _context.Subjects
                 .AsNoTracking()
-                .Where(s => s.Tutorsubjectgradeprices.Any(ts =>
+                .Where(s => s.IsActive && s.Tutorsubjectgradeprices.Any(ts =>
                     ts.Tutor != null &&
                     ts.Tutor.Profilestatus == TutorProfileStatus.Active &&
                     ts.Tutor.Ispublic == true &&
@@ -415,6 +417,7 @@ namespace MV.InfrastructureLayer.Repositories
         {
             var gradeLevels = await _context.Gradelevels
                 .AsNoTracking()
+                .Where(g => g.IsActive)
                 .Select(g => new
                 {
                     g.Gradelevelid,
@@ -575,7 +578,7 @@ namespace MV.InfrastructureLayer.Repositories
 
             // Lowest active price across all subject/grade offerings (for "Từ X đ/giờ").
             var minPricePerHour = profile.Tutorsubjectgradeprices?
-                .Where(p => p.Isactive)
+                .Where(p => p.Isactive && p.Subject.IsActive && p.Gradelevel.IsActive)
                 .Min(p => (decimal?)p.Priceperhour);
 
             return new TutorSearchResultResponse
@@ -631,7 +634,13 @@ namespace MV.InfrastructureLayer.Repositories
             if (Tutorsubjectgradeprices == null || !Tutorsubjectgradeprices.Any())
                 return null;
 
-            return Tutorsubjectgradeprices.Select(ts => new TutorSubjectInfo
+            var activeOnes = Tutorsubjectgradeprices
+                .Where(ts => ts.Subject.IsActive && ts.Gradelevel.IsActive)
+                .ToList();
+            if (!activeOnes.Any())
+                return null;
+
+            return activeOnes.Select(ts => new TutorSubjectInfo
             {
                 SubjectId = ts.Subjectid,
                 SubjectName = ts.Subject?.Subjectname,

@@ -14,7 +14,7 @@ public static class SettlementType
     /// <summary>Booking completed: full tutor earnings released.</summary>
     public const string FullRelease    = "full_release";
 
-    /// <summary>Individual lesson confirmed, funds held until booking completion.</summary>
+    /// <summary>Individual classSession confirmed, funds held until booking completion.</summary>
     public const string LessonConfirmed = "lesson_confirmed";
 
     /// <summary>Full 100% refund to parent.</summary>

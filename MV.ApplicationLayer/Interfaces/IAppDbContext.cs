@@ -8,8 +8,8 @@ public interface IAppDbContext
 {
     DatabaseFacade Database { get; }
 
+    DbSet<BankAccount> BankAccounts { get; }
     DbSet<Booking> Bookings { get; }
-    DbSet<BankChangeLog> BankChangeLogs { get; }
     DbSet<FraudLog> Fraudlogs { get; }
     DbSet<LoginHistory> Loginhistories { get; }
     DbSet<Chatchannel> Chatchannels { get; }
@@ -18,18 +18,24 @@ public interface IAppDbContext
     DbSet<ChatHistory> ChatHistories { get; }
     DbSet<Class> Classes { get; }
     DbSet<Dispute> Disputes { get; }
+    DbSet<DisputeEvidence> DisputeEvidences { get; }
     DbSet<Feedback> Feedbacks { get; }
     DbSet<Handoversummary> Handoversummaries { get; }
     DbSet<Learningmaterial> Learningmaterials { get; }
-    DbSet<Lesson> Lessons { get; }
-    DbSet<Lessonreport> Lessonreports { get; }
+    DbSet<ClassSession> ClassSessions { get; }
+    DbSet<ClassSessionReport> ClassSessionReports { get; }
     DbSet<Notification> Notifications { get; }
+    DbSet<QuestionBank> QuestionBanks { get; }
+    DbSet<AiCreditTransaction> AiCreditTransactions { get; }
     DbSet<Profilesuspension> Profilesuspensions { get; }
     DbSet<Promotion> Promotions { get; }
     DbSet<Gradelevel> Gradelevels { get; }
+    DbSet<Dayofweek> DaysOfWeek { get; }
     DbSet<Studentgrade> Studentgrades { get; }
     DbSet<Studentprofile> Studentprofiles { get; }
     DbSet<Subject> Subjects { get; }
+    DbSet<Chapter> Chapters { get; }
+    DbSet<QuestionType> QuestionTypes { get; }
     DbSet<Systemconfig> Systemconfigs { get; }
     DbSet<Topuprequest> Topuprequests { get; }
     DbSet<Tutoravailability> Tutoravailabilities { get; }
@@ -43,10 +49,12 @@ public interface IAppDbContext
     DbSet<Userwarning> Userwarnings { get; }
     DbSet<Wallet> Wallets { get; }
     DbSet<Wallettransaction> Wallettransactions { get; }
+    DbSet<PaymentTransaction> PaymentTransactions { get; }
     DbSet<Withdrawalrequest> Withdrawalrequests { get; }
     DbSet<WithdrawalScore> Withdrawalscores { get; }
     DbSet<Systemalert> Systemalerts { get; }
     DbSet<RefreshToken> Refreshtokens { get; }
+    DbSet<StaffPermission> StaffPermissions { get; }
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 }

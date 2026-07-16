@@ -77,7 +77,7 @@ public interface IBookingService
     Task<(bool Found, bool AlreadyInactive)> DeactivatePromotionAsync(int promotionId, CancellationToken ct = default);
 
     /// <summary>
-    /// Tutor accepts an incoming booking request; triggers automatic lesson creation.
+    /// Tutor accepts an incoming booking request; triggers automatic classSession creation.
     /// </summary>
     Task<TutorDecisionResponse> AcceptBookingAsync(string tutorId, int bookingId);
 

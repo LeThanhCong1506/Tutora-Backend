@@ -307,9 +307,10 @@ public class SocialRegistrationService : ISocialRegistrationService
         var role = session.Role!;
         var userId = Guid.NewGuid().ToString();
         var isGoogle = session.Provider == SocialAuthProvider.Google;
+        var socialAlias = isGoogle ? null : GenerateSocialAlias();
         var email = isGoogle
             ? session.Email
-            : $"zalo_{session.ProviderUserId}@tutora.vn";
+            : $"{socialAlias}@tutora.invalid";
 
         var user = new User
         {
@@ -321,7 +322,7 @@ public class SocialRegistrationService : ISocialRegistrationService
             Fullname = session.FullName ?? string.Empty,
             Avatarurl = session.AvatarUrl,
             Zalouserid = isGoogle ? null : session.ProviderUserId,
-            Username = isGoogle ? null : $"zalo_{session.ProviderUserId}",
+            Username = socialAlias,
             Status = 1,
             Isemailverified = isGoogle,
             Isphoneverified = true,
@@ -450,6 +451,9 @@ public class SocialRegistrationService : ISocialRegistrationService
 
     private static string GenerateSessionToken()
         => Convert.ToHexString(RandomNumberGenerator.GetBytes(32)).ToLowerInvariant();
+
+    private static string GenerateSocialAlias()
+        => $"social_{Convert.ToHexString(RandomNumberGenerator.GetBytes(16)).ToLowerInvariant()}";
 
     private static string GenerateOtpCode()
         => RandomNumberGenerator.GetInt32(100000, 1000000).ToString();

@@ -4,29 +4,29 @@ using MV.DomainLayer.DTO.ResponseModel;
 namespace MV.ApplicationLayer.ServiceInterfaces;
 
 /// <summary>
-/// Service interface for parent lesson management
+/// Service interface for parent classSession management
 /// </summary>
 public interface IParentService
 {
     /// <summary>
-    /// Get lessons pending parent/student confirmation
+    /// Get classSessions pending parent/student confirmation
     /// </summary>
-    Task<List<PendingLessonResponse>> GetPendingLessonsAsync(string userId, string role);
+    Task<List<PendingClassSessionResponse>> GetPendingClassSessionsAsync(string userId, string role);
 
     /// <summary>
-    /// Get lesson detail for parent/student view
+    /// Get classSession detail for parent/student view
     /// </summary>
-    Task<LessonDetailResponse?> GetLessonDetailAsync(int lessonId, string userId, string role);
+    Task<ClassSessionDetailResponse?> GetClassSessionDetailAsync(int classSessionId, string userId, string role);
 
     /// <summary>
-    /// Confirm a lesson as completed (triggers settlement)
+    /// Confirm a classSession as completed (triggers settlement)
     /// </summary>
-    Task<SettlementResultResponse> ConfirmLessonAsync(int lessonId, string userId, string role);
+    Task<SettlementResultResponse> ConfirmClassSessionAsync(int classSessionId, string userId, string role);
 
     /// <summary>
-    /// Create a dispute for a lesson
+    /// Create a dispute for a classSession
     /// </summary>
-    Task<DisputeDetailResponse> CreateDisputeAsync(int lessonId, string userId, string role, CreateDisputeRequest request);
+    Task<DisputeDetailResponse> CreateDisputeAsync(int classSessionId, string userId, string role, CreateDisputeRequest request);
 
     /// <summary>
     /// Get parent's/student's dispute history

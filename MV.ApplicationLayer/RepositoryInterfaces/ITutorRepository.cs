@@ -25,12 +25,6 @@ namespace MV.ApplicationLayer.RepositoryInterfaces
         Task<List<int>> GetExistingSubjectIdsAsync(List<int> subjectIds);
         Task<List<int>> GetExistingGradeLevelIdsAsync(List<int> gradeLevelIds);
 
-        // Bank verification methods
-        Task<List<BankChangeLog>> GetBankChangeLogsByTutorIdAsync(string tutorId, int limit = 10, CancellationToken cancellationToken = default);
-        Task AddBankChangeLogAsync(BankChangeLog log, CancellationToken cancellationToken = default);
-        Task<int> CountBankChangesInLastMonthAsync(string tutorId, CancellationToken cancellationToken = default);
-        Task<Tutorprofile?> GetTutorByVerificationCodeAsync(string? verificationCode, CancellationToken cancellationToken = default);
-
         // Availability
         Task<List<Tutoravailability>> GetAvailabilitiesByTutorIdAsync(string tutorId);
 

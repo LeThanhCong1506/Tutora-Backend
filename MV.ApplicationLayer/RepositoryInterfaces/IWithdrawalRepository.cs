@@ -13,7 +13,7 @@ public interface IWithdrawalRepository
     /// <summary>Returns the base queryable (no tracking) for ad-hoc filtering in the service.</summary>
     IQueryable<Withdrawalrequest> GetBaseQuery();
 
-    /// <summary>Counts requests with status 'pending_review', 'delayed', or 'pending'.</summary>
+    /// <summary>Counts withdrawal requests that are not finalized yet, including legacy approved rows.</summary>
     Task<int> CountPendingAsync(CancellationToken ct = default);
 
     Task<int> SaveChangesAsync(CancellationToken ct = default);

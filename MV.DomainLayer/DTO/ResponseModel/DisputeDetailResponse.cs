@@ -7,7 +7,7 @@ public class DisputeDetailResponse
 {
     public int DisputeId { get; set; }
     public int? BookingId { get; set; }
-    public int? LessonId { get; set; }
+    public int? ClassSessionId { get; set; }
 
     public string? DisputeType { get; set; }
     public string? Reason { get; set; }
@@ -26,8 +26,8 @@ public class DisputeDetailResponse
     public DisputeUserResponse? CreatedBy { get; set; }
     public DisputeUserResponse? ResolvedBy { get; set; }
 
-    // Related lesson info
-    public DisputeLessonResponse? Lesson { get; set; }
+    // Related classSession info
+    public DisputeClassSessionResponse? ClassSession { get; set; }
 
     // Tutor info
     public DisputeTutorResponse? Tutor { get; set; }
@@ -57,14 +57,14 @@ public class DisputeUserResponse
     public string? AvatarUrl { get; set; }
 }
 
-public class DisputeLessonResponse
+public class DisputeClassSessionResponse
 {
-    public int LessonId { get; set; }
+    public int ClassSessionId { get; set; }
     public DateTime ScheduledStart { get; set; }
     public DateTime ScheduledEnd { get; set; }
     public string? Status { get; set; }
-    public decimal? LessonPrice { get; set; }
-    public string? LessonContent { get; set; }
+    public decimal? ClassSessionPrice { get; set; }
+    public string? ClassSessionContent { get; set; }
     public string? Homework { get; set; }
     public bool? IsTutorPresent { get; set; }
     public bool? IsStudentPresent { get; set; }

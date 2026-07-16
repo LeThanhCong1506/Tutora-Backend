@@ -6,6 +6,7 @@ using MV.DomainLayer.DTO;
 using MV.DomainLayer.DTO.RequestModel;
 using MV.DomainLayer.DTO.ResponseModel;
 using MV.PresentationLayer.Helpers;
+using MV.PresentationLayer.Authorization;
 
 namespace MV.PresentationLayer.Controllers;
 
@@ -14,7 +15,7 @@ namespace MV.PresentationLayer.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/admin/disputes")]
-[Authorize(Roles = UserRole.AdminOrStaff)]
+[Authorize]
 public class DisputeController : ControllerBase
 {
     private readonly IDisputeService _disputeService;
@@ -27,6 +28,7 @@ public class DisputeController : ControllerBase
     /// <summary>
     /// Get list of disputes with filters
     /// </summary>
+    [RequirePermission(Permissions.DisputeView)]
     [HttpGet]
     public async Task<ActionResult<APIResponse<PagedList<DisputeListResponse>>>> GetDisputes([FromQuery] DisputeQueryRequest query)
     {
@@ -37,6 +39,7 @@ public class DisputeController : ControllerBase
     /// <summary>
     /// Get dispute statistics
     /// </summary>
+    [RequirePermission(Permissions.DisputeView)]
     [HttpGet("stats")]
     public async Task<ActionResult<APIResponse<DisputeStatsResponse>>> GetStats()
     {
@@ -47,6 +50,7 @@ public class DisputeController : ControllerBase
     /// <summary>
     /// Get dispute detail
     /// </summary>
+    [RequirePermission(Permissions.DisputeView)]
     [HttpGet("{id}")]
     public async Task<ActionResult<APIResponse<DisputeDetailResponse>>> GetDisputeDetail(int id)
     {
@@ -61,6 +65,7 @@ public class DisputeController : ControllerBase
     /// <summary>
     /// Get chat history for dispute context
     /// </summary>
+    [RequirePermission(Permissions.DisputeView)]
     [HttpGet("{id}/chat")]
     public async Task<ActionResult<APIResponse<List<ChatMessageResponse>>>> GetChatHistory(int id)
     {
@@ -71,6 +76,7 @@ public class DisputeController : ControllerBase
     /// <summary>
     /// Start investigating a dispute
     /// </summary>
+    [RequirePermission(Permissions.DisputeInvestigate)]
     [HttpPut("{id}/investigate")]
     public async Task<ActionResult<APIResponse<DisputeDetailResponse>>> Investigate(int id)
     {
@@ -82,6 +88,7 @@ public class DisputeController : ControllerBase
     /// <summary>
     /// Resolve a dispute
     /// </summary>
+    [RequirePermission(Permissions.DisputeResolve)]
     [HttpPut("{id}/resolve")]
     public async Task<ActionResult<APIResponse<DisputeDetailResponse>>> Resolve(int id, [FromBody] ResolveDisputeRequest request)
     {

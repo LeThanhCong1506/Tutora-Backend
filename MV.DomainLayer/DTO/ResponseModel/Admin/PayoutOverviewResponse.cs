@@ -1,5 +1,3 @@
-using MV.DomainLayer.Constants;
-
 namespace MV.DomainLayer.DTO.ResponseModel.Admin;
 
 public class PayoutOverviewResponse
@@ -8,7 +6,6 @@ public class PayoutOverviewResponse
     public ProcessingStatsResponse ProcessingStats { get; set; } = new();
     public FinancialStatsResponse FinancialStats { get; set; } = new();
     public DecisionBreakdownResponse DecisionBreakdown { get; set; } = new();
-    public PayOSBalanceResponse? PayOSBalance { get; set; }
     public int RecentAlertsCount { get; set; }
 }
 
@@ -40,11 +37,4 @@ public class DecisionBreakdownResponse
     public int Delayed { get; set; }
     public int ManualReview { get; set; }
     public int Rejected { get; set; }
-}
-
-public class PayOSBalanceResponse
-{
-    public decimal Balance { get; set; }
-    public DateTime LastChecked { get; set; }
-    public string AlertLevel { get; set; } = PayoutConstants.AlertSeverity.Normal; // normal, warning, critical
 }

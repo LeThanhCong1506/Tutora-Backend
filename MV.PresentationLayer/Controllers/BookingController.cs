@@ -6,6 +6,7 @@ using MV.DomainLayer.DTO;
 using MV.DomainLayer.DTO.RequestModel;
 using MV.DomainLayer.DTO.ResponseModel;
 using MV.DomainLayer.Exceptions;
+using MV.PresentationLayer.Authorization;
 using System.Security.Claims;
 
 namespace MV.PresentationLayer.Controllers;
@@ -154,7 +155,7 @@ public class BookingController : ControllerBase
     }
 
     [HttpPost("admin/promotions")]
-    [Authorize(Roles = UserRole.Admin)]
+    [RequirePermission(Permissions.PromotionManage)]
     public async Task<IActionResult> CreatePromotion([FromBody] CreatePromotionRequest? dto)
     {
         if (dto == null || !ModelState.IsValid)
@@ -176,7 +177,7 @@ public class BookingController : ControllerBase
     /// Code không thể thay đổi sau khi tạo.
     /// </summary>
     [HttpPut("admin/promotions/{id:int}")]
-    [Authorize(Roles = UserRole.Admin)]
+    [RequirePermission(Permissions.PromotionManage)]
     public async Task<IActionResult> UpdatePromotion(
         [FromRoute] int id,
         [FromBody] UpdatePromotionRequest? dto,
@@ -208,7 +209,7 @@ public class BookingController : ControllerBase
     /// Idempotent: nếu promotion đã inactive thì vẫn trả 200 kèm thông báo phù hợp.
     /// </summary>
     [HttpDelete("admin/promotions/{id:int}")]
-    [Authorize(Roles = UserRole.Admin)]
+    [RequirePermission(Permissions.PromotionManage)]
     public async Task<IActionResult> DeactivatePromotion(
         [FromRoute] int id,
         CancellationToken ct = default)
@@ -237,7 +238,7 @@ public class BookingController : ControllerBase
     /// Query: page, pageSize, isActive (true/false), search (code hoặc description).
     /// </summary>
     [HttpGet("admin/promotions")]
-    [Authorize(Roles = UserRole.Admin)]
+    [RequirePermission(Permissions.PromotionManage)]
     public async Task<IActionResult> GetAllPromotions(
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20,

@@ -436,3 +436,4 @@ FodyWeavers.xsd
 *.txt
 /MV.PresentationLayer/serviceAccountKey.json
 /AGENTS.md
+/.understand-anything

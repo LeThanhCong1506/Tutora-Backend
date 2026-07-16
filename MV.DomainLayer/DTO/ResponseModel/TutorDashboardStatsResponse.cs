@@ -5,13 +5,13 @@ namespace MV.DomainLayer.DTO.ResponseModel;
 /// </summary>
 public class TutorDashboardStatsResponse
 {
-    /// <summary>Number of upcoming lessons (scheduled)</summary>
-    public int UpcomingLessons { get; set; }
+    /// <summary>Number of upcoming classSessions (scheduled)</summary>
+    public int UpcomingClassSessions { get; set; }
 
-    /// <summary>Number of lessons completed this month</summary>
+    /// <summary>Number of classSessions completed this month</summary>
     public int CompletedThisMonth { get; set; }
 
-    /// <summary>Total lessons completed</summary>
+    /// <summary>Total classSessions completed</summary>
     public int TotalCompleted { get; set; }
 
     /// <summary>Earnings this month (VND)</summary>
@@ -23,10 +23,16 @@ public class TutorDashboardStatsResponse
     /// <summary>Current wallet balance (VND)</summary>
     public decimal WalletBalance { get; set; }
 
+    /// <summary>Wallet balance that can be withdrawn or spent (VND)</summary>
+    public decimal AvailableBalance { get; set; }
+
     /// <summary>Frozen balance in escrow (VND)</summary>
     public decimal FrozenBalance { get; set; }
 
-    /// <summary>Pending confirmation lessons</summary>
+    /// <summary>Total wallet balance including frozen escrow (VND)</summary>
+    public decimal TotalBalance { get; set; }
+
+    /// <summary>Pending confirmation classSessions</summary>
     public int PendingConfirmation { get; set; }
 
     /// <summary>Active disputes</summary>
@@ -38,8 +44,8 @@ public class TutorDashboardStatsResponse
     /// <summary>Total reviews count</summary>
     public int TotalReviews { get; set; }
 
-    /// <summary>List of next 5 upcoming lessons</summary>
-    public List<UpcomingLessonResponse> NextLessons { get; set; } = new();
+    /// <summary>List of next 5 upcoming classSessions</summary>
+    public List<UpcomingClassSessionResponse> NextClassSessions { get; set; } = new();
 
     /// <summary>Profile status: draft, pending_approval, active, rejected</summary>
     public string? ProfileStatus { get; set; }
@@ -58,11 +64,11 @@ public class TutorDashboardStatsResponse
 }
 
 /// <summary>
-/// Upcoming lesson summary
+/// Upcoming classSession summary
 /// </summary>
-public class UpcomingLessonResponse
+public class UpcomingClassSessionResponse
 {
-    public int LessonId { get; set; }
+    public int ClassSessionId { get; set; }
     public int? BookingId { get; set; }
     public DateTime ScheduledStart { get; set; }
     public DateTime ScheduledEnd { get; set; }

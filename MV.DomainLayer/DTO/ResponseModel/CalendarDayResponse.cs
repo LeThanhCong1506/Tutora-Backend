@@ -3,7 +3,7 @@ using MV.DomainLayer.Constants;
 namespace MV.DomainLayer.DTO.ResponseModel;
 
 /// <summary>
-/// Response for calendar view - lessons grouped by date
+/// Response for calendar view - classSessions grouped by date
 /// </summary>
 public class CalendarDayResponse
 {
@@ -13,17 +13,17 @@ public class CalendarDayResponse
     public DateTime Date { get; set; }
 
     /// <summary>
-    /// List of lessons on this day
+    /// List of classSessions on this day
     /// </summary>
-    public List<CalendarLessonResponse> Lessons { get; set; } = new();
+    public List<CalendarClassSessionResponse> ClassSessions { get; set; } = new();
 }
 
 /// <summary>
-/// Lesson summary for calendar view
+/// ClassSession summary for calendar view
 /// </summary>
-public class CalendarLessonResponse
+public class CalendarClassSessionResponse
 {
-    public int LessonId { get; set; }
+    public int ClassSessionId { get; set; }
     public DateTime ScheduledStart { get; set; }
     public DateTime ScheduledEnd { get; set; }
     public string? StudentName { get; set; }
@@ -37,13 +37,13 @@ public class CalendarLessonResponse
     /// </summary>
     public string StatusColor => Status switch
     {
-        LessonStatus.Scheduled => "#3B82F6",           // Blue
-        LessonStatus.InProgress => "#22C55E",         // Green
-        LessonStatus.PendingConfirmation => "#F59E0B", // Amber
-        LessonStatus.Completed => "#10B981",           // Emerald
-        LessonStatus.Cancelled => "#6B7280",           // Gray
-        LessonStatus.Disputed => "#EF4444",            // Red
-        LessonStatus.NoShow => "#DC2626",             // Dark Red
+        ClassSessionStatus.Scheduled => "#3B82F6",           // Blue
+        ClassSessionStatus.InProgress => "#22C55E",         // Green
+        ClassSessionStatus.PendingConfirmation => "#F59E0B", // Amber
+        ClassSessionStatus.Completed => "#10B981",           // Emerald
+        ClassSessionStatus.Cancelled => "#6B7280",           // Gray
+        ClassSessionStatus.Disputed => "#EF4444",            // Red
+        ClassSessionStatus.NoShow => "#DC2626",             // Dark Red
         _ => "#9CA3AF"                      // Default Gray
     };
 }

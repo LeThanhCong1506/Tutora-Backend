@@ -2,6 +2,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using MV.ApplicationLayer.ServiceInterfaces;
+using MV.PresentationLayer.Authorization;
 using System.Text;
 using System.Xml.Serialization;
 
@@ -9,7 +10,7 @@ namespace MV.PresentationLayer.Controllers
 {
     [Route("api/export")]
     [ApiController]
-    [Authorize(Roles = UserRole.AdminOrStaff)]
+    [Authorize]
     public class ExportController : ControllerBase
     {
         private readonly IExportService _exportService;
@@ -58,6 +59,7 @@ namespace MV.PresentationLayer.Controllers
 
         private const string ExcelMimeType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
+        [RequirePermission(Permissions.ExportData)]
         [HttpGet("students")]
         public async Task<IActionResult> ExportStudentsToExcel()
         {
@@ -66,6 +68,7 @@ namespace MV.PresentationLayer.Controllers
             return File(fileBytes, ExcelMimeType, fileName);
         }
 
+        [RequirePermission(Permissions.ExportData)]
         [HttpGet("parents")]
         public async Task<IActionResult> ExportParentsToExcel()
         {
@@ -74,6 +77,7 @@ namespace MV.PresentationLayer.Controllers
             return File(fileBytes, ExcelMimeType, fileName);
         }
 
+        [RequirePermission(Permissions.ExportData)]
         [HttpGet("mock-tests/{id}")]
         public async Task<IActionResult> ExportMockTestToExcel(int id)
         {
@@ -98,17 +102,17 @@ namespace MV.PresentationLayer.Controllers
         // =====================================================
 
         /// <summary>
-        /// Export tutor lesson reports to Excel
+        /// Export tutor classSession reports to Excel
         /// </summary>
-        [HttpGet("tutor/lessons")]
+        [HttpGet("tutor/class-sessions")]
         [Authorize(Roles = UserRole.Tutor)]
-        public async Task<IActionResult> ExportTutorLessonsToExcel(
+        public async Task<IActionResult> ExportTutorClassSessionsToExcel(
             [FromQuery] DateTime? fromDate,
             [FromQuery] DateTime? toDate)
         {
             var tutorId = GetCurrentUserId();
-            var fileBytes = await _exportService.ExportTutorLessonReportsAsync(tutorId, fromDate, toDate);
-            string fileName = $"LessonReports_{MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow:yyyyMMdd_HHmmss}.xlsx";
+            var fileBytes = await _exportService.ExportTutorClassSessionReportsAsync(tutorId, fromDate, toDate);
+            string fileName = $"ClassSessionReports_{MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow:yyyyMMdd_HHmmss}.xlsx";
             return File(fileBytes, ExcelMimeType, fileName);
         }
 

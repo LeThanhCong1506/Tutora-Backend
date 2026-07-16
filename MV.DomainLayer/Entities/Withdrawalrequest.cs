@@ -9,6 +9,9 @@ public partial class Withdrawalrequest
 
     public string? Userid { get; set; }
 
+    /// <summary>Ví thực tế bị trừ tiền khi rút. FK tới wallets(wallet_id).</summary>
+    public int? Walletid { get; set; }
+
     public decimal? Amount { get; set; }
 
     public string? Bankname { get; set; }
@@ -23,22 +26,14 @@ public partial class Withdrawalrequest
 
     public DateTime? Processedat { get; set; }
 
-    // PayOS tracking fields
-    public string? Payostransactionid { get; set; }
-
-    public string? Payosstatus { get; set; }
-
-    public string? Payosresponsecode { get; set; }
-
-    public string? Payoserror { get; set; }
-
-    public int? Retrycount { get; set; }
-
-    public DateTime? Lastretryat { get; set; }
-
     public string? Decision { get; set; }
 
     public string? Processedby { get; set; }
 
+    /// <summary>Ghi chú bắt buộc do staff nhập khi đánh dấu đã chuyển tiền thủ công (mã giao dịch, thời gian...).</summary>
+    public string? Completionnote { get; set; }
+
     public virtual User? User { get; set; }
+
+    public virtual Wallet? Wallet { get; set; }
 }

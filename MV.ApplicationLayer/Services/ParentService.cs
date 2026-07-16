@@ -9,11 +9,11 @@ using MV.DomainLayer.Exceptions;
 using MV.DomainLayer.Helpers;
 using MV.ApplicationLayer.Interfaces;
 using System.Text.Json;
-using static MV.DomainLayer.Constants.LessonStatus;
+using static MV.DomainLayer.Constants.ClassSessionStatus;
 namespace MV.ApplicationLayer.Services;
 
 /// <summary>
-/// Service for parent lesson management - confirm, dispute
+/// Service for parent classSession management - confirm, dispute
 /// </summary>
 public class ParentService : IParentService
 {
@@ -35,15 +35,15 @@ public class ParentService : IParentService
     }
 
     /// <summary>
-    /// Get lessons pending parent confirmation
+    /// Get classSessions pending parent confirmation
     /// </summary>
-    public async Task<List<PendingLessonResponse>> GetPendingLessonsAsync(string userId, string role)
+    public async Task<List<PendingClassSessionResponse>> GetPendingClassSessionsAsync(string userId, string role)
     {
         var studentIds = role == UserRole.Parent
             ? await _context.Studentprofiles.Where(s => s.Parentid == userId).Select(s => s.Studentid).ToListAsync()
             : await _context.Studentprofiles.Where(s => s.Studentid == userId || s.Linkeduserid == userId).Select(s => s.Studentid).ToListAsync();
 
-        var lessons = await _context.Lessons
+        var classSessions = await _context.ClassSessions
             .AsNoTracking()
             .Where(l => l.Status == PendingConfirmation &&
                         studentIds.Contains(l.Studentid!) &&
@@ -59,9 +59,9 @@ public class ParentService : IParentService
             .OrderBy(l => l.Confirmdeadline)
             .ToListAsync();
 
-        return lessons.Select(l => new PendingLessonResponse
+        return classSessions.Select(l => new PendingClassSessionResponse
         {
-            LessonId = l.Lessonid,
+            ClassSessionId = l.Classsessionid,
             BookingId = l.Bookingid,
             ScheduledStart = l.Scheduledstart,
             ScheduledEnd = l.Scheduledend,
@@ -71,25 +71,25 @@ public class ParentService : IParentService
             TutorAvatarUrl = l.Tutor?.Tutor?.Avatarurl,
             StudentName = l.Booking?.Student?.Fullname,
             SubjectName = l.Booking?.Subject?.Subjectname,
-            LessonPrice = l.Lessonprice,
-            LessonContent = l.Lessoncontent,
+            ClassSessionPrice = l.Lessonprice,
+            ClassSessionContent = l.Lessoncontent,
             Homework = l.Homework,
             TutorNotes = l.Tutornotes
         }).ToList();
     }
 
     /// <summary>
-    /// Get lesson detail for parent view
+    /// Get classSession detail for parent view
     /// </summary>
-    public async Task<LessonDetailResponse?> GetLessonDetailAsync(int lessonId, string userId, string role)
+    public async Task<ClassSessionDetailResponse?> GetClassSessionDetailAsync(int classSessionId, string userId, string role)
     {
         var studentIds = role == UserRole.Parent
             ? await _context.Studentprofiles.Where(s => s.Parentid == userId).Select(s => s.Studentid).ToListAsync()
             : await _context.Studentprofiles.Where(s => s.Studentid == userId || s.Linkeduserid == userId).Select(s => s.Studentid).ToListAsync();
 
-        var lesson = await _context.Lessons
+        var classSession = await _context.ClassSessions
             .AsNoTracking()
-            .Where(l => l.Lessonid == lessonId && studentIds.Contains(l.Studentid!))
+            .Where(l => l.Classsessionid == classSessionId && studentIds.Contains(l.Studentid!))
             .Include(l => l.Booking)
                 .ThenInclude(b => b!.Tutorsubjectgradeprice)
                     .ThenInclude(p => p!.Subject)
@@ -98,126 +98,141 @@ public class ParentService : IParentService
                     .ThenInclude(s => s!.GradelevelNavigation)
             .Include(l => l.Tutor)
                 .ThenInclude(t => t!.Tutor)
-            .Include(l => l.Lessonreport)
+            .Include(l => l.ClassSessionReport)
             .FirstOrDefaultAsync();
 
-        if (lesson == null) return null;
+        if (classSession == null) return null;
 
-        return new LessonDetailResponse
+        // Buổi tiếp theo bị khóa nếu chưa thanh toán đợt 2 (các buổi còn lại).
+        var requiresRemainingPayment = classSession.Booking != null
+            && (classSession.Booking.Status == BookingStatus.DepositPaid
+                || classSession.Booking.Status == BookingStatus.PendingRemainingPayment)
+            && classSession.Booking.Remainingpaidat == null
+            && await _context.ClassSessions.AnyAsync(
+                l => l.Bookingid == classSession.Bookingid && l.Classsessionid != classSessionId
+                && (l.Status == Completed || l.Status == PendingConfirmation || l.Status == InProgress));
+
+        return new ClassSessionDetailResponse
         {
-            LessonId = lesson.Lessonid,
-            BookingId = lesson.Bookingid,
+            ClassSessionId = classSession.Classsessionid,
+            BookingId = classSession.Bookingid,
             // Tất cả datetime trả về giờ Việt Nam (UTC+7) để frontend hiển thị đúng
-            ScheduledStart = lesson.Scheduledstart,
-            ScheduledEnd = lesson.Scheduledend,
-            RealStart = lesson.Realstart,
-            RealEnd = lesson.Realend,
-            CheckInTime = lesson.Checkintime,
-            CheckOutTime = lesson.Checkouttime,
-            IsTutorPresent = lesson.Istutorpresent,
-            IsStudentPresent = lesson.Isstudentpresent,
-            AttendanceNote = lesson.Attendancenote,
-            Status = lesson.Status,
-            SubmittedAt = lesson.Submittedat,
-            ConfirmDeadline = lesson.Confirmdeadline,
-            ParentAckAt = lesson.Parentackat,
-            IsSettled = lesson.Issettled,
-            LessonContent = lesson.Lessoncontent,
-            Homework = lesson.Homework,
-            TutorNotes = lesson.Tutornotes,
-            MeetingLink = lesson.Meetinglink,
-            LessonPrice = lesson.Lessonprice,
-            Student = lesson.Booking?.Student != null ? new LessonStudentResponse
+            ScheduledStart = classSession.Scheduledstart,
+            ScheduledEnd = classSession.Scheduledend,
+            RealStart = classSession.Realstart,
+            RealEnd = classSession.Realend,
+            CheckInTime = classSession.Checkintime,
+            CheckOutTime = classSession.Checkouttime,
+            IsTutorPresent = classSession.Istutorpresent,
+            IsStudentPresent = classSession.Isstudentpresent,
+            AttendanceNote = classSession.Attendancenote,
+            Status = classSession.Status,
+            SubmittedAt = classSession.Submittedat,
+            ConfirmDeadline = classSession.Confirmdeadline,
+            ParentAckAt = classSession.Parentackat,
+            IsSettled = classSession.Issettled,
+            ClassSessionContent = classSession.Lessoncontent,
+            Homework = classSession.Homework,
+            TutorNotes = classSession.Tutornotes,
+            MeetingLink = classSession.Meetinglink,
+            RequiresRemainingPayment = requiresRemainingPayment,
+            ClassSessionPrice = classSession.Lessonprice,
+            Student = classSession.Booking?.Student != null ? new ClassSessionStudentResponse
             {
-                StudentId = lesson.Booking.Student.Studentid,
-                FullName = lesson.Booking.Student.Fullname,
-                School = lesson.Booking.Student.School,
-                GradeLevel = lesson.Booking.Student.Gradelevel,
-                AvatarUrl = lesson.Booking.Student.Avatarurl
+                StudentId = classSession.Booking.Student.Studentid,
+                FullName = classSession.Booking.Student.Fullname,
+                School = classSession.Booking.Student.School,
+                GradeLevel = classSession.Booking.Student.Gradelevel,
+                AvatarUrl = classSession.Booking.Student.Avatarurl
             } : null,
-            Tutor = lesson.Tutor?.Tutor != null ? new LessonTutorResponse
+            Tutor = classSession.Tutor?.Tutor != null ? new ClassSessionTutorResponse
             {
-                TutorId = lesson.Tutor.Tutorid,
-                FullName = lesson.Tutor.Tutor.Fullname,
-                AvatarUrl = lesson.Tutor.Tutor.Avatarurl,
-                AverageRating = lesson.Tutor.Averagerating
+                TutorId = classSession.Tutor.Tutorid,
+                FullName = classSession.Tutor.Tutor.Fullname,
+                AvatarUrl = classSession.Tutor.Tutor.Avatarurl,
+                AverageRating = classSession.Tutor.Averagerating
             } : null,
-            Subject = lesson.Booking?.Tutorsubjectgradeprice?.Subject != null ? new LessonSubjectResponse
+            Subject = classSession.Booking?.Tutorsubjectgradeprice?.Subject != null ? new ClassSessionSubjectResponse
             {
-                SubjectId = lesson.Booking.Tutorsubjectgradeprice.Subject.Subjectid,
-                SubjectName = lesson.Booking.Tutorsubjectgradeprice.Subject.Subjectname
+                SubjectId = classSession.Booking.Tutorsubjectgradeprice.Subject.Subjectid,
+                SubjectName = classSession.Booking.Tutorsubjectgradeprice.Subject.Subjectname
             } : null,
-            Report = lesson.Lessonreport != null ? new LessonReportResponse
+            Report = classSession.ClassSessionReport != null ? new ClassSessionReportResponse
             {
-                ReportId = lesson.Lessonreport.Reportid,
-                ContentCovered = lesson.Lessonreport.Contentcovered,
-                HomeworkAssigned = lesson.Lessonreport.Homeworkassigned,
-                StudentPerformanceRating = lesson.Lessonreport.Studentperformancerating,
-                Attachments = DeserializeJsonList(lesson.Lessonreport.Attachments),
-                CreatedAt = lesson.Lessonreport.Createdat.HasValue ? lesson.Lessonreport.Createdat.Value : (DateTime?)null
+                ReportId = classSession.ClassSessionReport.Reportid,
+                ContentCovered = classSession.ClassSessionReport.Contentcovered,
+                HomeworkAssigned = classSession.ClassSessionReport.Homeworkassigned,
+                StudentPerformanceRating = classSession.ClassSessionReport.Studentperformancerating,
+                Attachments = DeserializeJsonList(classSession.ClassSessionReport.Attachments),
+                CreatedAt = classSession.ClassSessionReport.Createdat.HasValue ? classSession.ClassSessionReport.Createdat.Value : (DateTime?)null
             } : null
         };
     }
 
     /// <summary>
-    /// Confirm a lesson as completed (triggers settlement)
+    /// Confirm a classSession as completed (triggers settlement)
     /// </summary>
-    public async Task<SettlementResultResponse> ConfirmLessonAsync(int lessonId, string userId, string role)
+    public async Task<SettlementResultResponse> ConfirmClassSessionAsync(int classSessionId, string userId, string role)
     {
         var studentIds = role == UserRole.Parent
             ? await _context.Studentprofiles.Where(s => s.Parentid == userId).Select(s => s.Studentid).ToListAsync()
             : await _context.Studentprofiles.Where(s => s.Studentid == userId || s.Linkeduserid == userId).Select(s => s.Studentid).ToListAsync();
 
-        var lesson = await _context.Lessons
+        var classSession = await _context.ClassSessions
             .Include(l => l.Booking)
-            .FirstOrDefaultAsync(l => l.Lessonid == lessonId && studentIds.Contains(l.Studentid!))
-            ?? throw new LessonException(LessonErrorCodes.LessonNotFound, "Không tìm thấy buổi học hoặc bạn không có quyền truy cập", 404);
+            .FirstOrDefaultAsync(l => l.Classsessionid == classSessionId && studentIds.Contains(l.Studentid!))
+            ?? throw new ClassSessionException(ClassSessionErrorCodes.ClassSessionNotFound, "Không tìm thấy buổi học hoặc bạn không có quyền truy cập", 404);
 
-        if (lesson.Status != PendingConfirmation)
-            throw new LessonException(LessonErrorCodes.InvalidLessonStatus, "Buổi học không ở trạng thái chờ xác nhận", 400);
+        if (classSession.Status != PendingConfirmation)
+            throw new ClassSessionException(ClassSessionErrorCodes.InvalidClassSessionStatus, "Buổi học không ở trạng thái chờ xác nhận", 400);
 
-        if (lesson.Issettled == true)
-            throw new LessonException(LessonErrorCodes.LessonAlreadyConfirmed, "Buổi học đã được xác nhận rồi", 400);
+        if (classSession.Issettled == true)
+            throw new ClassSessionException(ClassSessionErrorCodes.ClassSessionAlreadyConfirmed, "Buổi học đã được xác nhận rồi", 400);
 
-        // Check if lesson has an active dispute
+        // Check if classSession has an active dispute
         var hasDispute = await _context.Disputes
-            .AnyAsync(d => d.Lessonid == lessonId && d.Status != DisputeStatus.Resolved && d.Status != DisputeStatus.Closed);
+            .AnyAsync(d => d.Classsessionid == classSessionId && d.Status != DisputeStatus.Resolved && d.Status != DisputeStatus.Closed);
         if (hasDispute)
-            throw new LessonException(LessonErrorCodes.DisputeAlreadyExists, "Không thể xác nhận buổi học khi đang có tranh chấp", 400);
+            throw new ClassSessionException(ClassSessionErrorCodes.DisputeAlreadyExists, "Không thể xác nhận buổi học khi đang có tranh chấp", 400);
 
-        _logger.LogInformation("User {UserId} ({Role}) confirming lesson {LessonId}", userId, role, lessonId);
+        _logger.LogInformation("User {UserId} ({Role}) confirming classSession {ClassSessionId}", userId, role, classSessionId);
 
-        return await _settlementService.SettleLessonAsync(lessonId, userId);
+        return await _settlementService.SettleClassSessionAsync(classSessionId, userId);
     }
 
     /// <summary>
-    /// Create a dispute for a lesson
+    /// Create a dispute for a classSession
     /// </summary>
-    public async Task<DisputeDetailResponse> CreateDisputeAsync(int lessonId, string userId, string role, CreateDisputeRequest request)
+    public async Task<DisputeDetailResponse> CreateDisputeAsync(int classSessionId, string userId, string role, CreateDisputeRequest request)
     {
         var studentIds = role == UserRole.Parent
             ? await _context.Studentprofiles.Where(s => s.Parentid == userId).Select(s => s.Studentid).ToListAsync()
             : await _context.Studentprofiles.Where(s => s.Studentid == userId || s.Linkeduserid == userId).Select(s => s.Studentid).ToListAsync();
 
-        var lesson = await _context.Lessons
+        var classSession = await _context.ClassSessions
             .Include(l => l.Booking)
             .Include(l => l.Disputes)
-            .FirstOrDefaultAsync(l => l.Lessonid == lessonId && studentIds.Contains(l.Studentid!))
-            ?? throw new LessonException(LessonErrorCodes.LessonNotFound, "Không tìm thấy buổi học hoặc bạn không có quyền truy cập", 404);
+            .FirstOrDefaultAsync(l => l.Classsessionid == classSessionId && studentIds.Contains(l.Studentid!))
+            ?? throw new ClassSessionException(ClassSessionErrorCodes.ClassSessionNotFound, "Không tìm thấy buổi học hoặc bạn không có quyền truy cập", 404);
 
-        if (lesson.Status != PendingConfirmation && lesson.Status != Completed)
-            throw new LessonException(LessonErrorCodes.InvalidLessonStatus, "Buổi học không thể tạo tranh chấp ở trạng thái này", 400);
+        // An already-settled classSession cannot be disputed: a refund would throw on Issettled and a
+        // Release would throw on status → the dispute would deadlock (unresolvable).
+        if (classSession.Issettled == true)
+            throw new ClassSessionException(ClassSessionErrorCodes.ClassSessionAlreadyConfirmed, "Buổi học đã thanh toán, không thể tạo tranh chấp", 400);
 
-        if (lesson.Disputes.Any())
-            throw new LessonException(LessonErrorCodes.DisputeAlreadyExists, "Buổi học này đã có tranh chấp rồi", 400);
+        if (classSession.Status != PendingConfirmation && classSession.Status != Completed)
+            throw new ClassSessionException(ClassSessionErrorCodes.InvalidClassSessionStatus, "Buổi học không thể tạo tranh chấp ở trạng thái này", 400);
+
+        if (classSession.Disputes.Any())
+            throw new ClassSessionException(ClassSessionErrorCodes.DisputeAlreadyExists, "Buổi học này đã có tranh chấp rồi", 400);
 
         if (!DisputeTypes.All.Contains(request.DisputeType))
             throw new ArgumentException("Loại tranh chấp không hợp lệ");
 
         var dispute = new Dispute
         {
-            Lessonid = lessonId,
-            Bookingid = lesson.Bookingid,
+            Classsessionid = classSessionId,
+            Bookingid = classSession.Bookingid,
             Createdby = userId,
             Disputetype = request.DisputeType,
             Reason = request.Reason,
@@ -228,13 +243,13 @@ public class ParentService : IParentService
 
         _context.Disputes.Add(dispute);
 
-        // Update lesson status
-        lesson.Status = Disputed;
+        // Update classSession status
+        classSession.Status = Disputed;
 
         await _context.SaveChangesAsync();
 
-        _logger.LogInformation("{Role} {UserId} created dispute {DisputeId} for lesson {LessonId}",
-            role, userId, dispute.Disputeid, lessonId);
+        _logger.LogInformation("{Role} {UserId} created dispute {DisputeId} for classSession {ClassSessionId}",
+            role, userId, dispute.Disputeid, classSessionId);
 
         // Notify Admins
         var admins = await _context.Users
@@ -248,7 +263,7 @@ public class ParentService : IParentService
             {
                 Userid = adminId,
                 Title = "Tranh chấp mới",
-                Message = $"Phụ huynh đã tạo tranh chấp cho buổi học #{lessonId}. Lý do: {request.Reason}"
+                Message = $"Phụ huynh đã tạo tranh chấp cho buổi học #{classSessionId}. Lý do: {request.Reason}"
             });
             await _notificationService.CreateNotificationsAsync(notis);
         }
@@ -257,7 +272,7 @@ public class ParentService : IParentService
         {
             DisputeId = dispute.Disputeid,
             BookingId = dispute.Bookingid,
-            LessonId = dispute.Lessonid,
+            ClassSessionId = dispute.Classsessionid,
             DisputeType = request.DisputeType,
             Reason = dispute.Reason,
             Status = dispute.Status,
@@ -285,18 +300,18 @@ public class ParentService : IParentService
         var rawDisputes = await query
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
-            .Include(d => d.Lesson)
+            .Include(d => d.ClassSession)
                 .ThenInclude(l => l!.Tutor)
                     .ThenInclude(t => t!.Tutor)
             .Select(d => new
             {
                 d.Disputeid,
-                d.Lessonid,
+                d.Classsessionid,
                 d.Bookingid,
                 d.Status,
                 d.Reason,
-                TutorName = d.Lesson!.Tutor!.Tutor!.Fullname,
-                LessonPrice = d.Lesson.Lessonprice,
+                TutorName = d.ClassSession!.Tutor!.Tutor!.Fullname,
+                ClassSessionPrice = d.ClassSession.Lessonprice,
                 d.Createdat
             })
             .ToListAsync();
@@ -304,12 +319,12 @@ public class ParentService : IParentService
         var disputes = rawDisputes.Select(d => new DisputeListResponse
         {
             DisputeId = d.Disputeid,
-            LessonId = d.Lessonid,
+            ClassSessionId = d.Classsessionid,
             BookingId = d.Bookingid,
             Status = d.Status,
             Reason = d.Reason,
             TutorName = d.TutorName,
-            LessonPrice = d.LessonPrice,
+            ClassSessionPrice = d.ClassSessionPrice,
             CreatedAt = d.Createdat.HasValue ? d.Createdat.Value : (DateTime?)null
         }).ToList();
 
@@ -338,7 +353,7 @@ public class ParentService : IParentService
             if (studentIds == null || studentIds.Count == 0)
                 return new List<CalendarDayResponse>();
 
-            var lessons = await _context.Lessons
+            var classSessions = await _context.ClassSessions
                 .AsNoTracking()
                 .Where(l => l.Studentid != null && studentIds.Contains(l.Studentid) && l.Scheduledstart >= startUtc && l.Scheduledstart <= endUtc)
                 .Include(l => l.Booking)
@@ -352,14 +367,14 @@ public class ParentService : IParentService
                 .OrderBy(l => l.Scheduledstart)
                 .ToListAsync();
 
-            return lessons
+            return classSessions
                 .GroupBy(l => l.Scheduledstart.Date)
                 .Select(g => new CalendarDayResponse
                 {
                     Date = g.Key,
-                    Lessons = g.Select(l => new CalendarLessonResponse
+                    ClassSessions = g.Select(l => new CalendarClassSessionResponse
                     {
-                        LessonId = l.Lessonid,
+                        ClassSessionId = l.Classsessionid,
                         ScheduledStart = l.Scheduledstart,
                         ScheduledEnd = l.Scheduledend,
                         StudentName = l.Booking?.Student?.Fullname,

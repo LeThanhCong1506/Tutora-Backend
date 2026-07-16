@@ -40,9 +40,9 @@ namespace MV.DomainLayer.DTO.ResponseModel
         public int? TotalReviews { get; set; }
 
         /// <summary>
-        /// Total number of lessons (buổi học) this tutor has. Shown next to the rating on the card.
+        /// Total number of classSessions (buổi học) this tutor has. Shown next to the rating on the card.
         /// </summary>
-        public int TotalLessons { get; set; }
+        public int TotalClassSessions { get; set; }
 
         /// <summary>
         /// Total number of distinct students this tutor has taught or is teaching.

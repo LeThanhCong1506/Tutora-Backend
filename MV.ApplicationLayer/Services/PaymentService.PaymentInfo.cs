@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging;
 using MV.ApplicationLayer.Helpers;
 using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO.ResponseModel;
@@ -67,7 +67,7 @@ public partial class PaymentService
                 if (linkStatus == PayOSLinkStatus.Paid)
                 {
                     logger.LogWarning("Deposit link for booking {BookingId} already PAID at PayOS; confirming instead of creating a new link.", bookingId);
-                    await SelfHealConfirmAsync(existingLink.OrderCode, depositAmount, bookingId, PaymentPhase.DepositShort);
+                    await SelfHealConfirmAsync(existingLink, depositAmount, bookingId, PaymentPhase.DepositShort);
                     throw new BookingException(BookingErrorCodes.BookingAlreadyPaid, "Booking đã được thanh toán rồi", 409);
                 }
 
@@ -144,28 +144,39 @@ public partial class PaymentService
             {
                 var existingLink = await _payOS.PaymentRequests.GetAsync(booking.Paymentcode);
                 var linkStatus = existingLink.Status.ToString().ToUpper();
-                if (linkStatus == PayOSLinkStatus.Pending || linkStatus == PayOSLinkStatus.Processing)
+                var isRemainingLink = OrderCodeHelper.IsRemainingOrderCode(existingLink.OrderCode);
+                if (!isRemainingLink)
                 {
-                    // Reuse cached transfer info — giữ nguyên QR/STK qua mỗi lần reload.
-                    if (!string.IsNullOrEmpty(booking.Payosaccountnumber))
-                        return BuildReuseResponse(booking, bookingId, existingLink.OrderCode, remainingAmount,
-                            wallet, PaymentPhase.Remaining, existingLink.Status.ToString());
-
-                    // Booking cũ chưa có field cache → recreate 1 lần để backfill (sẽ cache ở bước tạo link).
-                    logger.LogInformation("Pending remaining link for booking {BookingId} has no cached PayOS fields; recreating to backfill.", bookingId);
+                    logger.LogInformation(
+                        "Stored PayOS code for booking {BookingId} belongs to a non-remaining order {OrderCode}; creating a fresh remaining link.",
+                        bookingId,
+                        existingLink.OrderCode);
                 }
-
-                // Self-heal: link đã PAID tại PayOS nhưng DB chưa cập nhật (webhook lỗi/chưa tới).
-                // Xác nhận ngay thay vì tạo link mới — tránh làm "mồ côi" link đã thanh toán.
-                if (linkStatus == PayOSLinkStatus.Paid)
+                else
                 {
-                    logger.LogWarning("Remaining link for booking {BookingId} already PAID at PayOS; confirming instead of creating a new link.", bookingId);
-                    await SelfHealConfirmAsync(existingLink.OrderCode, remainingAmount, bookingId, PaymentPhase.RemainingShort);
-                    throw new BookingException(BookingErrorCodes.BookingAlreadyPaid, "Booking đã được thanh toán rồi", 409);
-                }
+                    if (linkStatus == PayOSLinkStatus.Pending || linkStatus == PayOSLinkStatus.Processing)
+                    {
+                        // Reuse cached transfer info — giữ nguyên QR/STK qua mỗi lần reload.
+                        if (!string.IsNullOrEmpty(booking.Payosaccountnumber))
+                            return BuildReuseResponse(booking, bookingId, existingLink.OrderCode, remainingAmount,
+                                wallet, PaymentPhase.Remaining, existingLink.Status.ToString());
 
-                logger.LogInformation("Existing remaining PayOS link for booking {BookingId} has status {Status}, creating new one",
-                    bookingId, linkStatus);
+                        // Booking cũ chưa có field cache → recreate 1 lần để backfill (sẽ cache ở bước tạo link).
+                        logger.LogInformation("Pending remaining link for booking {BookingId} has no cached PayOS fields; recreating to backfill.", bookingId);
+                    }
+
+                    // Self-heal: link đã PAID tại PayOS nhưng DB chưa cập nhật (webhook lỗi/chưa tới).
+                    // Xác nhận ngay thay vì tạo link mới — tránh làm "mồ côi" link đã thanh toán.
+                    if (linkStatus == PayOSLinkStatus.Paid)
+                    {
+                        logger.LogWarning("Remaining link for booking {BookingId} already PAID at PayOS; confirming instead of creating a new link.", bookingId);
+                        await SelfHealConfirmAsync(existingLink, remainingAmount, bookingId, PaymentPhase.RemainingShort);
+                        throw new BookingException(BookingErrorCodes.BookingAlreadyPaid, "Booking đã được thanh toán rồi", 409);
+                    }
+
+                    logger.LogInformation("Existing remaining PayOS link for booking {BookingId} has status {Status}, creating new one",
+                        bookingId, linkStatus);
+                }
             }
             catch (BookingException)
             {
@@ -202,12 +213,17 @@ public partial class PaymentService
     /// Idempotent: nếu đã được webhook/poll xác nhận song song thì bỏ qua an toàn.
     /// Tự nuốt mọi lỗi để phía gọi chỉ cần phát sinh BookingAlreadyPaid.
     /// </summary>
-    private async Task SelfHealConfirmAsync(long orderCode, int amount, int bookingId, string phaseShort)
+    private async Task SelfHealConfirmAsync(
+        PayOS.Models.V2.PaymentRequests.PaymentLink paymentLink,
+        int amount,
+        int bookingId,
+        string phaseShort)
     {
-        var txId = $"selfheal-{bookingId}-{phaseShort}-{MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow:yyyyMMddHHmmss}";
+        var capture = PaymentTransactionCapture.FromPayOSPaymentLink(paymentLink);
+        var txId = capture.GetProviderTransactionId($"payos-link-{paymentLink.Id}")!;
         try
         {
-            await ConfirmPaymentInternalAsync(orderCode, amount, txId, CancellationToken.None);
+            await ConfirmPaymentInternalAsync(paymentLink.OrderCode, amount, txId, capture, CancellationToken.None);
             logger.LogInformation("Self-heal confirmed payment for booking {BookingId} (phase {Phase}).", bookingId, phaseShort);
         }
         catch (Exception ex)

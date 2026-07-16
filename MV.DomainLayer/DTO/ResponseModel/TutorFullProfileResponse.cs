@@ -46,7 +46,7 @@ namespace MV.DomainLayer.DTO.ResponseModel
 
         // --- Teaching Stats ---
         /// <summary>Tổng số buổi gia sư đã và đang dạy (không tính buổi bị hủy).</summary>
-        public int TotalLessons { get; set; }
+        public int TotalClassSessions { get; set; }
 
         /// <summary>Tổng số học sinh gia sư đã và đang dạy (distinct, không tính booking bị hủy).</summary>
         public int TotalStudents { get; set; }

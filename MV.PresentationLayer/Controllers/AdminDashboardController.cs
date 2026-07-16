@@ -6,12 +6,14 @@ using MV.DomainLayer.DTO;
 using MV.DomainLayer.DTO.RequestModel;
 using MV.DomainLayer.DTO.ResponseModel;
 using MV.DomainLayer.DTO.ResponseModel.Admin;
+using MV.PresentationLayer.Authorization;
 
 namespace MV.PresentationLayer.Controllers;
 
 [ApiController]
 [Route("api/admin/dashboard")]
-[Authorize(Roles = UserRole.Admin)]
+[Authorize]
+[RequirePermission(Permissions.DashboardView)]
 public class AdminDashboardController(IAdminDashboardService dashboardService) : ControllerBase
 {
     private IActionResult HandleException(Exception ex) => ex switch

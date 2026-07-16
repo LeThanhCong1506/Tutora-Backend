@@ -29,5 +29,19 @@ namespace MV.DomainLayer.DTO.ResponseModel
         public string Currency { get; set; } = "VND";
 
         public bool IsActive { get; set; }
+
+        /// <summary>
+        /// Môn học này còn được cung cấp trên hệ thống không (Subject.IsActive).
+        /// false = Admin đã ngừng dùng môn → FE nên cảnh báo/khóa dòng này, tutor cần bỏ
+        /// trước khi lưu (validation sẽ từ chối nếu giữ lại môn đã ngừng dùng).
+        /// </summary>
+        public bool SubjectIsActive { get; set; } = true;
+
+        /// <summary>
+        /// Khối lớp này còn được cung cấp trên hệ thống không (Gradelevel.IsActive).
+        /// false = Admin đã ngừng dùng khối → FE nên cảnh báo/khóa dòng này, tutor cần bỏ
+        /// trước khi lưu (validation sẽ từ chối nếu giữ lại khối đã ngừng dùng).
+        /// </summary>
+        public bool GradeLevelIsActive { get; set; } = true;
     }
 }

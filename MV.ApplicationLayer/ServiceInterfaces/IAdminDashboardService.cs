@@ -22,7 +22,7 @@ public interface IAdminDashboardService
         CancellationToken ct = default);
 
     /// <summary>
-    /// Returns tutor performance metrics including top tutors by rating, lessons, and revenue.
+    /// Returns tutor performance metrics including top tutors by rating, classSessions, and revenue.
     /// Supports optional date-range filtering and result-count cap.
     /// </summary>
     Task<AdminTutorPerformanceResponse> GetTutorPerformanceAsync(

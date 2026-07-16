@@ -1,7 +1,7 @@
 ﻿using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using MV.DomainLayer.Constants;
-using MV.DomainLayer.DTO.BankVerification;
+using MV.DomainLayer.DTO.ResponseModel;
 using MV.DomainLayer.Exceptions;
 using MV.DomainLayer.Interfaces;
 
@@ -21,7 +21,7 @@ public class VietQRClient : IVietQRClient
     {
         try
         {
-        var client = _httpClientFactory.CreateClient(ServiceKeys.HttpClients.VietQR);
+            var client = _httpClientFactory.CreateClient(ServiceKeys.HttpClients.VietQR);
             var response = await client.GetAsync("/v2/banks", cancellationToken);
 
             response.EnsureSuccessStatusCode();

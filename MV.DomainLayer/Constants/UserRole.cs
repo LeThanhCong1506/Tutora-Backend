@@ -41,4 +41,13 @@ public static class UserRole
         Student,
         Tutor
     };
+
+    /// <summary>
+    /// Tài khoản nội bộ (Admin cấp, không tự đăng ký). Các cổng onboarding
+    /// dành cho khách hàng — bắt buộc có SĐT + xác thực OTP trước khi nhận
+    /// token — không áp dụng cho nhóm này: họ xác thực bằng email + mật khẩu.
+    /// </summary>
+    public static bool IsInternal(string? role) =>
+        string.Equals(role, Admin, StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(role, Staff, StringComparison.OrdinalIgnoreCase);
 }

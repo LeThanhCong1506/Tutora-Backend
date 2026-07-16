@@ -16,8 +16,9 @@ namespace MV.ApplicationLayer.Services
         {
             var users = await _unitOfWork.UserRepository.GetUsersAsync(parameters);
 
-            var filtered = users.AsEnumerable()
-                .Where(u => !string.Equals(u.Primaryrole, UserRole.Admin, StringComparison.OrdinalIgnoreCase));
+            // Admin sees every account by default, including Admin and Staff.
+            // Optional query parameters below are applied only when explicitly provided.
+            var filtered = users.AsEnumerable();
 
             if (!string.IsNullOrWhiteSpace(parameters.SearchTerm))
             {
@@ -120,6 +121,16 @@ namespace MV.ApplicationLayer.Services
 
             var previousRole = targetUser.Primaryrole;
             targetUser.Primaryrole = newRole;
+
+            // Rời khỏi role Staff -> xóa hết quyền đã cấp. Nếu không xóa, user này được
+            // thăng lại lên Staff sau này sẽ âm thầm có lại toàn bộ quyền cũ mà không qua
+            // Admin cấp lại, vi phạm nguyên tắc "Staff mới luôn bắt đầu từ 0 quyền".
+            if (string.Equals(previousRole, UserRole.Staff, StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(newRole, UserRole.Staff, StringComparison.OrdinalIgnoreCase))
+            {
+                await _unitOfWork.StaffPermissionRepository.ReplacePermissionsAsync(
+                    targetUserId, Array.Empty<string>(), adminUserId, MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow);
+            }
 
             await _unitOfWork.UserRepository.UpdateUserAsync(targetUser);
             await _unitOfWork.SaveChangesAsync();

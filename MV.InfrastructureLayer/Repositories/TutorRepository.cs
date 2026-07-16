@@ -229,7 +229,7 @@ namespace MV.InfrastructureLayer.Repositories
         public async Task<List<int>> GetExistingSubjectIdsAsync(List<int> subjectIds)
         {
             return await _context.Subjects
-                .Where(s => subjectIds.Contains(s.Subjectid))
+                .Where(s => subjectIds.Contains(s.Subjectid) && s.IsActive)
                 .Select(s => s.Subjectid)
                 .ToListAsync();
         }
@@ -237,7 +237,7 @@ namespace MV.InfrastructureLayer.Repositories
         public async Task<List<int>> GetExistingGradeLevelIdsAsync(List<int> gradeLevelIds)
         {
             return await _context.Gradelevels
-                .Where(g => gradeLevelIds.Contains(g.Gradelevelid))
+                .Where(g => gradeLevelIds.Contains(g.Gradelevelid) && g.IsActive)
                 .Select(g => g.Gradelevelid)
                 .ToListAsync();
         }
@@ -351,41 +351,6 @@ namespace MV.InfrastructureLayer.Repositories
         public async Task AddTutorPackageAsync(Tutorpackage package)
         {
             await _context.Tutorpackages.AddAsync(package);
-        }
-
-        #endregion
-
-        #region Bank Verification Methods
-
-        public async Task<List<BankChangeLog>> GetBankChangeLogsByTutorIdAsync(string tutorId, int limit = 10, CancellationToken cancellationToken = default)
-        {
-            return await _context.BankChangeLogs
-                .Where(log => log.Tutorid == tutorId)
-                .OrderByDescending(log => log.Changedat)
-                .Take(limit)
-                .ToListAsync(cancellationToken);
-        }
-
-        public async Task AddBankChangeLogAsync(BankChangeLog log, CancellationToken cancellationToken = default)
-        {
-            await _context.BankChangeLogs.AddAsync(log, cancellationToken);
-        }
-
-        public async Task<int> CountBankChangesInLastMonthAsync(string tutorId, CancellationToken cancellationToken = default)
-        {
-            var oneMonthAgo = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow.AddMonths(-1);
-            return await _context.BankChangeLogs
-                .Where(log => log.Tutorid == tutorId && log.Changedat >= oneMonthAgo)
-                .CountAsync(cancellationToken);
-        }
-
-        public async Task<Tutorprofile?> GetTutorByVerificationCodeAsync(string? verificationCode, CancellationToken cancellationToken = default)
-        {
-            if (string.IsNullOrWhiteSpace(verificationCode))
-                return null;
-
-            return await _context.Tutorprofiles
-                .FirstOrDefaultAsync(t => t.Bankverifycode == verificationCode, cancellationToken);
         }
 
         #endregion

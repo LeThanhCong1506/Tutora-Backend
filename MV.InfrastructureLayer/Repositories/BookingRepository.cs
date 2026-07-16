@@ -24,14 +24,39 @@ public class BookingRepository(AgoraDbContext context) : IBookingRepository
             .Include(b => b.Tutorsubjectgradeprice).ThenInclude(p => p!.Subject)
             .Include(b => b.Tutorsubjectgradeprice).ThenInclude(p => p!.Gradelevel)
             .Include(b => b.Package)
-            .Include(b => b.Lessons)
+            .Include(b => b.ClassSessions)
             .FirstOrDefaultAsync(b => b.Bookingid == id);
 
-    public Task<Booking?> FindWithSubjectAsync(int id)
-        => context.Bookings
-            .Include(b => b.Tutorsubjectgradeprice).ThenInclude(p => p!.Subject)
-            .Include(b => b.Tutorsubjectgradeprice).ThenInclude(p => p!.Gradelevel)
-            .FirstOrDefaultAsync(b => b.Bookingid == id);
+    public async Task<Booking?> FindWithRelationsForUpdateAsync(int id, CancellationToken ct = default)
+    {
+        var booking = await context.Bookings
+            .FromSqlRaw(SqlQueries.LockBookingById, id)
+            .SingleOrDefaultAsync(ct);
+
+        if (booking == null) return null;
+
+        await context.Entry(booking).Reference(b => b.Student).LoadAsync(ct);
+        if (booking.Student != null)
+        {
+            await context.Entry(booking.Student).Reference(s => s.Linkeduser).LoadAsync(ct);
+            await context.Entry(booking.Student).Reference(s => s.GradelevelNavigation).LoadAsync(ct);
+        }
+
+        await context.Entry(booking).Reference(b => b.Tutor).LoadAsync(ct);
+        if (booking.Tutor != null)
+            await context.Entry(booking.Tutor).Reference(t => t.Tutor).LoadAsync(ct);
+
+        await context.Entry(booking).Reference(b => b.Tutorsubjectgradeprice).LoadAsync(ct);
+        if (booking.Tutorsubjectgradeprice != null)
+        {
+            await context.Entry(booking.Tutorsubjectgradeprice).Reference(p => p.Subject).LoadAsync(ct);
+            await context.Entry(booking.Tutorsubjectgradeprice).Reference(p => p.Gradelevel).LoadAsync(ct);
+        }
+
+        await context.Entry(booking).Reference(b => b.Package).LoadAsync(ct);
+        await context.Entry(booking).Collection(b => b.ClassSessions).LoadAsync(ct);
+        return booking;
+    }
 
     public Task<Booking?> FindByIdForUserAsync(int id, string userId)
         => context.Bookings
@@ -41,7 +66,7 @@ public class BookingRepository(AgoraDbContext context) : IBookingRepository
             .Include(b => b.Tutorsubjectgradeprice).ThenInclude(p => p!.Subject)
             .Include(b => b.Tutorsubjectgradeprice).ThenInclude(p => p!.Gradelevel)
             .Include(b => b.Package)
-            .Include(b => b.Lessons)
+            .Include(b => b.ClassSessions)
             .FirstOrDefaultAsync(b => b.Bookingid == id &&
                 (b.Parentid == userId || b.Studentid == userId || b.Student!.Linkeduserid == userId || b.Tutorid == userId));
 
@@ -56,7 +81,7 @@ public class BookingRepository(AgoraDbContext context) : IBookingRepository
             .Include(b => b.Tutorsubjectgradeprice).ThenInclude(p => p!.Subject)
             .Include(b => b.Tutorsubjectgradeprice).ThenInclude(p => p!.Gradelevel)
             .Include(b => b.Package)
-            .Include(b => b.Lessons)
+            .Include(b => b.ClassSessions)
             .Where(b => b.Parentid == parentId);
 
         if (!string.IsNullOrWhiteSpace(status))
@@ -82,7 +107,7 @@ public class BookingRepository(AgoraDbContext context) : IBookingRepository
             .Include(b => b.Tutorsubjectgradeprice).ThenInclude(p => p!.Subject)
             .Include(b => b.Tutorsubjectgradeprice).ThenInclude(p => p!.Gradelevel)
             .Include(b => b.Package)
-            .Include(b => b.Lessons)
+            .Include(b => b.ClassSessions)
             .Where(b => b.Studentid != null && ids.Contains(b.Studentid));
 
         if (!string.IsNullOrWhiteSpace(status))
@@ -107,7 +132,7 @@ public class BookingRepository(AgoraDbContext context) : IBookingRepository
             .Include(b => b.Tutorsubjectgradeprice).ThenInclude(p => p!.Subject)
             .Include(b => b.Tutorsubjectgradeprice).ThenInclude(p => p!.Gradelevel)
             .Include(b => b.Package)
-            .Include(b => b.Lessons)
+            .Include(b => b.ClassSessions)
             .Where(b => b.Tutorid == tutorId);
 
         if (!string.IsNullOrWhiteSpace(status))

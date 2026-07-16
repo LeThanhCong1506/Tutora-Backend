@@ -68,7 +68,16 @@ public partial class User
     /// <summary>Thời điểm người dùng tự tạm khóa tài khoản.</summary>
     public DateTime? Deactivatedat { get; set; }
 
+    /// <summary>Cache số dư AI credit hiện tại — nguồn chi tiết nằm ở <see cref="AiCreditTransaction"/>.</summary>
+    public int AiCreditsBalance { get; set; }
+
     public virtual ICollection<Booking> Bookings { get; set; } = new List<Booking>();
+
+    public virtual ICollection<AiCreditTransaction> AiCreditTransactions { get; set; } = new List<AiCreditTransaction>();
+
+    public virtual BankAccount? BankAccount { get; set; }
+
+    public virtual ICollection<DisputeEvidence> DisputeEvidences { get; set; } = new List<DisputeEvidence>();
 
     public virtual ICollection<Chatmessage> Chatmessages { get; set; } = new List<Chatmessage>();
 

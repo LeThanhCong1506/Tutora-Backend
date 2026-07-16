@@ -11,11 +11,13 @@ namespace MV.ApplicationLayer.Services
     {
         private readonly IUnitOfWork _unitOfWork;
         private readonly IAppDbContext _context;
+        private readonly IEncryptionService _encryption;
 
-        public ExportService(IUnitOfWork unitOfWork, IAppDbContext context)
+        public ExportService(IUnitOfWork unitOfWork, IAppDbContext context, IEncryptionService encryption)
         {
             _unitOfWork = unitOfWork;
             _context = context;
+            _encryption = encryption;
         }
 
         // Múi giờ Việt Nam (UTC+7) – dùng cho export hiển thị (now using VietnamTimeHelper)
@@ -23,45 +25,43 @@ namespace MV.ApplicationLayer.Services
         // 1. Lấy danh sách HỌC SINH
         public async Task<StudentExportListResponse> GetStudentsForExportAsync()
         {
-            //var allUsers = await _unitOfWork.AccountRepository.GetAccountsAsync();
+            var students = await _context.Users
+                .Where(u => u.Primaryrole != null && u.Primaryrole == UserRole.Student)
+                .AsNoTracking()
+                .Select(u => new StudentExportResponse
+                {
+                    Userid         = u.Userid,
+                    Fullname       = u.Fullname,
+                    Email          = u.Email,
+                    Phone          = u.Phone,
+                    Birthdate      = u.Birthdate,
+                    Identitynumber = u.Identitynumber, // encrypted — decrypt khi ghi Excel
+                    Address        = u.Address
+                })
+                .ToListAsync();
 
-            //var students = allUsers
-            //    .Where(u => u.Roleid == (int)Roles.Student) // Lọc RoleId = 3
-            //    .Select(u => new StudentExportResponse
-            //    {
-            //        Userid = u.Userid,
-            //        Fullname = u.Fullname,
-            //        Email = u.Email,
-            //        Phone = u.Phone,
-            //        Birthdate = u.Birthdate,
-            //        Identitynumber = u.Identitynumber,
-            //        Address = u.Address
-            //    }).ToList();
-
-            //return new StudentExportListResponse { Students = students };
-            return null;
+            return new StudentExportListResponse { Students = students };
         }
 
         // 2. Lấy danh sách PHỤ HUYNH
         public async Task<ParentExportListResponse> GetParentsForExportAsync()
         {
-            //var allUsers = await _unitOfWork.AccountRepository.GetAccountsAsync();
+            var parents = await _context.Users
+                .Where(u => u.Primaryrole != null && u.Primaryrole == UserRole.Parent)
+                .AsNoTracking()
+                .Select(u => new ParentExportResponse
+                {
+                    Userid         = u.Userid,
+                    Fullname       = u.Fullname,
+                    Email          = u.Email,
+                    Phone          = u.Phone,
+                    Birthdate      = u.Birthdate,
+                    Identitynumber = u.Identitynumber, // encrypted — decrypt khi ghi Excel
+                    Address        = u.Address
+                })
+                .ToListAsync();
 
-            //var parents = allUsers
-            //    .Where(u => u.Roleid == (int)Roles.Parent) // Lọc RoleId = 4
-            //    .Select(u => new ParentExportResponse
-            //    {
-            //        Userid = u.Userid,
-            //        Fullname = u.Fullname,
-            //        Email = u.Email,
-            //        Phone = u.Phone,
-            //        Birthdate = u.Birthdate,
-            //        Identitynumber = u.Identitynumber,
-            //        Address = u.Address
-            //    }).ToList();
-
-            //return new ParentExportListResponse { Parents = parents };
-            return null;
+            return new ParentExportListResponse { Parents = parents };
         }
 
         // 3. Lấy MỘT MOCKTEST theo ID (và các câu hỏi của nó)
@@ -153,7 +153,7 @@ namespace MV.ApplicationLayer.Services
                     worksheet.Cell(row, 3).Value = item.Email;
                     worksheet.Cell(row, 4).Value = item.Phone;
                     worksheet.Cell(row, 5).Value = item.Birthdate.HasValue ? item.Birthdate.Value.ToString("yyyy-MM-dd") : "";
-                    worksheet.Cell(row, 6).Value = item.Identitynumber;
+                    worksheet.Cell(row, 6).Value = _encryption.Decrypt(item.Identitynumber) ?? "";
                     worksheet.Cell(row, 7).Value = item.Address;
                     row++;
                 }
@@ -210,7 +210,7 @@ namespace MV.ApplicationLayer.Services
                     worksheet.Cell(row, 2).Value = item.Fullname;
                     worksheet.Cell(row, 3).Value = item.Email;
                     worksheet.Cell(row, 4).Value = item.Phone;
-                    worksheet.Cell(row, 5).Value = item.Identitynumber;
+                    worksheet.Cell(row, 5).Value = _encryption.Decrypt(item.Identitynumber) ?? "";
                     worksheet.Cell(row, 6).Value = item.Address;
                     row++;
                 }
@@ -324,9 +324,9 @@ namespace MV.ApplicationLayer.Services
         // =====================================================
 
         /// <summary>
-        /// Export tutor lesson reports to Excel
+        /// Export tutor classSession reports to Excel
         /// </summary>
-        public async Task<byte[]> ExportTutorLessonReportsAsync(string tutorId, DateTime? fromDate, DateTime? toDate)
+        public async Task<byte[]> ExportTutorClassSessionReportsAsync(string tutorId, DateTime? fromDate, DateTime? toDate)
         {
             // Default: last 30 days if not specified
             var endDate = toDate ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
@@ -340,25 +340,25 @@ namespace MV.ApplicationLayer.Services
                 ? endDate 
                 : DateTime.SpecifyKind(endDate, DateTimeKind.Utc);
 
-            var lessons = await _context.Lessons
+            var classSessions = await _context.ClassSessions
                 .Where(l => l.Tutorid == tutorId && l.Scheduledstart >= startUtc && l.Scheduledstart <= endUtc)
                 .Include(l => l.Booking)
                     .ThenInclude(b => b!.Tutorsubjectgradeprice)
                         .ThenInclude(p => p!.Subject)
                 .Include(l => l.Student)
-                .Include(l => l.Lessonreport)
+                .Include(l => l.ClassSessionReport)
                 .OrderByDescending(l => l.Scheduledstart)
                 .ToListAsync();
 
             using (var workbook = new XLWorkbook())
             {
-                var worksheet = workbook.Worksheets.Add("Lesson Reports");
+                var worksheet = workbook.Worksheets.Add("Class Session Reports");
                 worksheet.SheetView.FreezeRows(1);
                 worksheet.TabColor = XLColor.Green;
                 worksheet.Style.Font.FontName = "Calibri";
 
                 // Headers
-                var headers = new[] { "Lesson ID", "Ngày học", "Học sinh", "Môn học", "Check-in", "Check-out",
+                var headers = new[] { "Class Session ID", "Ngày học", "Học sinh", "Môn học", "Check-in", "Check-out",
                     "Nội dung buổi học", "BTVN", "Ghi chú", "HS có mặt", "Trạng thái", "Giá buổi (VND)", "Đã thanh toán" };
 
                 for (int i = 0; i < headers.Length; i++)
@@ -374,22 +374,22 @@ namespace MV.ApplicationLayer.Services
                 headerRange.Style.Border.BottomBorder = XLBorderStyleValues.Medium;
 
                 int row = 2;
-                foreach (var lesson in lessons)
+                foreach (var classSession in classSessions)
                 {
-                    worksheet.Cell(row, 1).Value = lesson.Lessonid;
-                    worksheet.Cell(row, 2).Value = lesson.Scheduledstart.ToString("dd/MM/yyyy HH:mm");
-                    worksheet.Cell(row, 3).Value = lesson.Student?.Fullname ?? DisplayValues.NotAvailable;
-                    worksheet.Cell(row, 4).Value = lesson.Booking?.Subject?.Subjectname ?? DisplayValues.NotAvailable;
-                    worksheet.Cell(row, 5).Value = lesson.Checkintime?.ToString("HH:mm") ?? "-";
-                    worksheet.Cell(row, 6).Value = lesson.Checkouttime?.ToString("HH:mm") ?? "-";
-                    worksheet.Cell(row, 7).Value = lesson.Lessoncontent ?? lesson.Lessonreport?.Contentcovered ?? "";
-                    worksheet.Cell(row, 8).Value = lesson.Homework ?? lesson.Lessonreport?.Homeworkassigned ?? "";
-                    worksheet.Cell(row, 9).Value = lesson.Tutornotes ?? "";
-                    worksheet.Cell(row, 10).Value = lesson.Isstudentpresent == true ? "Có" : "Không";
-                    worksheet.Cell(row, 11).Value = lesson.Status ?? DisplayValues.NotAvailable;
-                    worksheet.Cell(row, 12).Value = lesson.Lessonprice ?? 0;
+                    worksheet.Cell(row, 1).Value = classSession.Classsessionid;
+                    worksheet.Cell(row, 2).Value = classSession.Scheduledstart.ToString("dd/MM/yyyy HH:mm");
+                    worksheet.Cell(row, 3).Value = classSession.Student?.Fullname ?? DisplayValues.NotAvailable;
+                    worksheet.Cell(row, 4).Value = classSession.Booking?.Subject?.Subjectname ?? DisplayValues.NotAvailable;
+                    worksheet.Cell(row, 5).Value = classSession.Checkintime?.ToString("HH:mm") ?? "-";
+                    worksheet.Cell(row, 6).Value = classSession.Checkouttime?.ToString("HH:mm") ?? "-";
+                    worksheet.Cell(row, 7).Value = classSession.Lessoncontent ?? classSession.ClassSessionReport?.Contentcovered ?? "";
+                    worksheet.Cell(row, 8).Value = classSession.Homework ?? classSession.ClassSessionReport?.Homeworkassigned ?? "";
+                    worksheet.Cell(row, 9).Value = classSession.Tutornotes ?? "";
+                    worksheet.Cell(row, 10).Value = classSession.Isstudentpresent == true ? "Có" : "Không";
+                    worksheet.Cell(row, 11).Value = classSession.Status ?? DisplayValues.NotAvailable;
+                    worksheet.Cell(row, 12).Value = classSession.Lessonprice ?? 0;
                     worksheet.Cell(row, 12).Style.NumberFormat.Format = "#,##0";
-                    worksheet.Cell(row, 13).Value = lesson.Issettled == true ? "Đã thanh toán" : "Chưa";
+                    worksheet.Cell(row, 13).Value = classSession.Issettled == true ? "Đã thanh toán" : "Chưa";
                     row++;
                 }
 
@@ -558,7 +558,7 @@ namespace MV.ApplicationLayer.Services
             var feedbacks = await _context.Feedbacks
                 .Where(f => f.Touserid == tutorId && f.Createdat >= startUtc && f.Createdat <= endUtc && f.Isvisible == true)
                 .Include(f => f.Fromuser)
-                .Include(f => f.Lesson)
+                .Include(f => f.ClassSession)
                     .ThenInclude(l => l!.Student)
                 .Include(f => f.Booking)
                     .ThenInclude(b => b!.Tutorsubjectgradeprice)
@@ -613,8 +613,8 @@ namespace MV.ApplicationLayer.Services
                 {
                     worksheet.Cell(row, 1).Value = feedback.Createdat.HasValue ? feedback.Createdat.Value.ToString("dd/MM/yyyy") : "-";
                     worksheet.Cell(row, 2).Value = feedback.Fromuser?.Fullname ?? DisplayValues.NotAvailable;
-                    worksheet.Cell(row, 3).Value = feedback.Lesson?.Student?.Fullname ?? DisplayValues.NotAvailable;
-                    worksheet.Cell(row, 4).Value = feedback.Booking?.Subject?.Subjectname ?? feedback.Lesson?.Booking?.Subject?.Subjectname ?? DisplayValues.NotAvailable;
+                    worksheet.Cell(row, 3).Value = feedback.ClassSession?.Student?.Fullname ?? DisplayValues.NotAvailable;
+                    worksheet.Cell(row, 4).Value = feedback.Booking?.Subject?.Subjectname ?? feedback.ClassSession?.Booking?.Subject?.Subjectname ?? DisplayValues.NotAvailable;
                     worksheet.Cell(row, 5).Value = feedback.Rating ?? 0;
                     worksheet.Cell(row, 5).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
                     // Color code rating

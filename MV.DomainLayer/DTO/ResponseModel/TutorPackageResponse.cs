@@ -14,6 +14,12 @@ namespace MV.DomainLayer.DTO.ResponseModel
 
         public bool IsActive { get; set; }
 
+        /// <summary>
+        /// true = package đang có buổi dạy được đặt & chưa hoàn tất (còn booking).
+        /// FE dùng để khóa nút Sửa/Xóa package này.
+        /// </summary>
+        public bool HasActiveBooking { get; set; }
+
         public List<TutorPackageFixedSlotResponse> FixedSlots { get; set; } = new();
     }
 

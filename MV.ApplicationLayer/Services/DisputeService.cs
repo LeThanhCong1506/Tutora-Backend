@@ -8,7 +8,7 @@ using MV.DomainLayer.Helpers;
 using MV.ApplicationLayer.Interfaces;
 using MV.ApplicationLayer.RepositoryInterfaces;
 using System.Text.Json;
-using static MV.DomainLayer.Constants.LessonStatus;
+using static MV.DomainLayer.Constants.ClassSessionStatus;
 
 namespace MV.ApplicationLayer.Services;
 
@@ -72,14 +72,14 @@ public class DisputeService : IDisputeService
             .Select(d => new
             {
                 d.Disputeid,
-                d.Lessonid,
+                d.Classsessionid,
                 d.Bookingid,
                 d.Disputetype,
                 d.Status,
                 d.Reason,
                 CreatedByName = d.CreatedbyNavigation!.Fullname,
-                TutorName = d.Lesson!.Tutor!.Tutor!.Fullname,
-                LessonPrice = d.Lesson.Lessonprice,
+                TutorName = d.ClassSession!.Tutor!.Tutor!.Fullname,
+                ClassSessionPrice = d.ClassSession.Lessonprice,
                 d.Createdat
             })
             .ToListAsync();
@@ -87,14 +87,14 @@ public class DisputeService : IDisputeService
         var disputes = rawDisputes.Select(d => new DisputeListResponse
         {
             DisputeId = d.Disputeid,
-            LessonId = d.Lessonid,
+            ClassSessionId = d.Classsessionid,
             BookingId = d.Bookingid,
             DisputeType = d.Disputetype,
             Status = d.Status,
             Reason = d.Reason,
             CreatedByName = d.CreatedByName,
             TutorName = d.TutorName,
-            LessonPrice = d.LessonPrice,
+            ClassSessionPrice = d.ClassSessionPrice,
             CreatedAt = d.Createdat.HasValue ? d.Createdat.Value : (DateTime?)null
         }).ToList();
 
@@ -106,13 +106,13 @@ public class DisputeService : IDisputeService
         var dispute = await _disputeRepo.GetDetailAsync(disputeId);
         if (dispute == null) return null;
 
-        var warningCount = await _disputeRepo.CountWarningsByTutorAsync(dispute.Lesson!.Tutorid!);
+        var warningCount = await _disputeRepo.CountWarningsByTutorAsync(dispute.ClassSession!.Tutorid!);
 
         return new DisputeDetailResponse
         {
             DisputeId = dispute.Disputeid,
             BookingId = dispute.Bookingid,
-            LessonId = dispute.Lessonid,
+            ClassSessionId = dispute.Classsessionid,
             DisputeType = dispute.Disputetype,
             Reason = dispute.Reason,
             Status = dispute.Status,
@@ -135,26 +135,26 @@ public class DisputeService : IDisputeService
                 FullName = dispute.ResolvedbyNavigation.Fullname,
                 Email = dispute.ResolvedbyNavigation.Email
             } : null,
-            Lesson = dispute.Lesson != null ? new DisputeLessonResponse
+            ClassSession = dispute.ClassSession != null ? new DisputeClassSessionResponse
             {
-                LessonId = dispute.Lesson.Lessonid,
-                ScheduledStart = dispute.Lesson.Scheduledstart,
-                ScheduledEnd = dispute.Lesson.Scheduledend,
-                Status = dispute.Lesson.Status,
-                LessonPrice = dispute.Lesson.Lessonprice,
-                LessonContent = dispute.Lesson.Lessoncontent,
-                Homework = dispute.Lesson.Homework,
-                IsTutorPresent = dispute.Lesson.Istutorpresent,
-                IsStudentPresent = dispute.Lesson.Isstudentpresent
+                ClassSessionId = dispute.ClassSession.Classsessionid,
+                ScheduledStart = dispute.ClassSession.Scheduledstart,
+                ScheduledEnd = dispute.ClassSession.Scheduledend,
+                Status = dispute.ClassSession.Status,
+                ClassSessionPrice = dispute.ClassSession.Lessonprice,
+                ClassSessionContent = dispute.ClassSession.Lessoncontent,
+                Homework = dispute.ClassSession.Homework,
+                IsTutorPresent = dispute.ClassSession.Istutorpresent,
+                IsStudentPresent = dispute.ClassSession.Isstudentpresent
             } : null,
-            Tutor = dispute.Lesson?.Tutor?.Tutor != null ? new DisputeTutorResponse
+            Tutor = dispute.ClassSession?.Tutor?.Tutor != null ? new DisputeTutorResponse
             {
-                TutorId = dispute.Lesson.Tutorid,
-                FullName = dispute.Lesson.Tutor.Tutor.Fullname,
-                Email = dispute.Lesson.Tutor.Tutor.Email,
-                Phone = dispute.Lesson.Tutor.Tutor.Phone,
+                TutorId = dispute.ClassSession.Tutorid,
+                FullName = dispute.ClassSession.Tutor.Tutor.Fullname,
+                Email = dispute.ClassSession.Tutor.Tutor.Email,
+                Phone = dispute.ClassSession.Tutor.Tutor.Phone,
                 WarningCount = warningCount,
-                AverageRating = dispute.Lesson.Tutor.Averagerating.HasValue ? (decimal?)dispute.Lesson.Tutor.Averagerating.Value : null
+                AverageRating = dispute.ClassSession.Tutor.Averagerating.HasValue ? (decimal?)dispute.ClassSession.Tutor.Averagerating.Value : null
             } : null
         };
     }
@@ -182,7 +182,7 @@ public class DisputeService : IDisputeService
 
     public async Task<DisputeDetailResponse> InvestigateDisputeAsync(int disputeId, string adminId)
     {
-        var dispute = await _disputeRepo.FindWithLessonAsync(disputeId)
+        var dispute = await _disputeRepo.FindWithClassSessionAsync(disputeId)
             ?? throw new ArgumentException("Không tìm thấy tranh chấp");
 
         if (dispute.Status != DisputeStatus.Pending)
@@ -201,7 +201,7 @@ public class DisputeService : IDisputeService
         if (!ResolutionTypes.All.Contains(request.ResolutionType))
             throw new ArgumentException("Loại kết quả xử lý không hợp lệ");
 
-        var dispute = await _disputeRepo.FindWithLessonAsync(disputeId)
+        var dispute = await _disputeRepo.FindWithClassSessionAsync(disputeId)
             ?? throw new ArgumentException("Không tìm thấy tranh chấp");
 
         if (dispute.Status == DisputeStatus.Resolved || dispute.Status == DisputeStatus.Closed)
@@ -211,8 +211,8 @@ public class DisputeService : IDisputeService
         try
         {
             var now = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
-            var lessonId = dispute.Lessonid ?? 0;
-            var tutorId = dispute.Lesson?.Tutorid;
+            var classSessionId = dispute.Classsessionid ?? 0;
+            var tutorId = dispute.ClassSession?.Tutorid;
 
             var refundPercentage = request.ResolutionType switch
             {
@@ -222,12 +222,13 @@ public class DisputeService : IDisputeService
                 _ => 0
             };
 
-            if (lessonId > 0)
+            if (classSessionId > 0)
             {
                 if (refundPercentage > 0)
-                    await _settlementService.ProcessRefundAsync(lessonId, refundPercentage, adminId);
+                    await _settlementService.ProcessRefundAsync(classSessionId, refundPercentage, adminId);
                 else
-                    await _settlementService.SettleLessonAsync(lessonId, adminId);
+                    // Release (side with tutor): settle even though the classSession is Disputed/NoShow.
+                    await _settlementService.SettleDisputedClassSessionAsync(classSessionId, adminId);
             }
 
             dispute.Status = DisputeStatus.Resolved;
@@ -247,8 +248,8 @@ public class DisputeService : IDisputeService
                 await _warningService.CreateWarningAsync(tutorId, warningRequest, adminId);
             }
 
-            if (dispute.Lesson != null)
-                dispute.Lesson.Status = refundPercentage == 100 ? Cancelled : Completed;
+            if (dispute.ClassSession != null)
+                dispute.ClassSession.Status = refundPercentage == 100 ? Cancelled : Completed;
 
             await _disputeRepo.SaveChangesAsync();
             await tx.CommitAsync();

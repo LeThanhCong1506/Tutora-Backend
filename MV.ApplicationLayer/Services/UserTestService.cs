@@ -30,10 +30,10 @@ public class UserTestService : IUserTestService
         if (userRole.Equals(UserRole.Tutor, StringComparison.OrdinalIgnoreCase) ||
             await _context.Tutorprofiles.AnyAsync(t => t.Tutorid == userId))
         {
-            // Lấy các LessonId của tutor để xóa Lessonreport và Dispute
-            var tutorLessonIds = await _context.Lessons
+            // Lấy các ClassSessionId của tutor để xóa ClassSessionReport và Dispute
+            var tutorClassSessionIds = await _context.ClassSessions
                 .Where(l => l.Tutorid == userId)
-                .Select(l => l.Lessonid)
+                .Select(l => l.Classsessionid)
                 .ToListAsync();
 
             // Lấy các BookingId của tutor để xóa các bảng con
@@ -42,16 +42,16 @@ public class UserTestService : IUserTestService
                 .Select(b => b.Bookingid)
                 .ToListAsync();
 
-            if (tutorLessonIds.Any())
+            if (tutorClassSessionIds.Any())
             {
-                // Xóa Lessonreport của các lesson
-                await _context.Lessonreports
-                    .Where(lr => tutorLessonIds.Contains(lr.Lessonid ?? 0))
+                // Xóa ClassSessionReport của các classSession
+                await _context.ClassSessionReports
+                    .Where(lr => tutorClassSessionIds.Contains(lr.Classsessionid ?? 0))
                     .ExecuteDeleteAsync();
 
-                // Xóa Dispute liên quan đến lesson
+                // Xóa Dispute liên quan đến classSession
                 await _context.Disputes
-                    .Where(d => tutorLessonIds.Contains(d.Lessonid ?? 0))
+                    .Where(d => tutorClassSessionIds.Contains(d.Classsessionid ?? 0))
                     .ExecuteDeleteAsync();
             }
 
@@ -85,13 +85,13 @@ public class UserTestService : IUserTestService
                     .ExecuteDeleteAsync();
             }
 
-            // Xóa Lessons của tutor
-            await _context.Lessons
+            // Xóa ClassSessions của tutor
+            await _context.ClassSessions
                 .Where(l => l.Tutorid == userId)
                 .ExecuteDeleteAsync();
 
-            // Xóa Lessonreport do tutor tạo
-            await _context.Lessonreports
+            // Xóa ClassSessionReport do tutor tạo
+            await _context.ClassSessionReports
                 .Where(lr => lr.Createdbytutorid == userId)
                 .ExecuteDeleteAsync();
 
@@ -128,10 +128,10 @@ public class UserTestService : IUserTestService
 
             if (studentIds.Any())
             {
-                // Lấy LessonId của student
-                var studentLessonIds = await _context.Lessons
+                // Lấy ClassSessionId của student
+                var studentClassSessionIds = await _context.ClassSessions
                     .Where(l => studentIds.Contains(l.Studentid))
-                    .Select(l => l.Lessonid)
+                    .Select(l => l.Classsessionid)
                     .ToListAsync();
 
                 // Lấy BookingId của student
@@ -140,16 +140,16 @@ public class UserTestService : IUserTestService
                     .Select(b => b.Bookingid)
                     .ToListAsync();
 
-                if (studentLessonIds.Any())
+                if (studentClassSessionIds.Any())
                 {
-                    // Xóa Lessonreport
-                    await _context.Lessonreports
-                        .Where(lr => studentLessonIds.Contains(lr.Lessonid ?? 0))
+                    // Xóa ClassSessionReport
+                    await _context.ClassSessionReports
+                        .Where(lr => studentClassSessionIds.Contains(lr.Classsessionid ?? 0))
                         .ExecuteDeleteAsync();
 
-                    // Xóa Dispute liên quan lesson
+                    // Xóa Dispute liên quan classSession
                     await _context.Disputes
-                        .Where(d => studentLessonIds.Contains(d.Lessonid ?? 0))
+                        .Where(d => studentClassSessionIds.Contains(d.Classsessionid ?? 0))
                         .ExecuteDeleteAsync();
                 }
 
@@ -183,8 +183,8 @@ public class UserTestService : IUserTestService
                         .ExecuteDeleteAsync();
                 }
 
-                // Xóa Lessons của student
-                await _context.Lessons
+                // Xóa ClassSessions của student
+                await _context.ClassSessions
                     .Where(l => studentIds.Contains(l.Studentid))
                     .ExecuteDeleteAsync();
 
@@ -207,24 +207,24 @@ public class UserTestService : IUserTestService
 
             if (parentBookingIds.Any())
             {
-                // Lấy LessonId từ booking của parent
-                var parentLessonIds = await _context.Lessons
+                // Lấy ClassSessionId từ booking của parent
+                var parentClassSessionIds = await _context.ClassSessions
                     .Where(l => parentBookingIds.Contains(l.Bookingid ?? 0))
-                    .Select(l => l.Lessonid)
+                    .Select(l => l.Classsessionid)
                     .ToListAsync();
 
-                if (parentLessonIds.Any())
+                if (parentClassSessionIds.Any())
                 {
-                    await _context.Lessonreports
-                        .Where(lr => parentLessonIds.Contains(lr.Lessonid ?? 0))
+                    await _context.ClassSessionReports
+                        .Where(lr => parentClassSessionIds.Contains(lr.Classsessionid ?? 0))
                         .ExecuteDeleteAsync();
 
                     await _context.Disputes
-                        .Where(d => parentLessonIds.Contains(d.Lessonid ?? 0))
+                        .Where(d => parentClassSessionIds.Contains(d.Classsessionid ?? 0))
                         .ExecuteDeleteAsync();
 
-                    await _context.Lessons
-                        .Where(l => parentLessonIds.Contains(l.Lessonid))
+                    await _context.ClassSessions
+                        .Where(l => parentClassSessionIds.Contains(l.Classsessionid))
                         .ExecuteDeleteAsync();
                 }
 

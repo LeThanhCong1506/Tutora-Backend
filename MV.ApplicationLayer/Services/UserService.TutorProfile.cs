@@ -3,6 +3,7 @@ using MV.DomainLayer.DTO.RequestModel;
 using MV.DomainLayer.DTO.ResponseModel;
 using MV.DomainLayer.Entities;
 using MV.DomainLayer.Exceptions;
+using MV.ApplicationLayer.Helpers;
 
 namespace MV.ApplicationLayer.Services
 {
@@ -59,6 +60,17 @@ namespace MV.ApplicationLayer.Services
         {
             var tutorProfile = await _unitOfWork.UserRepository.GetTutorProfileByIdAsync(tutorId)
                 ?? throw new KeyNotFoundException("Không tìm thấy hồ sơ gia sư để cập nhật lịch.");
+
+            // Guard: chặn nếu còn buổi dạy đã đặt nằm NGOÀI lịch rảnh mới (tránh bỏ rơi buổi đã cam kết).
+            var newSlots = request.ListOfFreeTimeSlots
+                .Select(s => (IsoDay: s.DayOfWeek,
+                              Start: TimeOnly.Parse(s.StartTime).ToTimeSpan(),
+                              End: TimeOnly.Parse(s.EndTime).ToTimeSpan()))
+                .ToList();
+            var committed = await TutorScheduleGuard.GetFutureCommittedSessionsAsync(_context, tutorId);
+            if (TutorScheduleGuard.HasOrphanedSession(committed, newSlots))
+                throw new InvalidOperationException(
+                    "Không thể cập nhật lịch: có buổi dạy đã được đặt nằm ngoài lịch rảnh mới. Vui lòng giữ lại khung giờ đã có buổi dạy.");
 
             await _unitOfWork.UserRepository.DeleteAllExistingAvailabilityByTutorIdAsync(tutorId);
 

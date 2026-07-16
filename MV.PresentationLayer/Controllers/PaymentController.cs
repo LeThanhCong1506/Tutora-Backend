@@ -90,7 +90,7 @@ public class PaymentController(
     public async Task<IActionResult> PayOSWebhook()
     {
         var rawPayload = await new StreamReader(Request.Body).ReadToEndAsync();
-        logger.LogInformation("PayOS webhook received: {Payload}", rawPayload);
+        logger.LogInformation("PayOS webhook received. PayloadLength={PayloadLength}", rawPayload.Length);
 
         if (!await paymentService.VerifyWebhookSignatureAsync(rawPayload, Request.Headers["x-api-key"].ToString()))
         {
@@ -146,7 +146,7 @@ public class PaymentController(
     {
         try
         {
-            await paymentService.ConfirmPaymentByAdminAsync(id, request, HttpContext.RequestAborted);
+            await paymentService.ConfirmPaymentByAdminAsync(id, request, UserId, HttpContext.RequestAborted);
             return Ok(APIResponse.Success("Xác nhận thanh toán thành công."));
         }
         catch (BookingException ex)

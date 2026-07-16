@@ -11,7 +11,7 @@ using MV.DomainLayer.Entities;
 using MV.DomainLayer.Exceptions;
 using MV.DomainLayer.Helpers;
 using System.Data;
-using static MV.DomainLayer.Constants.LessonStatus;
+using static MV.DomainLayer.Constants.ClassSessionStatus;
 using static MV.DomainLayer.Constants.PaymentStatus;
 
 namespace MV.ApplicationLayer.Services;
@@ -20,7 +20,7 @@ public partial class BookingService(
     IBookingRepository bookingRepo,
     IStudentRepository studentRepo,
     ITutorRepository tutorRepo,
-    IAppDbContext context,          // retained only for: Lessons (conflict check), Subjects, Tutorsubjects, Tutoravailabilities, Promotions, Wallets, Wallettransactions, Notifications
+    IAppDbContext context,          // retained only for: ClassSessions (conflict check), Subjects, Tutorsubjects, Tutoravailabilities, Promotions, Wallets, Wallettransactions, Notifications
     INotificationService notificationService,
     IChatService chatService,
     ILogger<BookingService> logger) : IBookingService
@@ -67,17 +67,21 @@ public partial class BookingService(
             .FirstOrDefaultAsync(p => p.Id == dto.TutorSubjectGradePriceId && p.Tutorid == dto.TutorId && p.Isactive)
             ?? throw new BookingException(BookingErrorCodes.TutorNotTeachSubject, "Gia sư không dạy môn/lớp này", 409);
 
+        if (price.Subject?.IsActive != true || price.Gradelevel?.IsActive != true)
+            throw new BookingException(BookingErrorCodes.SubjectOrGradeLevelInactive,
+                "Môn học/khối lớp này đã ngừng cung cấp trên hệ thống", 409);
+
         var package = await context.Tutorpackages
             .Include(c => c.Tutorpackagefixedslots)
             .FirstOrDefaultAsync(c => c.Packageid == dto.PackageId && c.Tutorid == dto.TutorId && c.Isactive)
             ?? throw new BookingException(BookingErrorCodes.InvalidInput, "Package không hợp lệ", 400);
 
         var totalSessions = ResolveTotalSessions(dto, package);
-        var lessonSlots = package.Packagetype == Tutorpackage.FixedPackageType
+        var classSessionSlots = package.Packagetype == Tutorpackage.FixedPackageType
             ? GenerateFixedPackageSlots(package, dto.StartDate, totalSessions)
             : GenerateFlexibleSlots(dto, price.Durationminutespersession, totalSessions);
 
-        await ValidateSlotsAsync(dto.TutorId, lessonSlots);
+        await ValidateSlotsAsync(dto.TutorId, classSessionSlots);
 
         var totalAmount = Math.Round(price.Priceperhour * price.Durationminutespersession / 60m * totalSessions, 2);
         int? promotionId = null;
@@ -111,7 +115,7 @@ public partial class BookingService(
             Priceperhour = price.Priceperhour,
             Totalamount = totalAmount,
             Currency = price.Currency,
-            Startdate = lessonSlots.Min(s => s.Start),
+            Startdate = classSessionSlots.Min(s => s.Start),
             Discountapplied = discountApplied,
             Finalprice = fees.FinalPrice,
             Platformfee = fees.PlatformFee,
@@ -135,17 +139,17 @@ public partial class BookingService(
             context.Bookings.Add(booking);
             await context.SaveChangesAsync();
 
-            var lessonPrice = Math.Round(totalAmount / totalSessions, 2);
-            foreach (var slot in lessonSlots)
+            var classSessionPrice = Math.Round(totalAmount / totalSessions, 2);
+            foreach (var slot in classSessionSlots)
             {
-                context.Lessons.Add(new Lesson
+                context.ClassSessions.Add(new ClassSession
                 {
                     Bookingid = booking.Bookingid,
                     Tutorid = dto.TutorId,
                     Studentid = student.Studentid,
                     Scheduledstart = slot.Start,
                     Scheduledend = slot.End,
-                    Lessonprice = lessonPrice,
+                    Lessonprice = classSessionPrice,
                     Status = Reserved,
                     Createdat = TimeZoneHelper.UtcNow
                 });
@@ -222,138 +226,203 @@ public partial class BookingService(
 
     public async Task<bool> CancelBookingAsync(int bookingId, string userId, string? reason = null)
     {
-        var booking = await context.Bookings
-            .Include(b => b.Student)
-            .Include(b => b.Lessons)
-            .FirstOrDefaultAsync(b => b.Bookingid == bookingId &&
-                (b.Parentid == userId || b.Studentid == userId || b.Student.Linkeduserid == userId || b.Tutorid == userId));
-        if (booking == null) return false;
-        if (booking.Status != BookingStatus.PendingTutor &&
-            booking.Status != BookingStatus.Accepted &&
-            booking.Status != BookingStatus.PendingPayment &&
-            booking.Status != BookingStatus.DepositPaid &&
-            booking.Status != BookingStatus.PendingRemainingPayment &&
-            booking.Status != BookingStatus.Ongoing &&
-            booking.Status != BookingStatus.Paid)
-            return false;
+        Booking booking;
+        var now = TimeZoneHelper.UtcNow;
+        var needsRefund = false;
+        var refundAmount = 0m;
 
-        var needsRefund = booking.Paymentstatus == DepositEscrowed
-            || booking.Paymentstatus == Escrowed
-            || booking.Paymentstatus == Paid;
-
-        if (needsRefund)
+        await using var tx = await context.Database.BeginTransactionAsync();
+        try
         {
-            decimal refundAmount = booking.Paymentstatus == DepositEscrowed
-                ? booking.Depositamount ?? 0
-                : booking.Finalprice ?? booking.Totalamount ?? 0;
-
-            var tutorFee = booking.Tutorfee ?? 0;
-            var cancelSessions = booking.Totalsessions ?? 1;
-            decimal tutorEscrowAmount = booking.Paymentstatus == DepositEscrowed
-                ? Math.Round(tutorFee / cancelSessions, 2)
-                : tutorFee;
-
-            await using var tx = await context.Database.BeginTransactionAsync(IsolationLevel.Serializable);
-            try
+            var lockedBooking = await bookingRepo.FindWithRelationsForUpdateAsync(bookingId);
+            if (lockedBooking == null)
             {
-                if (!string.IsNullOrWhiteSpace(booking.Parentid) && refundAmount > 0)
-                {
-                    var parentWallet = await context.Wallets
-                .FromSqlRaw(SqlQueries.LockWalletByUserId, booking.Parentid)
-                        .FirstOrDefaultAsync();
-
-                    if (parentWallet != null)
-                    {
-                        parentWallet.Balance = (parentWallet.Balance ?? 0) + refundAmount;
-                        parentWallet.Lastupdated = TimeZoneHelper.UtcNow;
-
-                        context.Wallettransactions.Add(new Wallettransaction
-                        {
-                            Wallet = parentWallet,
-                            Amount = refundAmount,
-                            Transactiontype = TransactionType.Refund,
-                            Referencetable = ReferenceTable.Booking,
-                            Referenceid = bookingId,
-                            Description = $"Hoàn tiền booking #{bookingId}",
-                            Createdat = TimeZoneHelper.UtcNow
-                        });
-                    }
-                }
-
-                if (!string.IsNullOrWhiteSpace(booking.Tutorid) && tutorEscrowAmount > 0)
-                {
-                    var tutorWallet = await context.Wallets
-                .FromSqlRaw(SqlQueries.LockWalletByUserId, booking.Tutorid)
-                        .FirstOrDefaultAsync();
-
-                    if (tutorWallet != null)
-                    {
-                        tutorWallet.Frozenbalance = Math.Max(0, (tutorWallet.Frozenbalance ?? 0) - tutorEscrowAmount);
-                        tutorWallet.Lastupdated = TimeZoneHelper.UtcNow;
-
-                        context.Wallettransactions.Add(new Wallettransaction
-                        {
-                            Wallet = tutorWallet,
-                            Amount = -tutorEscrowAmount,
-                            Transactiontype = TransactionType.EscrowRelease,
-                            Referencetable = ReferenceTable.Booking,
-                            Referenceid = bookingId,
-                            Description = $"Giải phóng escrow booking #{bookingId} do hủy",
-                            Createdat = TimeZoneHelper.UtcNow
-                        });
-                    }
-                }
-
-                booking.Status = BookingStatus.Cancelled;
-                booking.Cancellationreason = reason;
-                booking.Cancelledby = userId;
-                booking.Cancelledat = TimeZoneHelper.UtcNow;
-                booking.Updatedat = TimeZoneHelper.UtcNow;
-                booking.Refundstatus = RefundStatus.Refunded;
-                booking.Refundamount = refundAmount;
-
-                foreach (var l in booking.Lessons.Where(x => x.Status is Scheduled or Reserved))
-                    l.Status = Cancelled;
-
-                await context.SaveChangesAsync();
                 await tx.CommitAsync();
+                return false;
+            }
 
-                if (!string.IsNullOrWhiteSpace(booking.Parentid) && refundAmount > 0)
+            booking = lockedBooking;
+            if (booking.Parentid != userId
+                 && booking.Studentid != userId
+                 && booking.Student?.Linkeduserid != userId
+                 && booking.Tutorid != userId)
+            {
+                await tx.CommitAsync();
+                return false;
+            }
+
+            if (booking.Status != BookingStatus.PendingTutor &&
+                booking.Status != BookingStatus.Accepted &&
+                booking.Status != BookingStatus.PendingPayment &&
+                booking.Status != BookingStatus.DepositPaid &&
+                booking.Status != BookingStatus.PendingRemainingPayment &&
+                booking.Status != BookingStatus.Ongoing &&
+                booking.Status != BookingStatus.Paid)
+            {
+                await tx.CommitAsync();
+                return false;
+            }
+
+            needsRefund = booking.Paymentstatus == DepositEscrowed
+                || booking.Paymentstatus == Escrowed
+                || booking.Paymentstatus == Paid;
+
+            if (needsRefund && HasStartedOrSettledLesson(booking, now))
+            {
+                logger.LogWarning(
+                    "Rejected paid cancellation for booking {BookingId} because at least one lesson has already started, completed, settled, or entered dispute/no-show.",
+                    bookingId);
+                await tx.CommitAsync();
+                return false;
+            }
+
+            if (needsRefund)
+            {
+                refundAmount = TutorResponseTimeoutPolicy.ParentRefundAmount(booking);
+
+                if (refundAmount <= 0 || string.IsNullOrWhiteSpace(booking.Parentid))
+                    throw new InvalidOperationException($"Booking #{bookingId} has no valid refund recipient or amount.");
+
+                var parentWallet = await WalletLockHelper.GetOrCreateForUpdateAsync(context, booking.Parentid, now);
+                parentWallet.Balance = (parentWallet.Balance ?? 0) + refundAmount;
+                parentWallet.Lastupdated = now;
+                context.Wallettransactions.Add(new Wallettransaction
                 {
-                    await notificationService.CreateNotificationAsync(new MV.DomainLayer.DTO.RequestModel.NotificationRequest
+                    Wallet = parentWallet,
+                    Amount = refundAmount,
+                    Transactiontype = TransactionType.Refund,
+                    Referencetable = ReferenceTable.Booking,
+                    Referenceid = bookingId,
+                    Description = $"Hoàn tiền booking #{bookingId}",
+                    Createdat = now
+                });
+
+                var tutorEscrowAmount = TutorResponseTimeoutPolicy.TutorEscrowAmount(booking);
+
+                if (tutorEscrowAmount > 0)
+                {
+                    if (string.IsNullOrWhiteSpace(booking.Tutorid))
+                        throw new InvalidOperationException($"Booking #{bookingId} has escrow but no tutor id.");
+
+                    var tutorWallet = await WalletLockHelper.GetRequiredForUpdateAsync(context, booking.Tutorid);
+                    if ((tutorWallet.Frozenbalance ?? 0) < tutorEscrowAmount)
+                        throw new InvalidOperationException($"Tutor escrow balance is insufficient for booking #{bookingId}.");
+
+                    // Rút escrow khỏi frozen (tutor không thực nhận khi booking bị hủy).
+                    tutorWallet.Frozenbalance = Math.Max(0, (tutorWallet.Frozenbalance ?? 0) - tutorEscrowAmount);
+                    tutorWallet.Lastupdated = TimeZoneHelper.UtcNow;
+
+                    context.Wallettransactions.Add(new Wallettransaction
                     {
-                        Userid = booking.Parentid,
-                        Title = "Hoàn tiền thành công",
-                        Message = $"Booking #{bookingId} đã được hủy. Số tiền {refundAmount:N0}đ đã được hoàn vào ví của bạn.",
-                        Type = NotificationType.PaymentRefundSuccess,
-                        Referenceid = bookingId.ToString()
+                        Wallet = tutorWallet,
+                        Amount = -tutorEscrowAmount,
+                        Transactiontype = TransactionType.EscrowReversal,
+                        Referencetable = ReferenceTable.Booking,
+                        Referenceid = bookingId,
+                        Description = $"Giải phóng escrow booking #{bookingId} do hủy",
+                        Createdat = TimeZoneHelper.UtcNow
                     });
                 }
-            }
-            catch (Exception ex)
-            {
-                await tx.RollbackAsync();
-                logger.LogError(ex, "Lỗi khi hoàn tiền booking {BookingId}", bookingId);
-                booking.Refundstatus = RefundStatus.RefundFailed;
-                await context.SaveChangesAsync();
-            }
-        }
-        else
-        {
-            booking.Refundstatus = RefundStatus.NoRefund;
+                }
+
             booking.Status = BookingStatus.Cancelled;
             booking.Cancellationreason = reason;
             booking.Cancelledby = userId;
-            booking.Cancelledat = TimeZoneHelper.UtcNow;
-            booking.Updatedat = TimeZoneHelper.UtcNow;
+            booking.Cancelledat = now;
+            booking.Updatedat = now;
+            booking.Responsedeadline = null;
 
-            foreach (var l in booking.Lessons.Where(x => x.Status is Scheduled or Reserved))
-                l.Status = Cancelled;
+            foreach (var classSession in booking.ClassSessions.Where(x => x.Status is Scheduled or Reserved))
+                classSession.Status = Cancelled;
 
+            await PromotionUsageHelper.ReturnUsageAsync(context, booking.Promotionid);
             await context.SaveChangesAsync();
+            await tx.CommitAsync();
+        }
+        catch (Exception ex)
+        {
+            await tx.RollbackAsync();
+            logger.LogError(ex, "Lỗi khi hủy/hoàn tiền booking {BookingId}", bookingId);
+            throw;
+        }
+
+        if (needsRefund && !string.IsNullOrWhiteSpace(booking.Parentid) && refundAmount > 0)
+        {
+            try
+            {
+                await notificationService.CreateNotificationAsync(new NotificationRequest
+                {
+                    Userid = booking.Parentid,
+                    Title = "Hoàn tiền thành công",
+                    Message = $"Booking #{bookingId} đã được hủy. Số tiền {refundAmount:N0}đ đã được hoàn vào ví của bạn.",
+                    Type = NotificationType.PaymentRefundSuccess,
+                    Referenceid = bookingId.ToString()
+                });
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Không thể gửi thông báo hoàn tiền cho booking {BookingId}", bookingId);
+            }
+        }
+
+        var cancelledByTutor = !string.IsNullOrWhiteSpace(booking.Tutorid) && booking.Tutorid == userId;
+        var reasonSuffix = string.IsNullOrWhiteSpace(reason) ? "" : $" Lý do: {reason}";
+
+        if (!string.IsNullOrWhiteSpace(booking.Parentid) && !string.IsNullOrWhiteSpace(booking.Tutorid))
+        {
+            try
+            {
+                var senderId = cancelledByTutor ? booking.Tutorid! : booking.Parentid!;
+                var channelId = await chatService.GetOrCreateChannelAsync(booking.Parentid!, booking.Tutorid!);
+                await chatService.SendMessageAsync(senderId, channelId, new ChatMessageCreateRequest
+                {
+                    Content = $"🚫 Đặt lịch #{bookingId} đã bị hủy.{reasonSuffix}",
+                    MessageType = ChatMessageType.BookingCancelled,
+                    Metadata = new { bookingId, status = booking.Status, reason }
+                });
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Không thể gửi tin nhắn hủy booking {BookingId} vào kênh chat", bookingId);
+            }
+        }
+
+        var counterpartId = cancelledByTutor ? booking.Parentid : booking.Tutorid;
+        if (!string.IsNullOrWhiteSpace(counterpartId))
+        {
+            try
+            {
+                await notificationService.CreateNotificationAsync(new NotificationRequest
+                {
+                    Userid = counterpartId,
+                    Title = cancelledByTutor ? "Gia sư đã hủy đặt lịch" : "Đặt lịch đã bị hủy",
+                    Message = cancelledByTutor
+                        ? $"Gia sư đã hủy đặt lịch #{bookingId}.{reasonSuffix}"
+                        : $"Phụ huynh/học sinh đã hủy đặt lịch #{bookingId}.{reasonSuffix}",
+                    Type = NotificationType.BookingCancelled,
+                    Referenceid = bookingId.ToString()
+                });
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Không thể gửi thông báo hủy booking {BookingId}", bookingId);
+            }
         }
 
         return true;
+    }
+
+    private static bool HasStartedOrSettledLesson(Booking booking, DateTime now)
+    {
+        return booking.ClassSessions.Any(l =>
+            l.Issettled == true ||
+            (l.Scheduledstart <= now && l.Status is Scheduled or Reserved) ||
+            l.Status is InProgress
+                or PendingConfirmation
+                or Completed
+                or Disputed
+                or NoShow
+                or CancelledNoshow);
     }
 
     public async Task<List<BookedSlotResponse>> GetTutorBookedSlotsAsync(
@@ -371,7 +440,7 @@ public partial class BookingService(
         var fromUtc = NormalizeUtc(startDate);
         var toUtc = NormalizeUtc(endDate);
 
-        var lessons = await context.Lessons
+        var classSessions = await context.ClassSessions
             .Where(l => l.Tutorid == tutorId
                 && l.Scheduledend > fromUtc
                 && l.Scheduledstart < toUtc
@@ -382,7 +451,7 @@ public partial class BookingService(
             .OrderBy(l => l.Scheduledstart)
             .ToListAsync();
 
-        return lessons.Select(l => new BookedSlotResponse
+        return classSessions.Select(l => new BookedSlotResponse
         {
             ScheduledStart = DateTime.SpecifyKind(l.Scheduledstart, DateTimeKind.Utc),
             ScheduledEnd = DateTime.SpecifyKind(l.Scheduledend, DateTimeKind.Utc)
@@ -390,16 +459,16 @@ public partial class BookingService(
     }
 
 
-    private async Task ValidateSlotsAsync(string tutorId, IReadOnlyList<LessonSlot> lessonSlots)
+    private async Task ValidateSlotsAsync(string tutorId, IReadOnlyList<ClassSessionSlot> classSessionSlots)
     {
-        if (lessonSlots.Count == 0)
+        if (classSessionSlots.Count == 0)
             throw new BookingException(BookingErrorCodes.InvalidSchedule, "Không tìm thấy lịch học hợp lệ", 400);
 
         var tutorAvailabilities = await context.Tutoravailabilities
             .Where(a => a.Tutorid == tutorId)
             .ToListAsync();
 
-        foreach (var slot in lessonSlots)
+        foreach (var slot in classSessionSlots)
         {
             // slot.Start/End are UTC — compare directly against UTC availability rows
             var isoDayUtc = slot.Start.DayOfWeek == DayOfWeek.Sunday ? 7 : (int)slot.Start.DayOfWeek;
@@ -448,7 +517,7 @@ public partial class BookingService(
                 throw new BookingException(BookingErrorCodes.ScheduleNotInAvailability,
                     $"Slot {startVn:dd/MM/yyyy HH:mm}-{endVn:HH:mm} nằm ngoài lịch rảnh của gia sư", 400);
 
-            var hasConflict = await context.Lessons.AnyAsync(l =>
+            var hasConflict = await context.ClassSessions.AnyAsync(l =>
                 l.Tutorid == tutorId
                 && l.Status != Cancelled
                 && l.Status != CancelledNoshow
@@ -481,7 +550,7 @@ public partial class BookingService(
         return dto.TotalSessions.Value;
     }
 
-    private static List<LessonSlot> GenerateFixedPackageSlots(Tutorpackage package, DateTime startDate, int totalSessions)
+    private static List<ClassSessionSlot> GenerateFixedPackageSlots(Tutorpackage package, DateTime startDate, int totalSessions)
     {
         if (package.Tutorpackagefixedslots.Count == 0)
             throw new BookingException(BookingErrorCodes.InvalidSchedule, "Package cố định chưa có khung giờ", 400);
@@ -497,7 +566,7 @@ public partial class BookingService(
             .OrderBy(s => s.utcDay)
             .ThenBy(s => s.utcStart)
             .ToList();
-        var result = new List<LessonSlot>();
+        var result = new List<ClassSessionSlot>();
 
         while (result.Count < totalSessions)
         {
@@ -511,7 +580,7 @@ public partial class BookingService(
                     slotStart.Hour, slotStart.Minute, 0, DateTimeKind.Utc);
                 var end = new DateTime(currentDate.Year, currentDate.Month, currentDate.Day,
                     slotEnd.Hour, slotEnd.Minute, 0, DateTimeKind.Utc);
-                result.Add(new LessonSlot(start, end));
+                result.Add(new ClassSessionSlot(start, end));
             }
 
             currentDate = currentDate.AddDays(1);
@@ -520,7 +589,7 @@ public partial class BookingService(
         return result;
     }
 
-    private static List<LessonSlot> GenerateFlexibleSlots(CreateBookingRequest dto, int durationMinutes, int totalSessions)
+    private static List<ClassSessionSlot> GenerateFlexibleSlots(CreateBookingRequest dto, int durationMinutes, int totalSessions)
     {
         var slots = dto.FlexibleSlots ?? [];
         if (slots.Count != totalSessions)
@@ -542,7 +611,7 @@ public partial class BookingService(
                 if (end <= start || Math.Abs((end - start - duration).TotalMinutes) > 1)
                     throw new BookingException(BookingErrorCodes.InvalidSchedule,
                         $"Mỗi buổi học phải kéo dài {durationMinutes} phút", 400);
-                return new LessonSlot(start, end);
+                return new ClassSessionSlot(start, end);
             })
             .OrderBy(s => s.Start)
             .ToList();
@@ -552,18 +621,25 @@ public partial class BookingService(
         Studentprofile? student, Tutorprofile? tutor, Subject? subject)
     {
         var grade = b.Tutorsubjectgradeprice?.Gradelevel ?? student?.GradelevelNavigation;
-        var lessons = b.Lessons?
+        var classSessions = b.ClassSessions?
             .OrderBy(l => l.Scheduledstart)
-            .Select((l, i) => new BookingLessonSlotResponse
+            .Select((l, i) => new BookingClassSessionSlotResponse
             {
-                LessonId = l.Lessonid,
+                ClassSessionId = l.Classsessionid,
                 SessionIndex = i + 1,
                 ScheduledStart = l.Scheduledstart,
                 ScheduledEnd = l.Scheduledend,
                 Status = l.Status,
-                LessonPrice = l.Lessonprice
+                ClassSessionPrice = l.Lessonprice
             })
             .ToList();
+        var baseAmount = Math.Max((b.Totalamount ?? 0m) - (b.Discountapplied ?? 0m), 0m);
+        var calculatedFees = BookingFeeCalculator.Calculate(baseAmount);
+        var parentFee = b.Parentfee ?? calculatedFees.ParentFee;
+        var tutorServiceFee = b.Platformfee.HasValue
+            ? Math.Max(b.Platformfee.Value - parentFee, 0m)
+            : calculatedFees.TutorFeeCut;
+        var tutorReceivable = Math.Max(baseAmount - tutorServiceFee, 0m);
 
         return new BookingResponse
         {
@@ -588,7 +664,8 @@ public partial class BookingService(
             Subject = subject == null ? null : new SubjectResponse
             {
                 SubjectId = subject.Subjectid,
-                SubjectName = subject.Subjectname
+                SubjectName = subject.Subjectname,
+                IsActive = subject.IsActive
             },
             Package = b.Package == null ? null : new BookingPackageResponse
             {
@@ -601,7 +678,8 @@ public partial class BookingService(
             {
                 GradeLevelId = grade.Gradelevelid,
                 GradeName = grade.Gradename,
-                LevelOrder = grade.Levelorder
+                LevelOrder = grade.Levelorder,
+                IsActive = grade.IsActive
             },
             PackageType = b.Package?.Packagetype,
             SessionCount = b.Totalsessions ?? 0,
@@ -612,12 +690,16 @@ public partial class BookingService(
             TotalAmount = b.Totalamount,
             Currency = b.Currency,
             DiscountApplied = b.Discountapplied,
+            BaseAmount = baseAmount,
+            ParentFee = parentFee,
+            TutorServiceFee = tutorServiceFee,
+            TutorReceivable = tutorReceivable,
             FinalPrice = b.Finalprice,
             PlatformFee = b.Platformfee,
             Status = b.Status,
             PaymentStatus = b.Paymentstatus,
             PaymentCode = b.Paymentcode,
-            Schedule = lessons?.Select(l => 
+            Schedule = classSessions?.Select(l => 
             {
                 // Convert C# DayOfWeek (0=Sunday, 1=Monday...) to ISO format (1=Monday, 7=Sunday)
                 var isoDayOfWeek = l.ScheduledStart.DayOfWeek == DayOfWeek.Sunday ? 7 : (int)l.ScheduledStart.DayOfWeek;
@@ -628,11 +710,14 @@ public partial class BookingService(
                     EndTime = l.ScheduledEnd.ToString("HH:mm")
                 };
             }).ToList(),
-            Lessons = lessons,
+            ClassSessions = classSessions,
             StartDate = b.Startdate,
             // Pattern này đúng cả local lẫn cloud deployment.
             CreatedAt = b.Createdat,
             PaymentDueAt = b.Paymentdueat,
+            ResponseDeadline = b.Responsedeadline.HasValue
+                ? DateTime.SpecifyKind(b.Responsedeadline.Value, DateTimeKind.Utc)
+                : null,
             DepositAmount = b.Depositamount
                 ?? (b.Finalprice.HasValue && b.Totalsessions.HasValue && b.Totalsessions > 0
                     ? Math.Floor(b.Finalprice.Value / b.Totalsessions.Value)
@@ -649,6 +734,6 @@ public partial class BookingService(
         };
     }
 
-    private sealed record LessonSlot(DateTime Start, DateTime End);
+    private sealed record ClassSessionSlot(DateTime Start, DateTime End);
 
 }

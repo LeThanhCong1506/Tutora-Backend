@@ -325,17 +325,17 @@ public class ZaloOAService : IZaloOAService
         return await SendZnsTemplateAsync(phone, _config.ZnsTemplateOtp, templateData);
     }
 
-    public async Task<ZaloSendResult> SendLessonReportAsync(int lessonId)
+    public async Task<ZaloSendResult> SendClassSessionReportAsync(int classSessionId)
     {
         if (_isMockMode)
         {
-            _logger.LogInformation("[MOCK] ZNS lesson report for lesson {LessonId}", lessonId);
-            return new ZaloSendResult { Success = true, MessageId = $"mock_{lessonId}" };
+            _logger.LogInformation("[MOCK] ZNS classSession report for classSession {ClassSessionId}", classSessionId);
+            return new ZaloSendResult { Success = true, MessageId = $"mock_{classSessionId}" };
         }
-        // NOTE: ZNS lesson report sending is pending ZNS template configuration.
-        // When ready: query Lesson + User + LessonReport, then POST to
+        // NOTE: ZNS classSession report sending is pending ZNS template configuration.
+        // When ready: query ClassSession + User + LessonReport, then POST to
         // https://business.openapi.zalo.me/message/template with the configured template ID.
-        _logger.LogInformation("ZNS lesson report triggered for lesson {LessonId} — template not configured", lessonId);
+        _logger.LogInformation("ZNS classSession report triggered for classSession {ClassSessionId} — template not configured", classSessionId);
         return new ZaloSendResult { Success = true };
     }
 

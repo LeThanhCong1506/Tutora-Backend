@@ -24,6 +24,9 @@ public class PaymentTimeoutJob(IServiceProvider sp, ILogger<PaymentTimeoutJob> l
             try { await ProcessUpcomingDepositDeadlinesAsync(ct); }
             catch (Exception ex) { logger.LogError(ex, "Lỗi khi xử lý các đặt chỗ sắp hết hạn thanh toán."); }
 
+            try { await ProcessUpcomingRemainingDeadlinesAsync(ct); }
+            catch (Exception ex) { logger.LogError(ex, "Lỗi khi xử lý nhắc hạn thanh toán phần còn lại."); }
+
             try { await ProcessExpiredBookingsAsync(ct); }
             catch (Exception ex) { logger.LogError(ex, "Lỗi khi xử lý các đặt chỗ hết hạn."); }
 
@@ -81,6 +84,67 @@ public class PaymentTimeoutJob(IServiceProvider sp, ILogger<PaymentTimeoutJob> l
         }
     }
 
+    /// <summary>
+    /// Nhắc hạn thanh toán phần còn lại (48h): trước 1 ngày thông báo 1 lần,
+    /// trước 1 giờ cuối nhắc thêm 1 lần. Dedup theo Title + Referenceid.
+    /// </summary>
+    private async Task ProcessUpcomingRemainingDeadlinesAsync(CancellationToken ct)
+    {
+        using var scope = sp.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<IAppDbContext>();
+        var notify = scope.ServiceProvider.GetRequiredService<INotificationService>();
+        var now = TimeZoneHelper.UtcNow;
+        var reminderWindow = now.AddHours(24);
+
+        var bookingsDueSoon = await db.Bookings
+            .Where(b => b.Status == BookingStatus.PendingRemainingPayment
+                        && b.Remainingpaidat == null
+                        && b.Paymentdueat != null
+                        && b.Paymentdueat > now
+                        && b.Paymentdueat <= reminderWindow)
+            .ToListAsync(ct);
+
+        foreach (var booking in bookingsDueSoon)
+        {
+            if (string.IsNullOrWhiteSpace(booking.Parentid))
+                continue;
+
+            var isLastHour = booking.Paymentdueat <= now.AddHours(1);
+            var title = isLastHour
+                ? "Còn 1 giờ để thanh toán các buổi học còn lại"
+                : "Còn 1 ngày để thanh toán các buổi học còn lại";
+            var message = isLastHour
+                ? $"Booking #{booking.Bookingid} sẽ kết thúc sau 1 giờ nữa nếu bạn không thanh toán {booking.Remainingamount:N0}đ cho các buổi học còn lại."
+                : $"Booking #{booking.Bookingid} còn 24 giờ để thanh toán {booking.Remainingamount:N0}đ cho các buổi học còn lại. Nếu quá hạn, khóa học sẽ kết thúc sớm.";
+
+            var refId = booking.Bookingid.ToString();
+            var alreadySent = await db.Notifications.AnyAsync(n =>
+                n.Userid == booking.Parentid &&
+                n.Type == NotificationType.BookingPaymentDueSoon &&
+                n.Referenceid == refId &&
+                n.Title == title, ct);
+
+            if (alreadySent)
+                continue;
+
+            try
+            {
+                await notify.CreateNotificationAsync(new NotificationRequest
+                {
+                    Userid = booking.Parentid,
+                    Title = title,
+                    Message = message,
+                    Type = NotificationType.BookingPaymentDueSoon,
+                    Referenceid = refId
+                });
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Không thể gửi nhắc hạn thanh toán phần còn lại cho booking {BookingId}.", booking.Bookingid);
+            }
+        }
+    }
+
     private async Task ProcessExpiredBookingsAsync(CancellationToken ct)
     {
         using var scope = sp.CreateScope();
@@ -90,7 +154,7 @@ public class PaymentTimeoutJob(IServiceProvider sp, ILogger<PaymentTimeoutJob> l
 
         var expired = await db.Bookings
             .Include(b => b.Chatchannels)
-            .Include(b => b.Lessons)
+            .Include(b => b.ClassSessions)
             .Where(b => (b.Status == BookingStatus.PendingPayment || b.Status == BookingStatus.Accepted)
                         && b.Paymentdueat != null
                         && b.Paymentdueat < now)
@@ -109,8 +173,11 @@ public class PaymentTimeoutJob(IServiceProvider sp, ILogger<PaymentTimeoutJob> l
                 b.Status = BookingStatus.PaymentTimeout;
                 b.Updatedat = now;
                 foreach (var ch in b.Chatchannels) ch.Status = ChatChannelStatus.Closed;
-                foreach (var lesson in b.Lessons.Where(l => l.Status == LessonStatus.Reserved))
-                    lesson.Status = LessonStatus.Cancelled;
+                foreach (var classSession in b.ClassSessions.Where(l => l.Status == ClassSessionStatus.Reserved))
+                    classSession.Status = ClassSessionStatus.Cancelled;
+
+                // Return the promotion usage consumed at booking creation
+                await MV.ApplicationLayer.Helpers.PromotionUsageHelper.ReturnUsageAsync(db, b.Promotionid, ct);
 
                 await db.SaveChangesAsync(ct);
 
@@ -160,7 +227,7 @@ public class PaymentTimeoutJob(IServiceProvider sp, ILogger<PaymentTimeoutJob> l
     /// <summary>
     /// Handle expired remaining payment deadlines.
     /// Parent chose not to pay for remaining sessions within 48h → finalize booking early:
-    /// release escrow for completed lessons, cancel remaining lessons, mark booking Completed.
+    /// release escrow for completed classSessions, cancel remaining classSessions, mark booking Completed.
     /// </summary>
     private async Task ProcessExpiredRemainingPaymentsAsync(CancellationToken ct)
     {

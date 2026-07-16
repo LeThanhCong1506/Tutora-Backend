@@ -16,11 +16,16 @@ namespace MV.PresentationLayer.Controllers
     {
         private readonly ITutorVerificationService _verificationService;
         private readonly ITutorService _tutorService;
+        private readonly ITutorProfileUpdateStagingService _updateStaging;
 
-        public TutorOnboardingController(ITutorVerificationService verificationService, ITutorService tutorService)
+        public TutorOnboardingController(
+            ITutorVerificationService verificationService,
+            ITutorService tutorService,
+            ITutorProfileUpdateStagingService updateStaging)
         {
             _verificationService = verificationService;
             _tutorService = tutorService;
+            _updateStaging = updateStaging;
         }
 
         /// <summary>
@@ -273,6 +278,28 @@ namespace MV.PresentationLayer.Controllers
         }
 
         /// <summary>
+        /// GET /api/tutors/{id}/profile/pending-update
+        /// Trả về bản chỉnh sửa hồ sơ đang chờ Admin duyệt của chính tutor (null nếu không có).
+        /// </summary>
+        [HttpGet("{id}/profile/pending-update")]
+        public async Task<IActionResult> GetPendingProfileUpdate([FromRoute] string id)
+        {
+            var currentUserId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (currentUserId != id)
+                return StatusCode(403, APIResponse.Fail(ApiMessages.Forbidden, 403));
+
+            try
+            {
+                var result = await _updateStaging.GetPendingUpdateAsync(id);
+                return Ok(APIResponse<PendingTutorProfileUpdate?>.Success(result, "Lấy thông tin bản cập nhật đang chờ duyệt thành công."));
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(APIResponse.Fail(ex.Message, 400));
+            }
+        }
+
+        /// <summary>
         /// Get all certificates of a tutor
         /// </summary>
         [HttpGet("{id}/profile/certificates")]
@@ -354,7 +381,7 @@ namespace MV.PresentationLayer.Controllers
         // Endpoint cũ nhận URL ảnh rồi download. Flow mới upload file trực tiếp + OCR trong 1 request.
 
         /// <summary>
-        /// Get tutor pricing information (hourly rate, trial lesson price, allow negotiation)
+        /// Get tutor pricing information (hourly rate, trial classSession price, allow negotiation)
         /// </summary>
         [HttpGet("{id}/profile/pricing")]
         public async Task<IActionResult> GetPricing([FromRoute] string id)
@@ -376,7 +403,7 @@ namespace MV.PresentationLayer.Controllers
         }
 
         /// <summary>
-        /// Update tutor pricing information (hourly rate: 50,000 - 2,000,000 VND, trial lesson price, allow negotiation)
+        /// Update tutor pricing information (hourly rate: 50,000 - 2,000,000 VND, trial classSession price, allow negotiation)
         /// </summary>
         [HttpPut("{id}/profile/pricing")]
         public async Task<IActionResult> UpdatePricing([FromRoute] string id, [FromBody] UpdateTutorPricingRequest request)
@@ -496,6 +523,39 @@ namespace MV.PresentationLayer.Controllers
             {
                 return BadRequest(APIResponse.Fail(ex.Message, 400));
             }
+            catch (InvalidOperationException ex)
+            {
+                return Conflict(APIResponse.Fail(ex.Message, 409));
+            }
+        }
+
+        [HttpPut("{id}/profile/packages/{packageId:int}")]
+        public async Task<IActionResult> UpdatePackage([FromRoute] string id, [FromRoute] int packageId, [FromBody] CreateTutorPackageRequest request)
+        {
+            var currentUserId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (currentUserId != id)
+            {
+                return StatusCode(403, APIResponse.Fail("Bạn chỉ có thể sửa package của chính mình.", 403));
+            }
+
+            try
+            {
+                var result = await _tutorService.UpdateTutorPackageAsync(id, packageId, request);
+                if (result == null)
+                {
+                    return NotFound(APIResponse.Fail("Không tìm thấy package.", 404));
+                }
+
+                return Ok(APIResponse<TutorPackageResponse>.Success(result, "Cập nhật package thành công."));
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(APIResponse.Fail(ex.Message, 400));
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Conflict(APIResponse.Fail(ex.Message, 409));
+            }
         }
 
         [HttpDelete("{id}/profile/packages/{packageId:int}")]
@@ -507,13 +567,20 @@ namespace MV.PresentationLayer.Controllers
                 return StatusCode(403, APIResponse.Fail("Bạn chỉ có thể tắt package của chính mình.", 403));
             }
 
-            var result = await _tutorService.DeactivateTutorPackageAsync(id, packageId);
-            if (!result)
+            try
             {
-                return NotFound(APIResponse.Fail("Không tìm thấy package.", 404));
-            }
+                var result = await _tutorService.DeactivateTutorPackageAsync(id, packageId);
+                if (!result)
+                {
+                    return NotFound(APIResponse.Fail("Không tìm thấy package.", 404));
+                }
 
-            return Ok(APIResponse.Success("Đã tắt package thành công."));
+                return Ok(APIResponse.Success("Đã tắt package thành công."));
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Conflict(APIResponse.Fail(ex.Message, 409));
+            }
         }
 
         /// <summary>
