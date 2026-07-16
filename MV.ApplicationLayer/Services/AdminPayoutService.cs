@@ -321,7 +321,11 @@ public class AdminPayoutService(
         if (string.IsNullOrWhiteSpace(note))
             throw new InvalidOperationException("Vui lòng nhập ghi chú/mã tham chiếu giao dịch chuyển khoản.");
 
-        // Ghi đúng decision theo role người thực hiện
+        if (!string.Equals(actorRole, UserRole.Admin, StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(actorRole, UserRole.Staff, StringComparison.OrdinalIgnoreCase))
+            throw new UnauthorizedAccessException("Role người xử lý payout không hợp lệ.");
+
+        // Ghi đúng decision theo role người thực hiện; không mặc định role lạ thành Admin.
         var decision = string.Equals(actorRole, UserRole.Staff, StringComparison.OrdinalIgnoreCase)
             ? Decisions.StaffApproved
             : Decisions.AdminApproved;

@@ -2,8 +2,10 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.DTO;
+using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO.ResponseModel.Question;
 using MV.PresentationLayer.Helpers;
+using MV.PresentationLayer.Authorization;
 
 namespace MV.PresentationLayer.Controllers;
 
@@ -25,6 +27,7 @@ public class SourceDocumentController : ControllerBase
 
     /// <summary>Upload 1 PDF (≤20 trang). AI đọc, tách câu, lưu chờ duyệt.</summary>
     [HttpPost("upload")]
+    [RequirePermission(Permissions.QuestionDocumentUpload)]
     [RequestSizeLimit(30_000_000)]   // ~30MB
     public async Task<ActionResult<APIResponse<UploadPdfResponse>>> Upload(
         IFormFile file,
@@ -49,6 +52,7 @@ public class SourceDocumentController : ControllerBase
 
     /// <summary>Lịch sử trích xuất — list các lần upload PDF (mới nhất trước).</summary>
     [HttpGet("history")]
+    [RequirePermission(Permissions.QuestionDocumentView)]
     public async Task<ActionResult<APIResponse<object>>> GetHistory(
         [FromQuery] int pageNumber = 1,
         [FromQuery] int pageSize = 20,
@@ -70,6 +74,7 @@ public class SourceDocumentController : ControllerBase
 
     /// <summary>Chi tiết 1 lần upload: file + các câu đã tách.</summary>
     [HttpGet("{id:guid}")]
+    [RequirePermission(Permissions.QuestionDocumentView)]
     public async Task<ActionResult<APIResponse<SourceDocumentDetailResponse>>> GetDetail(Guid id, CancellationToken ct)
     {
         var result = await _service.GetDetailAsync(id, ct);

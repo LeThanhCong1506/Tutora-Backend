@@ -11,6 +11,7 @@ on:
       - '**/appsettings*.json'
       - 'Dockerfile'
       - 'docker-compose.yml'
+      - 'migrations/managed/**'
       - '.github/workflows/deploy.yml'
   pull_request:
     branches: [ main ]
@@ -18,6 +19,7 @@ on:
       - '**/*.cs'
       - '**/*.csproj'
       - '**/*.sln'
+      - 'migrations/managed/**'
       - 'Dockerfile'
   workflow_dispatch:
     inputs:
@@ -163,7 +165,8 @@ jobs:
               sed -i '/^APP_IMAGE=/d' .env
               echo "APP_IMAGE=$IMAGE_NAME:$IMAGE_TAG" >> .env
 
-              docker compose pull app
+              docker compose pull app migrate
+              docker compose run --rm migrate
               docker compose up -d --no-deps --force-recreate app
 
               sleep 15

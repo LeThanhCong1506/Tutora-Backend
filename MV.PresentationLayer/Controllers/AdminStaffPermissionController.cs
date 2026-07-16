@@ -1,40 +1,40 @@
-using MV.DomainLayer.Constants;
-using Microsoft.AspNetCore.Authorization;
+﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using MV.ApplicationLayer.ServiceInterfaces;
+using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO;
-using MV.DomainLayer.DTO.RequestModel;
 using MV.DomainLayer.DTO.ResponseModel;
-using MV.DomainLayer.Exceptions;
-using System.Security.Claims;
 
 namespace MV.PresentationLayer.Controllers;
 
-/// <summary>
-/// Admin only: quản lý permission cấp cho từng Staff. Chính bản thân việc cấp
-/// quyền không bao giờ được delegate — nếu Staff cấp được quyền thì có thể
-/// tự cấp cho mình mọi thứ, sập toàn bộ mô hình phân quyền.
-/// </summary>
+/// <summary>Compatibility reads for the former direct Staff-permission API.</summary>
 [ApiController]
 [Route("api/admin/staff-permissions")]
 [Authorize(Roles = UserRole.Admin)]
 public class AdminStaffPermissionController : ControllerBase
 {
-    private readonly IUserService _userService;
+    private readonly IPermissionGroupService _service;
 
-    public AdminStaffPermissionController(IUserService userService)
+    public AdminStaffPermissionController(IPermissionGroupService service)
     {
-        _userService = userService;
+        _service = service;
     }
 
     [HttpGet("catalog")]
     public IActionResult GetCatalog()
     {
-        var catalog = Permissions.Catalog
-            .Select(p => new PermissionCatalogItemResponse { Key = p.Key, Label = p.Label, Group = p.Group })
-            .ToList();
-
-        return Ok(APIResponse<List<PermissionCatalogItemResponse>>.Success(catalog, "Lấy danh mục quyền thành công."));
+        var catalog = Permissions.Catalog.Select(p => new PermissionCatalogItemResponse
+        {
+            Key = p.Key,
+            Label = p.Label,
+            Domain = p.Domain,
+            Module = p.Module,
+            Action = p.Action,
+            Description = p.Label,
+            Requires = p.Requires
+        }).ToList();
+        return Ok(APIResponse<List<PermissionCatalogItemResponse>>.Success(
+            catalog, "Lấy danh mục quyền thành công."));
     }
 
     [HttpGet("{staffId}")]
@@ -42,41 +42,23 @@ public class AdminStaffPermissionController : ControllerBase
     {
         try
         {
-            var result = await _userService.AdminGetStaffPermissionsAsync(staffId);
-            return Ok(APIResponse<StaffPermissionsResponse>.Success(result, "Lấy danh sách quyền của Staff thành công."));
+            var assignment = await _service.GetStaffAssignmentAsync(staffId);
+            var result = new StaffPermissionsResponse
+            {
+                StaffId = assignment.StaffId,
+                StaffFullName = assignment.StaffFullName,
+                PermissionKeys = assignment.PermissionKeys
+            };
+            return Ok(APIResponse<StaffPermissionsResponse>.Success(
+                result, "Lấy quyền hiệu lực của Staff thành công."));
         }
-        catch (UserNotFoundException ex)
+        catch (KeyNotFoundException ex)
         {
-            return NotFound(APIResponse<object>.Fail(ex.Message, 404));
-        }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(APIResponse<object>.Fail(ex.Message, 400));
-        }
-    }
-
-    [HttpPut("{staffId}")]
-    public async Task<IActionResult> SetStaffPermissions(string staffId, [FromBody] SetStaffPermissionsRequest request)
-    {
-        if (!ModelState.IsValid)
-            return BadRequest(APIResponse<object>.Fail(ApiMessages.InvalidInputData, 400));
-
-        var adminId = User.FindFirstValue(ClaimTypes.NameIdentifier);
-        if (string.IsNullOrEmpty(adminId))
-            return Unauthorized(APIResponse<object>.Fail(ApiMessages.Unauthorized, 401));
-
-        try
-        {
-            var result = await _userService.AdminSetStaffPermissionsAsync(staffId, request.PermissionKeys, adminId);
-            return Ok(APIResponse<StaffPermissionsResponse>.Success(result, "Cập nhật quyền cho Staff thành công."));
-        }
-        catch (UserNotFoundException ex)
-        {
-            return NotFound(APIResponse<object>.Fail(ex.Message, 404));
+            return NotFound(APIResponse.Fail(ex.Message, 404));
         }
         catch (InvalidOperationException ex)
         {
-            return BadRequest(APIResponse<object>.Fail(ex.Message, 400));
+            return BadRequest(APIResponse.Fail(ex.Message, 400));
         }
     }
 }

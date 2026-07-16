@@ -208,7 +208,7 @@ namespace MV.PresentationLayer.Controllers
         /// GET /api/admin/tutor-profile-update-requests
         /// Danh sách bản chỉnh sửa hồ sơ (của tutor đã Active) đang chờ Admin duyệt.
         /// </summary>
-        [Authorize(Roles = UserRole.AdminOrStaff)]
+        [RequirePermission(Permissions.TutorProfileUpdateView)]
         [HttpGet("tutor-profile-update-requests")]
         public async Task<IActionResult> GetPendingProfileUpdateRequests()
         {
@@ -234,7 +234,7 @@ namespace MV.PresentationLayer.Controllers
         /// Duyệt/Từ chối để so với nội dung Admin đang xem trên màn hình — vì màn hình danh sách
         /// không tự cập nhật real-time khi Tutor nộp thêm thay đổi.
         /// </summary>
-        [Authorize(Roles = UserRole.AdminOrStaff)]
+        [RequirePermission(Permissions.TutorProfileUpdateView)]
         [HttpGet("tutor-profile-update-requests/{tutorId}")]
         public async Task<IActionResult> GetProfileUpdateRequestDetail(string tutorId)
         {
@@ -262,7 +262,7 @@ namespace MV.PresentationLayer.Controllers
         /// PUT /api/admin/tutor-profile-update-requests/{tutorId}/review
         /// Admin duyệt hoặc từ chối bản chỉnh sửa hồ sơ đang chờ của 1 tutor.
         /// </summary>
-        [Authorize(Roles = UserRole.AdminOrStaff)]
+        [RequirePermission(Permissions.TutorProfileUpdateDecide)]
         [HttpPut("tutor-profile-update-requests/{tutorId}/review")]
         public async Task<IActionResult> ReviewProfileUpdateRequest(
             string tutorId,
