@@ -18,7 +18,8 @@ namespace MV.DomainLayer.DTO.ResponseModel
         public string? TeachingAreaDistrict { get; set; }
         public double AverageRating { get; set; }
         public int TotalReviews { get; set; }
-        public int CompletedHours { get; set; }
+        public int TotalCompletedLessons { get; set; }
+        public int TotalStudentsTaught { get; set; }
         public decimal? PricePerHour { get; set; }      
         public List<string> Subjects { get; set; } = new();
         public float? AiSimilarity { get; set; }        
