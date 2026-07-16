@@ -59,7 +59,7 @@ INSERT INTO sitefaqs (question, answer, category, displayorder) VALUES
 ),
 (
     'Phương thức thanh toán nào được hỗ trợ?',
-    'Tutora hỗ trợ thanh toán qua ZaloPay và chuyển khoản ngân hàng (PayOS). Tiền học phí được giữ an toàn và chỉ giải ngân sau khi buổi học hoàn thành.',
+    'Tutora hỗ trợ thanh toán qua chuyển khoản ngân hàng (PayOS) và ví Tutora. Tiền học phí được giữ an toàn và chỉ giải ngân sau khi buổi học hoàn thành.',
     'payment', 1
 ),
 (

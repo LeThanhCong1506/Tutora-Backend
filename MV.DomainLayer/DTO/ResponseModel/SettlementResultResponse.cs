@@ -1,11 +1,11 @@
 namespace MV.DomainLayer.DTO.ResponseModel;
 
 /// <summary>
-/// Settlement result after lesson confirmation
+/// Settlement result after classSession confirmation
 /// </summary>
 public class SettlementResultResponse
 {
-    public int LessonId { get; set; }
+    public int ClassSessionId { get; set; }
     public int? BookingId { get; set; }
 
     public bool Success { get; set; }
@@ -47,7 +47,7 @@ public class SettlementResultResponse
 /// </summary>
 public class NoShowActionResultResponse
 {
-    public int LessonId { get; set; }
+    public int ClassSessionId { get; set; }
     public string ActionType { get; set; } = null!;
     public bool Success { get; set; }
     public string? Message { get; set; }
@@ -58,9 +58,9 @@ public class NoShowActionResultResponse
     public decimal? AmountRefunded { get; set; }
 
     /// <summary>
-    /// New makeup lesson ID (for makeup action)
+    /// New makeup classSession ID (for makeup action)
     /// </summary>
-    public int? MakeupLessonId { get; set; }
+    public int? MakeupClassSessionId { get; set; }
 
     /// <summary>
     /// Was tutor warning created

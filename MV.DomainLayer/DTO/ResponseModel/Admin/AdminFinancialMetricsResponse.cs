@@ -7,7 +7,7 @@ public class AdminFinancialMetricsResponse
 {
     public RevenueOverviewMetrics Revenue { get; set; } = new();
     public BookingMetrics Bookings { get; set; } = new();
-    public LessonMetrics Lessons { get; set; } = new();
+    public ClassSessionMetrics ClassSessions { get; set; } = new();
     public UserGrowthMetrics Users { get; set; } = new();
     public WithdrawalMetrics Withdrawals { get; set; } = new();
     public EscrowMetrics Escrow { get; set; } = new();
@@ -66,9 +66,9 @@ public class BookingTeachingModeCount
     public int Count { get; set; }
 }
 
-// ─── Lessons ─────────────────────────────────────────────────────────────────
+// ─── ClassSessions ─────────────────────────────────────────────────────────────────
 
-public class LessonMetrics
+public class ClassSessionMetrics
 {
     public int TotalCompleted { get; set; }
     public int TotalScheduled { get; set; }
@@ -79,8 +79,8 @@ public class LessonMetrics
     public decimal? CompletionRatePercent { get; set; }
     /// <summary>No-show rate %</summary>
     public decimal? NoShowRatePercent { get; set; }
-    /// <summary>Total lesson revenue (sum of Lesson.Lessonprice for settled lessons)</summary>
-    public decimal TotalLessonRevenue { get; set; }
+    /// <summary>Total classSession revenue (sum of ClassSession.Lessonprice for settled classSessions)</summary>
+    public decimal TotalClassSessionRevenue { get; set; }
 }
 
 // ─── Users ───────────────────────────────────────────────────────────────────
@@ -140,7 +140,7 @@ public class RevenueTrendItem
     public decimal PlatformRevenue { get; set; }
     public decimal GrossVolume { get; set; }
     public int BookingCount { get; set; }
-    public int LessonsCompleted { get; set; }
+    public int ClassSessionsCompleted { get; set; }
 }
 
 // ─── Top Subjects ─────────────────────────────────────────────────────────────

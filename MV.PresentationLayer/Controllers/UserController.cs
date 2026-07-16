@@ -54,24 +54,8 @@ namespace MV.PresentationLayer.Controllers
             return Ok(APIResponse<UserResponse>.Success(response, "Lấy thông tin người dùng thành công."));
         }
 
-        [HttpGet("staffs")]
-        [Authorize(Roles = UserRole.Admin)]
-        public async Task<IActionResult> GetStaffs([FromQuery] UserParameters parameters)
-        {
-            var result = await _userService.GetUsersByRoleAsync(UserRole.Staff, parameters);
-            return Ok(APIResponse<PagedList<UserResponse>>.Success(result, "Lấy danh sách nhân viên thành công."));
-        }
-
-        [HttpPost]
-        [Authorize(Roles = UserRole.Admin)]
-        public async Task<IActionResult> CreateUser([FromBody] CreateUserRequest request)
-        {
-            var createdUser = await _userService.CreateUserAsync(request);
-
-            var response = APIResponse<UserResponse>.Success(createdUser, "Tạo tài khoản thành công.", 201);
-
-            return StatusCode(201, response);
-        }
+        // Các endpoint nhân viên (GET/POST /api/staffs) đã tách sang StaffController
+        // — POST /api/users tạo user đa-role trước đây cũng đã bỏ theo.
 
         [HttpPut("{id}")]
         [Authorize]

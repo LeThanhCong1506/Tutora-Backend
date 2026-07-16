@@ -18,8 +18,11 @@ public static class StorageBucket
     /// <summary>Bucket for tutor introduction videos.</summary>
     public const string VideoIntroduction  = "video-introduction";
 
-    /// <summary>Bucket for lesson attachment files.</summary>
-    public const string LessonAttachments  = "lesson-attachments";
+    /// <summary>Bucket for class session attachment files. Value is the actual Supabase bucket name — unaffected by the lessons→class_sessions DB rename.</summary>
+    public const string ClassSessionAttachments  = "lesson-attachments";
+
+    /// <summary>Bucket for tutor-uploaded learning materials shared with a booking's student.</summary>
+    public const string LearningMaterials  = "learning-materials";
 
     /// <summary>Bucket for tutor CCCD (citizen ID card) front and back images.</summary>
     public const string CccdFiles          = "cccd-documents";

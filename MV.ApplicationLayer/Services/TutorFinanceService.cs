@@ -1,7 +1,5 @@
-﻿using Hangfire;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
-using MV.ApplicationLayer.JobHandlers;
 using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO.RequestModel;
@@ -10,14 +8,12 @@ using MV.DomainLayer.Entities;
 using MV.DomainLayer.Exceptions;
 using MV.DomainLayer.Helpers;
 using MV.ApplicationLayer.Interfaces;
-using static MV.DomainLayer.Constants.LessonStatus;
+using static MV.DomainLayer.Constants.ClassSessionStatus;
 
 namespace MV.ApplicationLayer.Services;
 
 public class TutorFinanceService(
     IAppDbContext context,
-    IFraudDetectionService fraudDetectionService,
-    ITrustScoringService trustScoringService,
     INotificationService notificationService,
     ILogger<TutorFinanceService> logger) : ITutorFinanceService
 {
@@ -37,7 +33,7 @@ public class TutorFinanceService(
             .Where(t => t.Wallet!.Userid == tutorId && t.Transactiontype == TransactionType.EscrowRelease)
             .SumAsync(t => t.Amount ?? 0, ct);
 
-        var pendingSettlement = await context.Lessons
+        var pendingSettlement = await context.ClassSessions
             .AsNoTracking()
             .Where(l => l.Tutorid == tutorId && l.Issettled == false && l.Status == Completed)
             .SumAsync(l => l.Lessonprice ?? 0, ct);
@@ -49,10 +45,15 @@ public class TutorFinanceService(
             .Select(w => w.Requestedat)
             .FirstOrDefaultAsync(ct);
 
+        var balance = wallet.Balance ?? 0;
+        var frozenBalance = wallet.Frozenbalance ?? 0;
+
         return new FinanceSummaryResponse
         {
-            Balance = wallet.Balance ?? 0,
-            FrozenBalance = wallet.Frozenbalance ?? 0,
+            Balance = balance,
+            AvailableBalance = balance,
+            FrozenBalance = frozenBalance,
+            TotalBalance = balance + frozenBalance,
             TotalEarned = totalEarned,
             PendingSettlement = pendingSettlement,
             LastWithdrawalAt = lastWithdrawal
@@ -184,36 +185,49 @@ public class TutorFinanceService(
 
     public async Task<TutorBankInfoResponse> GetBankInfoAsync(string tutorId, CancellationToken ct = default)
     {
-        var tutor = await context.Tutorprofiles
+        var tutorExists = await context.Tutorprofiles
             .AsNoTracking()
-            .Where(t => t.Tutorid == tutorId)
-            .FirstOrDefaultAsync(ct);
+            .AnyAsync(t => t.Tutorid == tutorId, ct);
 
-        if (tutor == null)
+        if (!tutorExists)
             throw new TutorProfileNotFoundException();
+
+        var bankAccount = await context.BankAccounts
+            .AsNoTracking()
+            .FirstOrDefaultAsync(b => b.Userid == tutorId, ct);
 
         return new TutorBankInfoResponse
         {
-            BankName = tutor.Bankname,
-            AccountNumber = tutor.Bankaccountnumber,
-            AccountHolderName = tutor.Bankaccountname,
-            IsVerified = tutor.Isbankverified ?? false,
-            BankChangedAt = tutor.Bankchangedat
+            BankName = bankAccount?.Bankname,
+            AccountNumber = bankAccount?.Accountnumber,
+            AccountHolderName = bankAccount?.Accountholdername,
+            BankChangedAt = bankAccount?.Updatedat
         };
     }
-
     public async Task<TutorBankInfoResponse> UpdateBankInfoAsync(string tutorId, UpdateTutorBankInfoRequest request, CancellationToken ct = default)
     {
         var tutor = await context.Tutorprofiles.FirstOrDefaultAsync(t => t.Tutorid == tutorId, ct);
         if (tutor == null)
             throw new TutorProfileNotFoundException();
 
-        tutor.Bankname = request.BankName;
-        tutor.Bankaccountnumber = request.AccountNumber;
-        tutor.Bankaccountname = request.AccountHolderName;
-        tutor.Isbankverified = false;
-        tutor.Bankchangedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
-        tutor.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
+        var now = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
+        var bankAccount = await context.BankAccounts.FirstOrDefaultAsync(b => b.Userid == tutorId, ct);
+
+        if (bankAccount == null)
+        {
+            bankAccount = new BankAccount
+            {
+                Userid = tutorId,
+                Createdat = now
+            };
+            context.BankAccounts.Add(bankAccount);
+        }
+
+        bankAccount.Bankname = request.BankName;
+        bankAccount.Accountnumber = request.AccountNumber;
+        bankAccount.Accountholdername = request.AccountHolderName;
+        bankAccount.Updatedat = now;
+        tutor.Updatedat = now;
 
         await context.SaveChangesAsync(ct);
 
@@ -221,51 +235,16 @@ public class TutorFinanceService(
 
         return new TutorBankInfoResponse
         {
-            BankName = tutor.Bankname,
-            AccountNumber = tutor.Bankaccountnumber,
-            AccountHolderName = tutor.Bankaccountname,
-            IsVerified = tutor.Isbankverified ?? false,
-            BankChangedAt = tutor.Bankchangedat
+            BankName = bankAccount.Bankname,
+            AccountNumber = bankAccount.Accountnumber,
+            AccountHolderName = bankAccount.Accountholdername,
+            BankChangedAt = bankAccount.Updatedat
         };
     }
-
     public async Task<WithdrawalDetailResponse> CreateWithdrawalAsync(string tutorId, CreateWithdrawalRequest request, CancellationToken ct = default)
     {
-        var fraudCheck = await fraudDetectionService.RunAllRulesAsync(tutorId, request.Amount, ct);
-
-        if (!fraudCheck.AllPassed)
-        {
-            await fraudDetectionService.LogFraudCheckAsync(tutorId, null, fraudCheck, ct);
-
-            throw new FraudCheckFailedException(
-                fraudCheck.BlockingMessage!,
-                FraudRuleConstants.ErrorCodes.FraudCheckFailed,
-                fraudCheck.BlockingRules);
-        }
-
-        if (fraudCheck.FlaggedRules.Any())
-        {
-            logger.LogWarning("Withdrawal flagged for tutor {TutorId}: {Flags}",
-                tutorId, string.Join(", ", fraudCheck.FlaggedRules));
-        }
-
-        var trustScore = await trustScoringService.CalculateTrustScoreAsync(tutorId, request.Amount, fraudCheck, ct);
-
-        var approvalDecision = trustScoringService.GetApprovalDecision(trustScore.TotalScore, fraudCheck);
-
-        logger.LogInformation(
-            "Trust score for tutor {TutorId}: {Score}, Decision: {Decision}",
-            tutorId, trustScore.TotalScore, approvalDecision.Decision);
-
-        if (approvalDecision.Decision == TrustScoringConstants.Decisions.AutoReject)
-        {
-            throw new BookingException(
-                TrustScoringConstants.ErrorCodes.LowTrustScore,
-                approvalDecision.Message,
-                400);
-        }
-
         await using var transaction = await context.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, ct);
+        var committed = false;
 
         try
         {
@@ -281,41 +260,44 @@ public class TutorFinanceService(
 
             var pendingWithdrawal = await context.Withdrawalrequests
                 .AnyAsync(w => w.Userid == tutorId
-                               && (w.Status == WithdrawalStatus.Pending || w.Status == WithdrawalStatus.Delayed), ct);
+                               && (w.Status == WithdrawalStatus.Pending
+                                   || w.Status == WithdrawalStatus.Delayed
+                                   || w.Status == WithdrawalStatus.PendingReview
+                                   || w.Status == WithdrawalStatus.Approved), ct);
 
             if (pendingWithdrawal)
                 throw new PendingWithdrawalException();
 
-            var tutor = await context.Tutorprofiles
+            var tutorExists = await context.Tutorprofiles
                 .AsNoTracking()
-                .FirstOrDefaultAsync(t => t.Tutorid == tutorId, ct);
+                .AnyAsync(t => t.Tutorid == tutorId, ct);
+            var bankAccount = await context.BankAccounts
+                .AsNoTracking()
+                .FirstOrDefaultAsync(b => b.Userid == tutorId, ct);
 
-            if (tutor == null || string.IsNullOrEmpty(tutor.Bankaccountnumber))
+            if (!tutorExists
+                || bankAccount == null
+                || string.IsNullOrEmpty(bankAccount.Bankname)
+                || string.IsNullOrEmpty(bankAccount.Accountnumber)
+                || string.IsNullOrEmpty(bankAccount.Accountholdername))
                 throw new BankInfoRequiredException();
 
-            if (tutor.Isbankverified != true)
-                throw new BankNotVerifiedException();
+            if (request.Amount < MinWithdrawalAmount)
+                throw new WithdrawalAmountTooLowException(MinWithdrawalAmount);
 
             wallet.Balance -= request.Amount;
             wallet.Lastupdated = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 
-            var withdrawalStatus = approvalDecision.Decision switch
-            {
-                TrustScoringConstants.Decisions.AutoApprove => WithdrawalStatus.Pending,
-                TrustScoringConstants.Decisions.Delayed => WithdrawalStatus.Delayed,
-                TrustScoringConstants.Decisions.ManualReview => WithdrawalStatus.Pending,
-                _ => WithdrawalStatus.Pending
-            };
-
             var withdrawal = new Withdrawalrequest
             {
                 Userid = tutorId,
+                Walletid = wallet.Walletid,
                 Amount = request.Amount,
-                Bankname = tutor.Bankname,
-                Accountnumber = tutor.Bankaccountnumber,
-                Accountholdername = tutor.Bankaccountname,
-                Status = withdrawalStatus,
-                Decision = approvalDecision.Decision,
+                Bankname = bankAccount.Bankname,
+                Accountnumber = bankAccount.Accountnumber,
+                Accountholdername = bankAccount.Accountholdername,
+                Status = WithdrawalStatus.PendingReview,
+                Decision = TrustScoringConstants.Decisions.ManualReview,
                 Requestedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
             };
 
@@ -334,35 +316,10 @@ public class TutorFinanceService(
 
             await context.SaveChangesAsync(ct);
 
-            await trustScoringService.SaveScoreAsync(withdrawal.Withdrawalid, tutorId, trustScore, approvalDecision, ct);
-
-            if (approvalDecision.Decision == TrustScoringConstants.Decisions.AutoApprove)
-            {
-                BackgroundJob.Enqueue<PayoutJobHandler>(handler =>
-                    handler.ProcessImmediatePayoutAsync(withdrawal.Withdrawalid, CancellationToken.None));
-
-                logger.LogInformation("Enqueued immediate payout job for withdrawal {WithdrawalId}", withdrawal.Withdrawalid);
-            }
-            else if (approvalDecision.Decision == TrustScoringConstants.Decisions.Delayed)
-            {
-                BackgroundJob.Schedule<PayoutJobHandler>(
-                    handler => handler.ProcessDelayedPayoutAsync(withdrawal.Withdrawalid, CancellationToken.None),
-                    TimeSpan.FromHours(2));
-
-                logger.LogInformation("Scheduled delayed payout job for withdrawal {WithdrawalId} (2h delay)", withdrawal.Withdrawalid);
-            }
-
             await transaction.CommitAsync(ct);
+            committed = true;
 
-            await fraudDetectionService.LogFraudCheckAsync(tutorId, withdrawal.Withdrawalid, fraudCheck, ct);
-
-            var notificationMessage = approvalDecision.Decision switch
-            {
-                TrustScoringConstants.Decisions.AutoApprove => "Đang xử lý, dự kiến 5-30 phút",
-                TrustScoringConstants.Decisions.Delayed => "Đang xử lý, dự kiến 2-4 giờ",
-                TrustScoringConstants.Decisions.ManualReview => "Cần admin review, dự kiến 1-24 giờ",
-                _ => "Yêu cầu rút tiền đang được xử lý"
-            };
+            const string notificationMessage = "Yêu cầu rút tiền của bạn đã được ghi nhận và đang chờ admin/staff xét duyệt, dự kiến trong vòng 24 giờ.";
 
             try
             {
@@ -378,8 +335,8 @@ public class TutorFinanceService(
                 logger.LogWarning(ex, "Failed to send notification for withdrawal {WithdrawalId}", withdrawal.Withdrawalid);
             }
 
-            logger.LogInformation("Created withdrawal {WithdrawalId} for tutor {TutorId}, amount: {Amount}, decision: {Decision}",
-                withdrawal.Withdrawalid, tutorId, request.Amount, approvalDecision.Decision);
+            logger.LogInformation("Created withdrawal {WithdrawalId} for tutor {TutorId}, amount: {Amount}",
+                withdrawal.Withdrawalid, tutorId, request.Amount);
 
             return new WithdrawalDetailResponse
             {
@@ -395,7 +352,9 @@ public class TutorFinanceService(
         }
         catch
         {
-            await transaction.RollbackAsync(ct);
+            // Only roll back if we have NOT committed yet; rolling back a committed tx throws.
+            if (!committed)
+                await transaction.RollbackAsync(ct);
             throw;
         }
     }
@@ -459,53 +418,16 @@ public class TutorFinanceService(
 
     public async Task CancelWithdrawalAsync(string tutorId, int withdrawalId, CancellationToken ct = default)
     {
-        await using var transaction = await context.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, ct);
+        var withdrawal = await context.Withdrawalrequests
+            .AsNoTracking()
+            .FirstOrDefaultAsync(w => w.Withdrawalid == withdrawalId && w.Userid == tutorId, ct);
 
-        try
-        {
-            var withdrawal = await context.Withdrawalrequests
-                .FirstOrDefaultAsync(w => w.Withdrawalid == withdrawalId && w.Userid == tutorId, ct);
+        if (withdrawal == null)
+            throw new WithdrawalNotFoundException();
 
-            if (withdrawal == null)
-                throw new WithdrawalNotFoundException();
-
-            if (withdrawal.Status != WithdrawalStatus.Pending && withdrawal.Status != WithdrawalStatus.Delayed)
-                throw new WithdrawalCancellationException();
-
-            var wallet = await context.Wallets
-            .FromSqlRaw(SqlQueries.LockWalletByUserId, tutorId)
-                .FirstOrDefaultAsync(ct);
-
-            if (wallet == null)
-                throw new WalletNotFoundException();
-
-            wallet.Balance += withdrawal.Amount ?? 0;
-            wallet.Lastupdated = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
-
-            withdrawal.Status = WithdrawalStatus.Cancelled;
-            withdrawal.Processedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
-
-            var refundTransaction = new Wallettransaction
-            {
-                Walletid = wallet.Walletid,
-                Amount = withdrawal.Amount ?? 0,
-                Transactiontype = TransactionType.Refund,
-                Description = $"Cancelled withdrawal #{withdrawalId}",
-                Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
-            };
-
-            context.Wallettransactions.Add(refundTransaction);
-
-            await context.SaveChangesAsync(ct);
-            await transaction.CommitAsync(ct);
-
-            logger.LogInformation("Cancelled withdrawal {WithdrawalId} for tutor {TutorId}", withdrawalId, tutorId);
-        }
-        catch
-        {
-            await transaction.RollbackAsync(ct);
-            throw;
-        }
+        // Manual bank transfer has no system-side "in progress" lock. Staff must reject the
+        // request after verifying no transfer was sent; tutor self-cancel would risk double payout.
+        throw new WithdrawalCancellationException();
     }
 
     private static int GetWeekOfYear(DateTime date)

@@ -17,4 +17,5 @@ public partial class Tutorpackagefixedslot
     public DateTime? Createdat { get; set; }
 
     public virtual Tutorpackage Package { get; set; } = null!;
+    public virtual Dayofweek DayofweekNavigation { get; set; } = null!;
 }

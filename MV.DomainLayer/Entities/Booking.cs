@@ -137,7 +137,7 @@ public partial class Booking
 
     public virtual ICollection<Learningmaterial> Learningmaterials { get; set; } = new List<Learningmaterial>();
 
-    public virtual ICollection<Lesson> Lessons { get; set; } = new List<Lesson>();
+    public virtual ICollection<ClassSession> ClassSessions { get; set; } = new List<ClassSession>();
 
     public virtual User? Parent { get; set; }
 

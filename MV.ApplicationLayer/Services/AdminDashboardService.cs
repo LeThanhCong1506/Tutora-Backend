@@ -67,7 +67,7 @@ public class AdminDashboardService(
             .Select(b => new { b.Status, b.Finalprice, b.Platformfee, b.Createdat })
             .ToListAsync(ct);
 
-        var lessons = await context.Lessons
+        var classSessions = await context.ClassSessions
             .AsNoTracking()
             .Select(l => new { l.Status, l.Scheduledstart })
             .ToListAsync(ct);
@@ -113,13 +113,13 @@ public class AdminDashboardService(
             .Where(b => b.Createdat >= monthStartUtc && b.Createdat < monthStartUtc.AddMonths(1))
             .Sum(b => b.Platformfee ?? 0);
 
-        // Lesson summary
-        var lessonsToday = lessons.Count(l =>
+        // ClassSession summary
+        var classSessionsToday = classSessions.Count(l =>
             l.Scheduledstart >= todayStartUtc && l.Scheduledstart < todayEndUtc);
 
-        var completedCount = lessons.Count(l => l.Status == LessonStatus.Completed);
-        var cancelledCount = lessons.Count(l => l.Status is LessonStatus.Cancelled or LessonStatus.CancelledNoshow);
-        var noShowCount = lessons.Count(l => l.Status == LessonStatus.NoShow);
+        var completedCount = classSessions.Count(l => l.Status == ClassSessionStatus.Completed);
+        var cancelledCount = classSessions.Count(l => l.Status is ClassSessionStatus.Cancelled or ClassSessionStatus.CancelledNoshow);
+        var noShowCount = classSessions.Count(l => l.Status == ClassSessionStatus.NoShow);
         var denom = completedCount + cancelledCount + noShowCount;
         decimal? completionRate = denom == 0 ? null : Math.Round((decimal)completedCount / denom * 100, 1);
         decimal? noShowRate = denom == 0 ? null : Math.Round((decimal)noShowCount / denom * 100, 1);
@@ -147,9 +147,9 @@ public class AdminDashboardService(
                 GmvThisMonth = gmvThisMonth,
                 PlatformRevenueThisMonth = revenueThisMonth
             },
-            LessonSummary = new DashboardLessonSummary
+            ClassSessionSummary = new DashboardClassSessionSummary
             {
-                LessonsToday = lessonsToday,
+                ClassSessionsToday = classSessionsToday,
                 CompletionRatePercent = completionRate,
                 NoShowRatePercent = noShowRate
             },
@@ -289,7 +289,7 @@ public class AdminDashboardService(
             })
             .ToListAsync(ct);
 
-        var lessons = await context.Lessons
+        var classSessions = await context.ClassSessions
             .AsNoTracking()
             .Where(l => l.Scheduledstart >= fromUtc && l.Scheduledstart <= toUtc)
             .Select(l => new
@@ -307,20 +307,20 @@ public class AdminDashboardService(
             .Select(f => new { f.Touserid, f.Rating, f.Feedbacktype, f.Createdat })
             .ToListAsync(ct);
 
-        // Group lessons by tutor
-        var lessonsByTutor = lessons.GroupBy(l => l.Tutorid ?? "").ToDictionary(g => g.Key, g => g.ToList());
+        // Group classSessions by tutor
+        var classSessionsByTutor = classSessions.GroupBy(l => l.Tutorid ?? "").ToDictionary(g => g.Key, g => g.ToList());
 
         // Build per-tutor stats
         var tutorItems = tutorProfiles.Select(t =>
         {
-            var tLessons = lessonsByTutor.GetValueOrDefault(t.Tutorid ?? "", []);
-            var completed = tLessons.Count(l => l.Status == LessonStatus.Completed);
-            var cancelled = tLessons.Count(l => l.Status is LessonStatus.Cancelled or LessonStatus.CancelledNoshow);
-            var noShows = tLessons.Count(l => l.Status == LessonStatus.NoShow);
+            var tClassSessions = classSessionsByTutor.GetValueOrDefault(t.Tutorid ?? "", []);
+            var completed = tClassSessions.Count(l => l.Status == ClassSessionStatus.Completed);
+            var cancelled = tClassSessions.Count(l => l.Status is ClassSessionStatus.Cancelled or ClassSessionStatus.CancelledNoshow);
+            var noShows = tClassSessions.Count(l => l.Status == ClassSessionStatus.NoShow);
             var denom = completed + cancelled + noShows;
             decimal? rate = denom == 0 ? null : Math.Round((decimal)completed / denom * 100, 1);
-            var revenue = tLessons
-                .Where(l => l.Status == LessonStatus.Completed && l.Issettled == true)
+            var revenue = tClassSessions
+                .Where(l => l.Status == ClassSessionStatus.Completed && l.Issettled == true)
                 .Sum(l => l.Lessonprice ?? 0);
 
             return new TutorPerformanceItem
@@ -330,8 +330,8 @@ public class AdminDashboardService(
                 AvatarUrl = t.UserAvatar,
                 AverageRating = t.Averagerating.HasValue ? Math.Round((decimal)t.Averagerating.Value, 2) : null,
                 TotalFeedbacks = feedbacks.Count(f => f.Touserid == t.Tutorid),
-                LessonsCompleted = completed,
-                LessonsCancelled = cancelled,
+                ClassSessionsCompleted = completed,
+                ClassSessionsCancelled = cancelled,
                 NoShows = noShows,
                 CompletionRatePercent = rate,
                 TotalRevenue = revenue,
@@ -346,8 +346,8 @@ public class AdminDashboardService(
             .OrderByDescending(t => t.AverageRating)
             .Take(topN).ToList();
 
-        var topByLessons = tutorItems
-            .OrderByDescending(t => t.LessonsCompleted)
+        var topByClassSessions = tutorItems
+            .OrderByDescending(t => t.ClassSessionsCompleted)
             .Take(topN).ToList();
 
         var topByRevenue = tutorItems
@@ -386,7 +386,7 @@ public class AdminDashboardService(
             PlatformAverageRating = platformAvgRating,
             PlatformAvgCompletionRate = platformAvgCompletion,
             TopByRating = topByRating,
-            TopByLessonsCompleted = topByLessons,
+            TopByClassSessionsCompleted = topByClassSessions,
             TopByRevenue = topByRevenue,
             FeedbackSummary = new TutorFeedbackSummary
             {
@@ -664,7 +664,7 @@ public class AdminDashboardService(
             .Select(b => new { b.Createdat, b.Finalprice, b.Platformfee })
             .ToListAsync(ct);
 
-        var lessons = await context.Lessons
+        var classSessions = await context.ClassSessions
             .AsNoTracking()
             .Where(l => l.Createdat >= fromUtc && l.Createdat <= toUtc)
             .Select(l => new { l.Createdat, l.Status })
@@ -686,33 +686,33 @@ public class AdminDashboardService(
                 .Sum(b => b.Platformfee ?? 0)
         }).ToList();
 
-        var lessonTrend = bucketLabels.Select(bl => new LessonTrendPoint
+        var classSessionTrend = bucketLabels.Select(bl => new ClassSessionTrendPoint
         {
             Label     = bl.Label,
-            Completed = lessons.Count(l => l.Createdat.HasValue
+            Completed = classSessions.Count(l => l.Createdat.HasValue
                 && BucketOf(l.Createdat.Value.Add(tzOffset), bucket) == bl.Key
-                && l.Status == LessonStatus.Completed),
-            Cancelled = lessons.Count(l => l.Createdat.HasValue
+                && l.Status == ClassSessionStatus.Completed),
+            Cancelled = classSessions.Count(l => l.Createdat.HasValue
                 && BucketOf(l.Createdat.Value.Add(tzOffset), bucket) == bl.Key
-                && l.Status == LessonStatus.Cancelled),
-            NoShow    = lessons.Count(l => l.Createdat.HasValue
+                && l.Status == ClassSessionStatus.Cancelled),
+            NoShow    = classSessions.Count(l => l.Createdat.HasValue
                 && BucketOf(l.Createdat.Value.Add(tzOffset), bucket) == bl.Key
-                && (l.Status == LessonStatus.NoShow || l.Status == LessonStatus.CancelledNoshow))
+                && (l.Status == ClassSessionStatus.NoShow || l.Status == ClassSessionStatus.CancelledNoshow))
         }).ToList();
 
         // ── Overall rates ─────────────────────────────────────────────────
-        var totalCompleted  = lessonTrend.Sum(x => x.Completed);
-        var totalCancelled  = lessonTrend.Sum(x => x.Cancelled);
-        var totalNoShow     = lessonTrend.Sum(x => x.NoShow);
-        var totalLessons    = totalCompleted + totalCancelled + totalNoShow;
+        var totalCompleted  = classSessionTrend.Sum(x => x.Completed);
+        var totalCancelled  = classSessionTrend.Sum(x => x.Cancelled);
+        var totalNoShow     = classSessionTrend.Sum(x => x.NoShow);
+        var totalClassSessions    = totalCompleted + totalCancelled + totalNoShow;
 
-        var rates = totalLessons == 0
-            ? new LessonRates()
-            : new LessonRates
+        var rates = totalClassSessions == 0
+            ? new ClassSessionRates()
+            : new ClassSessionRates
             {
-                CompletionRate   = Math.Round((double)totalCompleted / totalLessons * 100, 1),
-                CancellationRate = Math.Round((double)totalCancelled  / totalLessons * 100, 1),
-                NoShowRate       = Math.Round((double)totalNoShow     / totalLessons * 100, 1)
+                CompletionRate   = Math.Round((double)totalCompleted / totalClassSessions * 100, 1),
+                CancellationRate = Math.Round((double)totalCancelled  / totalClassSessions * 100, 1),
+                NoShowRate       = Math.Round((double)totalNoShow     / totalClassSessions * 100, 1)
             };
 
         return new DashboardTrendResponse
@@ -721,8 +721,8 @@ public class AdminDashboardService(
             To             = toLocal.ToString("yyyy-MM-dd"),
             Bucket         = bucket,
             FinancialTrend = financialTrend,
-            LessonTrend    = lessonTrend,
-            LessonRates    = rates
+            ClassSessionTrend    = classSessionTrend,
+            ClassSessionRates    = rates
         };
     }
 

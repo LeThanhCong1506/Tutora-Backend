@@ -39,11 +39,4 @@ public static class ConfigurationKeys
         public const string SecretKey = "ZaloOA:SecretKey";
         public const string AppSecretKey = "ZaloOA:AppSecretKey";
     }
-
-    public static class ZaloPay
-    {
-        public const string AppId = "ZaloPay:AppId";
-        public const string Key1 = "ZaloPay:Key1";
-        public const string Key2 = "ZaloPay:Key2";
-    }
 }

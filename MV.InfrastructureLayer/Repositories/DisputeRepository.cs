@@ -11,7 +11,7 @@ public class DisputeRepository(AgoraDbContext context) : IDisputeRepository
     public IQueryable<Dispute> GetBaseQuery()
         => context.Disputes
             .AsNoTracking()
-            .Include(d => d.Lesson)
+            .Include(d => d.ClassSession)
                 .ThenInclude(l => l!.Tutor)
                     .ThenInclude(t => t!.Tutor)
             .Include(d => d.CreatedbyNavigation)
@@ -21,8 +21,8 @@ public class DisputeRepository(AgoraDbContext context) : IDisputeRepository
         => context.Disputes
             .AsNoTracking()
             .Where(d => d.Disputeid == disputeId)
-            .Include(d => d.Lesson).ThenInclude(l => l!.Booking).ThenInclude(b => b!.Tutorsubjectgradeprice).ThenInclude(p => p!.Subject)
-            .Include(d => d.Lesson).ThenInclude(l => l!.Tutor).ThenInclude(t => t!.Tutor)
+            .Include(d => d.ClassSession).ThenInclude(l => l!.Booking).ThenInclude(b => b!.Tutorsubjectgradeprice).ThenInclude(p => p!.Subject)
+            .Include(d => d.ClassSession).ThenInclude(l => l!.Tutor).ThenInclude(t => t!.Tutor)
             .Include(d => d.CreatedbyNavigation)
             .Include(d => d.ResolvedbyNavigation)
             .FirstOrDefaultAsync();
@@ -32,9 +32,9 @@ public class DisputeRepository(AgoraDbContext context) : IDisputeRepository
             .Include(d => d.Booking)
             .FirstOrDefaultAsync(d => d.Disputeid == disputeId);
 
-    public Task<Dispute?> FindWithLessonAsync(int disputeId)
+    public Task<Dispute?> FindWithClassSessionAsync(int disputeId)
         => context.Disputes
-            .Include(d => d.Lesson)
+            .Include(d => d.ClassSession)
             .FirstOrDefaultAsync(d => d.Disputeid == disputeId);
 
     public Task<int> CountByStatusAsync(string status)

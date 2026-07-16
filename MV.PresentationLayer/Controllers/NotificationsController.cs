@@ -5,6 +5,7 @@ using MV.ApplicationLayer.ServiceInterfaces;
 using MV.ApplicationLayer.Services;
 using MV.ApplicationLayer.Interfaces;
 using MV.DomainLayer.DTO.RequestModel;
+using MV.PresentationLayer.Authorization;
 using System.Security.Claims;
 
 namespace MV.PresentationLayer.Controllers
@@ -69,7 +70,7 @@ namespace MV.PresentationLayer.Controllers
         /// Tạo notification mới và gửi push notification đến user
         /// </summary>
         [HttpPost]
-        [Authorize(Roles = UserRole.AdminOrStaff)]
+        [RequirePermission(Permissions.NotificationSend)]
         public async Task<IActionResult> CreateNotification([FromBody] NotificationRequest request)
         {
             if (!ModelState.IsValid)
@@ -87,7 +88,7 @@ namespace MV.PresentationLayer.Controllers
         /// Tạo nhiều notifications cùng lúc
         /// </summary>
         [HttpPost("bulk")]
-        [Authorize(Roles = UserRole.AdminOrStaff)]
+        [RequirePermission(Permissions.NotificationSend)]
         public async Task<IActionResult> CreateNotifications([FromBody] IEnumerable<NotificationRequest> requests)
         {
             if (!ModelState.IsValid)
@@ -193,7 +194,7 @@ namespace MV.PresentationLayer.Controllers
         /// Lấy tất cả notifications (Admin/Staff)
         /// </summary>
         [HttpGet("all")]
-        [Authorize(Roles = UserRole.AdminOrStaff)]
+        [RequirePermission(Permissions.NotificationView)]
         public async Task<IActionResult> GetAllNotifications()
         {
             var notifications = await _notificationService.GetAllNotificationsAsync();
@@ -204,7 +205,7 @@ namespace MV.PresentationLayer.Controllers
         /// Lấy notifications của một user cụ thể (Admin/Staff)
         /// </summary>
         [HttpGet("users/{id}")]
-        [Authorize(Roles = UserRole.AdminOrStaff)]
+        [RequirePermission(Permissions.NotificationView)]
         public async Task<IActionResult> GetNotificationsByUserId(string id)
         {
             if (string.IsNullOrEmpty(id))
@@ -290,7 +291,7 @@ namespace MV.PresentationLayer.Controllers
         /// Xóa tất cả notifications của một user cụ thể (Admin/Staff)
         /// </summary>
         [HttpDelete("users/{id}")]
-        [Authorize(Roles = UserRole.AdminOrStaff)]
+        [RequirePermission(Permissions.NotificationDelete)]
         public async Task<IActionResult> DeleteNotificationsByUserId(string id)
         {
             if (string.IsNullOrEmpty(id))
@@ -308,7 +309,7 @@ namespace MV.PresentationLayer.Controllers
         /// Xóa notifications cũ hơn X ngày (Admin/Staff)
         /// </summary>
         [HttpDelete("old/{daysOld}")]
-        [Authorize(Roles = UserRole.AdminOrStaff)]
+        [RequirePermission(Permissions.NotificationDelete)]
         public async Task<IActionResult> DeleteOldNotifications(int daysOld)
         {
             if (daysOld < 1)

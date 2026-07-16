@@ -97,6 +97,31 @@ namespace MV.InfrastructureLayer.Services
             return uploadResult.SecureUrl.ToString();
         }
 
+        public async Task<string> UploadImageBytesAsync(string bucketName, string userId, byte[] bytes, string fileName)
+        {
+            if (bytes == null || bytes.Length == 0)
+                throw new ArgumentException("Image bytes empty.");
+
+            var folderPath = string.IsNullOrWhiteSpace(userId) ? bucketName : $"{bucketName}/{userId}";
+            using var stream = new MemoryStream(bytes);
+            var publicId = $"{Guid.NewGuid()}_{Path.GetFileNameWithoutExtension(fileName)}";
+
+            var uploadResult = await _cloudinary.UploadAsync(new ImageUploadParams
+            {
+                File = new FileDescription(fileName, stream),
+                Folder = folderPath,
+                PublicId = publicId,
+                AccessMode = "public"
+            });
+
+            if (uploadResult.Error != null)
+            {
+                _logger.LogError("Cloudinary image bytes upload failed: {Error}", uploadResult.Error.Message);
+                throw new Exception($"Cloudinary upload failed: {uploadResult.Error.Message}");
+            }
+            return uploadResult.SecureUrl.ToString();
+        }
+
         public async Task<string> UploadPrivateFileAsync(string bucketName, string userId, IFormFile file)
         {
             if (file == null || file.Length == 0)

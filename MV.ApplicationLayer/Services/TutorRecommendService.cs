@@ -42,7 +42,7 @@ namespace MV.ApplicationLayer.Services
             {
                 gradeName = await _dbContext.Gradelevels
                     .AsNoTracking()
-                    .Where(g => g.Gradelevelid == request.GradeLevelId.Value)
+                    .Where(g => g.Gradelevelid == request.GradeLevelId.Value && g.IsActive)
                     .Select(g => g.Gradename)
                     .FirstOrDefaultAsync(cancellationToken);
             }
@@ -168,17 +168,39 @@ namespace MV.ApplicationLayer.Services
                     u.Tutorprofile.Teachingareadistrict,
                     AverageRating = u.Tutorprofile.Averagerating ?? 0,
                     TotalReviews = u.Tutorprofile.Totalreviews ?? 0,
-                    CompletedHours = u.Tutorprofile.Completedhours ?? 0,
+                    // Bỏ qua bảng giá gắn môn/khối đã bị soft-delete (Subject/Gradelevel.IsActive).
                     MinPrice = u.Tutorprofile.Tutorsubjectgradeprices
-                        .Where(p => p.Isactive)
+                        .Where(p => p.Isactive && p.Subject.IsActive && p.Gradelevel.IsActive)
                         .Min(p => (decimal?)p.Priceperhour),
                     Subjects = u.Tutorprofile.Tutorsubjectgradeprices
-                        .Where(p => p.Subject != null && p.Subject.Subjectname != null)
+                        .Where(p => p.Subject != null && p.Subject.IsActive && p.Subject.Subjectname != null)
                         .Select(p => p.Subject!.Subjectname!)
                         .Distinct()
                         .ToList()
                 })
                 .ToListAsync(cancellationToken);
+
+            // A taught lesson is a confirmed/settled class session that was never disputed.
+            // Check-in/out and attendance are not reliable enough yet to be used as counters.
+            var qualifyingSessions = _dbContext.ClassSessions
+                .AsNoTracking()
+                .Where(s => s.Tutorid != null && tutorIds.Contains(s.Tutorid)
+                    && s.Status == ClassSessionStatus.Completed
+                    && s.Issettled == true
+                    && !s.Disputes.Any());
+
+            var completedLessonCounts = await qualifyingSessions
+                .GroupBy(s => s.Tutorid!)
+                .Select(g => new { TutorId = g.Key, Count = g.Count() })
+                .ToDictionaryAsync(x => x.TutorId, x => x.Count, cancellationToken);
+
+            var taughtStudentCounts = await qualifyingSessions
+                .Where(s => s.Studentid != null)
+                .Select(s => new { TutorId = s.Tutorid!, StudentId = s.Studentid! })
+                .Distinct()
+                .GroupBy(s => s.TutorId)
+                .Select(g => new { TutorId = g.Key, Count = g.Count() })
+                .ToDictionaryAsync(x => x.TutorId, x => x.Count, cancellationToken);
 
             return rows.ToDictionary(
                 r => r.Userid,
@@ -193,7 +215,12 @@ namespace MV.ApplicationLayer.Services
                     TeachingAreaDistrict = r.Teachingareadistrict,
                     AverageRating = r.AverageRating,
                     TotalReviews = r.TotalReviews,
-                    CompletedHours = r.CompletedHours,
+                    TotalCompletedLessons = completedLessonCounts.TryGetValue(r.Userid, out var lessonCount)
+                        ? lessonCount
+                        : 0,
+                    TotalStudentsTaught = taughtStudentCounts.TryGetValue(r.Userid, out var studentCount)
+                        ? studentCount
+                        : 0,
                     PricePerHour = r.MinPrice,
                     Subjects = r.Subjects,
                     AiSimilarity = null,    

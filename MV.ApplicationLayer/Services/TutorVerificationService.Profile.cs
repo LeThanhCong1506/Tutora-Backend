@@ -3,8 +3,9 @@ using Microsoft.Extensions.Caching.Distributed;
 using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO.ResponseModel;
 using MV.DomainLayer.Helpers;
+using MV.ApplicationLayer.Helpers;
 using System.Text.Json;
-using static MV.DomainLayer.Constants.LessonStatus;
+using static MV.DomainLayer.Constants.ClassSessionStatus;
 
 namespace MV.ApplicationLayer.Services
 {
@@ -110,13 +111,16 @@ namespace MV.ApplicationLayer.Services
         /// <summary>
         /// Get tutor profile info without schedule/package data.
         /// </summary>
-        public async Task<TutorProfileInfoResponse?> GetTutorProfileInfoAsync(string tutorId)
+        public async Task<TutorProfileInfoResponse?> GetTutorProfileInfoAsync(string tutorId, bool publicView = true)
         {
             var profile = await _dbContext.Tutorprofiles
                 .AsNoTracking()
                 .FirstOrDefaultAsync(t => t.Tutorid == tutorId);
 
-            if (!IsActiveTutorProfile(profile))
+            // publicView = true: áp guard công khai (ẩn khi khóa/tạm dừng).
+            // publicView = false: chính chủ xem → chỉ cần đã duyệt.
+            var visible = publicView ? IsPubliclyVisibleTutorProfile(profile) : IsActiveTutorProfile(profile);
+            if (!visible)
             {
                 return null;
             }
@@ -139,8 +143,10 @@ namespace MV.ApplicationLayer.Services
                     ts.Id,
                     ts.Subjectid,
                     SubjectName = ts.Subject != null ? ts.Subject.Subjectname : null,
+                    SubjectIsActive = ts.Subject == null || ts.Subject.IsActive,
                     ts.Gradelevelid,
                     GradeLevelName = ts.Gradelevel != null ? ts.Gradelevel.Gradename : null,
+                    GradeLevelIsActive = ts.Gradelevel == null || ts.Gradelevel.IsActive,
                     ts.Priceperhour,
                     ts.Durationminutespersession,
                     ts.Sessionsperweek,
@@ -178,8 +184,10 @@ namespace MV.ApplicationLayer.Services
                 TeachingAreaCity = profile.Teachingareacity,
                 TeachingAreaDistrict = profile.Teachingareadistrict,
                 TeachingMode = TeachingMode.Online,
+                // Ẩn môn/khối đã bị Admin soft-delete khỏi hồ sơ hiển thị (Subject/Gradelevel.IsActive).
+                // Trang quản lý bảng giá của tutor (GetTutorPricingAsync) vẫn giữ nguyên + kèm cờ cảnh báo.
                 SubjectGradePrices = subjects
-                    .Where(s => s.Isactive)
+                    .Where(s => s.Isactive && s.SubjectIsActive && s.GradeLevelIsActive)
                     .Select(MapSubjectGradePrice)
                     .ToList(),
                 Bio = profile.Bio,
@@ -198,7 +206,7 @@ namespace MV.ApplicationLayer.Services
         /// <summary>
         /// Get tutor schedule including weekly availability and packages.
         /// </summary>
-        public async Task<TutorScheduleResponse?> GetTutorScheduleAsync(string tutorId)
+        public async Task<TutorScheduleResponse?> GetTutorScheduleAsync(string tutorId, bool publicView = true)
         {
             var profile = await _dbContext.Tutorprofiles
                 .AsNoTracking()
@@ -206,11 +214,14 @@ namespace MV.ApplicationLayer.Services
                 .Select(t => new
                 {
                     t.Tutorid,
-                    t.Profilestatus
+                    t.Profilestatus,
+                    t.Ispublic,
+                    t.Isacceptingbookings
                 })
                 .FirstOrDefaultAsync();
 
-            if (!IsActiveTutorProfile(profile))
+            var visible = publicView ? IsPubliclyVisibleTutorProfile(profile) : IsActiveTutorProfile(profile);
+            if (!visible)
             {
                 return null;
             }
@@ -256,6 +267,14 @@ namespace MV.ApplicationLayer.Services
                 })
                 .ToListAsync();
 
+            // Gắn cờ HasActiveBooking cho từng package (đồng bộ với GetTutorPackagesAsync).
+            // Nếu bỏ qua, cờ mặc định là false → màn lịch báo sai "package chưa có booking".
+            var bookedPackageIds = await TutorScheduleGuard.GetPackageIdsWithFutureSessionsAsync(_dbContext, tutorId);
+            foreach (var pkg in packages)
+            {
+                pkg.HasActiveBooking = bookedPackageIds.Contains(pkg.PackageId);
+            }
+
             var response = new TutorScheduleResponse
             {
                 TutorId = tutorId,
@@ -293,11 +312,11 @@ namespace MV.ApplicationLayer.Services
 
             var feedbacks = await GetTutorFeedbacksAsync(tutorId);
 
-            var totalLessons = await _dbContext.Lessons
+            var totalClassSessions = await _dbContext.ClassSessions
                 .AsNoTracking()
                 .CountAsync(l => l.Tutorid == tutorId
-                    && l.Status != LessonStatus.Cancelled
-                    && l.Status != LessonStatus.CancelledNoshow
+                    && l.Status != ClassSessionStatus.Cancelled
+                    && l.Status != ClassSessionStatus.CancelledNoshow
                     && l.Booking != null && PaidBookingStatuses.Contains(l.Booking.Status!));
 
             var totalStudents = await _dbContext.Bookings
@@ -333,7 +352,7 @@ namespace MV.ApplicationLayer.Services
                 TotalFeedbacks = totalFeedbacks,
                 AverageRating = Math.Round(averageRating, 1),
                 Feedbacks = feedbacks,
-                TotalLessons = totalLessons,
+                TotalClassSessions = totalClassSessions,
                 TotalStudents = totalStudents
             };
 
@@ -341,10 +360,21 @@ namespace MV.ApplicationLayer.Services
             return response;
         }
 
+        // Hồ sơ đã duyệt (Active). Dùng cho CHÍNH CHỦ xem hồ sơ của mình — luôn xem được
+        // dù đang tạm dừng nhận booking hay bị Admin khóa (để còn bật lại / xem tình trạng).
         private static bool IsActiveTutorProfile(dynamic profile)
         {
             return profile != null &&
-                   string.Equals(profile.Profilestatus, TutorProfileStatus.Active, StringComparison.OrdinalIgnoreCase);
+                   string.Equals((string?)profile.Profilestatus, TutorProfileStatus.Active, StringComparison.OrdinalIgnoreCase);
+        }
+
+        // Hồ sơ hiển thị CÔNG KHAI: đã duyệt + không bị Admin khóa (Ispublic)
+        // + Tutor không tự tắt (Isacceptingbookings). Đồng bộ với bộ lọc marketplace search.
+        private static bool IsPubliclyVisibleTutorProfile(dynamic profile)
+        {
+            return IsActiveTutorProfile(profile) &&
+                   profile.Ispublic == true &&
+                   profile.Isacceptingbookings == true;
         }
 
         private async Task<List<FeedbackItemResponse>> GetTutorFeedbacksAsync(string tutorId)
@@ -415,7 +445,9 @@ namespace MV.ApplicationLayer.Services
                 DurationMinutesPerSession = subject.Durationminutespersession,
                 SessionsPerWeek = subject.Sessionsperweek,
                 Currency = subject.Currency,
-                IsActive = subject.Isactive
+                IsActive = subject.Isactive,
+                SubjectIsActive = subject.SubjectIsActive,
+                GradeLevelIsActive = subject.GradeLevelIsActive
             };
         }
 

@@ -8,7 +8,7 @@ namespace MV.DomainLayer.DTO.ResponseModel;
 public class DisputeListResponse
 {
     public int DisputeId { get; set; }
-    public int? LessonId { get; set; }
+    public int? ClassSessionId { get; set; }
     public int? BookingId { get; set; }
     
     public string? DisputeType { get; set; }
@@ -18,7 +18,7 @@ public class DisputeListResponse
     public string? CreatedByName { get; set; }
     public string? TutorName { get; set; }
     
-    public decimal? LessonPrice { get; set; }
+    public decimal? ClassSessionPrice { get; set; }
     public DateTime? CreatedAt { get; set; }
     
     /// <summary>

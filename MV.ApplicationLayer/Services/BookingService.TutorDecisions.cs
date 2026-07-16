@@ -16,15 +16,69 @@ public partial class BookingService
 
     public async Task<TutorDecisionResponse> AcceptBookingAsync(string tutorId, int bookingId)
     {
-        var booking = await bookingRepo.FindWithRelationsAsync(bookingId);
+        Booking booking;
+        var alreadyAccepted = false;
 
-        if (booking == null)
-            throw new BookingException(BookingErrorCodes.BookingNotFound, "Không tìm thấy booking", 404);
+        await using (var tx = await context.Database.BeginTransactionAsync())
+        {
+            try
+            {
+                booking = await bookingRepo.FindWithRelationsForUpdateAsync(bookingId)
+                    ?? throw new BookingException(BookingErrorCodes.BookingNotFound, "Không tìm thấy booking", 404);
 
-        if (booking.Tutorid != tutorId)
-            throw new BookingException(BookingErrorCodes.NotBookingOwner, "Bạn không phải gia sư của booking này", 403);
+                if (booking.Tutorid != tutorId)
+                    throw new BookingException(BookingErrorCodes.NotBookingOwner, "Bạn không phải gia sư của booking này", 403);
 
-        if (booking.Status == BookingStatus.DepositPaid || booking.Status == BookingStatus.Paid)
+                alreadyAccepted = booking.Status == BookingStatus.DepositPaid || booking.Status == BookingStatus.Paid;
+                if (!alreadyAccepted)
+                {
+                    if (booking.Status != BookingStatus.PendingTutor)
+                        throw new BookingException(BookingErrorCodes.InvalidBookingStatus, $"Không thể chấp nhận booking ở trạng thái '{booking.Status}'", 400);
+
+                    if (booking.Responsedeadline != null && booking.Responsedeadline <= TimeZoneHelper.UtcNow)
+                        throw new BookingException(
+                            BookingErrorCodes.BookingExpired,
+                            "Đã quá hạn phản hồi 24 giờ. Booking đang chờ hệ thống tự động hủy.",
+                            409);
+
+                    if (booking.Depositpaidat == null)
+                        throw new BookingException(BookingErrorCodes.InvalidBookingStatus, "Booking chưa được thanh toán cọc", 409);
+
+                    // Safety net: bổ sung Remainingamount nếu null (data cũ), KHÔNG ghi đè Depositamount
+                    // vì parent đã trả theo số đó rồi.
+                    if (booking.Remainingamount == null)
+                        booking.Remainingamount = (booking.Finalprice ?? 0) - (booking.Depositamount ?? 0);
+
+                    booking.Status = BookingStatus.DepositPaid;
+                    booking.Updatedat = TimeZoneHelper.UtcNow;
+                    booking.Responsedeadline = null;
+
+                    // Pay-per-phase: cọc chỉ trả cho buổi ĐẦU → chỉ kích hoạt buổi đầu.
+                    // Các buổi 2..N giữ `reserved` cho tới khi phụ huynh trả phần còn lại
+                    // (khi đó PaymentService.ActivateRemainingSessionsAsync sẽ kích hoạt).
+                    var firstReserved = booking.ClassSessions
+                        .Where(x => x.Status == ClassSessionStatus.Reserved)
+                        .OrderBy(x => x.Scheduledstart)
+                        .Take(1);
+                    foreach (var classSession in firstReserved)
+                    {
+                        classSession.Status = ClassSessionStatus.Scheduled;
+                        classSession.Meetinglink ??= classSession.Classsessionid.ToString();
+                    }
+
+                    await bookingRepo.SaveChangesAsync();
+                }
+
+                await tx.CommitAsync();
+            }
+            catch
+            {
+                await tx.RollbackAsync();
+                throw;
+            }
+        }
+
+        if (alreadyAccepted)
         {
             var existingChannelId = await chatService.GetOrCreateChannelAsync(booking.Parentid!, tutorId);
             return new TutorDecisionResponse
@@ -34,35 +88,10 @@ public partial class BookingService
             };
         }
 
-        if (booking.Status != BookingStatus.PendingTutor)
-            throw new BookingException(BookingErrorCodes.InvalidBookingStatus, $"Không thể chấp nhận booking ở trạng thái '{booking.Status}'", 400);
-
-        if (booking.Depositpaidat == null)
-            throw new BookingException(BookingErrorCodes.InvalidBookingStatus, "Booking chưa được thanh toán cọc", 409);
-
-        // Safety net: bổ sung Remainingamount nếu null (data cũ), KHÔNG ghi đè Depositamount
-        // vì parent đã trả theo số đó rồi.
-        if (booking.Remainingamount == null)
-            booking.Remainingamount = (booking.Finalprice ?? 0) - (booking.Depositamount ?? 0);
-
-        booking.Status = BookingStatus.DepositPaid;
-        booking.Updatedat = TimeZoneHelper.UtcNow;
-        booking.Responsedeadline = null;
-
-        var scheduledLessons = booking.Lessons
-            .Where(lesson => lesson.Status == LessonStatus.Reserved)
-            .OrderBy(lesson => lesson.Scheduledstart)
+        var scheduledClassSessions = booking.ClassSessions
+            .Where(classSession => classSession.Status == ClassSessionStatus.Scheduled)
+            .OrderBy(classSession => classSession.Scheduledstart)
             .ToList();
-
-        foreach (var lesson in scheduledLessons)
-        {
-            lesson.Status = LessonStatus.Scheduled;
-            lesson.Meetinglink ??= lesson.Lessonid.ToString();
-        }
-
-        // Save booking changes FIRST — before any chat/notification operations that share
-        // the same DbContext, to avoid DbUpdateException from concurrent entity tracking.
-        await bookingRepo.SaveChangesAsync();
 
         var channelId = 0;
         try
@@ -75,17 +104,17 @@ public partial class BookingService
                 Metadata = new { bookingId, status = booking.Status }
             });
 
-            if (scheduledLessons.Count > 0)
+            if (scheduledClassSessions.Count > 0)
             {
-                await chatService.SendMeetLinksAsync(bookingId, scheduledLessons.Select((lesson, index) => new LessonMiniResponse
+                await chatService.SendMeetLinksAsync(bookingId, scheduledClassSessions.Select((classSession, index) => new ClassSessionMiniResponse
                 {
-                    LessonId = lesson.Lessonid,
+                    ClassSessionId = classSession.Classsessionid,
                     BookingId = bookingId,
                     SessionIndex = index + 1,
-                    ScheduledStart = lesson.Scheduledstart,
-                    ScheduledEnd = lesson.Scheduledend,
-                    MeetingLink = lesson.Meetinglink ?? "",
-                    Status = lesson.Status ?? LessonStatus.Scheduled
+                    ScheduledStart = classSession.Scheduledstart,
+                    ScheduledEnd = classSession.Scheduledend,
+                    MeetingLink = classSession.Meetinglink ?? "",
+                    Status = classSession.Status ?? ClassSessionStatus.Scheduled
                 }).ToList());
             }
         }
@@ -119,30 +148,32 @@ public partial class BookingService
 
     public async Task<BookingResponse> DeclineBookingAsync(string tutorId, int bookingId, string? reason)
     {
-        var booking = await bookingRepo.FindWithRelationsAsync(bookingId);
-
-        if (booking == null)
-            throw new BookingException(BookingErrorCodes.BookingNotFound, "Không tìm thấy booking", 404);
-
-        if (booking.Tutorid != tutorId)
-            throw new BookingException(BookingErrorCodes.NotBookingOwner, "Bạn không phải gia sư của booking này", 403);
-
-        if (booking.Status != BookingStatus.PendingTutor)
-            throw new BookingException(BookingErrorCodes.InvalidBookingStatus, $"Không thể từ chối booking ở trạng thái '{booking.Status}'", 400);
-
+        Booking booking;
         await using var tx = await context.Database.BeginTransactionAsync();
         try
         {
+            booking = await bookingRepo.FindWithRelationsForUpdateAsync(bookingId)
+                ?? throw new BookingException(BookingErrorCodes.BookingNotFound, "Không tìm thấy booking", 404);
+
+            if (booking.Tutorid != tutorId)
+                throw new BookingException(BookingErrorCodes.NotBookingOwner, "Bạn không phải gia sư của booking này", 403);
+
+            if (booking.Status != BookingStatus.PendingTutor)
+                throw new BookingException(BookingErrorCodes.InvalidBookingStatus, $"Không thể từ chối booking ở trạng thái '{booking.Status}'", 400);
+
             booking.Status = BookingStatus.Cancelled;
             booking.Cancellationreason = reason;
             booking.Cancelledby = tutorId;
             booking.Cancelledat = TimeZoneHelper.UtcNow;
             booking.Updatedat = TimeZoneHelper.UtcNow;
+            booking.Responsedeadline = null;
 
-            foreach (var lesson in booking.Lessons.Where(l => l.Status == LessonStatus.Reserved))
-                lesson.Status = LessonStatus.Cancelled;
+            foreach (var classSession in booking.ClassSessions.Where(l => l.Status == ClassSessionStatus.Reserved))
+                classSession.Status = ClassSessionStatus.Cancelled;
 
             await RefundPaidBookingAsync(booking, "Hoàn tiền do gia sư từ chối booking");
+            // Return the promotion usage consumed at booking creation
+            await MV.ApplicationLayer.Helpers.PromotionUsageHelper.ReturnUsageAsync(context, booking.Promotionid);
             await bookingRepo.SaveChangesAsync();
             await tx.CommitAsync();
         }
@@ -150,6 +181,23 @@ public partial class BookingService
         {
             await tx.RollbackAsync();
             throw;
+        }
+
+        try
+        {
+            var channelId = await chatService.GetOrCreateChannelAsync(booking.Parentid!, tutorId);
+            await chatService.SendMessageAsync(tutorId, channelId, new ChatMessageCreateRequest
+            {
+                Content = string.IsNullOrWhiteSpace(reason)
+                    ? "❌ Gia sư đã từ chối yêu cầu đặt lịch"
+                    : $"❌ Gia sư đã từ chối yêu cầu đặt lịch. Lý do: {reason}",
+                MessageType = ChatMessageType.BookingDeclined,
+                Metadata = new { bookingId, status = booking.Status, reason }
+            });
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Failed to send decline chat message for booking {BookingId}", bookingId);
         }
 
         try
@@ -174,72 +222,61 @@ public partial class BookingService
     private async Task RefundPaidBookingAsync(Booking booking, string description)
     {
         if (booking.Depositpaidat == null)
-        {
-            booking.Refundstatus = RefundStatus.NoRefund;
-            return;
-        }
+            throw new InvalidOperationException(
+                $"Booking #{booking.Bookingid} is pending tutor response without a paid deposit.");
 
-        var refundAmount = booking.Paymentstatus == PaymentStatus.Escrowed || booking.Remainingpaidat != null
-            ? booking.Finalprice ?? booking.Totalamount ?? 0
-            : booking.Depositamount ?? 0;
+        var refundAmount = TutorResponseTimeoutPolicy.ParentRefundAmount(booking);
 
         if (refundAmount <= 0 || string.IsNullOrWhiteSpace(booking.Parentid))
-        {
-            booking.Refundstatus = RefundStatus.NoRefund;
-            return;
-        }
+            throw new InvalidOperationException(
+                $"Booking #{booking.Bookingid} has no valid refund recipient or amount.");
 
-        var parentWallet = await context.Wallets
-            .FromSqlRaw(SqlQueries.LockWalletByUserId, booking.Parentid)
-            .FirstOrDefaultAsync();
+        var now = TimeZoneHelper.UtcNow;
+        var parentWallet = await WalletLockHelper.GetOrCreateForUpdateAsync(context, booking.Parentid, now);
+        parentWallet.Balance = (parentWallet.Balance ?? 0) + refundAmount;
+        parentWallet.Lastupdated = now;
 
-        if (parentWallet != null)
+        context.Wallettransactions.Add(new Wallettransaction
         {
-            parentWallet.Balance = (parentWallet.Balance ?? 0) + refundAmount;
-            parentWallet.Lastupdated = TimeZoneHelper.UtcNow;
+            Wallet = parentWallet,
+            Amount = refundAmount,
+            Transactiontype = TransactionType.Refund,
+            Referencetable = ReferenceTable.Booking,
+            Referenceid = booking.Bookingid,
+            Description = description,
+            Createdat = now
+        });
+
+        var tutorEscrowAmount = TutorResponseTimeoutPolicy.TutorEscrowAmount(booking);
+
+        if (tutorEscrowAmount > 0)
+        {
+            if (string.IsNullOrWhiteSpace(booking.Tutorid))
+                throw new InvalidOperationException($"Booking #{booking.Bookingid} has escrow but no tutor id.");
+
+            var tutorWallet = await WalletLockHelper.GetRequiredForUpdateAsync(context, booking.Tutorid);
+            if ((tutorWallet.Frozenbalance ?? 0) < tutorEscrowAmount)
+                throw new InvalidOperationException(
+                    $"Tutor escrow balance is insufficient for booking #{booking.Bookingid}.");
+
+            tutorWallet.Frozenbalance = (tutorWallet.Frozenbalance ?? 0) - tutorEscrowAmount;
+            tutorWallet.Lastupdated = now;
 
             context.Wallettransactions.Add(new Wallettransaction
             {
-                Wallet = parentWallet,
-                Amount = refundAmount,
-                Transactiontype = TransactionType.Refund,
+                Wallet = tutorWallet,
+                Amount = -tutorEscrowAmount,
+                Transactiontype = TransactionType.EscrowReversal,
                 Referencetable = ReferenceTable.Booking,
                 Referenceid = booking.Bookingid,
-                Description = description,
+                Description = $"{description} - release escrow",
                 Createdat = TimeZoneHelper.UtcNow
             });
         }
 
-        if (!string.IsNullOrWhiteSpace(booking.Tutorid))
-        {
-            var tutorWallet = await context.Wallets
-                .FromSqlRaw(SqlQueries.LockWalletByUserId, booking.Tutorid)
-                .FirstOrDefaultAsync();
-
-            if (tutorWallet != null)
-            {
-                var tutorEscrowAmount = booking.Paymentstatus == PaymentStatus.Escrowed || booking.Remainingpaidat != null
-                    ? booking.Tutorfee ?? 0
-                    : Math.Round((booking.Tutorfee ?? 0) / Math.Max(booking.Totalsessions ?? 1, 1), 2);
-
-                tutorWallet.Frozenbalance = Math.Max(0, (tutorWallet.Frozenbalance ?? 0) - tutorEscrowAmount);
-                tutorWallet.Lastupdated = TimeZoneHelper.UtcNow;
-
-                context.Wallettransactions.Add(new Wallettransaction
-                {
-                    Wallet = tutorWallet,
-                    Amount = -tutorEscrowAmount,
-                    Transactiontype = TransactionType.EscrowRelease,
-                    Referencetable = ReferenceTable.Booking,
-                    Referenceid = booking.Bookingid,
-                    Description = $"{description} - release escrow",
-                    Createdat = TimeZoneHelper.UtcNow
-                });
-            }
-        }
-
         booking.Refundamount = refundAmount;
         booking.Refundstatus = RefundStatus.Refunded;
+        booking.Escrowstatus = EscrowStatus.Refunded;
     }
 
     /// <summary>

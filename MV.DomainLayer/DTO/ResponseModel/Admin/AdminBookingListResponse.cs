@@ -48,8 +48,8 @@ public class AdminBookingListItem
     // ── Progress ─────────────────────────────────────────────────────────────
     public int? SessionCount { get; set; }
     public int? SessionsRemaining { get; set; }
-    public int LessonsCompleted { get; set; }
-    public int LessonsTotal { get; set; }
+    public int ClassSessionsCompleted { get; set; }
+    public int ClassSessionsTotal { get; set; }
 
     // ── Dates ────────────────────────────────────────────────────────────────
     public DateTime? StartDate { get; set; }

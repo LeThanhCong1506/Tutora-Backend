@@ -20,13 +20,13 @@ namespace MV.ApplicationLayer.ServiceInterfaces
         /// Public tutor profile info without schedule/package data.
         /// Returns <c>null</c> if the tutor is not Active.
         /// </summary>
-        Task<TutorProfileInfoResponse?> GetTutorProfileInfoAsync(string tutorId);
+        Task<TutorProfileInfoResponse?> GetTutorProfileInfoAsync(string tutorId, bool publicView = true);
 
         /// <summary>
         /// Public tutor schedule payload including availability and packages.
         /// Returns <c>null</c> if the tutor is not Active.
         /// </summary>
-        Task<TutorScheduleResponse?> GetTutorScheduleAsync(string tutorId);
+        Task<TutorScheduleResponse?> GetTutorScheduleAsync(string tutorId, bool publicView = true);
 
         /// <summary>
         /// Full public landing page for a tutor — includes schedule, feedbacks, and active classes; cached 20 min.

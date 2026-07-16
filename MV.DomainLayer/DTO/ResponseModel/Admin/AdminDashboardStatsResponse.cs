@@ -7,7 +7,7 @@ public class AdminDashboardStatsResponse
 {
     public DashboardPlatformOverview PlatformOverview { get; set; } = new();
     public DashboardBookingSummary BookingSummary { get; set; } = new();
-    public DashboardLessonSummary LessonSummary { get; set; } = new();
+    public DashboardClassSessionSummary ClassSessionSummary { get; set; } = new();
     public DashboardPendingActions PendingActions { get; set; } = new();
 }
 
@@ -30,9 +30,9 @@ public class DashboardBookingSummary
     public decimal PlatformRevenueThisMonth { get; set; }
 }
 
-public class DashboardLessonSummary
+public class DashboardClassSessionSummary
 {
-    public int LessonsToday { get; set; }
+    public int ClassSessionsToday { get; set; }
     public decimal? CompletionRatePercent { get; set; }
     public decimal? NoShowRatePercent { get; set; }
 }

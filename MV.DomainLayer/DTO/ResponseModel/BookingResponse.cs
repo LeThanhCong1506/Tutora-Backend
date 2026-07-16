@@ -34,6 +34,7 @@ public class SubjectResponse
 {
     public int SubjectId { get; set; }
     public string? SubjectName { get; set; }
+    public bool IsActive { get; set; }
 }
 
 public class GradeLevelResponse
@@ -41,6 +42,7 @@ public class GradeLevelResponse
     public int GradeLevelId { get; set; }
     public string? GradeName { get; set; }
     public int LevelOrder { get; set; }
+    public bool IsActive { get; set; }
 }
 
 public class BookingPackageResponse
@@ -50,14 +52,14 @@ public class BookingPackageResponse
     public int PackageType { get; set; }
 }
 
-public class BookingLessonSlotResponse
+public class BookingClassSessionSlotResponse
 {
-    public int LessonId { get; set; }
+    public int ClassSessionId { get; set; }
     public int SessionIndex { get; set; }
     public DateTime ScheduledStart { get; set; }
     public DateTime ScheduledEnd { get; set; }
     public string? Status { get; set; }
-    public decimal? LessonPrice { get; set; }
+    public decimal? ClassSessionPrice { get; set; }
 }
 
 public class BookingResponse
@@ -79,16 +81,28 @@ public class BookingResponse
     public decimal? TotalAmount { get; set; }
     public string? Currency { get; set; }
     public decimal? DiscountApplied { get; set; }
+    /// <summary>Học phí sau khuyến mãi, trước phí dịch vụ.</summary>
+    public decimal? BaseAmount { get; set; }
+    /// <summary>Phí dịch vụ thu từ phụ huynh.</summary>
+    public decimal? ParentFee { get; set; }
+    /// <summary>Phí dịch vụ khấu trừ từ gia sư.</summary>
+    public decimal? TutorServiceFee { get; set; }
+    /// <summary>Số tiền gia sư thực nhận cho toàn bộ booking.</summary>
+    public decimal? TutorReceivable { get; set; }
+    /// <summary>Tổng tiền phụ huynh cần thanh toán, gồm học phí và phí phía phụ huynh.</summary>
     public decimal? FinalPrice { get; set; }
+    /// <summary>Tổng phí nền tảng thu từ cả phụ huynh và gia sư.</summary>
     public decimal? PlatformFee { get; set; }
     public string? Status { get; set; }
     public string? PaymentStatus { get; set; }
     public string? PaymentCode { get; set; }
     public List<ScheduleItemResponse>? Schedule { get; set; }
-    public List<BookingLessonSlotResponse>? Lessons { get; set; }
+    public List<BookingClassSessionSlotResponse>? ClassSessions { get; set; }
     public DateTime? StartDate { get; set; }
     public DateTime? CreatedAt { get; set; }
     public DateTime? PaymentDueAt { get; set; }
+    /// <summary>UTC deadline for the tutor to accept or decline a pending booking.</summary>
+    public DateTime? ResponseDeadline { get; set; }
     public decimal? DepositAmount { get; set; }
     public decimal? RemainingAmount { get; set; }
     public DateTime? DepositPaidAt { get; set; }

@@ -18,4 +18,6 @@ public partial class Wallet
     public virtual User? User { get; set; }
 
     public virtual ICollection<Wallettransaction> Wallettransactions { get; set; } = new List<Wallettransaction>();
+
+    public virtual ICollection<Withdrawalrequest> Withdrawalrequests { get; set; } = new List<Withdrawalrequest>();
 }

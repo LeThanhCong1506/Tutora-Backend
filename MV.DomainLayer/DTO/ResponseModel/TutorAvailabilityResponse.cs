@@ -15,17 +15,17 @@ namespace MV.DomainLayer.DTO.ResponseModel
         public DateTime Createdat { get; set; }
 
         /// <summary>
-        /// Human-readable day name (e.g., "Monday", "Tuesday")
+        /// Tên thứ tiếng Việt (khớp với dữ liệu bảng days_of_week).
         /// </summary>
         public string DayName => Dayofweek switch
         {
-            1 => "Monday",
-            2 => "Tuesday",
-            3 => "Wednesday",
-            4 => "Thursday",
-            5 => "Friday",
-            6 => "Saturday",
-            7 => "Sunday",
+            1 => "Thứ Hai",
+            2 => "Thứ Ba",
+            3 => "Thứ Tư",
+            4 => "Thứ Năm",
+            5 => "Thứ Sáu",
+            6 => "Thứ Bảy",
+            7 => "Chủ Nhật",
             _ => DisplayValues.Unknown
         };
     }

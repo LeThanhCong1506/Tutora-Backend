@@ -1,21 +1,21 @@
 ﻿using Microsoft.AspNetCore.Mvc;
-using MV.ApplicationLayer.Interfaces;
+using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO;
-using MV.DomainLayer.DTO.BankVerification;
+using MV.DomainLayer.DTO.ResponseModel;
 
 namespace MV.PresentationLayer.Controllers;
 
 [ApiController]
 [Route("api/banks")]
-public class BanksController(IBankVerificationService bankVerificationService) : ControllerBase
+public class BanksController(IBankListService bankListService) : ControllerBase
 {
     [HttpGet]
     public async Task<ActionResult<APIResponse<List<BankInfoResponse>>>> GetBankList(CancellationToken cancellationToken)
     {
         try
         {
-            var banks = await bankVerificationService.GetBankListAsync(cancellationToken);
+            var banks = await bankListService.GetBankListAsync(cancellationToken);
             return Ok(APIResponse<List<BankInfoResponse>>.Success(banks, "Lấy danh sách ngân hàng thành công."));
         }
         catch

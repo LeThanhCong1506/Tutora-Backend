@@ -39,6 +39,10 @@ public partial class PaymentService
             if (booking.Status != BookingStatus.DepositPaid && booking.Status != BookingStatus.PendingRemainingPayment
                 && booking.Status != BookingStatus.Ongoing)
                 throw new BookingException(BookingErrorCodes.InvalidBookingStatus, "Booking not ready for remaining payment", 409);
+            // Chặn thanh toán phần còn lại khi đã quá hạn (đồng bộ với luồng PayOS ConfirmRemainingAsync).
+            // Tránh "hồi sinh" booking mà hệ thống đã/đang finalize-early và race với PaymentTimeoutJob.
+            if (booking.Paymentdueat <= MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow)
+                throw new BookingException(BookingErrorCodes.BookingExpired, "Đã quá hạn thanh toán phần còn lại", 409);
         }
 
         if (booking.Paymentstatus == Escrowed || booking.Status == BookingStatus.Paid)
@@ -88,7 +92,7 @@ public partial class PaymentService
                 booking.Depositpaidat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
                 booking.Paymentdueat = null;
                 booking.Responsedeadline = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow.AddHours(24);
-                booking.Escrowstatus = Holding;
+                booking.Escrowstatus = EscrowStatus.Holding;
                 booking.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 
                 if (!string.IsNullOrWhiteSpace(booking.Tutorid))
@@ -122,7 +126,11 @@ public partial class PaymentService
             }
             else
             {
-                booking.Status = BookingStatus.Paid;
+                // Đã trả đủ (qua ví): còn buổi chưa hoàn tất → "ongoing"; hết buổi → "paid"
+                // (SettlementService đưa về completed khi Sessionsremaining = 0). Đồng bộ với ConfirmRemainingAsync.
+                booking.Status = (booking.Sessionsremaining ?? 0) > 0
+                    ? BookingStatus.Ongoing
+                    : BookingStatus.Paid;
                 booking.Paymentstatus = Escrowed;
                 booking.Remainingpaidat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
                 booking.Paymentdueat = null;
@@ -150,6 +158,8 @@ public partial class PaymentService
                     });
                 }
 
+                // Remaining amount is now paid → activate sessions 2..N (were reserved until now).
+                await ActivateRemainingSessionsAsync(bookingId, ct);
             }
 
             await context.SaveChangesAsync(ct);
@@ -171,10 +181,15 @@ public partial class PaymentService
     public async Task<WalletSummaryResponse> GetTutorWalletSummaryAsync(string tutorId)
     {
         var wallet = await walletRepo.GetByUserIdAsNoTrackingAsync(tutorId);
+        var balance = wallet?.Balance ?? 0;
+        var frozenBalance = wallet?.Frozenbalance ?? 0;
+
         return new WalletSummaryResponse
         {
-            Balance = wallet?.Balance ?? 0,
-            FrozenBalance = wallet?.Frozenbalance ?? 0,
+            Balance = balance,
+            AvailableBalance = balance,
+            FrozenBalance = frozenBalance,
+            TotalBalance = balance + frozenBalance,
             LastUpdated = wallet != null ? wallet.Lastupdated : null
         };
     }
@@ -215,5 +230,33 @@ public partial class PaymentService
         {
             logger.LogError(ex, "Không thể gửi thông báo thanh toán cho booking {BookingId}", booking.Bookingid);
         }
+    }
+
+    /// <summary>
+    /// Activates the remaining sessions of a booking once the parent has paid the remaining amount.
+    /// Sessions 2..N were created up-front at booking time in <c>reserved</c> state (invisible to
+    /// lists/calendar/stats); this flips them to <c>scheduled</c> and assigns their Agora meet link.
+    /// The first session was already activated on tutor acceptance. Runs inside the caller's
+    /// transaction — it tracks + mutates but does NOT SaveChanges/Commit.
+    /// </summary>
+    private async Task ActivateRemainingSessionsAsync(int bookingId, CancellationToken ct)
+    {
+        var reserved = await context.ClassSessions
+            .Where(l => l.Bookingid == bookingId && l.Status == ClassSessionStatus.Reserved)
+            .OrderBy(l => l.Scheduledstart)
+            .ToListAsync(ct);
+
+        if (reserved.Count == 0) return;
+
+        foreach (var classSession in reserved)
+        {
+            classSession.Status = ClassSessionStatus.Scheduled;
+            // Agora RTC: channel = classSessionId (deterministic), same convention as first session.
+            if (string.IsNullOrWhiteSpace(classSession.Meetinglink))
+                classSession.Meetinglink = classSession.Classsessionid.ToString();
+        }
+
+        logger.LogInformation("Activated {Count} remaining sessions for booking {BookingId} after remaining payment",
+            reserved.Count, bookingId);
     }
 }

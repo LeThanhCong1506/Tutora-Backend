@@ -7,7 +7,7 @@ using MV.DomainLayer.DTO.ResponseModel;
 using MV.DomainLayer.Entities;
 using MV.DomainLayer.Helpers;
 using MV.ApplicationLayer.Interfaces;
-using static MV.DomainLayer.Constants.LessonStatus;
+using static MV.DomainLayer.Constants.ClassSessionStatus;
 using static MV.DomainLayer.Constants.PaymentStatus;
 
 namespace MV.ApplicationLayer.Services;
@@ -27,7 +27,7 @@ public class FeedbackService : IFeedbackService
     }
 
     /// <summary>
-    /// Create feedback for a lesson
+    /// Create feedback for a classSession
     /// </summary>
     public async Task<FeedbackListResponse> CreateFeedbackAsync(string fromUserId, CreateFeedbackRequest request)
     {
@@ -36,33 +36,33 @@ public class FeedbackService : IFeedbackService
             return await CreateEarlyTerminationFeedbackAsync(fromUserId, request);
         }
 
-        // Validate lesson belongs to parent's student
+        // Validate classSession belongs to parent's student
         var studentIds = await _context.Studentprofiles
             .Where(s => s.Parentid == fromUserId)
             .Select(s => s.Studentid)
             .ToListAsync();
 
-        var lesson = await _context.Lessons
+        var classSession = await _context.ClassSessions
             .Include(l => l.Booking)
-            .FirstOrDefaultAsync(l => l.Lessonid == request.LessonId && studentIds.Contains(l.Studentid!))
+            .FirstOrDefaultAsync(l => l.Classsessionid == request.ClassSessionId && studentIds.Contains(l.Studentid!))
             ?? throw new ArgumentException("Không tìm thấy buổi học hoặc bạn không có quyền truy cập");
 
-        if (lesson.Status != Completed)
+        if (classSession.Status != Completed)
             throw new InvalidOperationException("Chỉ có thể đánh giá cho buổi học đã hoàn thành");
 
         // Check if feedback already exists
         var existingFeedback = await _context.Feedbacks
-            .AnyAsync(f => f.Lessonid == request.LessonId);
+            .AnyAsync(f => f.Classsessionid == request.ClassSessionId);
 
         if (existingFeedback)
             throw new InvalidOperationException("Buổi học này đã được đánh giá rồi");
 
         var feedback = new Feedback
         {
-            Lessonid = request.LessonId,
-            Bookingid = lesson.Bookingid,
+            Classsessionid = request.ClassSessionId,
+            Bookingid = classSession.Bookingid,
             Fromuserid = fromUserId,
-            Touserid = lesson.Tutorid,
+            Touserid = classSession.Tutorid,
             Rating = request.Rating,
             Comment = request.Comment,
             Feedbacktype = string.IsNullOrEmpty(request.FeedbackType) ? FeedbackType.ParentToTutor : request.FeedbackType,
@@ -74,18 +74,18 @@ public class FeedbackService : IFeedbackService
         await _context.SaveChangesAsync();
 
         // Recalculate tutor rating
-        if (lesson.Tutorid != null)
+        if (classSession.Tutorid != null)
         {
-            await RecalculateTutorRatingAsync(lesson.Tutorid);
+            await RecalculateTutorRatingAsync(classSession.Tutorid);
         }
 
-        _logger.LogInformation("Parent {ParentId} created feedback {FeedbackId} for lesson {LessonId}",
-            fromUserId, feedback.Feedbackid, request.LessonId);
+        _logger.LogInformation("Parent {ParentId} created feedback {FeedbackId} for classSession {ClassSessionId}",
+            fromUserId, feedback.Feedbackid, request.ClassSessionId);
 
         return new FeedbackListResponse
         {
             FeedbackId = feedback.Feedbackid,
-            LessonId = request.LessonId,
+            ClassSessionId = request.ClassSessionId,
             Rating = request.Rating,
             Comment = request.Comment,
             ParentName = (await _context.Users.FindAsync(fromUserId))?.Fullname,
@@ -101,7 +101,7 @@ public class FeedbackService : IFeedbackService
     {
         var feedback = await _context.Feedbacks
             .Include(f => f.Fromuser)
-            .Include(f => f.Lesson)
+            .Include(f => f.ClassSession)
                 .ThenInclude(l => l!.Booking)
             .FirstOrDefaultAsync(f => f.Feedbackid == feedbackId && f.Touserid == tutorId)
             ?? throw new ArgumentException("Không tìm thấy đánh giá hoặc bạn không có quyền thực hiện");
@@ -138,7 +138,7 @@ public class FeedbackService : IFeedbackService
             .AsNoTracking()
             .Where(f => f.Touserid == tutorId && f.Isvisible == true)
             .Include(f => f.Fromuser)
-            .Include(f => f.Lesson)
+            .Include(f => f.ClassSession)
                 .ThenInclude(l => l!.Booking)
                     .ThenInclude(b => b!.Tutorsubjectgradeprice)
                         .ThenInclude(p => p!.Subject)
@@ -152,12 +152,12 @@ public class FeedbackService : IFeedbackService
             .Select(f => new
             {
                 f.Feedbackid,
-                f.Lessonid,
+                f.Classsessionid,
                 f.Rating,
                 f.Comment,
                 ParentName = f.Fromuser!.Fullname,
                 ParentAvatarUrl = f.Fromuser.Avatarurl,
-                SubjectName = f.Lesson!.Booking!.Tutorsubjectgradeprice!.Subject!.Subjectname,
+                SubjectName = f.ClassSession!.Booking!.Tutorsubjectgradeprice!.Subject!.Subjectname,
                 Reply = f.Replycomment,
                 RepliedAt = f.Repliedat,
                 IsVisible = f.Isvisible,
@@ -168,7 +168,7 @@ public class FeedbackService : IFeedbackService
         var feedbacks = rawFeedbacks.Select(f => new FeedbackListResponse
         {
             FeedbackId = f.Feedbackid,
-            LessonId = f.Lessonid,
+            ClassSessionId = f.Classsessionid,
             Rating = f.Rating ?? 0,
             Comment = f.Comment,
             ParentName = f.ParentName,
@@ -279,22 +279,22 @@ public class FeedbackService : IFeedbackService
     }
 
     /// <summary>
-    /// Check if user can leave feedback for lesson
+    /// Check if user can leave feedback for classSession
     /// </summary>
-    public async Task<bool> CanLeaveFeedbackAsync(int lessonId, string userId)
+    public async Task<bool> CanLeaveFeedbackAsync(int classSessionId, string userId)
     {
         var studentIds = await _context.Studentprofiles
             .Where(s => s.Parentid == userId)
             .Select(s => s.Studentid)
             .ToListAsync();
 
-        var lesson = await _context.Lessons
-            .FirstOrDefaultAsync(l => l.Lessonid == lessonId && studentIds.Contains(l.Studentid!));
+        var classSession = await _context.ClassSessions
+            .FirstOrDefaultAsync(l => l.Classsessionid == classSessionId && studentIds.Contains(l.Studentid!));
 
-        if (lesson == null) return false;
-        if (lesson.Status != Completed) return false;
+        if (classSession == null) return false;
+        if (classSession.Status != Completed) return false;
 
-        var existingFeedback = await _context.Feedbacks.AnyAsync(f => f.Lessonid == lessonId);
+        var existingFeedback = await _context.Feedbacks.AnyAsync(f => f.Classsessionid == classSessionId);
         return !existingFeedback;
     }
 
@@ -331,7 +331,7 @@ public class FeedbackService : IFeedbackService
 
         var feedback = new Feedback
         {
-            Lessonid = null,
+            Classsessionid = null,
             Bookingid = bookingId,
             Fromuserid = fromUserId,
             Touserid = booking.Tutorid,

@@ -118,10 +118,6 @@ public class TutorFinanceController(ITutorFinanceService financeService) : Contr
             var result = await financeService.CreateWithdrawalAsync(TutorId, request, ct);
             return Ok(APIResponse<object>.Success(result, "Tạo yêu cầu rút tiền thành công."));
         }
-        catch (FraudCheckFailedException ex)
-        {
-            return BadRequest(APIResponse.Fail(ex.Message, ex.HttpStatus, ex.ErrorCode));
-        }
         catch (BadRequestException ex)
         {
             return BadRequest(APIResponse.Fail(ex.Message));

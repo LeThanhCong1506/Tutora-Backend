@@ -4,12 +4,14 @@ using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO;
 using MV.DomainLayer.DTO.ResponseModel.Admin;
+using MV.PresentationLayer.Authorization;
 
 namespace MV.PresentationLayer.Controllers;
 
 [ApiController]
 [Route("api/admin/bookings")]
-[Authorize(Roles = UserRole.Admin)]
+[Authorize]
+[RequirePermission(Permissions.BookingView)]
 public class AdminBookingController(IAdminBookingService adminBookingService) : ControllerBase
 {
     private IActionResult ValidatePagination(int page, int pageSize) =>

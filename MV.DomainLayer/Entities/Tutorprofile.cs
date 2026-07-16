@@ -74,25 +74,6 @@ public partial class Tutorprofile
     // /// <summary>online | offline | both</summary>
     // public string? Teachingmode { get; set; }
 
-    public string? Bankname { get; set; }
-
-    public string? Bankaccountnumber { get; set; }
-
-    public string? Bankaccountname { get; set; }
-
-    public bool? Isbankverified { get; set; }
-
-    public DateTime? Bankchangedat { get; set; }
-
-    public string? Bankverifycode { get; set; }
-
-    public string? Bankverifystatus { get; set; }
-
-    public DateTime? Bankverifyrequested { get; set; }
-
-    public DateTime? Bankverifiedat { get; set; }
-
-    public int Bankverifyattempts { get; set; }
 
     public virtual ICollection<Booking> Bookings { get; set; } = new List<Booking>();
 
@@ -102,9 +83,9 @@ public partial class Tutorprofile
 
     public virtual ICollection<Handoversummary> HandoversummaryTotutors { get; set; } = new List<Handoversummary>();
 
-    public virtual ICollection<Lessonreport> Lessonreports { get; set; } = new List<Lessonreport>();
+    public virtual ICollection<ClassSessionReport> ClassSessionReports { get; set; } = new List<ClassSessionReport>();
 
-    public virtual ICollection<Lesson> Lessons { get; set; } = new List<Lesson>();
+    public virtual ICollection<ClassSession> ClassSessions { get; set; } = new List<ClassSession>();
 
     public virtual ICollection<Studentgrade> Studentgrades { get; set; } = new List<Studentgrade>();
 

@@ -93,9 +93,9 @@ public class AdminFinancialService(
                 b.Createdat))
             .ToListAsync(ct);
 
-        var lessonsRawTask = context.Lessons
+        var classSessionsRawTask = context.ClassSessions
             .AsNoTracking()
-            .Select(l => new LessonRaw(
+            .Select(l => new ClassSessionRaw(
                 l.Status,
                 l.Lessonprice,
                 l.Issettled,
@@ -132,11 +132,11 @@ public class AdminFinancialService(
             .ToListAsync(ct);
 
         await Task.WhenAll(
-            bookingsRawTask, lessonsRawTask, usersRawTask,
+            bookingsRawTask, classSessionsRawTask, usersRawTask,
             tutorProfilesRawTask, withdrawalsRawTask, walletTxRawTask, subjectsTask);
 
         var allBookings = await bookingsRawTask;
-        var allLessons = await lessonsRawTask;
+        var allClassSessions = await classSessionsRawTask;
         var allUsers = await usersRawTask;
         var tutorProfiles = await tutorProfilesRawTask;
         var allWithdrawals = await withdrawalsRawTask;
@@ -191,25 +191,25 @@ public class AdminFinancialService(
         var newThisPeriod = allBookings.Count(b =>
             b.Createdat.HasValue && b.Createdat >= fromUtc && b.Createdat <= toUtc);
 
-        // ─── Lesson Metrics ──────────────────────────────────────────────────
-        var completedLessons = allLessons.Count(l => l.Status == LessonStatus.Completed);
-        var scheduledLessons = allLessons.Count(l =>
-            l.Status is LessonStatus.Scheduled or LessonStatus.InProgress);
-        var noShowLessons = allLessons.Count(l => l.Status == LessonStatus.NoShow);
-        var cancelledLessons = allLessons.Count(l =>
-            l.Status is LessonStatus.Cancelled or LessonStatus.CancelledNoshow);
-        var disputedLessons = allLessons.Count(l => l.Status == LessonStatus.Disputed);
+        // ─── ClassSession Metrics ──────────────────────────────────────────────────
+        var completedClassSessions = allClassSessions.Count(l => l.Status == ClassSessionStatus.Completed);
+        var scheduledClassSessions = allClassSessions.Count(l =>
+            l.Status is ClassSessionStatus.Scheduled or ClassSessionStatus.InProgress);
+        var noShowClassSessions = allClassSessions.Count(l => l.Status == ClassSessionStatus.NoShow);
+        var cancelledClassSessions = allClassSessions.Count(l =>
+            l.Status is ClassSessionStatus.Cancelled or ClassSessionStatus.CancelledNoshow);
+        var disputedClassSessions = allClassSessions.Count(l => l.Status == ClassSessionStatus.Disputed);
 
-        var denom = completedLessons + cancelledLessons + noShowLessons;
+        var denom = completedClassSessions + cancelledClassSessions + noShowClassSessions;
         decimal? completionRate = denom == 0
             ? null
-            : Math.Round((decimal)completedLessons / denom * 100, 1);
+            : Math.Round((decimal)completedClassSessions / denom * 100, 1);
         decimal? noShowRate = denom == 0
             ? null
-            : Math.Round((decimal)noShowLessons / denom * 100, 1);
+            : Math.Round((decimal)noShowClassSessions / denom * 100, 1);
 
-        var totalLessonRevenue = allLessons
-            .Where(l => l.Status == LessonStatus.Completed && l.Issettled == true)
+        var totalClassSessionRevenue = allClassSessions
+            .Where(l => l.Status == ClassSessionStatus.Completed && l.Issettled == true)
             .Sum(l => l.Lessonprice ?? 0);
 
         // ─── User Growth ─────────────────────────────────────────────────────
@@ -265,12 +265,12 @@ public class AdminFinancialService(
                         b.Createdat >= fromUtc && b.Createdat <= toUtc)
             .ToList();
 
-        var trendLessons = allLessons
-            .Where(l => l.Status == LessonStatus.Completed &&
+        var trendClassSessions = allClassSessions
+            .Where(l => l.Status == ClassSessionStatus.Completed &&
                         l.ScheduledStart >= fromUtc && l.ScheduledStart <= toUtc)
             .ToList();
 
-        var revenueTrend = BuildTrend(trendBookings, trendLessons, period, fromUtc, toUtc);
+        var revenueTrend = BuildTrend(trendBookings, trendClassSessions, period, fromUtc, toUtc);
 
         // ─── Top Subjects ────────────────────────────────────────────────────
         var subjectDict = subjects.ToDictionary(s => s.Subjectid, s => s.Subjectname ?? "Unknown");
@@ -318,16 +318,16 @@ public class AdminFinancialService(
                 ByTeachingMode = byMode
             },
 
-            Lessons = new LessonMetrics
+            ClassSessions = new ClassSessionMetrics
             {
-                TotalCompleted = completedLessons,
-                TotalScheduled = scheduledLessons,
-                TotalNoShow = noShowLessons,
-                TotalCancelled = cancelledLessons,
-                TotalDisputed = disputedLessons,
+                TotalCompleted = completedClassSessions,
+                TotalScheduled = scheduledClassSessions,
+                TotalNoShow = noShowClassSessions,
+                TotalCancelled = cancelledClassSessions,
+                TotalDisputed = disputedClassSessions,
                 CompletionRatePercent = completionRate,
                 NoShowRatePercent = noShowRate,
-                TotalLessonRevenue = totalLessonRevenue
+                TotalClassSessionRevenue = totalClassSessionRevenue
             },
 
             Users = new UserGrowthMetrics
@@ -479,7 +479,7 @@ public class AdminFinancialService(
 
     private static List<RevenueTrendItem> BuildTrend(
         List<BookingRaw> bookings,
-        List<LessonRaw> lessons,
+        List<ClassSessionRaw> classSessions,
         string period,
         DateTime fromUtc,
         DateTime toUtc)
@@ -488,21 +488,21 @@ public class AdminFinancialService(
             .GroupBy(b => GetBucket(b.Createdat ?? DateTime.MinValue, period))
             .ToDictionary(g => g.Key, g => g.ToList());
 
-        var lessonGroups = lessons
+        var classSessionGroups = classSessions
             .GroupBy(l => GetBucket(l.ScheduledStart, period))
             .ToDictionary(g => g.Key, g => g.ToList());
 
         return GenerateBuckets(fromUtc, toUtc, period).Select(bucket =>
         {
             var bList = bookingGroups.GetValueOrDefault(bucket) ?? [];
-            var lList = lessonGroups.GetValueOrDefault(bucket) ?? [];
+            var lList = classSessionGroups.GetValueOrDefault(bucket) ?? [];
             return new RevenueTrendItem
             {
                 Label = bucket,
                 PlatformRevenue = bList.Sum(b => b.Platformfee ?? 0),
                 GrossVolume = bList.Sum(b => b.Finalprice ?? 0),
                 BookingCount = bList.Count,
-                LessonsCompleted = lList.Count
+                ClassSessionsCompleted = lList.Count
             };
         }).ToList();
     }
@@ -566,7 +566,7 @@ public class AdminFinancialService(
         decimal? Finalprice,
         DateTime? Createdat);
 
-    private sealed record LessonRaw(
+    private sealed record ClassSessionRaw(
         string? Status,
         decimal? Lessonprice,
         bool? Issettled,

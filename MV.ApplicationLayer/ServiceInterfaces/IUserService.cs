@@ -27,7 +27,7 @@ namespace MV.ApplicationLayer.ServiceInterfaces
         Task<PagedList<PendingTutorResponse>> GetPendingTutorsAsync(UserParameters parameters);
 
         /// <summary>
-        /// 4-field tutor embed (id, name, avatar, headline) for booking/lesson display.
+        /// 4-field tutor embed (id, name, avatar, headline) for booking/classSession display.
         /// </summary>
         Task<TutorProfileShortResponse> GetTutorProfileShortAsync(string tutorId);
 
@@ -42,9 +42,10 @@ namespace MV.ApplicationLayer.ServiceInterfaces
         Task<List<StudentProfileResponse>> GetStudentsByParentIdAsync(string parentId);
 
         /// <summary>
-        /// Create a new user account (admin-initiated).
+        /// Create a new Staff account (admin-initiated). Internal accounts only —
+        /// customer accounts (Tutor/Parent/Student) register through the auth flows.
         /// </summary>
-        Task<UserResponse> CreateUserAsync(CreateUserRequest request);
+        Task<UserResponse> CreateStaffAsync(CreateStaffRequest request);
 
         /// <summary>
         /// Assign subjects a tutor is qualified to teach.
@@ -121,5 +122,17 @@ namespace MV.ApplicationLayer.ServiceInterfaces
         /// URL lưu trong DB là private/authenticated — không thể truy cập trực tiếp.
         /// </summary>
         Task<TutorCccdUrlsResponse> GetTutorCccdUrlsAsync(string tutorId);
+
+        // ── Admin: phân quyền hành động cho Staff ────────────────────────────
+
+        /// <summary>
+        /// Admin only: xem danh sách permission key hiện đang được cấp cho một Staff.
+        /// </summary>
+        Task<StaffPermissionsResponse> AdminGetStaffPermissionsAsync(string staffId);
+
+        /// <summary>
+        /// Admin only: set lại toàn bộ danh sách permission của một Staff (thay thế hoàn toàn).
+        /// </summary>
+        Task<StaffPermissionsResponse> AdminSetStaffPermissionsAsync(string staffId, List<string> permissionKeys, string adminUserId);
     }
 }

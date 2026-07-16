@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -135,6 +135,23 @@ public class WalletService(
             topup.Status = TopupStatus.Completed;
             topup.Completedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 
+            var capture = PaymentTransactionCapture.FromPayOSWebhook(request);
+            var providerTransactionId = capture.GetProviderTransactionId(data.Reference);
+            if (string.IsNullOrWhiteSpace(providerTransactionId)
+                || !await context.PaymentTransactions.AsNoTracking().AnyAsync(t =>
+                    t.Channel == capture.Channel && t.Providertransactionid == providerTransactionId, ct))
+            {
+                context.PaymentTransactions.Add(capture.Create(
+                    PaymentTransactionPurpose.WalletTopup,
+                    PaymentTransactionDirection.Inbound,
+                    topup.Amount ?? data.Amount,
+                    topup.Userid,
+                    data.OrderCode,
+                    data.Reference,
+                    topupRequestId: topup.Topuprequestid,
+                    description: "Wallet top-up payment"));
+            }
+
             await context.SaveChangesAsync(ct);
             await tx.CommitAsync(ct);
 
@@ -158,6 +175,7 @@ public class WalletService(
         return new WalletBalanceResponse
         {
             Balance = bal,
+            AvailableBalance = bal,
             FrozenBalance = frz,
             TotalBalance = bal + frz,
             LastUpdated = w != null ? w.Lastupdated : null
@@ -221,62 +239,6 @@ public class WalletService(
         {
             logger.LogWarning(ex, "Webhook signature verification failed");
             return false;
-        }
-    }
-
-    public async Task<bool> HasSufficientBalanceForVerificationAsync(string userId, decimal verificationCost)
-    {
-        var wallet = await context.Wallets.AsNoTracking()
-            .FirstOrDefaultAsync(w => w.Userid == userId);
-
-        if (wallet == null)
-            return false;
-
-        var balance = wallet.Balance ?? 0;
-        return balance >= verificationCost;
-    }
-
-    public async Task DeductVerificationFeeAsync(string userId, decimal amount, string verificationCode)
-    {
-        await using var tx = await context.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable);
-        try
-        {
-            var wallet = await context.Wallets
-            .FromSqlRaw(SqlQueries.LockWalletByUserId, userId)
-                .FirstOrDefaultAsync()
-                ?? throw new BookingException(WalletErrorCodes.WalletNotFound, "Không tìm thấy ví", 404);
-
-            var balance = wallet.Balance ?? 0;
-            if (balance < amount)
-                throw new BookingException(
-                    WalletErrorCodes.InsufficientBalanceForVerification,
-                    $"Insufficient balance. Required: {amount}, Available: {balance}",
-                    400);
-
-            wallet.Balance = balance - amount;
-            wallet.Lastupdated = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
-
-            context.Wallettransactions.Add(new Wallettransaction
-            {
-                Wallet = wallet,
-                Amount = -amount,
-                Transactiontype = TransactionType.BankVerification,
-                Referencetable = ReferenceTable.TutorProfiles,
-                Referenceid = null,
-                Description = $"Bank verification fee - Code: {verificationCode}",
-                Ordercode = null,
-                Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
-            });
-
-            await context.SaveChangesAsync();
-            await tx.CommitAsync();
-
-            logger.LogInformation("Deducted {Amount} verification fee for user {UserId}", amount, userId);
-        }
-        catch
-        {
-            await tx.RollbackAsync();
-            throw;
         }
     }
 
