@@ -74,7 +74,20 @@ public class AdminBookingService(IAppDbContext context) : IAdminBookingService
             .SelectMany(
                 x => x.Students.DefaultIfEmpty(),
                 (x, sp) => new { x.b, x.TutorUser, x.TutorProfile, x.ParentUser, StudentProfile = sp })
-            .Select(x => new { x.b, x.TutorUser, x.TutorProfile, x.ParentUser, x.StudentProfile });
+            .Select(x => new
+            {
+                x.b,
+                x.TutorUser,
+                x.TutorProfile,
+                x.ParentUser,
+                x.StudentProfile,
+                PaymentCode = context.PaymentRequests
+                    .Where(r => r.Bookingid == x.b.Bookingid)
+                    .OrderByDescending(r => r.Createdat)
+                    .ThenByDescending(r => r.Paymentrequestid)
+                    .Select(r => r.Paymentlinkid)
+                    .FirstOrDefault()
+            });
 
         // ── Filter theo search (phải sau join để match tên) ──────────────────
         if (!string.IsNullOrWhiteSpace(search))
@@ -84,7 +97,7 @@ public class AdminBookingService(IAppDbContext context) : IAdminBookingService
                 (x.TutorUser.Fullname != null && x.TutorUser.Fullname.ToLower().Contains(kw)) ||
                 (x.ParentUser != null && x.ParentUser.Fullname != null && x.ParentUser.Fullname.ToLower().Contains(kw)) ||
                 (x.ParentUser != null && x.ParentUser.Email != null && x.ParentUser.Email.ToLower().Contains(kw)) ||
-                (x.b.Paymentcode != null && x.b.Paymentcode.ToLower().Contains(kw)));
+                (x.PaymentCode != null && x.PaymentCode.ToLower().Contains(kw)));
         }
 
         // ── Count trước khi phân trang ────────────────────────────────────────
@@ -102,7 +115,7 @@ public class AdminBookingService(IAppDbContext context) : IAdminBookingService
                 x.b.Status,
                 x.b.Paymentstatus,
                 Teachingmode = TeachingMode.Online,
-                x.b.Paymentcode,
+                x.PaymentCode,
                 // Tutor
                 TutorId      = x.TutorUser.Userid,
                 TutorName    = x.TutorUser.Fullname,
@@ -165,7 +178,7 @@ public class AdminBookingService(IAppDbContext context) : IAdminBookingService
                 Status           = x.Status,
                 PaymentStatus    = x.Paymentstatus,
                 TeachingMode     = TeachingMode.Online,
-                PaymentCode      = x.Paymentcode,
+                PaymentCode      = x.PaymentCode,
                 // Tutor
                 TutorId          = x.TutorId,
                 TutorName        = x.TutorName,
@@ -240,7 +253,12 @@ public class AdminBookingService(IAppDbContext context) : IAdminBookingService
                 x.b.Bookingid,
                 x.b.Status,
                 Teachingmode = TeachingMode.Online,
-                x.b.Paymentcode,
+                PaymentCode = context.PaymentRequests
+                    .Where(r => r.Bookingid == x.b.Bookingid)
+                    .OrderByDescending(r => r.Createdat)
+                    .ThenByDescending(r => r.Paymentrequestid)
+                    .Select(r => r.Paymentlinkid)
+                    .FirstOrDefault(),
                 // Location fields
                 x.b.Locationdetail,
                 x.b.Locationward,
@@ -367,7 +385,7 @@ public class AdminBookingService(IAppDbContext context) : IAdminBookingService
             BookingId   = row.Bookingid,
             Status      = row.Status,
             TeachingMode = TeachingMode.Online,
-            PaymentCode = row.Paymentcode,
+            PaymentCode = row.PaymentCode,
             Location    = string.IsNullOrEmpty(locationString) ? null : locationString,
 
             Tutor = new AdminBookingPartyInfo

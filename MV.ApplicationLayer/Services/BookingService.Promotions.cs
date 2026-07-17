@@ -60,6 +60,7 @@ public partial class BookingService
             .Include(b => b.Tutorsubjectgradeprice).ThenInclude(p => p!.Gradelevel)
             .Include(b => b.Package)
             .Include(b => b.ClassSessions)
+            .Include(b => b.Paymentrequests)
             .FirstOrDefaultAsync(b => b.Bookingid == bookingId &&
                 (b.Parentid == userId || b.Studentid == userId || b.Student.Linkeduserid == userId));
 
@@ -70,7 +71,9 @@ public partial class BookingService
             return null;
         }
 
-        if (!string.IsNullOrEmpty(booking.Paymentcode))
+        if (booking.Paymentrequests.Any(r =>
+            r.Provider == PaymentRequestProvider.PayOS
+            && PaymentRequestStatus.IsActive(r.Status)))
         {
             throw new BookingException(
                 BookingErrorCodes.InvalidBookingStatus,
@@ -99,8 +102,6 @@ public partial class BookingService
         booking.Depositamount = depositAmount;
         booking.Remainingamount = remainingAmount;
         booking.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
-        ClearCachedPayosLink(booking);
-
         await UpdatePromotionUsageCountAsync(previousPromotionId, promoResult.PromotionId.Value);
 
         await context.SaveChangesAsync();
@@ -322,17 +323,6 @@ public partial class BookingService
             return booking.Totalsessions!.Value;
 
         return booking.ClassSessions.Count > 0 ? booking.ClassSessions.Count : 1;
-    }
-
-    private static void ClearCachedPayosLink(Booking booking)
-    {
-        booking.Paymentcode = null;
-        booking.Payosbin = null;
-        booking.Payosaccountnumber = null;
-        booking.Payosaccountname = null;
-        booking.Payosdescription = null;
-        booking.Payoscheckouturl = null;
-        booking.Payosqrcode = null;
     }
 
     private async Task UpdatePromotionUsageCountAsync(int? previousPromotionId, int newPromotionId)

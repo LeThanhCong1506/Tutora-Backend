@@ -119,7 +119,7 @@ public class AdminPayoutController(
             if (string.IsNullOrEmpty(ActorUserId))
                 return Unauthorized(APIResponse<object>.Fail(ApiMessages.ActorUserIdNotFound, 401));
 
-            var result = await adminPayoutService.ApproveRequestAsync(id, ActorUserId, ActorRole, request.Note, ct);
+            var result = await adminPayoutService.ApproveRequestAsync(id, ActorUserId, ActorRole, request, ct);
             return result.Success
                 ? Ok(APIResponse<ApproveResult>.Success(result, "Duyệt yêu cầu rút tiền thành công."))
                 : BadRequest(APIResponse<object>.Fail(result.Message, 400));

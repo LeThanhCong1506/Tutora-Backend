@@ -22,7 +22,7 @@ public class SystemAlertService(IAppDbContext context) : ISystemAlertService
             .OrderByDescending(a => a.Createdat)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
-            .Select(a => new { a.Alertid, a.Type, a.Severity, a.Message, a.Resolved, a.Resolvedat, a.Resolvedby, a.Createdat })
+            .Select(a => new { a.Alertid, a.Type, a.Severity, a.Message, a.Metadata, a.Resolved, a.Resolvedat, a.Resolvedby, a.Createdat })
             .ToListAsync(ct);
 
         var items = rawItems.Select(a => new SystemAlertItem
@@ -31,6 +31,7 @@ public class SystemAlertService(IAppDbContext context) : ISystemAlertService
             Type = a.Type,
             Severity = a.Severity,
             Message = a.Message,
+            Metadata = a.Metadata,
             Resolved = a.Resolved,
             ResolvedAt = a.Resolvedat,
             ResolvedBy = a.Resolvedby,

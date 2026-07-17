@@ -698,7 +698,11 @@ public partial class BookingService(
             PlatformFee = b.Platformfee,
             Status = b.Status,
             PaymentStatus = b.Paymentstatus,
-            PaymentCode = b.Paymentcode,
+            PaymentCode = b.Paymentrequests
+                .OrderByDescending(r => r.Createdat)
+                .ThenByDescending(r => r.Paymentrequestid)
+                .Select(r => r.Paymentlinkid)
+                .FirstOrDefault(),
             Schedule = classSessions?.Select(l => 
             {
                 // Convert C# DayOfWeek (0=Sunday, 1=Monday...) to ISO format (1=Monday, 7=Sunday)

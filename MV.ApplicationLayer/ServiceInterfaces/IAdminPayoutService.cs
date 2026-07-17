@@ -1,3 +1,4 @@
+using MV.DomainLayer.DTO.RequestModel.Admin;
 using MV.DomainLayer.DTO.ResponseModel.Admin;
 
 namespace MV.ApplicationLayer.ServiceInterfaces;
@@ -35,7 +36,12 @@ public interface IAdminPayoutService
     /// Approve a withdrawal request. Decision stored in DB differs based on actorRole:
     /// Admin → ADMIN_APPROVED, Staff → STAFF_APPROVED.
     /// </summary>
-    Task<ApproveResult> ApproveRequestAsync(int withdrawalId, string actorUserId, string actorRole, string? note = null, CancellationToken ct = default);
+    Task<ApproveResult> ApproveRequestAsync(
+        int withdrawalId,
+        string actorUserId,
+        string actorRole,
+        ApproveWithdrawalRequest request,
+        CancellationToken ct = default);
 
     /// <summary>
     /// Reject a withdrawal request and refund the tutor's wallet.

@@ -1,10 +1,9 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
 using MV.ApplicationLayer.Helpers;
 using MV.ApplicationLayer.ServiceInterfaces;
-using MV.DomainLayer.Configuration;
+using PayOS;
 using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO.RequestModel;
 using MV.DomainLayer.DTO.ResponseModel;
@@ -12,68 +11,20 @@ using MV.DomainLayer.Entities;
 using MV.DomainLayer.Exceptions;
 using MV.DomainLayer.Helpers;
 using MV.ApplicationLayer.Interfaces;
-using PayOS;
 
 namespace MV.ApplicationLayer.Services;
 
 public class WalletService(
     IAppDbContext context,
-    IOptions<PaymentSettings> paymentSettings,
     [FromKeyedServices(ServiceKeys.PayOS.Checkout)] PayOSClient payOS,
     ILogger<WalletService> logger) : IWalletService
 {
     private readonly PayOSClient _payOS = payOS;
-    private readonly PayOSLinkFactory _linkFactory = new(
-        payOS,
-        paymentSettings.Value.ReturnUrl,
-        paymentSettings.Value.CancelUrl);
 
-    public async Task<TopupResponse> CreateTopupRequestAsync(string userId, TopupRequest request)
-    {
-        var orderCode = await GenerateUniqueOrderCodeAsync(userId);
-        var topup = new Topuprequest
-        {
-            Ordercode = orderCode,
-            Userid = userId,
-            Amount = request.Amount,
-            Status = TopupStatus.Pending,
-            Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow,
-            Expiresat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow.AddHours(24)
-        };
-
-        context.Topuprequests.Add(topup);
-
-        try
-        {
-            var paymentLink = await _linkFactory.CreatePaymentLink(orderCode, (int)request.Amount, $"Topup #{orderCode}", (int)DateTimeOffset.UtcNow.AddHours(24).ToUnixTimeSeconds());
-            topup.Paymentlinkid = paymentLink.PaymentLinkId;
-            await context.SaveChangesAsync();
-
-            logger.LogInformation("Created topup request {OrderCode} for user {UserId}", orderCode, userId);
-
-            return new TopupResponse
-            {
-                PaymentLinkId = paymentLink.PaymentLinkId,
-                OrderCode = orderCode,
-                Amount = request.Amount,
-                Currency = paymentLink.Currency ?? Currency.Vnd,
-                CheckoutUrl = paymentLink.CheckoutUrl,
-                QrCode = paymentLink.QrCode,
-                AccountNumber = paymentLink.AccountNumber ?? "",
-                AccountName = paymentLink.AccountName ?? "",
-                Bin = paymentLink.Bin ?? "",
-                Description = paymentLink.Description ?? "",
-                ExpiredAt = paymentLink.ExpiredAt.HasValue ? DateTimeOffset.FromUnixTimeSeconds(paymentLink.ExpiredAt.Value).UtcDateTime : null
-            };
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "Failed to create topup request for user {UserId}", userId);
-            throw new BookingException(WalletErrorCodes.InvalidAmount, "Tạo yêu cầu nạp tiền thất bại: " + ex.Message, 500);
-        }
-    }
-
-    public async Task ProcessTopupWebhookAsync(PaymentWebhookRequest request, CancellationToken ct = default)
+    public async Task ProcessTopupWebhookAsync(
+        PaymentWebhookRequest request,
+        string rawPayload,
+        CancellationToken ct = default)
     {
         if (request?.Data == null)
             throw new BookingException(WalletErrorCodes.InvalidAmount, "Dữ liệu webhook không hợp lệ", 400);
@@ -87,59 +38,103 @@ public class WalletService(
         var data = request.Data;
         logger.LogInformation("Processing topup webhook orderCode: {OrderCode}, amount: {Amount}", data.OrderCode, data.Amount);
 
-        if (await context.Wallettransactions.AsNoTracking()
-            .AnyAsync(w => w.Ordercode == data.OrderCode, ct))
-        {
-            logger.LogWarning("Duplicate topup transaction {OrderCode}", data.OrderCode);
-            return;
-        }
-
-        var topup = await context.Topuprequests
-            .FirstOrDefaultAsync(t => t.Ordercode == data.OrderCode, ct)
-            ?? throw new BookingException(WalletErrorCodes.TopupNotFound, "Không tìm thấy yêu cầu nạp tiền", 404);
-
-        if (data.Amount != (int)(topup.Amount ?? 0))
-            throw new BookingException(WalletErrorCodes.AmountMismatch, "Số tiền không khớp", 409);
-
-        if (topup.Status == TopupStatus.Completed)
-        {
-            logger.LogWarning("Topup {OrderCode} already completed", data.OrderCode);
-            return;
-        }
-
         await using var tx = await context.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, ct);
         try
         {
-            var w = await context.Wallets
-            .FromSqlRaw(SqlQueries.LockWalletByUserId, topup.Userid)
-                .FirstOrDefaultAsync(ct)
-                ?? new Wallet { Userid = topup.Userid, Balance = 0, Frozenbalance = 0, Lastupdated = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow };
+            var topup = await context.Topuprequests
+                .FirstOrDefaultAsync(t => t.Ordercode == data.OrderCode, ct)
+                ?? throw new BookingException(WalletErrorCodes.TopupNotFound, "Không tìm thấy yêu cầu nạp bù của booking.", 404);
 
-            if (w.Walletid == 0) context.Wallets.Add(w);
-
-            w.Balance = (w.Balance ?? 0) + topup.Amount;
-            w.Lastupdated = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
-
-            context.Wallettransactions.Add(new Wallettransaction
+            if (topup.Bookingid is null
+                || topup.Paymentphase is not (
+                    PaymentRequestPhase.Deposit or PaymentRequestPhase.Remaining)
+                || string.IsNullOrWhiteSpace(topup.Userid)
+                || !topup.Amount.HasValue
+                || topup.Amount.Value <= 0)
             {
-                Wallet = w,
-                Amount = topup.Amount,
-                Transactiontype = TransactionType.Deposit,
-                Referencetable = ReferenceTable.Topup,
-                Referenceid = topup.Topuprequestid,
-                Description = data.Reference,
-                Ordercode = data.OrderCode,
-                Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
-            });
+                throw new BookingException(
+                    WalletErrorCodes.TopupNotFound,
+                    "Top-up truyền thống không còn được hỗ trợ.",
+                    409);
+            }
 
-            topup.Status = TopupStatus.Completed;
-            topup.Completedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
+            if (data.Amount != (int)(topup.Amount ?? 0))
+                throw new BookingException(WalletErrorCodes.AmountMismatch, "Số tiền không khớp", 409);
 
-            var capture = PaymentTransactionCapture.FromPayOSWebhook(request);
+            var capture = PaymentTransactionCapture.FromPayOSWebhook(
+                request,
+                rawPayload);
             var providerTransactionId = capture.GetProviderTransactionId(data.Reference);
-            if (string.IsNullOrWhiteSpace(providerTransactionId)
-                || !await context.PaymentTransactions.AsNoTracking().AnyAsync(t =>
-                    t.Channel == capture.Channel && t.Providertransactionid == providerTransactionId, ct))
+
+            var walletTransactionExists = await context.Wallettransactions
+                .AsNoTracking()
+                .AnyAsync(w => w.Ordercode == data.OrderCode
+                    && w.Referencetable == ReferenceTable.Topup, ct);
+
+            var paymentTransactionExists = !string.IsNullOrWhiteSpace(providerTransactionId)
+                ? await context.PaymentTransactions.AsNoTracking().AnyAsync(t =>
+                    t.Paymentmethod == PaymentTransactionMethod.PayOS
+                    && t.Providertransactionid == providerTransactionId, ct)
+                : await context.PaymentTransactions.AsNoTracking().AnyAsync(t =>
+                    t.Purpose == PaymentTransactionPurpose.WalletTopup
+                    && t.Ordercode == data.OrderCode, ct);
+
+            if (topup.Status == TopupStatus.Completed
+                && walletTransactionExists
+                && paymentTransactionExists)
+            {
+                await tx.CommitAsync(ct);
+                logger.LogInformation(
+                    "Booking shortfall top-up {OrderCode} was already fully processed",
+                    data.OrderCode);
+                return;
+            }
+
+            if (!walletTransactionExists && topup.Status != TopupStatus.Completed)
+            {
+                var wallet = await context.Wallets
+                    .FromSqlRaw(SqlQueries.LockWalletByUserId, topup.Userid)
+                    .FirstOrDefaultAsync(ct)
+                    ?? new Wallet
+                    {
+                        Userid = topup.Userid,
+                        Balance = 0,
+                        Frozenbalance = 0,
+                        Lastupdated = TimeZoneHelper.UtcNow
+                    };
+
+                if (wallet.Walletid == 0)
+                    context.Wallets.Add(wallet);
+
+                wallet.Balance = (wallet.Balance ?? 0) + topup.Amount;
+                wallet.Lastupdated = TimeZoneHelper.UtcNow;
+
+                context.Wallettransactions.Add(new Wallettransaction
+                {
+                    Wallet = wallet,
+                    Amount = topup.Amount,
+                    Transactiontype = TransactionType.Deposit,
+                    Referencetable = ReferenceTable.Topup,
+                    Referenceid = topup.Topuprequestid,
+                    Description = data.Reference,
+                    Ordercode = data.OrderCode,
+                    Createdat = TimeZoneHelper.UtcNow
+                });
+            }
+            else if (!walletTransactionExists)
+            {
+                logger.LogWarning(
+                    "Completed booking shortfall top-up {OrderCode} has no wallet ledger row; skipping balance mutation to avoid a double credit",
+                    data.OrderCode);
+            }
+
+            if (topup.Status != TopupStatus.Completed)
+            {
+                topup.Status = TopupStatus.Completed;
+                topup.Completedat = TimeZoneHelper.UtcNow;
+            }
+
+            if (!paymentTransactionExists)
             {
                 context.PaymentTransactions.Add(capture.Create(
                     PaymentTransactionPurpose.WalletTopup,
@@ -148,14 +143,19 @@ public class WalletService(
                     topup.Userid,
                     data.OrderCode,
                     data.Reference,
-                    topupRequestId: topup.Topuprequestid,
-                    description: "Wallet top-up payment"));
+                    bookingId: topup.Bookingid,
+                    description: "Booking shortfall wallet top-up payment"));
             }
 
             await context.SaveChangesAsync(ct);
             await tx.CommitAsync(ct);
 
-            logger.LogInformation("Topup {OrderCode} completed for user {UserId}", data.OrderCode, topup.Userid);
+            logger.LogInformation(
+                "Booking shortfall top-up {OrderCode} reconciled for user {UserId}; walletLedgerExisted={WalletLedgerExisted}, paymentAuditExisted={PaymentAuditExisted}",
+                data.OrderCode,
+                topup.Userid,
+                walletTransactionExists,
+                paymentTransactionExists);
         }
         catch
         {
@@ -227,32 +227,141 @@ public class WalletService(
         };
     }
 
-    public async Task<bool> VerifyWebhookSignatureAsync(string payload, string signature)
+    public async Task<TopupStatusResponse> GetBookingShortfallTopupStatusAsync(
+        int bookingId,
+        long orderCode,
+        string userId,
+        CancellationToken ct = default)
     {
+        var topup = await context.Topuprequests.AsNoTracking()
+            .FirstOrDefaultAsync(t =>
+                t.Bookingid == bookingId
+                && t.Ordercode == orderCode
+                && t.Userid == userId,
+                ct)
+            ?? throw new BookingException(
+                WalletErrorCodes.TopupNotFound,
+                "Không tìm thấy yêu cầu nạp bù của booking.",
+                404);
+
+        if (topup.Status == TopupStatus.Completed)
+        {
+            return await BuildTopupStatusResponseAsync(
+                topup,
+                TopupStatus.Completed,
+                ct);
+        }
+
+        if (string.IsNullOrWhiteSpace(topup.Paymentlinkid))
+        {
+            return await BuildTopupStatusResponseAsync(
+                topup,
+                topup.Status ?? TopupStatus.Pending,
+                ct);
+        }
+
         try
         {
-            var webhook = System.Text.Json.JsonSerializer.Deserialize<PayOS.Models.Webhooks.Webhook>(payload);
-            if (webhook == null) return false;
-            return await _payOS.Webhooks.VerifyAsync(webhook) != null;
+            var info = await _payOS.PaymentRequests.GetAsync(topup.Paymentlinkid);
+            var payosStatus = info.Status.ToString();
+
+            if (payosStatus.Equals(
+                PayOSLinkStatus.Paid,
+                StringComparison.OrdinalIgnoreCase))
+            {
+                var capture = PaymentTransactionCapture
+                    .FromPayOSPaymentLink(info)
+                    .FirstOrDefault(c => c.ObservedAmount == (topup.Amount ?? 0));
+
+                if (capture != null)
+                {
+                    var synthetic = new PaymentWebhookRequest
+                    {
+                        Code = PayOSWebhookCode.SuccessCode,
+                        Desc = PayOSWebhookCode.SuccessDesc,
+                        Success = true,
+                        Data = new PayOSWebhookData
+                        {
+                            OrderCode = orderCode,
+                            Amount = checked((int)(topup.Amount ?? 0)),
+                            Reference = capture.ProviderTransactionId
+                                ?? $"payos-link-{info.Id}",
+                            PaymentLinkId = topup.Paymentlinkid,
+                            Description = capture.Description
+                                ?? $"Bu booking #{bookingId}",
+                            TransactionDateTime = capture.PaidAtUtc?.ToString("O")
+                                ?? "",
+                            Currency = capture.Currency ?? Currency.Vnd
+                        }
+                    };
+
+                    await ProcessTopupWebhookAsync(
+                        synthetic,
+                        System.Text.Json.JsonSerializer.Serialize(info),
+                        ct);
+                }
+                else
+                {
+                    logger.LogWarning(
+                        "Paid PayOS link {PaymentLinkId} for booking shortfall top-up {OrderCode} has no exact transaction capture yet",
+                        topup.Paymentlinkid,
+                        orderCode);
+                }
+            }
+
+            var refreshed = await context.Topuprequests.AsNoTracking()
+                .FirstOrDefaultAsync(t =>
+                    t.Bookingid == bookingId
+                    && t.Ordercode == orderCode
+                    && t.Userid == userId,
+                    ct)
+                ?? topup;
+            return await BuildTopupStatusResponseAsync(
+                refreshed,
+                payosStatus,
+                ct);
+        }
+        catch (OperationCanceledException)
+            when (ct.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Webhook signature verification failed");
-            return false;
+            logger.LogWarning(
+                ex,
+                "Failed to reconcile booking shortfall top-up {OrderCode}",
+                orderCode);
+            return await BuildTopupStatusResponseAsync(
+                topup,
+                topup.Status ?? TopupStatus.Pending,
+                ct);
         }
     }
 
-    private async Task<long> GenerateUniqueOrderCodeAsync(string userId)
+    private async Task<TopupStatusResponse> BuildTopupStatusResponseAsync(
+        Topuprequest topup,
+        string status,
+        CancellationToken ct)
     {
-        for (var i = 0; i < 10; i++)
+        var wallet = await context.Wallets.AsNoTracking()
+            .FirstOrDefaultAsync(w => w.Userid == topup.Userid, ct);
+        var walletCredited = topup.Status == TopupStatus.Completed
+            && await context.Wallettransactions.AsNoTracking()
+                .AnyAsync(t =>
+                    t.Ordercode == topup.Ordercode
+                    && t.Referencetable == ReferenceTable.Topup,
+                    ct);
+
+        return new TopupStatusResponse
         {
-            var orderCode = OrderCodeHelper.GenerateTopupOrderCode(userId);
-
-            if (!await context.Topuprequests.AsNoTracking()
-                .AnyAsync(t => t.Ordercode == orderCode))
-                return orderCode;
-        }
-
-        throw new BookingException(WalletErrorCodes.InvalidAmount, "Không thể tạo mã đơn hàng duy nhất", 500);
+            OrderCode = topup.Ordercode,
+            BookingId = topup.Bookingid ?? 0,
+            PaymentPhase = topup.Paymentphase ?? "",
+            Status = status,
+            WalletCredited = walletCredited,
+            Amount = topup.Amount ?? 0,
+            WalletBalance = wallet?.Balance ?? 0
+        };
     }
 }

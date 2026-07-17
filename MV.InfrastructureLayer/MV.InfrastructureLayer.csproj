@@ -12,6 +12,24 @@
   </ItemGroup>
 
 	<ItemGroup>
+		<EmbeddedResource Include="..\migrations\V20260715b__drop_payment_transactions_topup_request_id.sql">
+			<LogicalName>MV.InfrastructureLayer.Migrations.V20260715b__drop_payment_transactions_topup_request_id.sql</LogicalName>
+		</EmbeddedResource>
+		<EmbeddedResource Include="..\migrations\V20260716__payment_requests_and_transaction_reconciliation.sql">
+			<LogicalName>MV.InfrastructureLayer.Migrations.V20260716__payment_requests_and_transaction_reconciliation.sql</LogicalName>
+		</EmbeddedResource>
+		<EmbeddedResource Include="..\migrations\V20260716b__backfill_payment_transaction_destination_accounts.sql">
+			<LogicalName>MV.InfrastructureLayer.Migrations.V20260716b__backfill_payment_transaction_destination_accounts.sql</LogicalName>
+		</EmbeddedResource>
+		<EmbeddedResource Include="..\migrations\V20260717__rename_payment_transaction_channel_to_payment_method.sql">
+			<LogicalName>MV.InfrastructureLayer.Migrations.V20260717__rename_payment_transaction_channel_to_payment_method.sql</LogicalName>
+		</EmbeddedResource>
+		<EmbeddedResource Include="..\migrations\V20260717b__scope_topup_requests_to_booking_shortfall.sql">
+			<LogicalName>MV.InfrastructureLayer.Migrations.V20260717b__scope_topup_requests_to_booking_shortfall.sql</LogicalName>
+		</EmbeddedResource>
+	</ItemGroup>
+
+	<ItemGroup>
 		<PackageReference Include="BCrypt.Net-Next" Version="4.0.3" />
 		<PackageReference Include="CloudinaryDotNet" Version="1.27.8" />
 		<PackageReference Include="Confluent.Kafka" Version="2.12.0" />

@@ -25,6 +25,7 @@ public class BookingRepository(AgoraDbContext context) : IBookingRepository
             .Include(b => b.Tutorsubjectgradeprice).ThenInclude(p => p!.Gradelevel)
             .Include(b => b.Package)
             .Include(b => b.ClassSessions)
+            .Include(b => b.Paymentrequests)
             .FirstOrDefaultAsync(b => b.Bookingid == id);
 
     public async Task<Booking?> FindWithRelationsForUpdateAsync(int id, CancellationToken ct = default)
@@ -34,6 +35,12 @@ public class BookingRepository(AgoraDbContext context) : IBookingRepository
             .SingleOrDefaultAsync(ct);
 
         if (booking == null) return null;
+
+        // FromSqlRaw still resolves to an already-tracked instance when the
+        // same DbContext read this booking earlier. The SELECT above acquires
+        // the row lock, but ReloadAsync is required to replace stale scalar
+        // values with the state that won the lock.
+        await context.Entry(booking).ReloadAsync(ct);
 
         await context.Entry(booking).Reference(b => b.Student).LoadAsync(ct);
         if (booking.Student != null)
@@ -55,6 +62,7 @@ public class BookingRepository(AgoraDbContext context) : IBookingRepository
 
         await context.Entry(booking).Reference(b => b.Package).LoadAsync(ct);
         await context.Entry(booking).Collection(b => b.ClassSessions).LoadAsync(ct);
+        await context.Entry(booking).Collection(b => b.Paymentrequests).LoadAsync(ct);
         return booking;
     }
 
@@ -67,6 +75,7 @@ public class BookingRepository(AgoraDbContext context) : IBookingRepository
             .Include(b => b.Tutorsubjectgradeprice).ThenInclude(p => p!.Gradelevel)
             .Include(b => b.Package)
             .Include(b => b.ClassSessions)
+            .Include(b => b.Paymentrequests)
             .FirstOrDefaultAsync(b => b.Bookingid == id &&
                 (b.Parentid == userId || b.Studentid == userId || b.Student!.Linkeduserid == userId || b.Tutorid == userId));
 
@@ -82,6 +91,7 @@ public class BookingRepository(AgoraDbContext context) : IBookingRepository
             .Include(b => b.Tutorsubjectgradeprice).ThenInclude(p => p!.Gradelevel)
             .Include(b => b.Package)
             .Include(b => b.ClassSessions)
+            .Include(b => b.Paymentrequests)
             .Where(b => b.Parentid == parentId);
 
         if (!string.IsNullOrWhiteSpace(status))
@@ -108,6 +118,7 @@ public class BookingRepository(AgoraDbContext context) : IBookingRepository
             .Include(b => b.Tutorsubjectgradeprice).ThenInclude(p => p!.Gradelevel)
             .Include(b => b.Package)
             .Include(b => b.ClassSessions)
+            .Include(b => b.Paymentrequests)
             .Where(b => b.Studentid != null && ids.Contains(b.Studentid));
 
         if (!string.IsNullOrWhiteSpace(status))
@@ -133,6 +144,7 @@ public class BookingRepository(AgoraDbContext context) : IBookingRepository
             .Include(b => b.Tutorsubjectgradeprice).ThenInclude(p => p!.Gradelevel)
             .Include(b => b.Package)
             .Include(b => b.ClassSessions)
+            .Include(b => b.Paymentrequests)
             .Where(b => b.Tutorid == tutorId);
 
         if (!string.IsNullOrWhiteSpace(status))
@@ -156,6 +168,7 @@ public class BookingRepository(AgoraDbContext context) : IBookingRepository
 
     public Task<Booking?> FindForPaymentByUserAsync(int id, string userId, CancellationToken ct = default)
         => context.Bookings
+            .AsNoTracking()
             .Include(b => b.Student)
             .Include(b => b.Tutorsubjectgradeprice)
             .FirstOrDefaultAsync(b => b.Bookingid == id
@@ -165,7 +178,7 @@ public class BookingRepository(AgoraDbContext context) : IBookingRepository
         => context.Bookings.FirstOrDefaultAsync(b => b.Bookingid == id, ct);
 
     public Task<bool> PaymentCodeExistsAsync(string paymentCode)
-        => context.Bookings.AnyAsync(b => b.Paymentcode == paymentCode);
+        => context.PaymentRequests.AnyAsync(r => r.Paymentlinkid == paymentCode);
 
     public void Add(Booking booking)
         => context.Bookings.Add(booking);

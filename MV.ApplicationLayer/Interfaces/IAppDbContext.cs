@@ -49,6 +49,7 @@ public interface IAppDbContext
     DbSet<Userwarning> Userwarnings { get; }
     DbSet<Wallet> Wallets { get; }
     DbSet<Wallettransaction> Wallettransactions { get; }
+    DbSet<PaymentRequest> PaymentRequests { get; }
     DbSet<PaymentTransaction> PaymentTransactions { get; }
     DbSet<Withdrawalrequest> Withdrawalrequests { get; }
     DbSet<WithdrawalScore> Withdrawalscores { get; }
