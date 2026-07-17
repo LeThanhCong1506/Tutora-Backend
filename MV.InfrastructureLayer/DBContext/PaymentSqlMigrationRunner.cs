@@ -75,7 +75,9 @@ public static class PaymentSqlMigrationRunner
                         StringComparison.OrdinalIgnoreCase))
                     {
                         throw new InvalidOperationException(
-                            $"Migration {migration.Version} was already applied with a different checksum.");
+                            $"Migration {migration.Version} was already applied with a different checksum. "
+                            + $"Applied={appliedChecksum}; expected={checksum}. "
+                            + "Restore the immutable SQL artifact instead of rewriting migration history.");
                     }
 
                     logger.LogInformation(
