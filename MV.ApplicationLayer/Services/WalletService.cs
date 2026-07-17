@@ -17,9 +17,11 @@ namespace MV.ApplicationLayer.Services;
 public class WalletService(
     IAppDbContext context,
     [FromKeyedServices(ServiceKeys.PayOS.Checkout)] PayOSClient payOS,
+    IFileStorageService fileStorageService,
     ILogger<WalletService> logger) : IWalletService
 {
     private readonly PayOSClient _payOS = payOS;
+    private const decimal MinWithdrawalAmount = 10000m;
 
     public async Task ProcessTopupWebhookAsync(
         PaymentWebhookRequest request,
@@ -224,6 +226,227 @@ public class WalletService(
             TotalCount = total,
             Page = page,
             PageSize = pageSize
+        };
+    }
+
+    public async Task<TransactionHistoryResponse> GetTransactionDetailAsync(
+        string userId, int transactionId, CancellationToken ct = default)
+    {
+        var raw = await context.Wallettransactions
+            .AsNoTracking()
+            .Where(t => t.Transactionid == transactionId && t.Wallet!.Userid == userId)
+            .Select(t => new { t.Transactionid, t.Amount, t.Transactiontype, t.Description, t.Referenceid, t.Referencetable, t.Createdat })
+            .FirstOrDefaultAsync(ct);
+
+        if (raw == null)
+            throw new TransactionNotFoundException();
+
+        string? providerTransactionId = null;
+        DateTime? paidAt = null;
+        string? proofImageUrl = null;
+
+        if (raw.Referencetable == ReferenceTable.Withdrawal && raw.Referenceid.HasValue)
+        {
+            var proof = await PayoutProofResolver.ResolveAsync(context, fileStorageService, raw.Referenceid.Value, ct);
+            providerTransactionId = proof.ProviderTransactionId;
+            paidAt = proof.PaidAt;
+            proofImageUrl = proof.ProofImageUrl;
+        }
+
+        return new TransactionHistoryResponse
+        {
+            TransactionId = raw.Transactionid,
+            Amount = raw.Amount ?? 0,
+            TransactionType = raw.Transactiontype ?? string.Empty,
+            Description = raw.Description ?? string.Empty,
+            ReferenceId = raw.Referenceid,
+            ReferenceTable = raw.Referencetable,
+            CreatedAt = raw.Createdat ?? TimeZoneHelper.UtcNow,
+            ProviderTransactionId = providerTransactionId,
+            PaidAt = paidAt,
+            ProofImageUrl = proofImageUrl
+        };
+    }
+
+    /// <summary>
+    /// Parent (or any wallet owner with no saved BankAccount) withdrawal creation — the bank
+    /// destination always comes straight from the request, never from a saved account, and is
+    /// snapshotted onto the withdrawal row so it survives later bank-account edits/deletes.
+    /// </summary>
+    public async Task<WithdrawalDetailResponse> CreateWithdrawalAsync(
+        string userId, CreateWithdrawalRequest request, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(request.BankName)
+            || string.IsNullOrWhiteSpace(request.AccountNumber)
+            || string.IsNullOrWhiteSpace(request.AccountHolderName))
+            throw new BankInfoRequiredException();
+
+        await using var transaction = await context.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, ct);
+        var committed = false;
+
+        try
+        {
+            var wallet = await context.Wallets
+                .FromSqlRaw(SqlQueries.LockWalletByUserId, userId)
+                .FirstOrDefaultAsync(ct);
+
+            if (wallet == null)
+                throw new WalletNotFoundException();
+
+            if ((wallet.Balance ?? 0) < request.Amount)
+                throw new InsufficientBalanceException();
+
+            var pendingWithdrawal = await context.Withdrawalrequests
+                .AnyAsync(w => w.Userid == userId
+                               && (w.Status == WithdrawalStatus.Pending
+                                   || w.Status == WithdrawalStatus.Delayed
+                                   || w.Status == WithdrawalStatus.PendingReview
+                                   || w.Status == WithdrawalStatus.Approved), ct);
+
+            if (pendingWithdrawal)
+                throw new PendingWithdrawalException();
+
+            if (request.Amount < MinWithdrawalAmount)
+                throw new WithdrawalAmountTooLowException(MinWithdrawalAmount);
+
+            wallet.Balance -= request.Amount;
+            wallet.Lastupdated = TimeZoneHelper.UtcNow;
+
+            var withdrawal = new Withdrawalrequest
+            {
+                Userid = userId,
+                Walletid = wallet.Walletid,
+                Amount = request.Amount,
+                Bankname = request.BankName.Trim(),
+                Accountnumber = request.AccountNumber.Trim(),
+                Accountholdername = request.AccountHolderName.Trim(),
+                Status = WithdrawalStatus.PendingReview,
+                Decision = TrustScoringConstants.Decisions.ManualReview,
+                Requestedat = TimeZoneHelper.UtcNow
+            };
+
+            context.Withdrawalrequests.Add(withdrawal);
+
+            var walletTransaction = new Wallettransaction
+            {
+                Walletid = wallet.Walletid,
+                Amount = -request.Amount,
+                Transactiontype = TransactionType.Withdrawal,
+                Referencetable = ReferenceTable.Withdrawal,
+                Description = "Withdrawal request",
+                Createdat = TimeZoneHelper.UtcNow
+            };
+
+            context.Wallettransactions.Add(walletTransaction);
+
+            await context.SaveChangesAsync(ct);
+
+            walletTransaction.Referenceid = withdrawal.Withdrawalid;
+            walletTransaction.Description = $"Withdrawal request #{withdrawal.Withdrawalid}";
+            await context.SaveChangesAsync(ct);
+
+            await transaction.CommitAsync(ct);
+            committed = true;
+
+            logger.LogInformation(
+                "Created withdrawal {WithdrawalId} for user {UserId}, amount: {Amount}",
+                withdrawal.Withdrawalid, userId, request.Amount);
+
+            return new WithdrawalDetailResponse
+            {
+                WithdrawalId = withdrawal.Withdrawalid,
+                Amount = withdrawal.Amount ?? 0,
+                Status = withdrawal.Status ?? string.Empty,
+                BankName = withdrawal.Bankname,
+                AccountNumber = withdrawal.Accountnumber,
+                AccountHolderName = withdrawal.Accountholdername,
+                RequestedAt = withdrawal.Requestedat ?? TimeZoneHelper.UtcNow,
+                ProcessedAt = withdrawal.Processedat
+            };
+        }
+        catch
+        {
+            if (!committed)
+                await transaction.RollbackAsync(ct);
+            throw;
+        }
+    }
+
+    public async Task<WithdrawalListResponse> GetWithdrawalsAsync(
+        string userId, int page, int pageSize, CancellationToken ct = default)
+    {
+        var query = context.Withdrawalrequests.AsNoTracking().Where(w => w.Userid == userId);
+
+        var total = await query.CountAsync(ct);
+
+        var rawItems = await query
+            .OrderByDescending(w => w.Requestedat)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .Select(w => new { w.Withdrawalid, w.Amount, w.Status, w.Requestedat, w.Processedat })
+            .ToListAsync(ct);
+
+        var items = rawItems.Select(w => new WithdrawalItem
+        {
+            WithdrawalId = w.Withdrawalid,
+            Amount = w.Amount ?? 0,
+            Status = w.Status ?? string.Empty,
+            RequestedAt = w.Requestedat ?? TimeZoneHelper.UtcNow,
+            ProcessedAt = w.Processedat
+        }).ToList();
+
+        return new WithdrawalListResponse
+        {
+            Items = items,
+            Total = total,
+            Page = page,
+            PageSize = pageSize
+        };
+    }
+
+    public async Task<WithdrawalDetailResponse> GetWithdrawalDetailAsync(
+        string userId, int withdrawalId, CancellationToken ct = default)
+    {
+        var raw = await context.Withdrawalrequests
+            .AsNoTracking()
+            .Where(w => w.Withdrawalid == withdrawalId && w.Userid == userId)
+            .Select(w => new
+            {
+                w.Withdrawalid,
+                w.Amount,
+                w.Status,
+                w.Bankname,
+                w.Accountnumber,
+                w.Accountholdername,
+                w.Requestedat,
+                w.Processedat,
+                w.Claimedat,
+                w.Completionnote,
+                w.Rejectionreason
+            })
+            .FirstOrDefaultAsync(ct);
+
+        if (raw == null)
+            throw new WithdrawalNotFoundException();
+
+        var proof = await PayoutProofResolver.ResolveAsync(context, fileStorageService, withdrawalId, ct);
+
+        return new WithdrawalDetailResponse
+        {
+            WithdrawalId = raw.Withdrawalid,
+            Amount = raw.Amount ?? 0,
+            Status = raw.Status ?? string.Empty,
+            BankName = raw.Bankname,
+            AccountNumber = raw.Accountnumber,
+            AccountHolderName = raw.Accountholdername,
+            RequestedAt = raw.Requestedat ?? TimeZoneHelper.UtcNow,
+            ProcessedAt = raw.Processedat,
+            ClaimedAt = raw.Claimedat,
+            CompletionNote = raw.Completionnote,
+            RejectionReason = raw.Rejectionreason,
+            TransactionId = proof.ProviderTransactionId,
+            PaidAt = proof.PaidAt,
+            ProofImageUrl = proof.ProofImageUrl
         };
     }
 

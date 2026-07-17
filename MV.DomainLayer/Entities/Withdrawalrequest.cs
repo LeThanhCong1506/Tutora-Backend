@@ -33,6 +33,12 @@ public partial class Withdrawalrequest
     /// <summary>Ghi chú bắt buộc do staff nhập khi đánh dấu đã chuyển tiền thủ công (mã giao dịch, thời gian...).</summary>
     public string? Completionnote { get; set; }
 
+    public string? Claimedby { get; set; }
+
+    public DateTime? Claimedat { get; set; }
+
+    public string? Rejectionreason { get; set; }
+
     public virtual User? User { get; set; }
 
     public virtual Wallet? Wallet { get; set; }

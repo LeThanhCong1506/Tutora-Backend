@@ -82,6 +82,8 @@ public partial class PaymentTransaction
 
     public string? Webhookpayload { get; set; }
 
+    public string? Proofimagepath { get; set; }
+
     public virtual User? User { get; set; }
 
     public virtual User? ProcessedbyNavigation { get; set; }

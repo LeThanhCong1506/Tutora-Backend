@@ -21,9 +21,10 @@ public class AdminPayoutService(
     IWalletRepository walletRepo,
     IAppDbContext context,
     INotificationService notificationService,
+    IFileStorageService fileStorageService,
     ILogger<AdminPayoutService> logger) : IAdminPayoutService
 {
-    private static readonly string[] StaffActionableStatuses =
+    private static readonly string[] ClaimableStatuses =
     [
         WithdrawalStatus.Pending,
         WithdrawalStatus.PendingReview,
@@ -50,9 +51,8 @@ public class AdminPayoutService(
                 Delayed = g.Count(w => w.Decision == Decisions.Delayed),
                 ManualReview = g.Count(w => w.Decision == Decisions.ManualReview),
                 Rejected = g.Count(w => w.Status == WithdrawalStatus.Rejected),
-                // Approved is a legacy in-flight state from the old automated-payout flow and no
-                // longer means "paid out"; AdminFinancialService/AdminDashboardService already
-                // bucket it under "outstanding", so keep this consistent: only Completed counts.
+                // Approved means a staff/admin has claimed the request but has not yet recorded
+                // a completed bank transfer. Only Completed counts as paid out.
                 Completed = g.Count(w => w.Status == WithdrawalStatus.Completed)
             })
             .FirstOrDefaultAsync(ct);
@@ -129,7 +129,7 @@ public class AdminPayoutService(
             .AsNoTracking()
             .Include(w => w.User)
                 .ThenInclude(u => u!.Tutorprofile)
-            .Where(w => StaffActionableStatuses.Contains(w.Status ?? ""));
+            .Where(w => ClaimableStatuses.Contains(w.Status ?? ""));
 
         var total = await query.CountAsync(ct);
 
@@ -142,7 +142,11 @@ public class AdminPayoutService(
                 w.Withdrawalid,
                 w.Userid,
                 TutorName = w.User!.Fullname ?? w.User.Username,
+                TutorEmail = w.User.Email,
                 w.Amount,
+                w.Bankname,
+                w.Accountnumber,
+                w.Status,
                 w.Requestedat
             })
             .ToListAsync(ct);
@@ -152,7 +156,11 @@ public class AdminPayoutService(
             WithdrawalId = i.Withdrawalid,
             TutorId = i.Userid ?? "",
             TutorName = i.TutorName ?? "",
+            TutorEmail = i.TutorEmail ?? "",
             Amount = i.Amount ?? 0,
+            BankName = i.Bankname ?? "",
+            AccountNumber = i.Accountnumber ?? "",
+            Status = i.Status ?? "",
             RequestedAt = i.Requestedat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
         }).ToList();
 
@@ -176,10 +184,21 @@ public class AdminPayoutService(
     {
         var query = withdrawalRepo.GetBaseQuery();
 
-        if (!string.IsNullOrEmpty(status))
-            query = query.Where(w => w.Status == status);
-        if (!string.IsNullOrEmpty(search))
-            query = query.Where(w => w.Userid!.Contains(search) || w.Accountholdername!.Contains(search));
+        if (!string.IsNullOrWhiteSpace(status))
+        {
+            var normalizedStatus = status.Trim().ToLowerInvariant();
+            query = query.Where(w => w.Status == normalizedStatus);
+        }
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var searchTerm = search.Trim().ToLowerInvariant();
+            query = query.Where(w =>
+                (w.Userid != null && w.Userid.ToLower().Contains(searchTerm))
+                || (w.Accountholdername != null && w.Accountholdername.ToLower().Contains(searchTerm))
+                || (w.Accountnumber != null && w.Accountnumber.ToLower().Contains(searchTerm))
+                || (w.User != null && w.User.Fullname != null && w.User.Fullname.ToLower().Contains(searchTerm))
+                || (w.User != null && w.User.Email != null && w.User.Email.ToLower().Contains(searchTerm)));
+        }
         if (from.HasValue)
             query = query.Where(w => w.Requestedat >= from.Value);
         if (to.HasValue)
@@ -191,13 +210,30 @@ public class AdminPayoutService(
             .OrderByDescending(w => w.Requestedat)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
-            .Select(w => new { w.Withdrawalid, w.Amount, w.Status, w.Requestedat, w.Processedat })
+            .Select(w => new
+            {
+                w.Withdrawalid,
+                w.Userid,
+                TutorName = w.User != null ? w.User.Fullname ?? w.User.Username : null,
+                TutorEmail = w.User != null ? w.User.Email : null,
+                w.Amount,
+                w.Bankname,
+                w.Accountnumber,
+                w.Status,
+                w.Requestedat,
+                w.Processedat
+            })
             .ToListAsync(ct);
 
         var items = rawItems.Select(w => new WithdrawalItem
         {
             WithdrawalId = w.Withdrawalid,
+            TutorId = w.Userid ?? "",
+            TutorName = w.TutorName ?? "",
+            TutorEmail = w.TutorEmail ?? "",
             Amount = w.Amount ?? 0,
+            BankName = w.Bankname ?? "",
+            AccountNumber = w.Accountnumber ?? "",
             Status = w.Status ?? "",
             RequestedAt = w.Requestedat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow,
             ProcessedAt = w.Processedat
@@ -245,6 +281,24 @@ public class AdminPayoutService(
             .Where(t => t.Wallet!.Userid == tutorId && t.Transactiontype == TransactionType.EscrowRelease)
             .SumAsync(t => t.Amount ?? 0, ct);
 
+        var payoutTransaction = await context.PaymentTransactions
+            .AsNoTracking()
+            .Where(t => t.Withdrawalid == withdrawalId
+                        && t.Purpose == PaymentTransactionPurpose.Withdrawal
+                        && t.Status == PaymentTransactionStatus.Succeeded)
+            .OrderByDescending(t => t.Paymenttransactionid)
+            .Select(t => new
+            {
+                t.Providertransactionid,
+                t.Paidat,
+                t.Proofimagepath
+            })
+            .FirstOrDefaultAsync(ct);
+
+        var proofImageUrl = string.IsNullOrWhiteSpace(payoutTransaction?.Proofimagepath)
+            ? null
+            : fileStorageService.GenerateSignedUrl(payoutTransaction.Proofimagepath);
+
         var balance = wallet?.Balance ?? 0;
         var frozenBalance = wallet?.Frozenbalance ?? 0;
         var walletInfo = new WalletInfoResponse
@@ -284,7 +338,13 @@ public class AdminPayoutService(
                 CreatedAt = withdrawal.Requestedat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow,
                 ProcessedAt = withdrawal.Processedat,
                 ProcessedBy = withdrawal.Processedby,
-                CompletionNote = withdrawal.Completionnote
+                CompletionNote = withdrawal.Completionnote,
+                ClaimedBy = withdrawal.Claimedby,
+                ClaimedAt = withdrawal.Claimedat,
+                RejectionReason = withdrawal.Rejectionreason,
+                TransactionId = payoutTransaction?.Providertransactionid,
+                PaidAt = payoutTransaction?.Paidat,
+                ProofImageUrl = proofImageUrl
             },
             TutorInfo = tutorInfo,
             PreviousWithdrawals = previousWithdrawals,
@@ -303,10 +363,99 @@ public class AdminPayoutService(
         if (!string.IsNullOrEmpty(withdrawal.Decision))
             timeline.Add(new() { Timestamp = withdrawal.Requestedat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow, Event = "Decision made", Details = withdrawal.Decision });
 
+        if (withdrawal.Claimedat.HasValue)
+            timeline.Add(new() { Timestamp = withdrawal.Claimedat.Value, Event = "Claimed for processing", Details = $"Claimed by: {withdrawal.Claimedby}" });
+
         if (withdrawal.Processedat.HasValue)
-            timeline.Add(new() { Timestamp = withdrawal.Processedat.Value, Event = "Processed", Details = $"Status: {withdrawal.Status}. Ghi chú: {withdrawal.Completionnote}" });
+        {
+            var details = withdrawal.Status == WithdrawalStatus.Rejected
+                ? $"Status: {withdrawal.Status}. Lý do: {withdrawal.Rejectionreason}"
+                : $"Status: {withdrawal.Status}. Ghi chú: {withdrawal.Completionnote}";
+            timeline.Add(new() { Timestamp = withdrawal.Processedat.Value, Event = "Processed", Details = details });
+        }
 
         return timeline;
+    }
+
+    public async Task<ApproveResult> ClaimRequestAsync(
+        int withdrawalId,
+        string actorUserId,
+        CancellationToken ct = default)
+    {
+        var claimedAt = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
+        var updated = await context.Withdrawalrequests
+            .Where(w => w.Withdrawalid == withdrawalId
+                        && ClaimableStatuses.Contains(w.Status ?? ""))
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(w => w.Status, WithdrawalStatus.Approved)
+                .SetProperty(w => w.Claimedby, actorUserId)
+                .SetProperty(w => w.Claimedat, claimedAt), ct);
+
+        if (updated == 0)
+        {
+            var current = await context.Withdrawalrequests
+                .AsNoTracking()
+                .Where(w => w.Withdrawalid == withdrawalId)
+                .Select(w => new { w.Status, w.Claimedby })
+                .FirstOrDefaultAsync(ct);
+
+            if (current == null)
+                throw new KeyNotFoundException("Không tìm thấy yêu cầu rút tiền");
+
+            if (current.Status == WithdrawalStatus.Approved)
+            {
+                var owner = current.Claimedby == actorUserId ? "bạn" : "một nhân viên khác";
+                throw new InvalidOperationException($"Yêu cầu đã được {owner} nhận xử lý.");
+            }
+
+            throw new InvalidOperationException($"Không thể nhận xử lý yêu cầu có trạng thái: {current.Status}");
+        }
+
+        logger.LogInformation("Actor {ActorId} claimed withdrawal {WithdrawalId}", actorUserId, withdrawalId);
+        return new ApproveResult
+        {
+            Success = true,
+            Message = "Đã nhận xử lý yêu cầu rút tiền"
+        };
+    }
+
+    public async Task<ApproveResult> ReleaseRequestAsync(
+        int withdrawalId,
+        string actorUserId,
+        CancellationToken ct = default)
+    {
+        var updated = await context.Withdrawalrequests
+            .Where(w => w.Withdrawalid == withdrawalId
+                        && w.Status == WithdrawalStatus.Approved
+                        && w.Claimedby == actorUserId)
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(w => w.Status, WithdrawalStatus.PendingReview)
+                .SetProperty(w => w.Claimedby, (string?)null)
+                .SetProperty(w => w.Claimedat, (DateTime?)null), ct);
+
+        if (updated == 0)
+        {
+            var current = await context.Withdrawalrequests
+                .AsNoTracking()
+                .Where(w => w.Withdrawalid == withdrawalId)
+                .Select(w => new { w.Status, w.Claimedby })
+                .FirstOrDefaultAsync(ct);
+
+            if (current == null)
+                throw new KeyNotFoundException("Không tìm thấy yêu cầu rút tiền");
+
+            throw new InvalidOperationException(
+                current.Status == WithdrawalStatus.Approved
+                    ? "Chỉ người đang nhận xử lý mới có thể trả yêu cầu về hàng đợi."
+                    : $"Không thể trả yêu cầu có trạng thái {current.Status} về hàng đợi.");
+        }
+
+        logger.LogInformation("Actor {ActorId} released withdrawal {WithdrawalId}", actorUserId, withdrawalId);
+        return new ApproveResult
+        {
+            Success = true,
+            Message = "Đã trả yêu cầu về hàng đợi"
+        };
     }
 
     public async Task<ApproveResult> ApproveRequestAsync(
@@ -316,64 +465,111 @@ public class AdminPayoutService(
         ApproveWithdrawalRequest request,
         CancellationToken ct = default)
     {
-        await using var dbTransaction =
-            await context.Database.BeginTransactionAsync(
-                System.Data.IsolationLevel.Serializable,
-                ct);
-        var withdrawal = await withdrawalRepo.GetByIdWithUserAsync(withdrawalId, ct);
+        if (request == null
+            || !request.PaidAt.HasValue
+            || string.IsNullOrWhiteSpace(request.Note)
+            || request.ProofImage == null
+            || request.ProofImage.Length == 0)
+            throw new InvalidOperationException(
+                "Vui lòng nhập thời gian chuyển khoản, ghi chú và ảnh biên lai.");
 
-        if (withdrawal == null)
+        // Payout reference is minted by the backend, not typed in by staff/admin — it is an
+        // internal audit code (not a bank-provided trace number).
+        var transactionId = PayoutCodeGenerator.Generate(withdrawalId);
+        var note = request.Note.Trim();
+        var preview = await context.Withdrawalrequests
+            .AsNoTracking()
+            .Where(w => w.Withdrawalid == withdrawalId)
+            .Select(w => new { w.Status, w.Claimedby, w.Requestedat })
+            .FirstOrDefaultAsync(ct);
+
+        if (preview == null)
             throw new KeyNotFoundException("Không tìm thấy yêu cầu rút tiền");
 
-        if (!StaffActionableStatuses.Contains(withdrawal.Status ?? ""))
-            throw new InvalidOperationException($"Không thể duyệt yêu cầu có trạng thái: {withdrawal.Status}");
+        if (preview.Status != WithdrawalStatus.Approved)
+            throw new InvalidOperationException("Bạn phải nhận xử lý yêu cầu trước khi xác nhận chuyển khoản.");
 
-        if (request == null
-            || string.IsNullOrWhiteSpace(request.TransactionId)
-            || !request.PaidAt.HasValue
-            || string.IsNullOrWhiteSpace(request.Note))
-            throw new InvalidOperationException("Vui lòng nhập đầy đủ mã giao dịch, thời gian chuyển khoản và ghi chú đối soát.");
+        if (preview.Claimedby != actorUserId)
+            throw new InvalidOperationException("Yêu cầu đang được một nhân viên khác xử lý.");
 
-        var transactionId = request.TransactionId.Trim().ToUpperInvariant();
-        var note = request.Note.Trim();
+        var paidAtUtc = request.PaidAt.Value.UtcDateTime;
+        var validationTime = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
+        if (paidAtUtc > validationTime.AddMinutes(5))
+            throw new InvalidOperationException("Thời gian chuyển khoản không được nằm trong tương lai.");
 
-        var transactionExists = await context.PaymentTransactions
-            .AsNoTracking()
-            .AnyAsync(t => t.Paymentmethod == PaymentTransactionMethod.Manual
-                && t.Providertransactionid != null
-                && t.Providertransactionid.ToUpper() == transactionId, ct);
+        if (preview.Requestedat.HasValue
+            && paidAtUtc < preview.Requestedat.Value.AddMinutes(-5))
+            throw new InvalidOperationException("Thời gian chuyển khoản không thể trước thời gian tạo yêu cầu.");
 
-        if (transactionExists)
-            throw new InvalidOperationException($"Mã giao dịch '{transactionId}' đã được ghi nhận trước đó.");
+        var proofImagePath = await fileStorageService.UploadPrivateFileAsync(
+            StorageBucket.PayoutProofs,
+            $"withdrawal-{withdrawalId}",
+            request.ProofImage);
 
-        // Ghi đúng decision theo role người thực hiện
-        var decision = string.Equals(actorRole, UserRole.Staff, StringComparison.OrdinalIgnoreCase)
-            ? Decisions.StaffApproved
-            : Decisions.AdminApproved;
+        Withdrawalrequest withdrawal;
+        try
+        {
+            await using var dbTransaction = await context.Database.BeginTransactionAsync(ct);
+            withdrawal = await context.Withdrawalrequests
+                .FromSqlInterpolated($"""
+                    SELECT *
+                    FROM public.withdrawal_requests
+                    WHERE withdrawal_id = {withdrawalId}
+                    FOR UPDATE
+                    """)
+                .FirstOrDefaultAsync(ct)
+                ?? throw new KeyNotFoundException("Không tìm thấy yêu cầu rút tiền");
 
-        // Staff đã tự chuyển tiền thủ công trước khi bấm nút này; 1 bước, không còn trạng thái
-        // Approved trung gian chờ PayOS xử lý async như trước.
-        withdrawal.Status         = WithdrawalStatus.Completed;
-        withdrawal.Processedby    = actorUserId;
-        withdrawal.Processedat    = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
-        withdrawal.Decision       = decision;
-        withdrawal.Completionnote = note;
+            if (withdrawal.Status != WithdrawalStatus.Approved
+                || withdrawal.Claimedby != actorUserId)
+                throw new InvalidOperationException("Quyền xử lý yêu cầu đã thay đổi. Vui lòng tải lại trang.");
 
-        var capture = PaymentTransactionCapture.FromManual(request.PaidAt, actorUserId, note, transactionId);
-        context.PaymentTransactions.Add(capture.Create(
-            PaymentTransactionPurpose.Withdrawal,
-            PaymentTransactionDirection.Outbound,
-            withdrawal.Amount ?? 0,
-            withdrawal.Userid,
-            null,
-            withdrawalId: withdrawal.Withdrawalid,
-            description: "Manual withdrawal payout",
-            destinationAccountNumber: withdrawal.Accountnumber,
-            destinationAccountName: withdrawal.Accountholdername,
-            destinationBankName: withdrawal.Bankname));
+            var transactionExists = await context.PaymentTransactions
+                .AsNoTracking()
+                .AnyAsync(t => t.Paymentmethod == PaymentTransactionMethod.Manual
+                    && t.Providertransactionid != null
+                    && t.Providertransactionid.ToUpper() == transactionId, ct);
 
-        await context.SaveChangesAsync(ct);
-        await dbTransaction.CommitAsync(ct);
+            if (transactionExists)
+                throw new InvalidOperationException($"Mã giao dịch '{transactionId}' đã được ghi nhận trước đó.");
+
+            var decision = string.Equals(actorRole, UserRole.Staff, StringComparison.OrdinalIgnoreCase)
+                ? Decisions.StaffApproved
+                : Decisions.AdminApproved;
+
+            withdrawal.Status = WithdrawalStatus.Completed;
+            withdrawal.Processedby = actorUserId;
+            withdrawal.Processedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
+            withdrawal.Decision = decision;
+            withdrawal.Completionnote = note;
+            withdrawal.Rejectionreason = null;
+
+            var capture = PaymentTransactionCapture.FromManual(request.PaidAt, actorUserId, note, transactionId);
+            var payoutTransaction = capture.Create(
+                PaymentTransactionPurpose.Withdrawal,
+                PaymentTransactionDirection.Outbound,
+                withdrawal.Amount ?? 0,
+                withdrawal.Userid,
+                null,
+                withdrawalId: withdrawal.Withdrawalid,
+                description: "Manual withdrawal payout",
+                destinationAccountNumber: withdrawal.Accountnumber,
+                destinationAccountName: withdrawal.Accountholdername,
+                destinationBankName: withdrawal.Bankname);
+            payoutTransaction.Proofimagepath = proofImagePath;
+            context.PaymentTransactions.Add(payoutTransaction);
+
+            await context.SaveChangesAsync(ct);
+            await dbTransaction.CommitAsync(ct);
+        }
+        catch
+        {
+            await fileStorageService.DeleteFileAsync(
+                StorageBucket.PayoutProofs,
+                $"withdrawal-{withdrawalId}",
+                proofImagePath);
+            throw;
+        }
 
         try
         {
@@ -389,50 +585,59 @@ public class AdminPayoutService(
             logger.LogWarning(ex, "Failed to send completed withdrawal notification for {WithdrawalId}", withdrawalId);
         }
 
-        logger.LogInformation("{Role} {ActorId} approved & completed withdrawal {WithdrawalId} (decision={Decision})",
-            actorRole, actorUserId, withdrawalId, decision);
+        logger.LogInformation(
+            "{Role} {ActorId} completed withdrawal {WithdrawalId} with transaction {TransactionId}",
+            actorRole,
+            actorUserId,
+            withdrawalId,
+            transactionId);
 
         return new ApproveResult
         {
             Success = true,
-            Message = "Đã duyệt và xác nhận chuyển tiền thành công"
+            Message = "Đã duyệt và xác nhận chuyển tiền thành công",
+            TransactionId = transactionId
         };
     }
 
     public async Task<RejectResult> RejectRequestAsync(int withdrawalId, string actorUserId, string reason, CancellationToken ct = default)
     {
-        using var transaction = await context.Database.BeginTransactionAsync(ct);
+        if (string.IsNullOrWhiteSpace(reason))
+            throw new InvalidOperationException("Vui lòng nhập lý do từ chối.");
+
+        await using var transaction = await context.Database.BeginTransactionAsync(ct);
         try
         {
-            var withdrawal = await withdrawalRepo.GetByIdWithUserAsync(withdrawalId, ct);
+            var withdrawal = await context.Withdrawalrequests
+                .FromSqlInterpolated($"""
+                    SELECT *
+                    FROM public.withdrawal_requests
+                    WHERE withdrawal_id = {withdrawalId}
+                    FOR UPDATE
+                    """)
+                .FirstOrDefaultAsync(ct);
 
             if (withdrawal == null)
                 throw new KeyNotFoundException("Không tìm thấy yêu cầu rút tiền");
 
-            if (!StaffActionableStatuses.Contains(withdrawal.Status ?? ""))
-                throw new InvalidOperationException($"Không thể từ chối yêu cầu có trạng thái: {withdrawal.Status}");
+            if (withdrawal.Status != WithdrawalStatus.Approved)
+                throw new InvalidOperationException("Bạn phải nhận xử lý yêu cầu trước khi từ chối.");
+
+            if (withdrawal.Claimedby != actorUserId)
+                throw new InvalidOperationException("Yêu cầu đang được một nhân viên khác xử lý.");
 
             var tutorId = withdrawal.Userid!;
             var amount = withdrawal.Amount ?? 0;
+            var rejectionReason = reason.Trim();
 
-            withdrawal.Status     = WithdrawalStatus.Rejected;
+            withdrawal.Status = WithdrawalStatus.Rejected;
             withdrawal.Processedby = actorUserId;
             withdrawal.Processedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
+            withdrawal.Rejectionreason = rejectionReason;
+            withdrawal.Completionnote = null;
 
             // Refund wallet
-            var wallet = await walletRepo.GetByUserIdAsync(tutorId, ct);
-            if (wallet == null)
-            {
-                wallet = new Wallet
-                {
-                    Userid = tutorId,
-                    Balance = 0,
-                    Frozenbalance = 0,
-                    Lastupdated = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
-                };
-                walletRepo.Add(wallet);
-                await walletRepo.SaveChangesAsync(ct);
-            }
+            var wallet = await walletRepo.GetOrCreateForUpdateAsync(tutorId, ct);
 
             wallet.Balance = (wallet.Balance ?? 0) + amount;
             wallet.Lastupdated = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
@@ -444,7 +649,7 @@ public class AdminPayoutService(
                 Transactiontype = TransactionType.Refund,
                 Referencetable = ReferenceTable.Withdrawal,
                 Referenceid = withdrawalId,
-                Description = $"Refund for rejected withdrawal #{withdrawalId}: {reason}",
+                Description = $"Refund for rejected withdrawal #{withdrawalId}: {rejectionReason}",
                 Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
             });
 
@@ -457,7 +662,7 @@ public class AdminPayoutService(
                 {
                     Userid = tutorId,
                     Title = "Yêu cầu rút tiền bị từ chối",
-                    Message = $"Yêu cầu rút tiền bị từ chối: {reason}. Tiền đã được hoàn về ví."
+                    Message = $"Yêu cầu rút tiền bị từ chối: {rejectionReason}. Tiền đã được hoàn về ví."
                 });
             }
             catch (Exception ex)
@@ -465,7 +670,11 @@ public class AdminPayoutService(
                 logger.LogWarning(ex, "Failed to send rejected withdrawal notification for {WithdrawalId}", withdrawalId);
             }
 
-            logger.LogInformation("Actor {ActorId} rejected withdrawal {WithdrawalId}: {Reason}", actorUserId, withdrawalId, reason);
+            logger.LogInformation(
+                "Actor {ActorId} rejected withdrawal {WithdrawalId}: {Reason}",
+                actorUserId,
+                withdrawalId,
+                rejectionReason);
 
             return new RejectResult
             {

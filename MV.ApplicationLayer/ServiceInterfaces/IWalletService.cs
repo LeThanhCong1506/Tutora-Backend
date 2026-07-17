@@ -25,5 +25,23 @@ public interface IWalletService
     /// Paged transaction history (top-ups, deductions, refunds) for a user.
     /// </summary>
     Task<TransactionHistoryPagedResponse> GetTransactionHistoryAsync(string userId, int page = 1, int pageSize = 20);
+
+    /// <summary>Ownership-checked wallet transaction detail, including payout proof.</summary>
+    Task<TransactionHistoryResponse> GetTransactionDetailAsync(
+        string userId,
+        int transactionId,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Submit a withdrawal request for a wallet owner who has no saved bank account on file
+    /// (e.g. a parent) — the bank destination is snapshotted directly from the request.
+    /// </summary>
+    Task<WithdrawalDetailResponse> CreateWithdrawalAsync(string userId, CreateWithdrawalRequest request, CancellationToken ct = default);
+
+    /// <summary>Paged list of the caller's own past and pending withdrawal requests.</summary>
+    Task<WithdrawalListResponse> GetWithdrawalsAsync(string userId, int page, int pageSize, CancellationToken ct = default);
+
+    /// <summary>Single withdrawal detail by id — ownership-checked, includes payout proof.</summary>
+    Task<WithdrawalDetailResponse> GetWithdrawalDetailAsync(string userId, int withdrawalId, CancellationToken ct = default);
 }
 

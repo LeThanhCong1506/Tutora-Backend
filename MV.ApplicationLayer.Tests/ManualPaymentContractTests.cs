@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using Microsoft.AspNetCore.Http;
 using MV.ApplicationLayer.Helpers;
 using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.Constants;
@@ -39,15 +40,68 @@ public class ManualPaymentContractTests
     }
 
     [Fact]
-    public void WithdrawalApproval_RequiresTransactionIdPaidAtAndNote()
+    public void WithdrawalApproval_RequiresPaidAtNoteAndProof()
     {
         var request = new ApproveWithdrawalRequest();
 
         var errors = Validate(request);
 
-        Assert.Contains(errors, e => e.MemberNames.Contains(nameof(request.TransactionId)));
         Assert.Contains(errors, e => e.MemberNames.Contains(nameof(request.PaidAt)));
         Assert.Contains(errors, e => e.MemberNames.Contains(nameof(request.Note)));
+        Assert.Contains(errors, e => e.MemberNames.Contains(nameof(request.ProofImage)));
+    }
+
+    [Fact]
+    public void WithdrawalApproval_AcceptsCompleteManualTransferAudit()
+    {
+        var proof = new FormFile(
+            new MemoryStream([137, 80, 78, 71]),
+            0,
+            4,
+            nameof(ApproveWithdrawalRequest.ProofImage),
+            "receipt.png")
+        {
+            Headers = new HeaderDictionary(),
+            ContentType = "image/png"
+        };
+        var request = new ApproveWithdrawalRequest
+        {
+            PaidAt = new DateTimeOffset(2026, 7, 17, 15, 30, 0, TimeSpan.FromHours(7)),
+            Note = "Đã đối soát đúng số tiền và tài khoản nhận.",
+            ProofImage = proof
+        };
+
+        Assert.Empty(Validate(request));
+    }
+
+    [Fact]
+    public void ApproveWithdrawalRequestContract_DoesNotExposeTransactionId()
+    {
+        // The payout reference is minted by the backend (PayoutCodeGenerator), never typed in by
+        // staff/admin — the request DTO must not carry a TransactionId field for the client to set.
+        var responseType = typeof(ApproveWithdrawalRequest);
+
+        Assert.Null(responseType.GetProperty("TransactionId"));
+    }
+
+    [Fact]
+    public void PayoutCodeGenerator_ProducesNonEmptyWithdrawalScopedCode()
+    {
+        var code = PayoutCodeGenerator.Generate(42);
+
+        Assert.False(string.IsNullOrWhiteSpace(code));
+        Assert.StartsWith("WD-", code);
+        Assert.Contains("-42-", code);
+    }
+
+    [Fact]
+    public void WithdrawalRejection_RequiresMeaningfulReason()
+    {
+        var request = new RejectWithdrawalRequest { Reason = "x" };
+
+        var errors = Validate(request);
+
+        Assert.Contains(errors, e => e.MemberNames.Contains(nameof(request.Reason)));
     }
 
     [Fact]
@@ -118,6 +172,17 @@ public class ManualPaymentContractTests
 
         Assert.NotNull(responseType.GetProperty(nameof(AdminPaymentTransactionItem.PaymentMethod)));
         Assert.Null(responseType.GetProperty("Channel"));
+    }
+
+    [Fact]
+    public void AdminWithdrawalListContract_ExposesTutorAndBankSnapshot()
+    {
+        var responseType = typeof(MV.DomainLayer.DTO.ResponseModel.WithdrawalItem);
+
+        Assert.NotNull(responseType.GetProperty("TutorName"));
+        Assert.NotNull(responseType.GetProperty("TutorEmail"));
+        Assert.NotNull(responseType.GetProperty("BankName"));
+        Assert.NotNull(responseType.GetProperty("AccountNumber"));
     }
 
     private static IReadOnlyList<ValidationResult> Validate(object value)

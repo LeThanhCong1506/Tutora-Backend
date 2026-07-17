@@ -9,6 +9,9 @@ public class TransactionHistoryResponse
     public int? ReferenceId { get; set; }
     public string? ReferenceTable { get; set; }
     public DateTime CreatedAt { get; set; }
+    public string? ProviderTransactionId { get; set; }
+    public DateTime? PaidAt { get; set; }
+    public string? ProofImageUrl { get; set; }
 }
 
 public class TransactionHistoryPagedResponse
