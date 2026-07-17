@@ -59,6 +59,9 @@ public partial class ClassSessionService
             await _context.SaveChangesAsync();
         }
 
+        // ── Tự động bắt đầu Cloud Recording (không chặn check-in nếu lỗi) ──
+        await TryStartRecordingAsync(classSession);
+
 
         // ── Gửi thông báo + link vào chat cho Parent và Student ──
         var parentId = classSession.Booking?.Parentid;
@@ -200,7 +203,64 @@ public partial class ClassSessionService
         await _context.SaveChangesAsync();
         _logger.LogInformation("Tutor {TutorId} checked out from classSession {ClassSessionId}", tutorId, classSessionId);
 
+        // ── Tự động dừng Cloud Recording (nếu đang record) ──
+        await TryStopRecordingAsync(classSession);
+
         return (await GetTutorClassSessionDetailAsync(classSessionId, tutorId))!;
+    }
+
+    /// <summary>
+    /// Bắt đầu Agora Cloud Recording cho buổi học (nếu tính năng bật).
+    /// Lỗi record KHÔNG được làm hỏng check-in → nuốt exception, chỉ log cảnh báo.
+    /// </summary>
+    private async Task TryStartRecordingAsync(ClassSession classSession)
+    {
+        if (!_cloudRecording.Enabled) return;
+        if (!string.IsNullOrEmpty(classSession.Recordingsid)) return; // đã đang record
+
+        try
+        {
+            var handle = await _cloudRecording.StartAsync(classSession.Classsessionid);
+            classSession.Recordingresourceid = handle.ResourceId;
+            classSession.Recordingsid = handle.Sid;
+            await _context.SaveChangesAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Không thể bắt đầu Cloud Recording cho buổi học {ClassSessionId}", classSession.Classsessionid);
+        }
+    }
+
+    /// <summary>
+    /// Dừng Cloud Recording và lưu link. Lỗi KHÔNG làm hỏng check-out → nuốt exception, chỉ log.
+    /// </summary>
+    private async Task TryStopRecordingAsync(ClassSession classSession)
+    {
+        if (!_cloudRecording.Enabled) return;
+        if (string.IsNullOrEmpty(classSession.Recordingresourceid) || string.IsNullOrEmpty(classSession.Recordingsid))
+            return;
+
+        try
+        {
+            var result = await _cloudRecording.StopAsync(
+                classSession.Classsessionid, classSession.Recordingresourceid, classSession.Recordingsid);
+
+            // Lấy S3 object key của file .mp4 để job relay đẩy lên Google Drive
+            string? mp4Key = null;
+            foreach (var f in result.FileNames)
+            {
+                if (f.EndsWith(".mp4", StringComparison.OrdinalIgnoreCase)) { mp4Key = f; break; }
+            }
+            if (mp4Key == null && result.FileNames.Count > 0) mp4Key = result.FileNames[0];
+
+            classSession.Recordings3key = mp4Key;            // job relay sẽ đẩy lên Drive rồi xóa file S3
+            classSession.Recordingurl = result.PlaybackUrl;  // link S3 tạm (nếu có PublicUrlBase)
+            await _context.SaveChangesAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Không thể dừng Cloud Recording cho buổi học {ClassSessionId}", classSession.Classsessionid);
+        }
     }
 
     public async Task<ClassSessionDetailResponse> SubmitReportAsync(int classSessionId, string tutorId, SubmitReportRequest request)
