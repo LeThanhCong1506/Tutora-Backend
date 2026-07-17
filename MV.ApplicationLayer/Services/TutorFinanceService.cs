@@ -50,7 +50,6 @@ public class TutorFinanceService(
 
         return new FinanceSummaryResponse
         {
-            Balance = balance,
             AvailableBalance = balance,
             FrozenBalance = frozenBalance,
             TotalBalance = balance + frozenBalance,
