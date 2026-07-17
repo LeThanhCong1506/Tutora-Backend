@@ -26,4 +26,7 @@ public static class StorageBucket
 
     /// <summary>Bucket for tutor CCCD (citizen ID card) front and back images.</summary>
     public const string CccdFiles          = "cccd-documents";
+
+    /// <summary>Private receipt images for staff/admin manual payout transfers.</summary>
+    public const string PayoutProofs       = "payout-proofs";
 }

@@ -22,6 +22,12 @@ public class RequestInfoResponse
     public DateTime? ProcessedAt { get; set; }
     public string? ProcessedBy { get; set; }
     public string? CompletionNote { get; set; }
+    public string? ClaimedBy { get; set; }
+    public DateTime? ClaimedAt { get; set; }
+    public string? RejectionReason { get; set; }
+    public string? TransactionId { get; set; }
+    public DateTime? PaidAt { get; set; }
+    public string? ProofImageUrl { get; set; }
 }
 
 public class TutorInfoResponse

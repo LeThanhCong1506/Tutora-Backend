@@ -13,6 +13,10 @@ public class PendingReviewItem
     public int WithdrawalId { get; set; }
     public string TutorId { get; set; } = string.Empty;
     public string TutorName { get; set; } = string.Empty;
+    public string TutorEmail { get; set; } = string.Empty;
     public decimal Amount { get; set; }
+    public string BankName { get; set; } = string.Empty;
+    public string AccountNumber { get; set; } = string.Empty;
+    public string Status { get; set; } = string.Empty;
     public DateTime RequestedAt { get; set; }
 }
