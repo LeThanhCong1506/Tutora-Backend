@@ -48,6 +48,8 @@ builder.Services.Configure<GoogleGeminiSettings>(builder.Configuration.GetSectio
 builder.Services.Configure<PaymentSettings>(builder.Configuration.GetSection(PaymentSettings.SectionName));
 builder.Services.Configure<GoogleSettings>(builder.Configuration.GetSection(GoogleSettings.SectionName));
 builder.Services.Configure<AgoraSettings>(builder.Configuration.GetSection(AgoraSettings.SectionName));
+builder.Services.Configure<AgoraRecordingSettings>(builder.Configuration.GetSection(AgoraRecordingSettings.SectionName));
+builder.Services.Configure<GoogleDriveSettings>(builder.Configuration.GetSection(GoogleDriveSettings.SectionName));
 builder.Services.Configure<VietQRSettings>(builder.Configuration.GetSection(VietQRSettings.SectionName));
 builder.Services.Configure<ZaloOAConfig>(builder.Configuration.GetSection(ConfigurationKeys.ZaloOA.SectionName));
 builder.Services.Configure<CloudinarySettings>(builder.Configuration.GetSection("Cloudinary"));
@@ -311,6 +313,10 @@ builder.Services.AddScoped<IPaymentService, PaymentService>();
 builder.Services.AddScoped<IWalletService, WalletService>();
 builder.Services.AddScoped<IClassSessionService, ClassSessionService>();
 builder.Services.AddScoped<IAgoraRTCService, AgoraRTCService>();
+builder.Services.AddHttpClient<ICloudRecordingService, CloudRecordingService>();
+builder.Services.AddScoped<IGoogleDriveService, GoogleDriveService>();
+builder.Services.AddScoped<IRecordingRelayService, RecordingRelayService>();
+builder.Services.AddHostedService<MV.PresentationLayer.BackgroundServices.RecordingRelayHostedService>();
 builder.Services.AddScoped<ITutorFinanceService, TutorFinanceService>();
 builder.Services.AddScoped<ILearningMaterialService, LearningMaterialService>();
 
