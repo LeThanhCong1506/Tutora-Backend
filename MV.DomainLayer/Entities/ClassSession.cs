@@ -67,6 +67,18 @@ public partial class ClassSession
 
     public bool? Isearlysubmission { get; set; }
 
+    /// <summary>resourceId của phiên Cloud Recording (từ acquire) — cần để gọi stop.</summary>
+    public string? Recordingresourceid { get; set; }
+
+    /// <summary>sid của phiên Cloud Recording (từ start) — cần để gọi stop.</summary>
+    public string? Recordingsid { get; set; }
+
+    /// <summary>Link/đường dẫn file record sau khi stop (link Drive sau khi relay, hoặc link S3 tạm).</summary>
+    public string? Recordingurl { get; set; }
+
+    /// <summary>Object key của file trên S3 (kho đệm) — job relay dùng để đẩy lên Drive rồi xóa. Null sau khi đã relay.</summary>
+    public string? Recordings3key { get; set; }
+
     public virtual Booking? Booking { get; set; }
 
     public virtual ICollection<Dispute> Disputes { get; set; } = new List<Dispute>();

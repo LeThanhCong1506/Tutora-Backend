@@ -973,6 +973,18 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
             entity.Property(e => e.Meetinglink)
                 .HasMaxLength(1000)
                 .HasColumnName("meeting_link");
+            entity.Property(e => e.Recordingresourceid)
+                .HasMaxLength(255)
+                .HasColumnName("recording_resource_id");
+            entity.Property(e => e.Recordingsid)
+                .HasMaxLength(255)
+                .HasColumnName("recording_sid");
+            entity.Property(e => e.Recordingurl)
+                .HasMaxLength(1000)
+                .HasColumnName("recording_url");
+            entity.Property(e => e.Recordings3key)
+                .HasMaxLength(500)
+                .HasColumnName("recording_s3key");
             entity.Property(e => e.Noshowaction)
                 .HasMaxLength(30)
                 .HasColumnName("no_show_action");
