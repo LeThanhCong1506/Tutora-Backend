@@ -56,6 +56,25 @@ public class WalletController(IWalletService walletService, ILogger<WalletContro
         }
     }
 
+    [HttpGet("topups/{orderCode}/status")]
+    [Authorize(Roles = UserRole.ParentOrTutor)]
+    public async Task<IActionResult> GetTopupStatus(long orderCode)
+    {
+        var userId = UserId;
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(APIResponse.Fail(ApiMessages.Unauthorized, 401));
+
+        try
+        {
+            var result = await walletService.GetTopupStatusAsync(orderCode, userId);
+            return Ok(APIResponse<TopupStatusResponse>.Success(result, ApiMessages.Success));
+        }
+        catch (BookingException ex)
+        {
+            return StatusCode(ex.HttpStatus, new { errorCode = ex.ErrorCode, message = ex.Message });
+        }
+    }
+
     [HttpGet("transactions")]
     [Authorize(Roles = UserRole.ParentOrTutor)]
     public async Task<IActionResult> GetTransactions([FromQuery] int page = 1, [FromQuery] int pageSize = 20)

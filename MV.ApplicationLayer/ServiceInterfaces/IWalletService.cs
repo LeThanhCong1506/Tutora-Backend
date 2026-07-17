@@ -16,6 +16,12 @@ public interface IWalletService
     Task ProcessTopupWebhookAsync(PaymentWebhookRequest request, CancellationToken ct = default);
 
     /// <summary>
+    /// Trạng thái một lệnh nạp ví, có self-heal: hỏi PayOS trực tiếp và tự cộng ví nếu đã thanh toán
+    /// nhưng webhook chưa về (hay gặp khi chạy localhost). FE poll endpoint này để biết khi nào cộng tiền xong.
+    /// </summary>
+    Task<TopupStatusResponse> GetTopupStatusAsync(long orderCode, string userId, CancellationToken ct = default);
+
+    /// <summary>
     /// Current wallet balance and currency for a user.
     /// </summary>
     Task<WalletBalanceResponse> GetWalletBalanceAsync(string userId);

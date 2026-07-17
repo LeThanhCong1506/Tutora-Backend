@@ -227,6 +227,80 @@ public class WalletService(
         };
     }
 
+    public async Task<TopupStatusResponse> GetTopupStatusAsync(long orderCode, string userId, CancellationToken ct = default)
+    {
+        var topup = await context.Topuprequests.AsNoTracking()
+            .FirstOrDefaultAsync(t => t.Ordercode == orderCode, ct);
+        if (topup == null || topup.Userid != userId)
+            throw new BookingException(WalletErrorCodes.TopupNotFound, "Không tìm thấy yêu cầu nạp tiền", 404);
+
+        // Đã cộng tiền rồi — khỏi gọi PayOS.
+        if (topup.Status == TopupStatus.Completed)
+            return await BuildTopupStatusResponseAsync(topup, TopupStatus.Completed, true, ct);
+
+        // Chưa có payment link (tạo lỗi giữa chừng) — không có gì để poll.
+        if (string.IsNullOrWhiteSpace(topup.Paymentlinkid))
+            return await BuildTopupStatusResponseAsync(topup, topup.Status ?? TopupStatus.Pending, false, ct);
+
+        // Self-heal: hỏi PayOS trực tiếp; nếu ĐÃ thanh toán mà webhook chưa về (hay gặp ở localhost)
+        // thì dựng lại một webhook request và đi qua đúng đường credit duy nhất (ProcessTopupWebhookAsync,
+        // idempotent theo Ordercode) — không tự viết logic cộng tiền riêng để tránh double-credit.
+        try
+        {
+            var info = await _payOS.PaymentRequests.GetAsync(topup.Paymentlinkid);
+            var payosStatus = info.Status.ToString();
+
+            if (payosStatus.Equals(PayOSLinkStatus.Paid, StringComparison.OrdinalIgnoreCase))
+            {
+                var synthetic = new PaymentWebhookRequest
+                {
+                    Code = PayOSWebhookCode.SuccessCode,
+                    Success = true,
+                    Data = new PayOSWebhookData
+                    {
+                        OrderCode = orderCode,
+                        Amount = (int)(topup.Amount ?? 0),
+                        Reference = $"payos-link-{info.Id}",
+                        PaymentLinkId = topup.Paymentlinkid,
+                        Description = $"Topup #{orderCode}"
+                    }
+                };
+                try
+                {
+                    await ProcessTopupWebhookAsync(synthetic, ct);
+                }
+                catch (Exception healEx)
+                {
+                    logger.LogWarning(healEx, "Self-heal topup credit failed for orderCode {OrderCode}", orderCode);
+                }
+            }
+
+            var refreshed = await context.Topuprequests.AsNoTracking()
+                .FirstOrDefaultAsync(t => t.Ordercode == orderCode, ct) ?? topup;
+            return await BuildTopupStatusResponseAsync(refreshed, payosStatus, refreshed.Status == TopupStatus.Completed, ct);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Failed to get PayOS status for topup {OrderCode}", orderCode);
+            return await BuildTopupStatusResponseAsync(topup, topup.Status ?? TopupStatus.Pending, false, ct);
+        }
+    }
+
+    private async Task<TopupStatusResponse> BuildTopupStatusResponseAsync(Topuprequest topup, string status, bool credited, CancellationToken ct)
+    {
+        var wallet = await context.Wallets.AsNoTracking()
+            .FirstOrDefaultAsync(w => w.Userid == topup.Userid, ct);
+
+        return new TopupStatusResponse
+        {
+            OrderCode = topup.Ordercode,
+            Status = status,
+            WalletCredited = credited,
+            Amount = topup.Amount ?? 0,
+            WalletBalance = wallet?.Balance ?? 0
+        };
+    }
+
     public async Task<bool> VerifyWebhookSignatureAsync(string payload, string signature)
     {
         try
