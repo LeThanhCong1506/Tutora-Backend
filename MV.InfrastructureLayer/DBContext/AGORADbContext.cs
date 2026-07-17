@@ -103,6 +103,8 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
 
     public virtual DbSet<Wallettransaction> Wallettransactions { get; set; }
 
+    public virtual DbSet<PaymentRequest> PaymentRequests { get; set; }
+
     public virtual DbSet<PaymentTransaction> PaymentTransactions { get; set; }
 
     public virtual DbSet<Withdrawalrequest> Withdrawalrequests { get; set; }
@@ -265,8 +267,6 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
 
             entity.ToTable("bookings");
 
-            entity.HasIndex(e => e.Paymentcode, "bookings_paymentcode_key").IsUnique();
-
             entity.HasIndex(e => e.Status, "idx_bookings_status");
 
             entity.Property(e => e.Bookingid).HasColumnName("booking_id");
@@ -332,9 +332,6 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
             entity.Property(e => e.Parentid)
                 .HasMaxLength(50)
                 .HasColumnName("parent_id");
-            entity.Property(e => e.Paymentcode)
-                .HasMaxLength(50)
-                .HasColumnName("payment_code");
             entity.Property(e => e.Startdate)
                 .HasColumnType("timestamp without time zone")
                 .HasColumnName("start_date");
@@ -367,12 +364,6 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
                 .HasColumnName("created_by_role");
             entity.Property(e => e.Responsedeadline)
                 .HasColumnName("response_deadline");
-            entity.Property(e => e.Payosbin).HasMaxLength(20).HasColumnName("payos_bin");
-            entity.Property(e => e.Payosaccountnumber).HasMaxLength(50).HasColumnName("payos_account_number");
-            entity.Property(e => e.Payosaccountname).HasMaxLength(200).HasColumnName("payos_account_name");
-            entity.Property(e => e.Payosdescription).HasMaxLength(100).HasColumnName("payos_description");
-            entity.Property(e => e.Payoscheckouturl).HasColumnName("payos_checkout_url");
-            entity.Property(e => e.Payosqrcode).HasColumnName("payos_qr_code");
             entity.Property(e => e.Tutorsubjectgradepriceid).HasColumnName("tutor_subject_grade_price_id");
             entity.Property(e => e.Tutorfee)
                 .HasPrecision(12, 2)
@@ -1869,7 +1860,14 @@ entity.HasOne(d => d.Tutor).WithOne(p => p.Tutorprofile)
 
             entity.HasIndex(e => new { e.Userid, e.Status }, "idx_topuprequests_userid_status");
 
+            entity.HasIndex(e => new { e.Bookingid, e.Paymentphase, e.Userid, e.Status },
+                "idx_topup_requests_booking_phase_user_status");
+
             entity.Property(e => e.Topuprequestid).HasColumnName("topup_request_id");
+            entity.Property(e => e.Bookingid).HasColumnName("booking_id");
+            entity.Property(e => e.Paymentphase)
+                .HasMaxLength(20)
+                .HasColumnName("payment_phase");
             entity.Property(e => e.Ordercode).HasColumnName("order_code");
             entity.Property(e => e.Userid)
                 .HasMaxLength(50)
@@ -1894,6 +1892,12 @@ entity.HasOne(d => d.Tutor).WithOne(p => p.Tutorprofile)
             entity.Property(e => e.Expiresat)
                 .HasColumnType("timestamp without time zone")
                 .HasColumnName("expires_at");
+
+            entity.HasOne<Booking>()
+                .WithMany()
+                .HasForeignKey(e => e.Bookingid)
+                .OnDelete(DeleteBehavior.Restrict)
+                .HasConstraintName("topup_requests_booking_id_fkey");
 
             entity.HasOne(d => d.User).WithMany(p => p.Topuprequests)
                 .HasForeignKey(d => d.Userid)
@@ -2112,29 +2116,93 @@ entity.HasOne(d => d.Tutor).WithOne(p => p.Tutorprofile)
                 .HasConstraintName("wallets_userid_fkey");
         });
 
+        modelBuilder.Entity<PaymentRequest>(entity =>
+        {
+            entity.HasKey(e => e.Paymentrequestid).HasName("payment_requests_pkey");
+
+            entity.ToTable("payment_requests");
+
+            entity.HasIndex(e => new { e.Provider, e.Paymentlinkid }, "uq_payment_requests_provider_link")
+                .IsUnique()
+                .HasFilter("payment_link_id IS NOT NULL");
+            entity.HasIndex(e => new { e.Provider, e.Ordercode }, "uq_payment_requests_provider_order")
+                .IsUnique()
+                .HasFilter("order_code IS NOT NULL");
+            entity.HasIndex(e => new { e.Bookingid, e.Phase }, "uq_payment_requests_active_booking_phase")
+                .IsUnique()
+                .HasFilter("phase IN ('deposit', 'remaining') AND status IN ('PENDING', 'PROCESSING', 'REQUIRES_REVIEW', 'UNKNOWN')");
+            entity.HasIndex(e => new { e.Bookingid, e.Createdat }, "idx_payment_requests_booking_created");
+            entity.HasIndex(e => e.Userid, "idx_payment_requests_user");
+            entity.HasIndex(e => e.Status, "idx_payment_requests_status");
+
+            entity.Property(e => e.Paymentrequestid).HasColumnName("payment_request_id");
+            entity.Property(e => e.Bookingid).HasColumnName("booking_id");
+            entity.Property(e => e.Userid).HasMaxLength(50).HasColumnName("user_id");
+            entity.Property(e => e.Provider).HasMaxLength(20).HasColumnName("provider");
+            entity.Property(e => e.Phase).HasMaxLength(20).HasColumnName("phase");
+            entity.Property(e => e.Ordercode).HasColumnName("order_code");
+            entity.Property(e => e.Paymentlinkid).HasMaxLength(255).HasColumnName("payment_link_id");
+            entity.Property(e => e.Amount).HasPrecision(15, 2).HasColumnName("amount");
+            entity.Property(e => e.Currency).HasMaxLength(10).HasColumnName("currency");
+            entity.Property(e => e.Status).HasMaxLength(30).HasColumnName("status");
+            entity.Property(e => e.Destinationbankbin).HasMaxLength(20).HasColumnName("destination_bank_bin");
+            entity.Property(e => e.Destinationbankname).HasMaxLength(100).HasColumnName("destination_bank_name");
+            entity.Property(e => e.Displayaccountnumber).HasMaxLength(50).HasColumnName("display_account_number");
+            entity.Property(e => e.Displayaccountname).HasMaxLength(200).HasColumnName("display_account_name");
+            entity.Property(e => e.Description).HasColumnName("description");
+            entity.Property(e => e.Checkouturl).HasColumnName("checkout_url");
+            entity.Property(e => e.Qrcode).HasColumnName("qr_code");
+            entity.Property(e => e.Expiresat).HasColumnType("timestamp without time zone").HasColumnName("expires_at");
+            entity.Property(e => e.Providerpayload).HasColumnType("jsonb").HasColumnName("provider_payload");
+            entity.Property(e => e.Createdat)
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
+                .HasColumnType("timestamp without time zone")
+                .HasColumnName("created_at");
+            entity.Property(e => e.Updatedat)
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
+                .HasColumnType("timestamp without time zone")
+                .HasColumnName("updated_at");
+
+            entity.HasOne(d => d.Booking).WithMany(p => p.Paymentrequests)
+                .HasForeignKey(d => d.Bookingid)
+                .OnDelete(DeleteBehavior.Restrict)
+                .HasConstraintName("payment_requests_booking_id_fkey");
+
+            entity.HasOne(d => d.User).WithMany()
+                .HasForeignKey(d => d.Userid)
+                .OnDelete(DeleteBehavior.SetNull)
+                .HasConstraintName("payment_requests_user_id_fkey");
+        });
+
         modelBuilder.Entity<PaymentTransaction>(entity =>
         {
             entity.HasKey(e => e.Paymenttransactionid).HasName("payment_transactions_pkey");
 
             entity.ToTable("payment_transactions");
 
-            entity.HasIndex(e => new { e.Channel, e.Providertransactionid }, "uq_payment_transactions_channel_provider_transaction_id")
+            entity.HasIndex(e => new { e.Paymentmethod, e.Providertransactionid }, "uq_payment_transactions_payment_method_provider_transaction_id")
                 .IsUnique()
                 .HasFilter("provider_transaction_id IS NOT NULL");
             entity.HasIndex(e => e.Userid, "idx_payment_transactions_user_id");
             entity.HasIndex(e => e.Ordercode, "idx_payment_transactions_order_code");
             entity.HasIndex(e => e.Bookingid, "idx_payment_transactions_booking_id");
-            entity.HasIndex(e => e.Topuprequestid, "idx_payment_transactions_topup_request_id");
             entity.HasIndex(e => e.Withdrawalid, "idx_payment_transactions_withdrawal_id");
+            entity.HasIndex(e => e.Withdrawalid, "uq_payment_transactions_withdrawal_payout")
+                .IsUnique()
+                .HasFilter("withdrawal_id IS NOT NULL AND purpose = 'Withdrawal' AND status = 'Succeeded'");
+            entity.HasIndex(e => e.Paymentrequestid, "idx_payment_transactions_payment_request");
             entity.HasIndex(e => e.Paidat, "idx_payment_transactions_paid_at");
+            entity.HasIndex(e => new { e.Paymentmethod, e.Capturefingerprint }, "uq_payment_transactions_payment_method_capture_fingerprint")
+                .IsUnique()
+                .HasFilter("provider_transaction_id IS NULL AND capture_fingerprint IS NOT NULL");
 
             entity.Property(e => e.Paymenttransactionid).HasColumnName("payment_transaction_id");
             entity.Property(e => e.Userid)
                 .HasMaxLength(50)
                 .HasColumnName("user_id");
-            entity.Property(e => e.Channel)
+            entity.Property(e => e.Paymentmethod)
                 .HasMaxLength(20)
-                .HasColumnName("channel");
+                .HasColumnName("payment_method");
             entity.Property(e => e.Direction)
                 .HasMaxLength(20)
                 .HasColumnName("direction");
@@ -2157,8 +2225,8 @@ entity.HasOne(d => d.Tutor).WithOne(p => p.Tutorprofile)
             entity.Property(e => e.Paymentlinkid)
                 .HasMaxLength(255)
                 .HasColumnName("payment_link_id");
+            entity.Property(e => e.Paymentrequestid).HasColumnName("payment_request_id");
             entity.Property(e => e.Bookingid).HasColumnName("booking_id");
-            entity.Property(e => e.Topuprequestid).HasColumnName("topup_request_id");
             entity.Property(e => e.Withdrawalid).HasColumnName("withdrawal_id");
             entity.Property(e => e.Description).HasColumnName("description");
             entity.Property(e => e.Paidat)
@@ -2172,6 +2240,17 @@ entity.HasOne(d => d.Tutor).WithOne(p => p.Tutorprofile)
                 .HasMaxLength(50)
                 .HasColumnName("processed_by");
             entity.Property(e => e.Note).HasColumnName("note");
+            entity.Property(e => e.Capturesource)
+                .HasMaxLength(20)
+                .HasDefaultValueSql("'Legacy'::character varying")
+                .HasColumnName("capture_source");
+            entity.Property(e => e.Reconciliationstatus)
+                .HasMaxLength(30)
+                .HasDefaultValueSql("'Matched'::character varying")
+                .HasColumnName("reconciliation_status");
+            entity.Property(e => e.Capturefingerprint)
+                .HasMaxLength(64)
+                .HasColumnName("capture_fingerprint");
             entity.Property(e => e.Webhookcode)
                 .HasMaxLength(50)
                 .HasColumnName("webhook_code");
@@ -2193,9 +2272,9 @@ entity.HasOne(d => d.Tutor).WithOne(p => p.Tutorprofile)
             entity.Property(e => e.Sourceaccountname)
                 .HasMaxLength(200)
                 .HasColumnName("source_account_name");
-            entity.Property(e => e.Destinationaccountbankid)
+            entity.Property(e => e.Destinationaccountbankbin)
                 .HasMaxLength(50)
-                .HasColumnName("destination_account_bank_id");
+                .HasColumnName("destination_account_bank_bin");
             entity.Property(e => e.Destinationaccountbankname)
                 .HasMaxLength(100)
                 .HasColumnName("destination_account_bank_name");
@@ -2205,9 +2284,18 @@ entity.HasOne(d => d.Tutor).WithOne(p => p.Tutorprofile)
             entity.Property(e => e.Destinationaccountname)
                 .HasMaxLength(200)
                 .HasColumnName("destination_account_name");
+            entity.Property(e => e.Destinationvirtualaccountnumber)
+                .HasMaxLength(50)
+                .HasColumnName("destination_virtual_account_number");
+            entity.Property(e => e.Destinationvirtualaccountname)
+                .HasMaxLength(200)
+                .HasColumnName("destination_virtual_account_name");
             entity.Property(e => e.Providerpayload)
                 .HasColumnType("jsonb")
                 .HasColumnName("provider_payload");
+            entity.Property(e => e.Webhookpayload)
+                .HasColumnType("text")
+                .HasColumnName("webhook_payload");
 
             entity.HasOne(d => d.User).WithMany()
                 .HasForeignKey(d => d.Userid)
@@ -2224,10 +2312,10 @@ entity.HasOne(d => d.Tutor).WithOne(p => p.Tutorprofile)
                 .OnDelete(DeleteBehavior.SetNull)
                 .HasConstraintName("payment_transactions_booking_id_fkey");
 
-            entity.HasOne(d => d.Topuprequest).WithMany()
-                .HasForeignKey(d => d.Topuprequestid)
+            entity.HasOne(d => d.Paymentrequest).WithMany(p => p.Paymenttransactions)
+                .HasForeignKey(d => d.Paymentrequestid)
                 .OnDelete(DeleteBehavior.SetNull)
-                .HasConstraintName("payment_transactions_topup_request_id_fkey");
+                .HasConstraintName("payment_transactions_payment_request_id_fkey");
 
             entity.HasOne(d => d.Withdrawal).WithMany()
                 .HasForeignKey(d => d.Withdrawalid)

@@ -34,6 +34,9 @@ public class PayOSWebhookData
     [JsonPropertyName("accountNumber")]
     public string AccountNumber { get; set; } = "";
 
+    [JsonPropertyName("accountName")]
+    public string? AccountName { get; set; }
+
     [JsonPropertyName("reference")]
     public string Reference { get; set; } = "";
 

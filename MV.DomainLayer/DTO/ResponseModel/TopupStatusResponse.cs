@@ -8,6 +8,10 @@ public class TopupStatusResponse
 {
     public long OrderCode { get; set; }
 
+    public int BookingId { get; set; }
+
+    public string PaymentPhase { get; set; } = "";
+
     /// <summary>Trạng thái thô: TopupStatus (pending/completed) hoặc PayOSLinkStatus (PAID/EXPIRED/CANCELLED...).</summary>
     public string Status { get; set; } = "";
 

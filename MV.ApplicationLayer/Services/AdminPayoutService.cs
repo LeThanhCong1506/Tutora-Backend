@@ -4,6 +4,7 @@ using MV.ApplicationLayer.Helpers;
 using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO.RequestModel;
+using MV.DomainLayer.DTO.RequestModel.Admin;
 using MV.DomainLayer.DTO.ResponseModel;
 using MV.DomainLayer.DTO.ResponseModel.Admin;
 using MV.DomainLayer.Entities;
@@ -308,8 +309,17 @@ public class AdminPayoutService(
         return timeline;
     }
 
-    public async Task<ApproveResult> ApproveRequestAsync(int withdrawalId, string actorUserId, string actorRole, string? note = null, CancellationToken ct = default)
+    public async Task<ApproveResult> ApproveRequestAsync(
+        int withdrawalId,
+        string actorUserId,
+        string actorRole,
+        ApproveWithdrawalRequest request,
+        CancellationToken ct = default)
     {
+        await using var dbTransaction =
+            await context.Database.BeginTransactionAsync(
+                System.Data.IsolationLevel.Serializable,
+                ct);
         var withdrawal = await withdrawalRepo.GetByIdWithUserAsync(withdrawalId, ct);
 
         if (withdrawal == null)
@@ -318,8 +328,23 @@ public class AdminPayoutService(
         if (!StaffActionableStatuses.Contains(withdrawal.Status ?? ""))
             throw new InvalidOperationException($"Không thể duyệt yêu cầu có trạng thái: {withdrawal.Status}");
 
-        if (string.IsNullOrWhiteSpace(note))
-            throw new InvalidOperationException("Vui lòng nhập ghi chú/mã tham chiếu giao dịch chuyển khoản.");
+        if (request == null
+            || string.IsNullOrWhiteSpace(request.TransactionId)
+            || !request.PaidAt.HasValue
+            || string.IsNullOrWhiteSpace(request.Note))
+            throw new InvalidOperationException("Vui lòng nhập đầy đủ mã giao dịch, thời gian chuyển khoản và ghi chú đối soát.");
+
+        var transactionId = request.TransactionId.Trim().ToUpperInvariant();
+        var note = request.Note.Trim();
+
+        var transactionExists = await context.PaymentTransactions
+            .AsNoTracking()
+            .AnyAsync(t => t.Paymentmethod == PaymentTransactionMethod.Manual
+                && t.Providertransactionid != null
+                && t.Providertransactionid.ToUpper() == transactionId, ct);
+
+        if (transactionExists)
+            throw new InvalidOperationException($"Mã giao dịch '{transactionId}' đã được ghi nhận trước đó.");
 
         // Ghi đúng decision theo role người thực hiện
         var decision = string.Equals(actorRole, UserRole.Staff, StringComparison.OrdinalIgnoreCase)
@@ -334,7 +359,7 @@ public class AdminPayoutService(
         withdrawal.Decision       = decision;
         withdrawal.Completionnote = note;
 
-        var capture = PaymentTransactionCapture.FromManual(withdrawal.Processedat, actorUserId, note);
+        var capture = PaymentTransactionCapture.FromManual(request.PaidAt, actorUserId, note, transactionId);
         context.PaymentTransactions.Add(capture.Create(
             PaymentTransactionPurpose.Withdrawal,
             PaymentTransactionDirection.Outbound,
@@ -348,6 +373,7 @@ public class AdminPayoutService(
             destinationBankName: withdrawal.Bankname));
 
         await context.SaveChangesAsync(ct);
+        await dbTransaction.CommitAsync(ct);
 
         try
         {

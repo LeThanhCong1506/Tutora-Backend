@@ -24,6 +24,7 @@ public partial class PaymentService(
     IOptions<PaymentSettings> paymentSettings,
     [FromKeyedServices(ServiceKeys.PayOS.Checkout)] PayOSClient payOS,
     INotificationService notificationService,
+    IBankListService bankListService,
     ILogger<PaymentService> logger) : IPaymentService
 {
     //fix link
@@ -33,7 +34,17 @@ public partial class PaymentService(
         paymentSettings.Value.ReturnUrl,
         paymentSettings.Value.CancelUrl);
 
-    public async Task ProcessWebhookAsync(PaymentWebhookRequest request, CancellationToken ct = default)
+    private sealed record PaymentRecordResult(
+        bool CanApply,
+        bool IsDuplicate,
+        decimal AmountToApply,
+        bool CanRefundToBooking,
+        string? StableProcessingKey = null);
+
+    public async Task ProcessWebhookAsync(
+        PaymentWebhookRequest request,
+        string rawPayload,
+        CancellationToken ct = default)
     {
         if (request?.Data == null)
             throw new BookingException(BookingErrorCodes.InvalidWebhookPayload, "Dữ liệu webhook không hợp lệ", 400);
@@ -45,8 +56,130 @@ public partial class PaymentService(
         }
 
         var data = request.Data;
-        logger.LogInformation("Processing webhook orderCode: {OrderCode}, amount: {Amount}", data.OrderCode, data.Amount);
-        await ConfirmPaymentInternalAsync(data.OrderCode, data.Amount, data.Reference, PaymentTransactionCapture.FromPayOSWebhook(request), ct);
+        var capture = PaymentTransactionCapture.FromPayOSWebhook(
+            request,
+            rawPayload);
+        logger.LogInformation(
+            "Processing webhook orderCode: {OrderCode}, reference: {Reference}, amount: {Amount}",
+            data.OrderCode,
+            data.Reference,
+            data.Amount);
+        await ConfirmPaymentInternalAsync(
+            data.OrderCode,
+            data.Amount,
+            capture.GetProcessingKey(),
+            capture,
+            ct);
+    }
+
+    public async Task RecordUnmatchedPayOSWebhookAsync(
+        PaymentWebhookRequest request,
+        string rawPayload,
+        CancellationToken ct = default)
+    {
+        if (request?.Data == null)
+            throw new BookingException(
+                BookingErrorCodes.InvalidWebhookPayload,
+                "Dữ liệu webhook không hợp lệ",
+                400);
+
+        if (request.Code != PayOSWebhookCode.SuccessCode
+            || !request.Success)
+            return;
+
+        var orderCode = request.Data.OrderCode;
+        var purpose = OrderCodeHelper.IsBookingOrderCode(orderCode)
+            ? PaymentTransactionPurpose.BookingDeposit
+            : OrderCodeHelper.IsRemainingOrderCode(orderCode)
+                ? PaymentTransactionPurpose.BookingRemaining
+                : OrderCodeHelper.IsTopupOrderCode(orderCode)
+                    ? PaymentTransactionPurpose.WalletTopup
+                    : PaymentTransactionPurpose.UnmatchedPayOS;
+
+        await RecordOrphanPayOSTransactionAsync(
+            PaymentTransactionCapture.FromPayOSWebhook(
+                request,
+                rawPayload),
+            purpose,
+            "Verified PayOS webhook could not be routed to an existing business record",
+            ct);
+    }
+
+    private async Task RecordOrphanPayOSTransactionAsync(
+        PaymentTransactionCapture capture,
+        string purpose,
+        string reason,
+        CancellationToken ct)
+    {
+        var incoming = capture.Create(
+            purpose,
+            PaymentTransactionDirection.Inbound,
+            capture.ObservedAmount ?? 0,
+            userId: null,
+            capture.ObservedOrderCode,
+            reconciliationStatus:
+                PaymentReconciliationStatus.Orphan);
+        var existing = await context.PaymentTransactions
+            .FirstOrDefaultAsync(
+                PaymentTransactionCapture.BuildIdentityMatchPredicate(
+                    incoming),
+                ct);
+
+        if (existing != null)
+        {
+            var conflicts =
+                (!string.IsNullOrWhiteSpace(
+                        existing.Providertransactionid)
+                    && !string.IsNullOrWhiteSpace(
+                        incoming.Providertransactionid)
+                    && existing.Providertransactionid
+                        != incoming.Providertransactionid)
+                || existing.Amount != incoming.Amount
+                || !string.Equals(
+                    existing.Currency,
+                    incoming.Currency,
+                    StringComparison.OrdinalIgnoreCase)
+                || (existing.Ordercode.HasValue
+                    && incoming.Ordercode.HasValue
+                    && existing.Ordercode != incoming.Ordercode)
+                || (!string.IsNullOrWhiteSpace(existing.Paymentlinkid)
+                    && !string.IsNullOrWhiteSpace(
+                        incoming.Paymentlinkid)
+                    && existing.Paymentlinkid
+                        != incoming.Paymentlinkid);
+
+            if (conflicts)
+            {
+                if (!(existing.Note?.Contains(
+                        "PayOS reference conflict",
+                        StringComparison.OrdinalIgnoreCase) ?? false))
+                {
+                    AddPaymentReconciliationAlert(
+                        existing,
+                        null,
+                        PaymentAlertType.ReferenceConflict,
+                        reason);
+                    existing.Note = string.IsNullOrWhiteSpace(existing.Note)
+                        ? "PayOS reference conflict detected."
+                        : $"{existing.Note} PayOS reference conflict detected.";
+                }
+            }
+            else
+            {
+                EnrichPaymentTransaction(existing, incoming);
+            }
+
+            await context.SaveChangesAsync(ct);
+            return;
+        }
+
+        context.PaymentTransactions.Add(incoming);
+        AddPaymentReconciliationAlert(
+            incoming,
+            null,
+            PaymentAlertType.OrphanTransaction,
+            reason);
+        await context.SaveChangesAsync(ct);
     }
 
     public async Task<bool> VerifyWebhookSignatureAsync(string payload, string signature)
@@ -64,9 +197,13 @@ public partial class PaymentService(
         }
     }
 
-    public async Task ConfirmPaymentByAdminAsync(int bookingId, AdminConfirmPaymentRequest request, string? actorUserId = null, CancellationToken ct = default)
+    public async Task ConfirmPaymentManuallyAsync(int bookingId, AdminConfirmPaymentRequest request, string? actorUserId = null, CancellationToken ct = default)
     {
-        if (request == null || request.Amount <= 0)
+        if (request == null
+            || request.Amount <= 0
+            || string.IsNullOrWhiteSpace(request.TransactionId)
+            || !request.PaidAt.HasValue
+            || string.IsNullOrWhiteSpace(request.Note))
             throw new BookingException(BookingErrorCodes.InvalidInput, "Dữ liệu đầu vào không hợp lệ", 400);
 
         var booking = await bookingRepo.FindTrackedAsync(bookingId, ct)
@@ -75,19 +212,90 @@ public partial class PaymentService(
         // Ensure deposit/remaining amounts are calculated for old bookings
         EnsureDepositAmountsCalculated(booking);
 
-        var txId = string.IsNullOrWhiteSpace(request.TransactionId)
-            ? $"admin-{bookingId}-{MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow:yyyyMMddHHmmss}"
-            : request.TransactionId.Trim();
+        var txId = request.TransactionId.Trim().ToUpperInvariant();
+
+        if (await context.PaymentTransactions.AsNoTracking().AnyAsync(
+            t => t.Paymentmethod == PaymentTransactionMethod.Manual
+                && t.Providertransactionid != null
+                && t.Providertransactionid.ToUpper() == txId,
+            ct))
+        {
+            throw new BookingException(
+                BookingErrorCodes.DuplicateTransaction,
+                $"Transaction '{txId}' đã được xử lý trước đó",
+                409);
+        }
+
+        var expectedAmount = booking.Depositpaidat == null
+            ? booking.Depositamount ?? 0
+            : booking.Remainingamount ?? 0;
+        if (request.Amount != expectedAmount)
+        {
+            throw new BookingException(
+                BookingErrorCodes.AmountMismatch,
+                "Số tiền không khớp",
+                409);
+        }
 
         // Auto-detect phase: if deposit not paid yet, confirm deposit; otherwise confirm remaining
+        var isDepositPhase = booking.Depositpaidat == null;
         long orderCode;
-        if (booking.Depositpaidat == null)
+        if (isDepositPhase)
             orderCode = OrderCodeHelper.GenerateBookingOrderCode(bookingId);
         else
             orderCode = OrderCodeHelper.GenerateRemainingOrderCode(bookingId);
 
-        var capture = PaymentTransactionCapture.FromManual(request.PaidAt, actorUserId, null, txId);
-        await ConfirmPaymentInternalAsync(orderCode, (int)request.Amount, txId, capture, ct);
+        // The phase/amount precheck above is advisory. Detach it so the inner
+        // transaction reloads and row-locks the latest booking state.
+        context.Bookings.Entry(booking).State = EntityState.Detached;
+        var capture = PaymentTransactionCapture.FromManual(request.PaidAt, actorUserId, request.Note, txId);
+        try
+        {
+            await ConfirmPaymentInternalAsync(
+                orderCode,
+                request.Amount,
+                txId,
+                capture,
+                ct);
+        }
+        catch (DbUpdateException ex)
+            when (IsProviderTransactionReferenceConflict(ex))
+        {
+            throw new BookingException(
+                BookingErrorCodes.DuplicateTransaction,
+                $"Transaction '{txId}' đã được xử lý trước đó",
+                409);
+        }
+
+        var expectedPurpose = isDepositPhase
+            ? PaymentTransactionPurpose.BookingDeposit
+            : PaymentTransactionPurpose.BookingRemaining;
+        var recordedManualTransaction = await context.PaymentTransactions
+            .AsNoTracking()
+            .Where(t => t.Paymentmethod == PaymentTransactionMethod.Manual
+                && t.Providertransactionid != null
+                && t.Providertransactionid.ToUpper() == txId)
+            .OrderByDescending(t => t.Paymenttransactionid)
+            .FirstOrDefaultAsync(ct);
+        if (recordedManualTransaction == null
+            || recordedManualTransaction.Bookingid != bookingId
+            || recordedManualTransaction.Purpose != expectedPurpose
+            || recordedManualTransaction.Reconciliationstatus
+                != PaymentReconciliationStatus.Matched)
+        {
+            throw new BookingException(
+                BookingErrorCodes.InvalidBookingStatus,
+                "Giao dịch đã được lưu để đối soát nhưng không thể áp dụng vì trạng thái booking vừa thay đổi.",
+                409);
+        }
+
+        await SupersedeActivePayOSRequestsAsync(
+            bookingId,
+            isDepositPhase
+                ? PaymentRequestPhase.Deposit
+                : PaymentRequestPhase.Remaining,
+            "Booking payment was confirmed manually by staff.",
+            ct);
     }
 
     public async Task<TestConfirmBookingPaymentResponse> ConfirmCurrentBookingPaymentForTestAsync(
@@ -120,7 +328,8 @@ public partial class PaymentService(
             ? OrderCodeHelper.GenerateBookingOrderCode(bookingId)
             : OrderCodeHelper.GenerateRemainingOrderCode(bookingId);
 
-        await ConfirmPaymentInternalAsync(orderCode, (int)amount, txId, null, ct);
+        context.Bookings.Entry(booking).State = EntityState.Detached;
+        await ConfirmPaymentInternalAsync(orderCode, amount, txId, null, ct);
 
         return new TestConfirmBookingPaymentResponse
         {
@@ -158,69 +367,74 @@ public partial class PaymentService(
             RefundAmount = refundAmount
         };
 
-        if (string.IsNullOrWhiteSpace(booking.Paymentcode))
+        var currentPhase = booking.Depositpaidat == null
+            ? PaymentRequestPhase.Deposit
+            : PaymentRequestPhase.Remaining;
+        var paymentRequest = await context.PaymentRequests
+            .Where(r => r.Bookingid == bookingId
+                && r.Provider == PaymentRequestProvider.PayOS)
+            .OrderByDescending(r => r.Phase == currentPhase)
+            .ThenByDescending(r => r.Createdat)
+            .FirstOrDefaultAsync();
+
+        if (paymentRequest == null)
             return baseResponse;
 
         try
         {
-            var info = await _payOS.PaymentRequests.GetAsync(booking.Paymentcode);
-            var payosReportsPaid = info.Status.ToString().Equals(PayOSLinkStatus.Paid, StringComparison.OrdinalIgnoreCase);
+            await ReconcilePaymentRequestAsync(
+                paymentRequest,
+                CancellationToken.None);
 
-            bool isDepositLink = OrderCodeHelper.IsBookingOrderCode(info.OrderCode);
-            bool isRemainingLink = OrderCodeHelper.IsRemainingOrderCode(info.OrderCode);
-
-            bool isThisLinkPaidInDb = false;
-            if (isDepositLink)
-                isThisLinkPaidInDb = booking.Depositpaidat != null;
-            else if (isRemainingLink)
-                isThisLinkPaidInDb = booking.Remainingpaidat != null;
-
-            var purpose = isDepositLink
-                ? PaymentTransactionPurpose.BookingDeposit
-                : PaymentTransactionPurpose.BookingRemaining;
-            var hasRecordedPaymentTransaction = payosReportsPaid
-                && isThisLinkPaidInDb
-                && await context.PaymentTransactions.AsNoTracking().AnyAsync(t =>
-                    t.Channel == PaymentTransactionChannel.PayOS
-                    && t.Bookingid == bookingId
-                    && t.Purpose == purpose
-                    && t.Ordercode == info.OrderCode);
-
-            // Confirm when the webhook has not updated the booking yet. Also re-enter
-            // the idempotent confirm path to backfill transactions for bookings that
-            // were already marked paid before payment_transactions was introduced.
-            if (payosReportsPaid && (!isThisLinkPaidInDb || !hasRecordedPaymentTransaction))
+            if (string.IsNullOrWhiteSpace(paymentRequest.Paymentlinkid)
+                && !paymentRequest.Ordercode.HasValue)
             {
-                var capture = PaymentTransactionCapture.FromPayOSPaymentLink(info);
-                if (isDepositLink)
+                return baseResponse;
+            }
+
+            var info = !string.IsNullOrWhiteSpace(
+                paymentRequest.Paymentlinkid)
+                ? await _payOS.PaymentRequests.GetAsync(
+                    paymentRequest.Paymentlinkid)
+                : await _payOS.PaymentRequests.GetAsync(
+                    paymentRequest.Ordercode!.Value);
+
+            var captures =
+                PaymentTransactionCapture.FromPayOSPaymentLink(info);
+            if (captures.Count > 0)
+            {
+                foreach (var capture in captures)
                 {
-                    logger.LogInformation("PayOS reports PAID for booking {BookingId} deposit but DB not updated yet. Confirming.", bookingId);
-                    try
-                    {
-                        var orderCode = OrderCodeHelper.GenerateBookingOrderCode(bookingId);
-                        var txId = capture.GetProviderTransactionId($"payos-link-{info.Id}")!;
-                        await ConfirmPaymentInternalAsync(orderCode, (int)info.Amount, txId, capture, CancellationToken.None);
-                    }
-                    catch (Exception confirmEx)
-                    {
-                        logger.LogWarning(confirmEx, "Auto-confirm deposit from polling failed for booking {BookingId}", bookingId);
-                    }
-                }
-                else if (isRemainingLink)
-                {
-                    logger.LogInformation("PayOS reports PAID for booking {BookingId} remaining but DB not updated yet. Confirming.", bookingId);
-                    try
-                    {
-                        var orderCode = OrderCodeHelper.GenerateRemainingOrderCode(bookingId);
-                        var txId = capture.GetProviderTransactionId($"payos-link-{info.Id}")!;
-                        await ConfirmPaymentInternalAsync(orderCode, (int)info.Amount, txId, capture, CancellationToken.None);
-                    }
-                    catch (Exception confirmEx)
-                    {
-                        logger.LogWarning(confirmEx, "Auto-confirm remaining from polling failed for booking {BookingId}", bookingId);
-                    }
+                    await ConfirmPaymentInternalAsync(
+                        info.OrderCode,
+                        capture.ObservedAmount ?? 0,
+                        capture.GetProcessingKey(),
+                        capture,
+                        CancellationToken.None);
                 }
             }
+            else if (NormalizePaymentRequestStatus(info.Status.ToString())
+                == PaymentRequestStatus.Paid)
+            {
+                await MarkPaidRequestWithoutTransactionsAsync(
+                    paymentRequest,
+                    CancellationToken.None);
+            }
+
+            // The authorization read is no-tracking so a later locked confirm
+            // cannot accidentally reuse stale values. Refresh explicitly for
+            // the response after captures may have updated/refunded the booking.
+            var refreshedBooking = await context.Bookings
+                .AsNoTracking()
+                .FirstAsync(b => b.Bookingid == bookingId);
+            var refreshedExpired =
+                refreshedBooking.Status == BookingStatus.PaymentTimeout
+                || (refreshedBooking.Paymentdueat.HasValue
+                    && refreshedBooking.Paymentdueat.Value
+                        <= MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow);
+            var refreshedRefunded =
+                refreshedBooking.Refundstatus == RefundStatus.Refunded
+                && (refreshedBooking.Refundamount ?? 0) > 0;
 
             return new PaymentStatusResponse
             {
@@ -229,58 +443,261 @@ public partial class PaymentService(
                 Amount = (int)info.Amount,
                 AmountPaid = (int)info.AmountPaid,
                 AmountRemaining = (int)info.AmountRemaining,
-                IsPaid = booking.Status == BookingStatus.Paid || (booking.Depositpaidat != null && booking.Remainingpaidat != null),
-                DepositAmount = booking.Depositamount ?? 0,
-                RemainingAmount = booking.Remainingamount ?? 0,
-                IsDepositPaid = booking.Depositpaidat != null,
-                IsRemainingPaid = booking.Remainingpaidat != null,
-                IsExpired = isExpired,
-                RefundedToWallet = refundedToWallet,
-                RefundAmount = refundAmount
+                IsPaid = refreshedBooking.Status == BookingStatus.Paid
+                    || (refreshedBooking.Depositpaidat != null
+                        && refreshedBooking.Remainingpaidat != null),
+                DepositAmount = refreshedBooking.Depositamount ?? 0,
+                RemainingAmount = refreshedBooking.Remainingamount ?? 0,
+                IsDepositPaid = refreshedBooking.Depositpaidat != null,
+                IsRemainingPaid = refreshedBooking.Remainingpaidat != null,
+                IsExpired = refreshedExpired,
+                RefundedToWallet = refreshedRefunded,
+                RefundAmount = refreshedBooking.Refundamount ?? 0
             };
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Failed to get PayOS status for booking {BookingId}", bookingId);
+            logger.LogWarning(
+                ex,
+                "Failed to get PayOS status for booking {BookingId}",
+                bookingId);
             return baseResponse;
         }
     }
 
-    private async Task ConfirmPaymentInternalAsync(long orderCode, int amount, string txId, PaymentTransactionCapture? capture, CancellationToken ct)
+    private async Task ProcessPaymentLinkTransactionsAsync(
+        PaymentRequest paymentRequest,
+        int bookingId,
+        CancellationToken ct)
+    {
+        // Provider request fields/status are published by the locked reconcile
+        // helper. The second GET below is read-only transaction evidence.
+        await ReconcilePaymentRequestAsync(paymentRequest, ct);
+        var info = !string.IsNullOrWhiteSpace(paymentRequest.Paymentlinkid)
+            ? await _payOS.PaymentRequests.GetAsync(
+                paymentRequest.Paymentlinkid)
+            : await _payOS.PaymentRequests.GetAsync(
+                paymentRequest.Ordercode!.Value);
+
+        var captures = PaymentTransactionCapture.FromPayOSPaymentLink(info);
+        if (captures.Count == 0)
+        {
+            if (NormalizePaymentRequestStatus(info.Status.ToString())
+                == PaymentRequestStatus.Paid)
+                await MarkPaidRequestWithoutTransactionsAsync(paymentRequest, ct);
+            return;
+        }
+
+        foreach (var capture in captures)
+        {
+            await ConfirmPaymentInternalAsync(
+                info.OrderCode,
+                capture.ObservedAmount ?? 0,
+                capture.GetProcessingKey(),
+                capture,
+                ct);
+        }
+    }
+
+    public async Task ReconcilePaymentRequestByIdAsync(
+        int paymentRequestId,
+        CancellationToken ct = default)
+    {
+        var paymentRequest = await context.PaymentRequests
+            .FirstOrDefaultAsync(r =>
+                r.Paymentrequestid == paymentRequestId,
+                ct);
+        if (paymentRequest == null)
+            return;
+
+        if (paymentRequest.Ordercode == null
+            && string.IsNullOrWhiteSpace(
+                paymentRequest.Paymentlinkid))
+        {
+            await MarkPaymentRequestForReviewAsync(
+                paymentRequest.Bookingid,
+                paymentRequest,
+                ct);
+            return;
+        }
+
+        await ProcessPaymentLinkTransactionsAsync(
+            paymentRequest,
+            paymentRequest.Bookingid,
+            ct);
+    }
+
+    private async Task MarkPaidRequestWithoutTransactionsAsync(
+        PaymentRequest paymentRequest,
+        CancellationToken ct)
+    {
+        await using var tx = await context.Database.BeginTransactionAsync(
+            System.Data.IsolationLevel.Serializable,
+            ct);
+        _ = await bookingRepo.FindWithRelationsForUpdateAsync(
+            paymentRequest.Bookingid,
+            ct);
+        await context.PaymentRequests.Entry(paymentRequest).ReloadAsync(ct);
+        paymentRequest.Status = PaymentRequestStatus.RequiresReview;
+        paymentRequest.Updatedat =
+            MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
+
+        var marker = $"\"paymentRequestId\":{paymentRequest.Paymentrequestid}";
+        var alreadyAlerted = await context.Systemalerts.AsNoTracking()
+            .AnyAsync(a => a.Type == PaymentAlertType.PaidWithoutTransaction
+                && a.Metadata != null
+                && a.Metadata.Contains(marker), ct);
+
+        if (!alreadyAlerted)
+        {
+            context.Systemalerts.Add(new Systemalert
+            {
+                Type = PaymentAlertType.PaidWithoutTransaction,
+                Severity = "High",
+                Message =
+                    "PayOS reports a paid payment request without transaction details.",
+                Metadata = System.Text.Json.JsonSerializer.Serialize(new
+                {
+                    paymentRequestId =
+                        paymentRequest.Paymentrequestid,
+                    paymentRequest.Bookingid,
+                    paymentRequest.Ordercode,
+                    paymentRequest.Paymentlinkid
+                }),
+                Resolved = false,
+                Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
+            });
+        }
+
+        await context.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
+    }
+
+    private async Task ConfirmPaymentInternalAsync(long orderCode, decimal amount, string txId, PaymentTransactionCapture? capture, CancellationToken ct)
     {
         bool isDeposit = OrderCodeHelper.IsBookingOrderCode(orderCode);
         bool isRemaining = OrderCodeHelper.IsRemainingOrderCode(orderCode);
+
+        if (!isDeposit && !isRemaining)
+            throw new BookingException(BookingErrorCodes.InvalidInput, "Kiểu mã đơn hàng không hợp lệ", 400);
+
+        if (capture?.PaymentMethod == PaymentTransactionMethod.PayOS)
+        {
+            var bookingId = OrderCodeHelper.ExtractBookingId(orderCode);
+            var bookingExists = await context.Bookings.AsNoTracking()
+                .AnyAsync(b => b.Bookingid == bookingId, ct);
+            if (!bookingExists)
+            {
+                await RecordOrphanPayOSTransactionAsync(
+                    capture,
+                    isDeposit
+                        ? PaymentTransactionPurpose.BookingDeposit
+                        : PaymentTransactionPurpose.BookingRemaining,
+                    $"No booking exists for PayOS order code {orderCode}",
+                    ct);
+                return;
+            }
+        }
 
         if (isDeposit)
             await ConfirmDepositAsync(orderCode, amount, txId, capture, ct);
         else if (isRemaining)
             await ConfirmRemainingAsync(orderCode, amount, txId, capture, ct);
-        else
-            throw new BookingException(BookingErrorCodes.InvalidInput, "Kiểu mã đơn hàng không hợp lệ", 400);
     }
 
-    private async Task ConfirmDepositAsync(long orderCode, int amount, string txId, PaymentTransactionCapture? capture, CancellationToken ct)
+    private async Task ConfirmDepositAsync(long orderCode, decimal amount, string txId, PaymentTransactionCapture? capture, CancellationToken ct)
     {
-        await using var tx = await context.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, ct);
+        // The booking row lock below is the serialization boundary for all
+        // payment applications. READ COMMITTED lets a concurrent webhook or
+        // polling request wait for that lock and then reload the winning state.
+        // PostgreSQL SERIALIZABLE instead aborts the waiter with SQLSTATE
+        // 40001 after the same row changes while it is waiting.
+        await using var tx = await context.Database.BeginTransactionAsync(
+            System.Data.IsolationLevel.ReadCommitted,
+            ct);
         try
         {
             var bookingId = OrderCodeHelper.ExtractBookingId(orderCode);
-            var booking = await bookingRepo.FindTrackedAsync(bookingId, ct)
+            var booking = await bookingRepo.FindWithRelationsForUpdateAsync(bookingId, ct)
                 ?? throw new BookingException(BookingErrorCodes.BookingNotFound, ApiMessages.BookingNotFound, 404);
 
+            EnsureDepositAmountsCalculated(booking);
+            var depositAlreadyPaid = booking.Depositpaidat != null
+                || booking.Paymentstatus == Escrowed
+                || booking.Status == BookingStatus.Paid;
+            var depositExpired = booking.Paymentdueat.HasValue
+                && booking.Paymentdueat.Value
+                    <= MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
+            var depositBusinessEligible = !depositAlreadyPaid
+                && (depositExpired
+                || booking.Status == BookingStatus.Accepted
+                || booking.Status == BookingStatus.PendingPayment);
+            var recordResult = await RecordBookingPaymentTransactionAsync(
+                capture,
+                booking,
+                PaymentTransactionPurpose.BookingDeposit,
+                amount,
+                booking.Depositamount ?? 0,
+                orderCode,
+                txId,
+                "Booking deposit payment.",
+                depositBusinessEligible,
+                ct);
+
+            // An expired PayOS booking must return every actual bank transfer
+            // exactly once. Use the capture identity rather than the order code
+            // so split/extra transfers are neither retained nor double-refunded.
+            if (capture?.PaymentMethod == PaymentTransactionMethod.PayOS
+                && depositExpired
+                && recordResult.CanRefundToBooking)
+            {
+                var refunded = await RefundOrphanPaymentToWalletAsync(
+                    booking,
+                    capture.ObservedAmount ?? amount,
+                    $"payos-expired-refund:{recordResult.StableProcessingKey ?? capture.GetProcessingKey()}",
+                    ct);
+                await context.SaveChangesAsync(ct);
+                await tx.CommitAsync(ct);
+                if (refunded)
+                {
+                    logger.LogInformation(
+                        "Expired PayOS deposit capture refunded to wallet for booking {Id}, amount {Amount}.",
+                        bookingId,
+                        capture.ObservedAmount ?? amount);
+                    await SendRefundNotificationAsync(booking);
+                }
+                return;
+            }
+
+            if (recordResult.CanApply)
+                amount = recordResult.AmountToApply;
+
+            if (capture != null && !recordResult.CanApply)
+            {
+                var refunded = false;
+                if (recordResult.CanRefundToBooking
+                    && depositAlreadyPaid
+                    && capture.PaymentMethod
+                        == PaymentTransactionMethod.PayOS)
+                {
+                    refunded = await RefundOrphanPaymentToWalletAsync(
+                        booking,
+                        capture.ObservedAmount ?? amount,
+                        $"payos-extra-refund:{recordResult.StableProcessingKey ?? capture.GetProcessingKey()}",
+                        ct);
+                }
+
+                await context.SaveChangesAsync(ct);
+                await tx.CommitAsync(ct);
+                if (refunded)
+                    await SendRefundNotificationAsync(booking);
+                return;
+            }
+
             // Already deposit-paid or fully paid
-            if (booking.Depositpaidat != null || booking.Paymentstatus == Escrowed || booking.Status == BookingStatus.Paid)
+            if (depositAlreadyPaid)
             {
                 logger.LogWarning("Booking {Id} deposit already paid", bookingId);
-                await AddBookingPaymentTransactionIfMissingAsync(
-                    capture,
-                    booking,
-                    PaymentTransactionPurpose.BookingDeposit,
-                    amount,
-                    orderCode,
-                    txId,
-                    "Deposit payment webhook received after it was already processed.",
-                    ct);
                 if (capture != null)
                 {
                     await context.SaveChangesAsync(ct);
@@ -289,37 +706,28 @@ public partial class PaymentService(
                 return;
             }
 
-            if (booking.Paymentdueat.HasValue && booking.Paymentdueat.Value <= MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow)
+            if (depositExpired)
             {
-                await RefundOrphanPaymentToWalletAsync(booking, amount, txId, ct);
-                await AddBookingPaymentTransactionIfMissingAsync(
-                    capture,
+                var refundKey = capture?.PaymentMethod
+                        == PaymentTransactionMethod.PayOS
+                    ? $"payos-expired-refund:{orderCode}"
+                    : txId;
+                var refunded = await RefundOrphanPaymentToWalletAsync(
                     booking,
-                    PaymentTransactionPurpose.BookingDeposit,
                     amount,
-                    orderCode,
-                    txId,
-                    "Deposit payment received after booking deadline and refunded to wallet.",
+                    refundKey,
                     ct);
                 await context.SaveChangesAsync(ct);
                 await tx.CommitAsync(ct);
-                logger.LogInformation("Orphan deposit refunded to wallet for expired booking {Id}, amount {Amount}.", bookingId, amount);
-                if (!string.IsNullOrWhiteSpace(booking.Parentid))
-                    await notificationService.CreateNotificationAsync(new NotificationRequest
-                    {
-                        Userid = booking.Parentid,
-                        Title = "Hoàn tiền thanh toán",
-                        Message = "Mã thanh toán đã hết hạn. Số tiền đã được hoàn vào ví của bạn.",
-                        Type = NotificationType.PaymentRefundSuccess,
-                        Referenceid = booking.Bookingid.ToString()
-                    });
+                if (refunded)
+                {
+                    logger.LogInformation("Orphan deposit refunded to wallet for expired booking {Id}, amount {Amount}.", bookingId, amount);
+                    await SendRefundNotificationAsync(booking);
+                }
                 return;
             }
 
-            // Ensure deposit amounts calculated
-            EnsureDepositAmountsCalculated(booking);
-
-            if (amount != (int)(booking.Depositamount ?? 0))
+            if (amount != (booking.Depositamount ?? 0))
                 throw new BookingException(BookingErrorCodes.AmountMismatch, "Số tiền không khớp", 409);
 
             if (await walletRepo.HasTransactionByDescriptionAsync(txId, ReferenceTable.Payment, ct))
@@ -370,16 +778,6 @@ public partial class PaymentService(
                 booking.Remainingpaidat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
             }
 
-            await AddBookingPaymentTransactionIfMissingAsync(
-                capture,
-                booking,
-                PaymentTransactionPurpose.BookingDeposit,
-                amount,
-                orderCode,
-                txId,
-                "Booking deposit payment.",
-                ct);
-
             await context.SaveChangesAsync(ct);
             await tx.CommitAsync(ct);
 
@@ -395,28 +793,100 @@ public partial class PaymentService(
         }
     }
 
-    private async Task ConfirmRemainingAsync(long orderCode, int amount, string txId, PaymentTransactionCapture? capture, CancellationToken ct)
+    private async Task ConfirmRemainingAsync(long orderCode, decimal amount, string txId, PaymentTransactionCapture? capture, CancellationToken ct)
     {
-        await using var tx = await context.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, ct);
+        await using var tx = await context.Database.BeginTransactionAsync(
+            System.Data.IsolationLevel.ReadCommitted,
+            ct);
         try
         {
             var bookingId = OrderCodeHelper.ExtractBookingId(orderCode);
-            var booking = await bookingRepo.FindTrackedAsync(bookingId, ct)
+            var booking = await bookingRepo.FindWithRelationsForUpdateAsync(bookingId, ct)
                 ?? throw new BookingException(BookingErrorCodes.BookingNotFound, ApiMessages.BookingNotFound, 404);
 
+            EnsureDepositAmountsCalculated(booking);
+            var remainingAlreadyPaid = booking.Remainingpaidat != null
+                || booking.Paymentstatus == Escrowed
+                || booking.Status == BookingStatus.Paid;
+            var remainingExpiredOrFinalized =
+                (booking.Paymentdueat.HasValue
+                    && booking.Paymentdueat.Value
+                        <= MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow)
+                || (booking.Status != BookingStatus.DepositPaid
+                    && booking.Status != BookingStatus.PendingRemainingPayment
+                    && booking.Status != BookingStatus.Ongoing);
+            var remainingBusinessEligible = !remainingAlreadyPaid
+                && (booking.Depositpaidat != null
+                    && (remainingExpiredOrFinalized
+                        || booking.Status == BookingStatus.DepositPaid
+                        || booking.Status == BookingStatus.PendingRemainingPayment
+                        || booking.Status == BookingStatus.Ongoing));
+            var recordResult = await RecordBookingPaymentTransactionAsync(
+                capture,
+                booking,
+                PaymentTransactionPurpose.BookingRemaining,
+                amount,
+                booking.Remainingamount ?? 0,
+                orderCode,
+                txId,
+                "Booking remaining payment.",
+                remainingBusinessEligible,
+                ct);
+
+            // Finalized/expired remaining payments follow the same per-capture
+            // refund rule as deposits. This also covers a later extra transfer
+            // after an earlier split payment was already refunded.
+            if (capture?.PaymentMethod == PaymentTransactionMethod.PayOS
+                && remainingExpiredOrFinalized
+                && recordResult.CanRefundToBooking)
+            {
+                var refunded = await RefundOrphanPaymentToWalletAsync(
+                    booking,
+                    capture.ObservedAmount ?? amount,
+                    $"payos-expired-refund:{recordResult.StableProcessingKey ?? capture.GetProcessingKey()}",
+                    ct);
+                await context.SaveChangesAsync(ct);
+                await tx.CommitAsync(ct);
+                if (refunded)
+                {
+                    logger.LogInformation(
+                        "Expired PayOS remaining capture refunded to wallet for booking {Id}, amount {Amount}.",
+                        bookingId,
+                        capture.ObservedAmount ?? amount);
+                    await SendRefundNotificationAsync(booking);
+                }
+                return;
+            }
+
+            if (recordResult.CanApply)
+                amount = recordResult.AmountToApply;
+
+            if (capture != null && !recordResult.CanApply)
+            {
+                var refunded = false;
+                if (recordResult.CanRefundToBooking
+                    && remainingAlreadyPaid
+                    && capture.PaymentMethod
+                        == PaymentTransactionMethod.PayOS)
+                {
+                    refunded = await RefundOrphanPaymentToWalletAsync(
+                        booking,
+                        capture.ObservedAmount ?? amount,
+                        $"payos-extra-refund:{recordResult.StableProcessingKey ?? capture.GetProcessingKey()}",
+                        ct);
+                }
+
+                await context.SaveChangesAsync(ct);
+                await tx.CommitAsync(ct);
+                if (refunded)
+                    await SendRefundNotificationAsync(booking);
+                return;
+            }
+
             // Already fully paid
-            if (booking.Remainingpaidat != null || booking.Paymentstatus == Escrowed || booking.Status == BookingStatus.Paid)
+            if (remainingAlreadyPaid)
             {
                 logger.LogWarning("Booking {Id} remaining already paid", bookingId);
-                await AddBookingPaymentTransactionIfMissingAsync(
-                    capture,
-                    booking,
-                    PaymentTransactionPurpose.BookingRemaining,
-                    amount,
-                    orderCode,
-                    txId,
-                    "Remaining payment webhook received after it was already processed.",
-                    ct);
                 if (capture != null)
                 {
                     await context.SaveChangesAsync(ct);
@@ -430,39 +900,28 @@ public partial class PaymentService(
                 throw new BookingException(BookingErrorCodes.InvalidBookingStatus, "Chưa thanh toán cọc", 409);
 
             // Late webhook after remaining deadline expired → refund to wallet
-            var isExpiredOrFinalized = (booking.Paymentdueat.HasValue && booking.Paymentdueat.Value <= MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow)
-                || (booking.Status != BookingStatus.DepositPaid
-                    && booking.Status != BookingStatus.PendingRemainingPayment
-                    && booking.Status != BookingStatus.Ongoing);
-
-            if (isExpiredOrFinalized)
+            if (remainingExpiredOrFinalized)
             {
-                await RefundOrphanPaymentToWalletAsync(booking, amount, txId, ct);
-                await AddBookingPaymentTransactionIfMissingAsync(
-                    capture,
+                var refundKey = capture?.PaymentMethod
+                        == PaymentTransactionMethod.PayOS
+                    ? $"payos-expired-refund:{orderCode}"
+                    : txId;
+                var refunded = await RefundOrphanPaymentToWalletAsync(
                     booking,
-                    PaymentTransactionPurpose.BookingRemaining,
                     amount,
-                    orderCode,
-                    txId,
-                    "Remaining payment received after booking deadline and refunded to wallet.",
+                    refundKey,
                     ct);
                 await context.SaveChangesAsync(ct);
                 await tx.CommitAsync(ct);
-                logger.LogInformation("Orphan remaining payment refunded to wallet for expired booking {Id}, amount {Amount}.", bookingId, amount);
-                if (!string.IsNullOrWhiteSpace(booking.Parentid))
-                    await notificationService.CreateNotificationAsync(new NotificationRequest
-                    {
-                        Userid = booking.Parentid,
-                        Title = "Hoàn tiền thanh toán",
-                        Message = "Mã thanh toán đã hết hạn. Số tiền đã được hoàn vào ví của bạn.",
-                        Type = NotificationType.PaymentRefundSuccess,
-                        Referenceid = booking.Bookingid.ToString()
-                    });
+                if (refunded)
+                {
+                    logger.LogInformation("Orphan remaining payment refunded to wallet for expired booking {Id}, amount {Amount}.", bookingId, amount);
+                    await SendRefundNotificationAsync(booking);
+                }
                 return;
             }
 
-            if (amount != (int)(booking.Remainingamount ?? 0))
+            if (amount != (booking.Remainingamount ?? 0))
                 throw new BookingException(BookingErrorCodes.AmountMismatch, "Số tiền không khớp", 409);
 
             if (await walletRepo.HasTransactionByDescriptionAsync(txId, ReferenceTable.Payment, ct))
@@ -514,16 +973,6 @@ public partial class PaymentService(
             // Remaining amount is now paid → activate sessions 2..N (were reserved until now).
             await ActivateRemainingSessionsAsync(bookingId, ct);
 
-            await AddBookingPaymentTransactionIfMissingAsync(
-                capture,
-                booking,
-                PaymentTransactionPurpose.BookingRemaining,
-                amount,
-                orderCode,
-                txId,
-                "Booking remaining payment.",
-                ct);
-
             await context.SaveChangesAsync(ct);
             await tx.CommitAsync(ct);
 
@@ -538,62 +987,456 @@ public partial class PaymentService(
         }
     }
 
-    private async Task AddBookingPaymentTransactionIfMissingAsync(
+    private async Task<PaymentRecordResult> RecordBookingPaymentTransactionAsync(
         PaymentTransactionCapture? capture,
         Booking booking,
         string purpose,
-        int amount,
+        decimal amount,
+        decimal expectedAmount,
         long orderCode,
         string txId,
         string note,
+        bool allowBookingApplication,
         CancellationToken ct)
     {
         if (capture == null)
-            return;
+            return new PaymentRecordResult(true, false, amount, false);
 
         var description = purpose == PaymentTransactionPurpose.BookingDeposit
             ? "Booking deposit payment"
             : "Booking remaining payment";
+        var phase = purpose == PaymentTransactionPurpose.BookingDeposit
+            ? PaymentRequestPhase.Deposit
+            : PaymentRequestPhase.Remaining;
+        var observedOrderCode = capture.ObservedOrderCode ?? orderCode;
+        PaymentRequest? paymentRequest = null;
+
+        if (capture.PaymentMethod == PaymentTransactionMethod.PayOS)
+        {
+            paymentRequest = await context.PaymentRequests
+                .FirstOrDefaultAsync(r =>
+                    r.Provider == PaymentRequestProvider.PayOS
+                    && r.Bookingid == booking.Bookingid
+                    && (r.Phase == phase
+                        || r.Phase
+                            == PaymentRequestPhase.LegacyUnknown)
+                    && ((capture.PaymentLinkId != null
+                            && r.Paymentlinkid == capture.PaymentLinkId)
+                        || (r.Ordercode != null
+                            && r.Ordercode == observedOrderCode)), ct);
+
+            if (paymentRequest == null)
+            {
+                paymentRequest = await context.PaymentRequests
+                    .Where(r => r.Provider == PaymentRequestProvider.PayOS
+                        && r.Bookingid == booking.Bookingid
+                        && r.Phase == phase
+                        && r.Ordercode == null
+                        && r.Paymentlinkid == null)
+                    .OrderByDescending(r => r.Createdat)
+                    .FirstOrDefaultAsync(ct);
+            }
+
+            if (paymentRequest != null)
+            {
+                if (paymentRequest.Phase
+                    == PaymentRequestPhase.LegacyUnknown)
+                {
+                    paymentRequest.Phase = phase;
+                }
+                paymentRequest.Ordercode ??= observedOrderCode;
+                paymentRequest.Paymentlinkid ??= capture.PaymentLinkId;
+                paymentRequest.Amount ??= expectedAmount;
+                paymentRequest.Updatedat =
+                    MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
+            }
+        }
 
         var incoming = capture.Create(
             purpose,
             PaymentTransactionDirection.Inbound,
             amount,
             booking.Parentid,
-            orderCode,
+            capture.PaymentMethod == PaymentTransactionMethod.PayOS
+                ? observedOrderCode
+                : null,
             txId,
             bookingId: booking.Bookingid,
             description: description,
-            note: note);
+            destinationAccountNumber:
+                paymentRequest?.Displayaccountnumber,
+            destinationAccountName:
+                paymentRequest?.Displayaccountname,
+            note: note,
+            paymentRequestId: paymentRequest?.Paymentrequestid,
+            destinationBankBin: paymentRequest?.Destinationbankbin,
+            destinationBankName: paymentRequest?.Destinationbankname);
 
-        var providerTransactionId = incoming.Providertransactionid;
-        var existing = await context.PaymentTransactions.FirstOrDefaultAsync(t =>
-            t.Channel == capture.Channel
-            && ((!string.IsNullOrWhiteSpace(providerTransactionId)
-                    && t.Providertransactionid == providerTransactionId)
-                || (t.Bookingid == booking.Bookingid
-                    && t.Purpose == purpose
-                    && t.Ordercode == orderCode)), ct);
+        var existing = await context.PaymentTransactions
+            .FirstOrDefaultAsync(
+                PaymentTransactionCapture.BuildIdentityMatchPredicate(
+                    incoming),
+                ct);
 
-        if (existing == null)
+        var isDuplicate = existing != null;
+        PaymentTransaction transaction;
+        if (existing != null)
         {
-            context.PaymentTransactions.Add(incoming);
-            return;
+            var hasReferenceConflict =
+                (!string.IsNullOrWhiteSpace(
+                        existing.Providertransactionid)
+                    && !string.IsNullOrWhiteSpace(
+                        incoming.Providertransactionid)
+                    && existing.Providertransactionid
+                        != incoming.Providertransactionid)
+                || (existing.Bookingid.HasValue
+                    && existing.Bookingid != booking.Bookingid)
+                || existing.Amount != incoming.Amount
+                || !string.Equals(
+                    existing.Currency,
+                    incoming.Currency,
+                    StringComparison.OrdinalIgnoreCase)
+                || (existing.Paymentrequestid.HasValue
+                    && paymentRequest != null
+                    && existing.Paymentrequestid
+                        != paymentRequest.Paymentrequestid)
+                || (existing.Ordercode.HasValue
+                    && incoming.Ordercode.HasValue
+                    && existing.Ordercode != incoming.Ordercode)
+                || (!string.IsNullOrWhiteSpace(existing.Paymentlinkid)
+                    && !string.IsNullOrWhiteSpace(
+                        incoming.Paymentlinkid)
+                    && existing.Paymentlinkid != incoming.Paymentlinkid);
+
+            if (hasReferenceConflict)
+            {
+                if (!(existing.Note?.Contains(
+                        "PayOS reference conflict",
+                        StringComparison.OrdinalIgnoreCase) ?? false))
+                {
+                    AddPaymentReconciliationAlert(
+                        existing,
+                        paymentRequest,
+                        PaymentAlertType.ReferenceConflict,
+                        "The same PayOS reference was observed with a different booking, order code, or payment link.");
+                    existing.Note = string.IsNullOrWhiteSpace(existing.Note)
+                        ? "PayOS reference conflict detected."
+                        : $"{existing.Note} PayOS reference conflict detected.";
+                }
+
+                // A provider reference is immutable and can pay at most the
+                // booking/payment request it was first linked to. Never let a
+                // replay carrying another order/link apply money twice.
+                return new PaymentRecordResult(false, true, 0, false);
+            }
+
+            if (paymentRequest != null)
+            {
+                existing.Paymentrequestid ??=
+                    paymentRequest.Paymentrequestid;
+                existing.Bookingid ??= booking.Bookingid;
+                existing.Userid ??= booking.Parentid;
+                if (existing.Purpose
+                    == PaymentTransactionPurpose.UnmatchedPayOS)
+                {
+                    existing.Purpose = purpose;
+                }
+            }
+
+            EnrichPaymentTransaction(existing, incoming);
+            transaction = existing;
+        }
+        else
+        {
+            transaction = incoming;
+            context.PaymentTransactions.Add(transaction);
         }
 
-        // Polling may confirm first and webhook may arrive later. Keep one row per
-        // PayOS order, then enrich the polling row with the signed webhook payload.
-        if (capture.HasPayOSWebhook)
-            EnrichPaymentTransaction(existing, incoming);
+        if (capture.PaymentMethod == PaymentTransactionMethod.PayOS
+            && transaction.Paymenttransactionid == 0)
+        {
+            // Refund idempotency uses the immutable database row id. Flush the
+            // new audit row inside the caller's transaction before any refund;
+            // a later failure still rolls this insert back atomically.
+            await context.SaveChangesAsync(ct);
+        }
+
+        var stableProcessingKey = PaymentTransactionCapture
+            .GetStableStoredProcessingKey(transaction);
+
+        if (capture.PaymentMethod == PaymentTransactionMethod.Manual)
+        {
+            if (isDuplicate)
+                return new PaymentRecordResult(false, true, 0, false);
+
+            transaction.Reconciliationstatus = allowBookingApplication
+                ? PaymentReconciliationStatus.Matched
+                : PaymentReconciliationStatus.Unexpected;
+            if (!allowBookingApplication)
+            {
+                AddPaymentReconciliationAlert(
+                    transaction,
+                    null,
+                    PaymentAlertType.UnexpectedTransaction,
+                    "The booking phase was already paid or changed before manual confirmation acquired the row lock");
+                return new PaymentRecordResult(false, false, 0, false);
+            }
+
+            return new PaymentRecordResult(
+                true,
+                false,
+                transaction.Amount,
+                false);
+        }
+
+        if (paymentRequest == null)
+        {
+            transaction.Reconciliationstatus =
+                PaymentReconciliationStatus.Orphan;
+            if (!isDuplicate)
+            {
+                AddPaymentReconciliationAlert(
+                    transaction,
+                    null,
+                    PaymentAlertType.OrphanTransaction,
+                    PaymentReconciliationStatus.Orphan);
+            }
+
+            return new PaymentRecordResult(false, isDuplicate, 0, false);
+        }
+
+        transaction.Paymentrequestid =
+            paymentRequest.Paymentrequestid;
+        transaction.Bookingid ??= booking.Bookingid;
+        transaction.Userid ??= booking.Parentid;
+
+        var linkedTransactions = await context.PaymentTransactions
+            .Where(t => t.Paymentrequestid
+                == paymentRequest.Paymentrequestid)
+            .OrderBy(t => t.Paymenttransactionid)
+            .ToListAsync(ct);
+        if (!linkedTransactions.Contains(transaction))
+            linkedTransactions.Add(transaction);
+
+        var expected = paymentRequest.Amount ?? expectedAmount;
+        if (isDuplicate
+            && transaction.Reconciliationstatus
+                == PaymentReconciliationStatus.Matched)
+        {
+            paymentRequest.Status = PaymentRequestStatus.Paid;
+            paymentRequest.Updatedat =
+                MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
+            return new PaymentRecordResult(
+                true,
+                true,
+                expected,
+                true,
+                stableProcessingKey);
+        }
+
+        if (paymentRequest.Amount.HasValue
+            && paymentRequest.Amount.Value != expectedAmount)
+        {
+            foreach (var linked in linkedTransactions)
+            {
+                if (linked.Reconciliationstatus
+                    != PaymentReconciliationStatus.Unexpected)
+                {
+                    linked.Reconciliationstatus =
+                        PaymentReconciliationStatus.AmountMismatch;
+                }
+            }
+
+            paymentRequest.Status =
+                PaymentRequestStatus.RequiresReview;
+            paymentRequest.Updatedat =
+                MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
+            if (!isDuplicate)
+            {
+                AddPaymentReconciliationAlert(
+                    transaction,
+                    paymentRequest,
+                    PaymentAlertType.AmountMismatch,
+                    $"Payment request amount {paymentRequest.Amount.Value} differs from current booking amount {expectedAmount}");
+            }
+
+            return new PaymentRecordResult(
+                false,
+                isDuplicate,
+                0,
+                true,
+                stableProcessingKey);
+        }
+
+        expected = expectedAmount;
+
+        var otherMatched = linkedTransactions.Any(t =>
+            !ReferenceEquals(t, transaction)
+            && t.Reconciliationstatus
+                == PaymentReconciliationStatus.Matched);
+
+        if (otherMatched)
+        {
+            transaction.Reconciliationstatus =
+                PaymentReconciliationStatus.Unexpected;
+            paymentRequest.Status = PaymentRequestStatus.Paid;
+            paymentRequest.Updatedat =
+                MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
+            if (!isDuplicate)
+            {
+                AddPaymentReconciliationAlert(
+                    transaction,
+                    paymentRequest,
+                    PaymentAlertType.UnexpectedTransaction,
+                    "An additional PayOS transaction arrived after this payment request was already matched");
+            }
+
+            return new PaymentRecordResult(
+                false,
+                isDuplicate,
+                0,
+                true,
+                stableProcessingKey);
+        }
+
+        if (expected <= 0)
+        {
+            transaction.Reconciliationstatus =
+                PaymentReconciliationStatus.Unexpected;
+            paymentRequest.Status =
+                PaymentRequestStatus.RequiresReview;
+            paymentRequest.Updatedat =
+                MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
+            if (!isDuplicate)
+            {
+                AddPaymentReconciliationAlert(
+                    transaction,
+                    paymentRequest,
+                    PaymentAlertType.UnexpectedTransaction,
+                    "The payment request has no trustworthy expected amount");
+            }
+
+            return new PaymentRecordResult(
+                false,
+                isDuplicate,
+                0,
+                true,
+                stableProcessingKey);
+        }
+
+        var receivedTotal = linkedTransactions.Sum(t => t.Amount);
+
+        if (!allowBookingApplication)
+        {
+            transaction.Reconciliationstatus =
+                PaymentReconciliationStatus.Unexpected;
+            paymentRequest.Status =
+                PaymentRequestStatus.RequiresReview;
+            paymentRequest.Updatedat =
+                MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
+            if (!isDuplicate)
+            {
+                AddPaymentReconciliationAlert(
+                    transaction,
+                    paymentRequest,
+                    PaymentAlertType.UnexpectedTransaction,
+                    "The booking was already paid or is not eligible for this PayOS payment");
+            }
+
+            return new PaymentRecordResult(
+                false,
+                isDuplicate,
+                0,
+                true,
+                stableProcessingKey);
+        }
+
+        if (receivedTotal < expected)
+        {
+            foreach (var linked in linkedTransactions)
+            {
+                if (linked.Reconciliationstatus
+                    != PaymentReconciliationStatus.Unexpected)
+                {
+                    linked.Reconciliationstatus =
+                        PaymentReconciliationStatus.Partial;
+                }
+            }
+
+            paymentRequest.Status = paymentRequest.Status
+                    == PaymentRequestStatus.Paid
+                ? PaymentRequestStatus.RequiresReview
+                : PaymentRequestStatus.Processing;
+            paymentRequest.Updatedat =
+                MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
+            return new PaymentRecordResult(
+                false,
+                isDuplicate,
+                0,
+                true,
+                stableProcessingKey);
+        }
+
+        if (receivedTotal > expected)
+        {
+            foreach (var linked in linkedTransactions)
+            {
+                if (linked.Reconciliationstatus
+                    != PaymentReconciliationStatus.Unexpected)
+                {
+                    linked.Reconciliationstatus =
+                        PaymentReconciliationStatus.AmountMismatch;
+                }
+            }
+
+            paymentRequest.Status =
+                PaymentRequestStatus.RequiresReview;
+            paymentRequest.Updatedat =
+                MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
+            if (!isDuplicate)
+            {
+                AddPaymentReconciliationAlert(
+                    transaction,
+                    paymentRequest,
+                    PaymentAlertType.AmountMismatch,
+                    $"Received total {receivedTotal} differs from expected amount {expected}");
+            }
+
+            return new PaymentRecordResult(
+                false,
+                isDuplicate,
+                0,
+                true,
+                stableProcessingKey);
+        }
+
+        foreach (var linked in linkedTransactions)
+        {
+            linked.Reconciliationstatus =
+                PaymentReconciliationStatus.Matched;
+        }
+
+        paymentRequest.Status = PaymentRequestStatus.Paid;
+        paymentRequest.Updatedat =
+            MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
+        return new PaymentRecordResult(
+            true,
+            isDuplicate,
+            expected,
+            true,
+            stableProcessingKey);
     }
 
     private static void EnrichPaymentTransaction(PaymentTransaction target, PaymentTransaction source)
     {
-        target.Providertransactionid = source.Providertransactionid ?? target.Providertransactionid;
+        target.Providertransactionid ??=
+            source.Providertransactionid;
+        target.Capturefingerprint ??=
+            source.Capturefingerprint;
         target.Paymentlinkid = source.Paymentlinkid ?? target.Paymentlinkid;
-        target.Description = source.Description ?? target.Description;
-        target.Paidat = source.Paidat ?? target.Paidat;
-        target.Note = source.Note ?? target.Note;
+        target.Description ??= source.Description;
+        target.Paidat ??= source.Paidat;
+        target.Note ??= source.Note;
         target.Webhookcode = source.Webhookcode ?? target.Webhookcode;
         target.Webhookdesc = source.Webhookdesc ?? target.Webhookdesc;
         target.Webhooksuccess = source.Webhooksuccess ?? target.Webhooksuccess;
@@ -603,9 +1446,62 @@ public partial class PaymentService(
         target.Sourceaccountbankname = source.Sourceaccountbankname ?? target.Sourceaccountbankname;
         target.Sourceaccountnumber = source.Sourceaccountnumber ?? target.Sourceaccountnumber;
         target.Sourceaccountname = source.Sourceaccountname ?? target.Sourceaccountname;
+        target.Destinationaccountbankbin =
+            source.Destinationaccountbankbin
+            ?? target.Destinationaccountbankbin;
+        target.Destinationaccountbankname =
+            source.Destinationaccountbankname
+            ?? target.Destinationaccountbankname;
         target.Destinationaccountnumber = source.Destinationaccountnumber ?? target.Destinationaccountnumber;
         target.Destinationaccountname = source.Destinationaccountname ?? target.Destinationaccountname;
-        target.Providerpayload = source.Providerpayload ?? target.Providerpayload;
+        target.Destinationvirtualaccountnumber =
+            source.Destinationvirtualaccountnumber
+            ?? target.Destinationvirtualaccountnumber;
+        target.Destinationvirtualaccountname =
+            source.Destinationvirtualaccountname
+            ?? target.Destinationvirtualaccountname;
+        if (target.Providerpayload == null
+            || source.Capturesource == PaymentCaptureSource.Polling)
+        {
+            target.Providerpayload =
+                source.Providerpayload ?? target.Providerpayload;
+        }
+        target.Webhookpayload ??= source.Webhookpayload;
+    }
+
+    private void AddPaymentReconciliationAlert(
+        PaymentTransaction transaction,
+        PaymentRequest? paymentRequest,
+        string alertType,
+        string reason)
+    {
+        context.Systemalerts.Add(new Systemalert
+        {
+            Type = alertType,
+            Severity = "High",
+            Message =
+                $"PayOS transaction requires reconciliation: {reason}.",
+            Metadata = System.Text.Json.JsonSerializer.Serialize(new
+            {
+                paymentRequestId =
+                    paymentRequest?.Paymentrequestid,
+                paymentTransactionId =
+                    transaction.Paymenttransactionid == 0
+                        ? (int?)null
+                        : transaction.Paymenttransactionid,
+                transaction.Bookingid,
+                transaction.Ordercode,
+                transaction.Paymentlinkid,
+                reference = transaction.Providertransactionid,
+                transaction.Amount,
+                expectedAmount = paymentRequest?.Amount,
+                transaction.Capturesource,
+                transaction.Capturefingerprint,
+                reason
+            }),
+            Resolved = false,
+            Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
+        });
     }
 
     private static void EnsureDepositAmountsCalculated(Booking booking)
@@ -630,18 +1526,18 @@ public partial class PaymentService(
     // Called when PayOS confirms payment AFTER the booking deadline has already passed.
     // Refunds the received amount to the parent's wallet instead of escrowing.
     // Idempotent: safe to call multiple times for the same txId (PayOS webhook retry).
-    private async Task RefundOrphanPaymentToWalletAsync(Booking booking, int amount, string txId, CancellationToken ct)
+    private async Task<bool> RefundOrphanPaymentToWalletAsync(Booking booking, decimal amount, string txId, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(booking.Parentid))
         {
             logger.LogWarning("RefundOrphan: booking {Id} has no parentId, skipping.", booking.Bookingid);
-            return;
+            return false;
         }
 
         if (await walletRepo.HasTransactionByDescriptionAsync(txId, ReferenceTable.Booking, ct))
         {
             logger.LogWarning("RefundOrphan: duplicate txId {TxId} for booking {Id}, skipping.", txId, booking.Bookingid);
-            return;
+            return false;
         }
 
         var wallet = await walletRepo.GetOrCreateForUpdateAsync(booking.Parentid, ct);
@@ -662,6 +1558,46 @@ public partial class PaymentService(
         booking.Refundamount = (booking.Refundamount ?? 0) + amount;
         booking.Refundstatus = RefundStatus.Refunded;
         booking.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
+        return true;
+    }
+
+    private async Task SendRefundNotificationAsync(Booking booking)
+    {
+        if (string.IsNullOrWhiteSpace(booking.Parentid))
+            return;
+
+        try
+        {
+            await notificationService.CreateNotificationAsync(
+                new NotificationRequest
+                {
+                    Userid = booking.Parentid,
+                    Title = "Hoàn tiền thanh toán",
+                    Message = "Khoản chuyển khoản không thể áp dụng cho booking và đã được hoàn vào ví của bạn.",
+                    Type = NotificationType.PaymentRefundSuccess,
+                    Referenceid = booking.Bookingid.ToString()
+                });
+        }
+        catch (Exception ex)
+        {
+            // The wallet refund has already committed. Notification delivery
+            // is best effort and must not turn a successful webhook into a
+            // retry that attempts to roll back a completed transaction.
+            logger.LogError(
+                ex,
+                "Could not send refund notification for booking {BookingId}.",
+                booking.Bookingid);
+        }
+    }
+
+    private static bool IsProviderTransactionReferenceConflict(
+        DbUpdateException exception)
+    {
+        var message =
+            $"{exception.Message} {exception.InnerException?.Message}";
+        return message.Contains(
+            "uq_payment_transactions_payment_method_provider_transaction_id",
+            StringComparison.OrdinalIgnoreCase);
     }
 
 }

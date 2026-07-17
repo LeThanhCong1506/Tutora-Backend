@@ -4,6 +4,7 @@ using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO;
 using MV.DomainLayer.DTO.ResponseModel.Admin;
+using MV.DomainLayer.Exceptions;
 using MV.PresentationLayer.Authorization;
 
 namespace MV.PresentationLayer.Controllers;
@@ -17,6 +18,7 @@ public class AdminFinancialController(IAdminFinancialService adminFinancialServi
     private IActionResult HandleException(Exception ex) => ex switch
     {
         ArgumentException => BadRequest(APIResponse<object>.Fail(ex.Message, 400)),
+        TransactionNotFoundException => NotFound(APIResponse<object>.Fail(ex.Message, 404)),
         _ => StatusCode(500, APIResponse<object>.Fail($"Lỗi hệ thống: {ex.Message}", 500))
     };
 
@@ -81,6 +83,80 @@ public class AdminFinancialController(IAdminFinancialService adminFinancialServi
                 page, pageSize, type, userId, from, to, search, ct);
 
             return Ok(APIResponse<AdminTransactionListResponse>.Success(result, "Lấy danh sách giao dịch thành công."));
+        }
+        catch (Exception ex)
+        {
+            return HandleException(ex);
+        }
+    }
+
+    /// <summary>
+    /// GET /api/admin/financials/payment-transactions
+    /// Returns recorded payment movements, not wallet balance ledger entries.
+    /// </summary>
+    [HttpGet("payment-transactions")]
+    public async Task<IActionResult> GetPaymentTransactions(
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        [FromQuery] string? paymentMethod = null,
+        [FromQuery] string? direction = null,
+        [FromQuery] string? purpose = null,
+        [FromQuery] string? status = null,
+        [FromQuery] string? reconciliationStatus = null,
+        [FromQuery] string? userId = null,
+        [FromQuery] int? bookingId = null,
+        [FromQuery] int? withdrawalId = null,
+        [FromQuery] int? paymentRequestId = null,
+        [FromQuery] DateTimeOffset? from = null,
+        [FromQuery] DateTimeOffset? to = null,
+        [FromQuery] string? search = null,
+        CancellationToken ct = default)
+    {
+        try
+        {
+            var validation = ValidatePagination(page, pageSize);
+            if (validation != null) return validation;
+
+            if (from.HasValue && to.HasValue && from.Value > to.Value)
+                return BadRequest(APIResponse<object>.Fail("Ngày bắt đầu không được lớn hơn ngày kết thúc.", 400));
+
+            var result = await adminFinancialService.GetPaymentTransactionsAsync(
+                page,
+                pageSize,
+                paymentMethod,
+                direction,
+                purpose,
+                status,
+                reconciliationStatus,
+                userId,
+                bookingId,
+                withdrawalId,
+                paymentRequestId,
+                from,
+                to,
+                search,
+                ct);
+
+            return Ok(APIResponse<AdminPaymentTransactionListResponse>.Success(
+                result,
+                "Lấy danh sách giao dịch thanh toán thành công."));
+        }
+        catch (Exception ex)
+        {
+            return HandleException(ex);
+        }
+    }
+
+    /// <summary>GET /api/admin/financials/payment-transactions/{id}</summary>
+    [HttpGet("payment-transactions/{id:int}")]
+    public async Task<IActionResult> GetPaymentTransactionDetail(int id, CancellationToken ct)
+    {
+        try
+        {
+            var result = await adminFinancialService.GetPaymentTransactionDetailAsync(id, ct);
+            return Ok(APIResponse<AdminPaymentTransactionDetailResponse>.Success(
+                result,
+                "Lấy chi tiết giao dịch tiền thật thành công."));
         }
         catch (Exception ex)
         {
