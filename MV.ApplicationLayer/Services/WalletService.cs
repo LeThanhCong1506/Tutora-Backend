@@ -17,6 +17,7 @@ namespace MV.ApplicationLayer.Services;
 public class WalletService(
     IAppDbContext context,
     [FromKeyedServices(ServiceKeys.PayOS.Checkout)] PayOSClient payOS,
+    INotificationService notificationService,
     IFileStorageService fileStorageService,
     ILogger<WalletService> logger) : IWalletService
 {
@@ -347,6 +348,24 @@ public class WalletService(
 
             await transaction.CommitAsync(ct);
             committed = true;
+
+            const string notificationMessage = "Yêu cầu rút tiền của bạn đã được ghi nhận và đang chờ admin/staff xét duyệt, dự kiến trong vòng 24 giờ.";
+
+            try
+            {
+                await notificationService.CreateNotificationAsync(new NotificationRequest
+                {
+                    Userid = userId,
+                    Title = "Yêu cầu rút tiền đã được tạo",
+                    Message = notificationMessage,
+                    Type = NotificationType.WithdrawalRequest,
+                    Referenceid = withdrawal.Withdrawalid.ToString()
+                });
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Failed to send notification for withdrawal {WithdrawalId}", withdrawal.Withdrawalid);
+            }
 
             logger.LogInformation(
                 "Created withdrawal {WithdrawalId} for user {UserId}, amount: {Amount}",

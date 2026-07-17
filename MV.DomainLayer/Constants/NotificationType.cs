@@ -14,6 +14,7 @@ public static class NotificationType
     public const string PaymentSuccess  = "payment_success";
     public const string PaymentRemainingRequired = "payment_remaining_required";
     public const string PaymentRefundSuccess = "payment_refund_success";
+    public const string WithdrawalRequest = "withdrawal_request";
     public const string LessonReminder  = "lesson_reminder";
     public const string LessonCheckin   = "lesson_checkin";
     public const string LessonReport    = "lesson_report";

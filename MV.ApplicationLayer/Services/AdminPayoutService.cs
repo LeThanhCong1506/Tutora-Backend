@@ -577,7 +577,9 @@ public class AdminPayoutService(
             {
                 Userid = withdrawal.Userid!,
                 Title = "Yêu cầu rút tiền đã hoàn tất",
-                Message = "Yêu cầu rút tiền của bạn đã được duyệt và số tiền đã được chuyển vào tài khoản ngân hàng của bạn."
+                Message = "Yêu cầu rút tiền của bạn đã được duyệt và số tiền đã được chuyển vào tài khoản ngân hàng của bạn.",
+                Type = NotificationType.WithdrawalRequest,
+                Referenceid = withdrawal.Withdrawalid.ToString()
             });
         }
         catch (Exception ex)
@@ -662,7 +664,9 @@ public class AdminPayoutService(
                 {
                     Userid = tutorId,
                     Title = "Yêu cầu rút tiền bị từ chối",
-                    Message = $"Yêu cầu rút tiền bị từ chối: {rejectionReason}. Tiền đã được hoàn về ví."
+                    Message = $"Yêu cầu rút tiền bị từ chối: {rejectionReason}. Tiền đã được hoàn về ví.",
+                    Type = NotificationType.WithdrawalRequest,
+                    Referenceid = withdrawal.Withdrawalid.ToString()
                 });
             }
             catch (Exception ex)
