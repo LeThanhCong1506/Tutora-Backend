@@ -672,6 +672,8 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
 
             entity.ToTable("disputes");
 
+            entity.HasIndex(e => e.Classsessionid, "idx_disputes_class_session_id");
+
             entity.Property(e => e.Disputeid).HasColumnName("dispute_id");
             entity.Property(e => e.Bookingid).HasColumnName("booking_id");
             entity.Property(e => e.Createdat)
@@ -931,6 +933,9 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
             entity.ToTable("class_sessions");
 
             entity.HasIndex(e => new { e.Istutorpresent, e.Isstudentpresent }, "idx_lessons_attendance");
+
+            entity.HasIndex(e => new { e.Tutorid, e.Studentid }, "idx_class_sessions_taught_stats")
+                .HasFilter("(status = 'completed' AND is_settled = true)");
 
             entity.HasIndex(e => e.Autoreportsent, "idx_lessons_autoreport").HasFilter("(auto_report_sent = false)");
 

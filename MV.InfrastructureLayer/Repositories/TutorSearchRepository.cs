@@ -201,21 +201,23 @@ namespace MV.InfrastructureLayer.Repositories
             // ==================== LESSON & STUDENT COUNTS (cho trang hiện tại) ====================
             var tutorIds = items.Select(u => u.Userid).ToList();
 
-            var classSessionCounts = await _context.ClassSessions
+            var qualifyingSessions = _context.ClassSessions
+                .AsNoTracking()
                 .Where(l => l.Tutorid != null && tutorIds.Contains(l.Tutorid)
-                    && l.Status != ClassSessionStatus.Cancelled
-                    && l.Status != ClassSessionStatus.CancelledNoshow
-                    && l.Booking != null && PaidBookingStatuses.Contains(l.Booking.Status!))
+                    && l.Status == ClassSessionStatus.Completed
+                    && l.Issettled == true
+                    && !l.Disputes.Any());
+
+            var classSessionCounts = await qualifyingSessions
                 .GroupBy(l => l.Tutorid!)
                 .Select(g => new { TutorId = g.Key, Count = g.Count() })
                 .ToDictionaryAsync(x => x.TutorId, x => x.Count);
 
-            var studentCounts = await _context.Bookings
-                .Where(b => b.Tutorid != null && tutorIds.Contains(b.Tutorid)
-                    && PaidBookingStatuses.Contains(b.Status!))
-                .Select(b => new { b.Tutorid, b.Studentid })
+            var studentCounts = await qualifyingSessions
+                .Where(l => l.Studentid != null)
+                .Select(l => new { Tutorid = l.Tutorid!, Studentid = l.Studentid! })
                 .Distinct()
-                .GroupBy(b => b.Tutorid!)
+                .GroupBy(l => l.Tutorid)
                 .Select(g => new { TutorId = g.Key, Count = g.Count() })
                 .ToDictionaryAsync(x => x.TutorId, x => x.Count);
 
