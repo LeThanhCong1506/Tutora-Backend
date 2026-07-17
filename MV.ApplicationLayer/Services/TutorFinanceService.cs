@@ -372,7 +372,9 @@ public class TutorFinanceService(
                 {
                     Userid = tutorId,
                     Title = "Yêu cầu rút tiền đã được tạo",
-                    Message = notificationMessage
+                    Message = notificationMessage,
+                    Type = NotificationType.WithdrawalRequest,
+                    Referenceid = withdrawal.Withdrawalid.ToString()
                 });
             }
             catch (Exception ex)

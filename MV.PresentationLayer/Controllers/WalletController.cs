@@ -17,7 +17,7 @@ public class WalletController(IWalletService walletService) : ControllerBase
     private string? UserId => User.FindFirstValue(ClaimTypes.NameIdentifier);
 
     [HttpGet("balance")]
-    [Authorize(Roles = UserRole.ParentOrTutor)]
+    [Authorize(Roles = UserRole.ParentOrStudentOrTutor)]
     public async Task<IActionResult> GetBalance()
     {
         var userId = UserId;
@@ -36,7 +36,7 @@ public class WalletController(IWalletService walletService) : ControllerBase
     }
 
     [HttpGet("transactions")]
-    [Authorize(Roles = UserRole.ParentOrTutor)]
+    [Authorize(Roles = UserRole.ParentOrStudentOrTutor)]
     public async Task<IActionResult> GetTransactions([FromQuery] int page = 1, [FromQuery] int pageSize = 20)
     {
         var userId = UserId;
@@ -55,7 +55,7 @@ public class WalletController(IWalletService walletService) : ControllerBase
     }
 
     [HttpGet("transactions/{id}")]
-    [Authorize(Roles = UserRole.ParentOrTutor)]
+    [Authorize(Roles = UserRole.ParentOrStudentOrTutor)]
     public async Task<IActionResult> GetTransactionDetail(int id, CancellationToken ct)
     {
         var userId = UserId;
@@ -78,12 +78,12 @@ public class WalletController(IWalletService walletService) : ControllerBase
     }
 
     /// <summary>
-    /// Parent-only: create a withdrawal with the bank destination supplied directly in the request
+    /// Parent/Student: create a withdrawal with the bank destination supplied directly in the request
     /// (no saved BankAccount fallback). Tutors keep using POST /api/tutor/withdrawals, which only
     /// ever pays out to their saved account — this endpoint must not become a way to bypass that.
     /// </summary>
     [HttpPost("withdrawals")]
-    [Authorize(Roles = UserRole.Parent)]
+    [Authorize(Roles = UserRole.ParentOrStudent)]
     public async Task<IActionResult> CreateWithdrawal([FromBody] CreateWithdrawalRequest request, CancellationToken ct)
     {
         var userId = UserId;
@@ -106,7 +106,7 @@ public class WalletController(IWalletService walletService) : ControllerBase
     }
 
     [HttpGet("withdrawals")]
-    [Authorize(Roles = UserRole.ParentOrTutor)]
+    [Authorize(Roles = UserRole.ParentOrStudentOrTutor)]
     public async Task<IActionResult> GetWithdrawals(
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20,
@@ -128,7 +128,7 @@ public class WalletController(IWalletService walletService) : ControllerBase
     }
 
     [HttpGet("withdrawals/{id}")]
-    [Authorize(Roles = UserRole.ParentOrTutor)]
+    [Authorize(Roles = UserRole.ParentOrStudentOrTutor)]
     public async Task<IActionResult> GetWithdrawalDetail(int id, CancellationToken ct)
     {
         var userId = UserId;
