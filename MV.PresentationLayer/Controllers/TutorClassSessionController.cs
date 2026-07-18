@@ -98,18 +98,8 @@ public class TutorClassSessionController : ControllerBase
     }
 
     /// <summary>
-    /// Check-in to a classSession (available ±15 min from scheduled start)
-    /// </summary>
-    [HttpPut("{classSessionId}/checkin")]
-    public async Task<ActionResult<APIResponse<ClassSessionDetailResponse>>> CheckIn(int classSessionId, [FromBody] CheckInRequest request)
-    {
-        var tutorId = UserHelper.GetUserId(User);
-        var result = await _classSessionService.CheckInAsync(classSessionId, tutorId, request);
-        return Ok(APIResponse<ClassSessionDetailResponse>.Success(result, "Điểm danh vào buổi học thành công."));
-    }
-
-    /// <summary>
-    /// Check-out from a classSession
+    /// Check-out (kết thúc buổi học). Check-in nay là tự động khi cả gia sư và học viên cùng
+    /// vào phòng (xem AgoraController heartbeat) — không còn endpoint check-in thủ công.
     /// </summary>
     [HttpPut("{classSessionId}/checkout")]
     public async Task<ActionResult<APIResponse<ClassSessionDetailResponse>>> CheckOut(int classSessionId, [FromBody] CheckOutRequest request)

@@ -25,6 +25,7 @@ public partial class ClassSessionService : IClassSessionService
     private readonly IZaloOAService _zaloOAService;
     private readonly IFileStorageService _storageService;
     private readonly ICloudRecordingService _cloudRecording;
+    private readonly ISessionPresenceService _presence;
     private readonly ILogger<ClassSessionService> _logger;
 
     // Retained for transaction management only (BeginTransactionAsync)
@@ -42,6 +43,7 @@ public partial class ClassSessionService : IClassSessionService
         IZaloOAService zaloOAService,
         IFileStorageService storageService,
         ICloudRecordingService cloudRecording,
+        ISessionPresenceService presence,
         ILogger<ClassSessionService> logger)
     {
         _classSessionRepo = classSessionRepo;
@@ -53,6 +55,7 @@ public partial class ClassSessionService : IClassSessionService
         _zaloOAService = zaloOAService;
         _storageService = storageService;
         _cloudRecording = cloudRecording;
+        _presence = presence;
         _logger = logger;
     }
 

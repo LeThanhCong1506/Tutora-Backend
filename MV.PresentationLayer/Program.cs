@@ -316,6 +316,8 @@ builder.Services.AddScoped<IPaymentService, PaymentService>();
 builder.Services.AddScoped<IWalletService, WalletService>();
 builder.Services.AddScoped<IClassSessionService, ClassSessionService>();
 builder.Services.AddScoped<IAgoraRTCService, AgoraRTCService>();
+// Presence in-memory (Singleton): theo dõi ai đang trong phòng học để auto check-in khi đủ cả 2.
+builder.Services.AddSingleton<ISessionPresenceService, SessionPresenceService>();
 builder.Services.AddHttpClient<ICloudRecordingService, CloudRecordingService>();
 builder.Services.AddHttpClient<IWhiteboardService, WhiteboardService>();
 builder.Services.AddScoped<IGoogleDriveService, GoogleDriveService>();
@@ -460,8 +462,8 @@ builder.Services.AddAuthentication(options =>
         {
             var accessToken = context.Request.Query[OAuthFieldNames.AccessToken];
             var path = context.HttpContext.Request.Path;
-            if (!string.IsNullOrEmpty(accessToken) && 
-    (path.StartsWithSegments("/notificationHub") || path.StartsWithSegments("/hubs/chat")))
+            if (!string.IsNullOrEmpty(accessToken) &&
+    (path.StartsWithSegments("/notificationHub") || path.StartsWithSegments("/hubs/chat") || path.StartsWithSegments("/hubs/session-lobby")))
             {
                 context.Token = accessToken;
             }
@@ -583,6 +585,7 @@ app.MapGet("/", () => Results.Content("""
 app.MapControllers();
 app.MapHub<NotificationHub>("/notificationHub");
 app.MapHub<ChatHub>("/hubs/chat");
+app.MapHub<SessionLobbyHub>("/hubs/session-lobby");
 
 // --- KHỞI TẠO STORAGE BUCKET ---
 using (var scope = app.Services.CreateScope())

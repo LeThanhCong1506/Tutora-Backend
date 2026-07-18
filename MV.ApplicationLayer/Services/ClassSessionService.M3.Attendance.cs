@@ -16,63 +16,101 @@ public partial class ClassSessionService
 {
     // ── M3-T2: Check-in / Check-out / Report ─────────────────────────────────
 
-    public async Task<ClassSessionDetailResponse> CheckInAsync(int classSessionId, string tutorId, CheckInRequest request)
+    /// <summary>
+    /// Presence-driven auto check-in. Được gọi mỗi nhịp heartbeat: nếu cả gia sư và học viên
+    /// (hoặc phụ huynh thay thế khi student chưa có tài khoản) cùng có mặt trong phòng của buổi
+    /// đang ở <c>scheduled</c>, tự chuyển sang <c>in_progress</c> và ghi check-in. Một người
+    /// có mặt không đủ. Idempotent — cập nhật có điều kiện, chỉ đổi trạng thái đúng một lần.
+    /// </summary>
+    public async Task<SessionPresenceStatus> TryAutoCheckInAsync(int classSessionId)
     {
         var classSession = await _context.ClassSessions
             .Include(l => l.Booking)
-            .FirstOrDefaultAsync(l => l.Classsessionid == classSessionId && l.Tutorid == tutorId)
-            ?? throw new ClassSessionException(ClassSessionErrorCodes.ClassSessionNotFound, "Không tìm thấy buổi học", 404);
+                .ThenInclude(b => b!.Student)
+            .FirstOrDefaultAsync(l => l.Classsessionid == classSessionId);
 
-        if (classSession.Status != Scheduled)
-            throw new ClassSessionException(ClassSessionErrorCodes.InvalidClassSessionStatus, "Buổi học không ở trạng thái đã lên lịch", 400);
+        if (classSession == null)
+            return new SessionPresenceStatus(false, false, false, false, false);
 
-        // Block check-in for subsequent classSessions if remaining 50% not paid yet
-        if (await IsNextSessionBlockedByRemainingPaymentAsync(classSession.Booking, classSession.Bookingid, classSessionId))
-            throw new ClassSessionException(BookingErrorCodes.RemainingNotPaid,
-                "Phụ huynh chưa thanh toán các buổi học còn lại. Vui lòng đợi thanh toán trước khi bắt đầu buổi tiếp theo.", 400);
+        var tutorId = classSession.Tutorid;
+        var studentUserId = classSession.Booking?.Student?.Linkeduserid; // UserId thực của student (có thể null với dữ liệu cũ)
+        var parentId = classSession.Booking?.Parentid;
 
-        var now = TimeZoneHelper.UtcNow;
-        var minutesDiff = Math.Abs((now - classSession.Scheduledstart).TotalMinutes);
-        if (minutesDiff > 15)
-            throw new ClassSessionException(ClassSessionErrorCodes.CheckInTooEarly, "Chỉ được điểm danh trong vòng ±15 phút so với giờ bắt đầu", 400);
+        var tutorPresent = !string.IsNullOrEmpty(tutorId) && _presence.IsPresent(classSessionId, tutorId);
+        // "Học viên có mặt" = tài khoản student (Linkeduserid) đang trong phòng. Fallback dữ liệu
+        // cũ (student chưa link tài khoản): chấp nhận phụ huynh có mặt thay cho học viên.
+        var studentPresent =
+            (!string.IsNullOrEmpty(studentUserId) && _presence.IsPresent(classSessionId, studentUserId))
+            || (string.IsNullOrEmpty(studentUserId) && !string.IsNullOrEmpty(parentId) && _presence.IsPresent(classSessionId, parentId));
 
-        classSession.Checkintime = now;
-        classSession.Realstart = now;
-        classSession.Status = InProgress;
-        classSession.Istutorpresent = true;
+        var roomClosed = classSession.Checkouttime.HasValue;
+        var isCheckedIn = classSession.Checkintime.HasValue;
+        var blockedByPayment = false;
 
-        await _context.SaveChangesAsync();
-        _logger.LogInformation("Tutor {TutorId} checked in to classSession {ClassSessionId}", tutorId, classSessionId);
-
-        // ── Tạo Meet link nếu chưa có (online/hybrid) ──
-        var teachingMode = TeachingMode.Online;
-        var isOnlineMode = true;
-
-        _logger.LogInformation("CheckIn classSession {ClassSessionId}: teachingMode={Mode}, isOnlineMode={IsOnline}, hasMeetLink={HasLink}, studentId={StudentId}",
-            classSessionId, teachingMode, isOnlineMode, !string.IsNullOrWhiteSpace(classSession.Meetinglink), classSession.Booking?.Studentid);
-
-        if (isOnlineMode && string.IsNullOrWhiteSpace(classSession.Meetinglink) && classSession.Booking?.Studentid != null)
+        if (classSession.Status == Scheduled && tutorPresent && studentPresent && !roomClosed)
         {
-            // Agora RTC: channel = classSessionId (không cần OAuth, không cần external API)
-            classSession.Meetinglink = classSessionId.ToString();
-            _logger.LogInformation("Assigned Agora RTC channel {Channel} for classSession {ClassSessionId}", classSessionId, classSessionId);
-            await _context.SaveChangesAsync();
+            // Giữ nguyên rào thanh toán đợt 2: chưa trả thì chưa cho vào buổi tiếp theo.
+            if (await IsNextSessionBlockedByRemainingPaymentAsync(classSession.Booking, classSession.Bookingid, classSessionId))
+            {
+                blockedByPayment = true;
+            }
+            else
+            {
+                var now = TimeZoneHelper.UtcNow;
+                // Cập nhật có điều kiện (atomic UPDATE ... WHERE status='scheduled'): khi hai
+                // heartbeat của gia sư và học viên tới gần như đồng thời, chỉ một request thắng
+                // → tránh double check-in mà không cần khoá hàng (điểm yếu của luồng cũ).
+                var affected = await _context.ClassSessions
+                    .Where(l => l.Classsessionid == classSessionId && l.Status == Scheduled)
+                    .ExecuteUpdateAsync(s => s
+                        .SetProperty(l => l.Status, InProgress)
+                        .SetProperty(l => l.Checkintime, now)
+                        .SetProperty(l => l.Realstart, now)
+                        .SetProperty(l => l.Istutorpresent, true)
+                        .SetProperty(l => l.Isstudentpresent, true)
+                        .SetProperty(l => l.Meetinglink, l => l.Meetinglink ?? classSessionId.ToString()));
+
+                if (affected == 1)
+                {
+                    isCheckedIn = true;
+                    _logger.LogInformation("Auto check-in classSession {ClassSessionId}: cả gia sư và học viên đã vào phòng", classSessionId);
+                    // Đồng bộ entity đã nạp để helper thông báo dùng đúng Meetinglink.
+                    classSession.Meetinglink ??= classSessionId.ToString();
+                    await SendClassSessionStartedNotificationsAsync(classSession);
+                }
+            }
         }
 
+        return new SessionPresenceStatus(
+            TutorPresent: tutorPresent,
+            StudentPresent: studentPresent,
+            IsCheckedIn: isCheckedIn,
+            RoomClosed: roomClosed,
+            BlockedByPayment: blockedByPayment);
+    }
+
+    /// <summary>
+    /// Gửi thông báo + tin nhắn chat "buổi học đã bắt đầu" cho phụ huynh và học viên khi buổi
+    /// vừa được check-in. Best-effort: mọi lỗi gửi được nuốt và chỉ log cảnh báo.
+    /// </summary>
+    private async Task SendClassSessionStartedNotificationsAsync(ClassSession classSession)
+    {
+        var tutorId = classSession.Tutorid;
+        if (string.IsNullOrEmpty(tutorId)) return;
         // Ghi hình KHÔNG còn bắt đầu ở check-in nữa — chuyển sang lúc Tutor "Vào lớp" (join call),
         // gọi qua StartSessionRecordingAsync. Xem AgoraController.StartRecording.
 
-        // ── Gửi thông báo + link vào chat cho Parent và Student ──
+        var classSessionId = classSession.Classsessionid;
         var parentId = classSession.Booking?.Parentid;
         var studentProfileId = classSession.Booking?.Studentid; // ProfileId (stu_xxx), KHÔNG phải UserId
         var classSessionTimeVn = classSession.Scheduledstart.ToString("dd/MM HH:mm");
-        // hasMeetLink được tính lại SAU khi Agora RTC channel đã được set
         var hasMeetLink = !string.IsNullOrWhiteSpace(classSession.Meetinglink);
+
         string chatContent;
         string messageType;
         if (hasMeetLink)
         {
-            chatContent = $"🟢 Buổi học đã bắt đầu lúc {classSessionTimeVn}!\n\n🔗 Tham gia lớp học trực tuyến (Mã phòng: {classSession.Meetinglink}):\nĐể vào phòng học, vui lòng mở ứng dụng và nhập Mã phòng: {classSession.Meetinglink}";
+            chatContent = $"🟢 Buổi học đã bắt đầu lúc {classSessionTimeVn}!\n\n🔗 Cả gia sư và học viên đã vào phòng học trực tuyến.";
             messageType = ChatMessageType.MeetLink;
         }
         else
@@ -80,7 +118,6 @@ public partial class ClassSessionService
             chatContent = $"🟢 Buổi học đã bắt đầu lúc {classSessionTimeVn}.";
             messageType = ChatMessageType.Text;
         }
-
 
         // Resolve Student LinkedUserId (UserId thực sự để tạo channel/notification)
         string? studentLinkedUserId = null;
@@ -90,12 +127,8 @@ public partial class ClassSessionService
                 .Where(s => s.Studentid == studentProfileId)
                 .Select(s => s.Linkeduserid)
                 .FirstOrDefaultAsync();
-
-            _logger.LogInformation("CheckIn classSession {ClassSessionId}: studentProfileId={ProfileId}, studentLinkedUserId={LinkedId}",
-                classSessionId, studentProfileId, studentLinkedUserId ?? "null");
         }
 
-        // Chuẩn bị metadata chat
         var chatMetadata = new
         {
             classSessionId,
@@ -115,22 +148,19 @@ public partial class ClassSessionService
                     MessageType = messageType,
                     Metadata    = chatMetadata
                 });
-                _logger.LogInformation("Sent check-in chat to parent channel {ChannelId} for classSession {ClassSessionId}", parentChannelId, classSessionId);
             }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Failed to send check-in chat to parent for classSession {ClassSessionId}", classSessionId);
             }
 
-            // Push notification cho Parent
             try
             {
                 await _notificationService.CreateNotificationAsync(new NotificationRequest
                 {
                     Userid = parentId,
                     Title = "Buổi học đã bắt đầu",
-                    Message = "Gia sư đã bắt đầu buổi học." +
-                                  (hasMeetLink ? " Kiểm tra tin nhắn để lấy Mã phòng tham gia lớp học trực tuyến." : ""),
+                    Message = "Gia sư và học viên đã vào phòng, buổi học bắt đầu.",
                     Type = NotificationType.LessonCheckin,
                     Referenceid = classSessionId.ToString()
                 });
@@ -146,7 +176,6 @@ public partial class ClassSessionService
         {
             try
             {
-                // Dùng studentLinkedUserId (UserId thực) để tạo/tìm channel student-tutor
                 var studentChannelId = await _chatService.GetOrCreateChannelAsync(studentLinkedUserId, tutorId, isStudent: true);
                 await _chatService.SendMessageAsync(tutorId, studentChannelId, new ChatMessageCreateRequest
                 {
@@ -154,22 +183,19 @@ public partial class ClassSessionService
                     MessageType = messageType,
                     Metadata    = chatMetadata
                 });
-                _logger.LogInformation("Sent check-in chat to student channel {ChannelId} for classSession {ClassSessionId}", studentChannelId, classSessionId);
             }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Failed to send check-in chat to student for classSession {ClassSessionId}", classSessionId);
             }
 
-            // Push notification cho Student (dùng linkedUserId)
             try
             {
                 await _notificationService.CreateNotificationAsync(new NotificationRequest
                 {
                     Userid = studentLinkedUserId,
                     Title = "Buổi học đã bắt đầu",
-                    Message = "Gia sư đã bắt đầu buổi học." +
-                                  (hasMeetLink ? " Kiểm tra tin nhắn để lấy Mã phòng tham gia lớp học trực tuyến." : ""),
+                    Message = "Gia sư và học viên đã vào phòng, buổi học bắt đầu.",
                     Type = NotificationType.LessonCheckin,
                     Referenceid = classSessionId.ToString()
                 });
@@ -179,8 +205,6 @@ public partial class ClassSessionService
                 _logger.LogWarning(ex, "Failed to send check-in notification to student for classSession {ClassSessionId}", classSessionId);
             }
         }
-
-        return (await GetTutorClassSessionDetailAsync(classSessionId, tutorId))!;
     }
 
     public async Task<ClassSessionDetailResponse> CheckOutAsync(int classSessionId, string tutorId, CheckOutRequest request)
@@ -287,26 +311,22 @@ public partial class ClassSessionService
                 .FirstOrDefaultAsync(l => l.Classsessionid == classSessionId && l.Tutorid == tutorId)
                 ?? throw new ClassSessionException(ClassSessionErrorCodes.ClassSessionNotFound, "Không tìm thấy buổi học", 404);
 
-            // MVP Phase 2: Bỏ check-in/check-out bắt buộc
-
-            if (classSession.Status != Scheduled && classSession.Status != InProgress)
-                throw new ClassSessionException(ClassSessionErrorCodes.InvalidClassSessionStatus, "Buổi học phải ở trạng thái đã lên lịch hoặc đang diễn ra mới gửi được báo cáo", 400);
+            // Yêu cầu buổi đã được check-in (in_progress). Check-in nay là auto khi cả gia sư và
+            // học viên cùng vào phòng, nên điều kiện này đảm bảo chỉ những buổi thật sự diễn ra
+            // (cả 2 có mặt) mới gửi được báo cáo → mới đi tiếp tới thanh toán.
+            if (classSession.Status != InProgress)
+                throw new ClassSessionException(ClassSessionErrorCodes.InvalidClassSessionStatus, "Buổi học phải đang diễn ra (đã điểm danh vào) mới gửi được báo cáo", 400);
 
             if (classSession.ClassSessionReport != null)
                 throw new ClassSessionException(ClassSessionErrorCodes.ReportAlreadySubmitted, "Báo cáo buổi học đã được gửi rồi", 400);
 
             var now = TimeZoneHelper.UtcNow;
 
-            if (classSession.Status == Scheduled)
-            {
-                classSession.Isearlysubmission = true;
-            }
-
             classSession.Lessoncontent = request.ContentCovered;
             classSession.Homework = request.HomeworkAssigned;
             classSession.Tutornotes = request.TutorNotes;
-            classSession.Istutorpresent = request.IsTutorPresent;
-            classSession.Isstudentpresent = request.IsStudentPresent;
+            // Điểm danh có mặt (Istutorpresent/Isstudentpresent) đã được ghi lúc auto check-in từ
+            // presence THẬT — không ghi đè bằng giá trị tự khai trong request. Chỉ nhận ghi chú.
             classSession.Attendancenote = request.AttendanceNote;
             classSession.Status = PendingConfirmation;
             classSession.Submittedat = now;
