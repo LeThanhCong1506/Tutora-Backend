@@ -54,6 +54,24 @@ public partial class BookingService(
         if (userRole == UserRole.Student && student.Studentid != userId && student.Linkeduserid != userId)
             throw new BookingException(BookingErrorCodes.NotStudentOwner, "Bạn chỉ có thể đặt lịch cho chính mình", 403);
 
+        if (userRole == UserRole.Student)
+        {
+            if (!string.IsNullOrWhiteSpace(student.Parentid))
+                throw new BookingException(BookingErrorCodes.StudentManagedByParent,
+                    "Bạn không thể đặt lịch học, vui lòng liên hệ bố mẹ hỗ trợ", 403);
+
+            var studentUser = await context.Users.FirstOrDefaultAsync(u => u.Userid == userId)
+                ?? throw new BookingException(BookingErrorCodes.NotStudentOwner, "Không tìm thấy tài khoản học sinh", 404);
+
+            if (studentUser.Isidentityverified != true)
+                throw new BookingException(BookingErrorCodes.StudentIdentityNotVerified,
+                    "Bạn cần xác minh độ tuổi để có thể đặt lịch học", 403);
+
+            if (!AgeHelper.IsOldEnoughToSelfBook(studentUser.Birthdate))
+                throw new BookingException(BookingErrorCodes.StudentUnderage,
+                    $"Bạn phải đủ {AgeHelper.MinSelfBookingAge} tuổi mới có thể đặt lịch học", 403);
+        }
+
         var tutor = await context.Tutorprofiles.Include(t => t.Tutor).FirstOrDefaultAsync(t => t.Tutorid == dto.TutorId)
             ?? throw new BookingException(BookingErrorCodes.TutorNotFound, "Không tìm thấy gia sư", 404);
         if (!string.Equals(tutor.Profilestatus, TutorProfileStatus.Active, StringComparison.OrdinalIgnoreCase) || tutor.Ispublic != true)
@@ -280,10 +298,12 @@ public partial class BookingService(
             {
                 refundAmount = TutorResponseTimeoutPolicy.ParentRefundAmount(booking);
 
-                if (refundAmount <= 0 || string.IsNullOrWhiteSpace(booking.Parentid))
+                var refundRecipientId = ResolveRefundRecipientId(booking);
+
+                if (refundAmount <= 0 || string.IsNullOrWhiteSpace(refundRecipientId))
                     throw new InvalidOperationException($"Booking #{bookingId} has no valid refund recipient or amount.");
 
-                var parentWallet = await WalletLockHelper.GetOrCreateForUpdateAsync(context, booking.Parentid, now);
+                var parentWallet = await WalletLockHelper.GetOrCreateForUpdateAsync(context, refundRecipientId, now);
                 parentWallet.Balance = (parentWallet.Balance ?? 0) + refundAmount;
                 parentWallet.Lastupdated = now;
                 context.Wallettransactions.Add(new Wallettransaction
@@ -346,13 +366,14 @@ public partial class BookingService(
             throw;
         }
 
-        if (needsRefund && !string.IsNullOrWhiteSpace(booking.Parentid) && refundAmount > 0)
+        var refundNotifyUserId = ResolveRefundRecipientId(booking);
+        if (needsRefund && !string.IsNullOrWhiteSpace(refundNotifyUserId) && refundAmount > 0)
         {
             try
             {
                 await notificationService.CreateNotificationAsync(new NotificationRequest
                 {
-                    Userid = booking.Parentid,
+                    Userid = refundNotifyUserId,
                     Title = "Hoàn tiền thành công",
                     Message = $"Booking #{bookingId} đã được hủy. Số tiền {refundAmount:N0}đ đã được hoàn vào ví của bạn.",
                     Type = NotificationType.PaymentRefundSuccess,
@@ -410,6 +431,22 @@ public partial class BookingService(
         }
 
         return true;
+    }
+
+    /// <summary>
+    /// Người nhận hoàn tiền của booking = người đã trả tiền:
+    /// - Phụ huynh đặt hộ → <c>Parentid</c>.
+    /// - Học sinh tự đặt (Parentid null) → ví học sinh: tài khoản đăng nhập (<c>Student.Linkeduserid</c>),
+    ///   fallback <c>Studentid</c> (student tự đăng ký thường có Studentid == userId).
+    /// Yêu cầu booking đã được load kèm <c>Student</c> (FindWithRelationsForUpdateAsync).
+    /// </summary>
+    private static string? ResolveRefundRecipientId(Booking booking)
+    {
+        if (!string.IsNullOrWhiteSpace(booking.Parentid))
+            return booking.Parentid;
+        if (!string.IsNullOrWhiteSpace(booking.Student?.Linkeduserid))
+            return booking.Student!.Linkeduserid;
+        return booking.Studentid;
     }
 
     private static bool HasStartedOrSettledLesson(Booking booking, DateTime now)
