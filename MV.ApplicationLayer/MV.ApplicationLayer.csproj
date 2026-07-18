@@ -7,7 +7,9 @@
 	</PropertyGroup>
 
 	<ItemGroup>
+		<PackageReference Include="AWSSDK.S3" Version="4.0.101.2" />
 		<PackageReference Include="ClosedXML" Version="0.104.1" />
+		<PackageReference Include="Google.Apis.Drive.v3" Version="1.75.0.4192" />
 		<PackageReference Include="Google.Cloud.AIPlatform.V1" Version="3.51.0" />
 		<PackageReference Include="Google_GenerativeAI" Version="3.3.0" />
 		<PackageReference Include="Hangfire.AspNetCore" Version="1.8.23" />
