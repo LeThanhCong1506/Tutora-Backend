@@ -37,6 +37,8 @@ public partial class Studentprofile
 
     public DateTime? Studentcodeexpiresat { get; set; }
 
+    public string? Parentphone { get; set; }
+
     public DateTime? Deletedat { get; set; }
 
     public virtual ICollection<Booking> Bookings { get; set; } = new List<Booking>();

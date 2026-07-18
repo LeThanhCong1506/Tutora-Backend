@@ -26,8 +26,8 @@ public interface IWalletService
     /// </summary>
     Task<TransactionHistoryPagedResponse> GetTransactionHistoryAsync(string userId, int page = 1, int pageSize = 20);
 
-    /// <summary>Ownership-checked wallet transaction detail, including payout proof.</summary>
-    Task<TransactionHistoryResponse> GetTransactionDetailAsync(
+    /// <summary>Ownership-checked wallet transaction detail: hoá đơn booking/dispute/withdrawal + chứng từ chi trả.</summary>
+    Task<TransactionDetailResponse> GetTransactionDetailAsync(
         string userId,
         int transactionId,
         CancellationToken ct = default);

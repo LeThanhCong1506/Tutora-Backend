@@ -65,7 +65,7 @@ public class WalletController(IWalletService walletService) : ControllerBase
         try
         {
             var result = await walletService.GetTransactionDetailAsync(userId, id, ct);
-            return Ok(APIResponse<TransactionHistoryResponse>.Success(result, ApiMessages.Success));
+            return Ok(APIResponse<TransactionDetailResponse>.Success(result, ApiMessages.Success));
         }
         catch (NotFoundException ex)
         {
