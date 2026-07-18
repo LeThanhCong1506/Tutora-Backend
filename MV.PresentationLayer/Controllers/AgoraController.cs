@@ -24,6 +24,7 @@ namespace MV.PresentationLayer.Controllers;
 public class AgoraController(
     IAgoraRTCService agoraService,
     IClassSessionService classSessionService,
+    IWhiteboardService whiteboardService,
     IAppDbContext context) : ControllerBase
 {
     private string UserId => User.FindFirstValue(ClaimTypes.NameIdentifier)
@@ -112,6 +113,54 @@ public class AgoraController(
             expireAt         = roomInfo.ExpireAt,
             participantNames = participantNames
         }, "Lấy thông tin phòng Agora RTC thành công."));
+    }
+
+    /// <summary>
+    /// GET /api/agora/whiteboard/{classSessionId}
+    /// Lấy thông tin để join phòng Interactive Whiteboard (Netless) của buổi học.
+    /// Cùng điều kiện truy cập với phòng video: chỉ Tutor/Parent/Student thuộc buổi học,
+    /// trong khung giờ phòng mở, và không bị chặn bởi thanh toán còn thiếu.
+    /// </summary>
+    /// <returns>{ appIdentifier, region, roomUuid, roomToken, role }</returns>
+    [HttpGet("whiteboard/{classSessionId:int}")]
+    public async Task<IActionResult> GetWhiteboardRoom(int classSessionId)
+    {
+        var userId = UserId;
+
+        var classSession = await context.ClassSessions
+            .Include(l => l.Booking)
+            .FirstOrDefaultAsync(l => l.Classsessionid == classSessionId);
+
+        if (classSession == null)
+            return NotFound(APIResponse<object>.Fail("Không tìm thấy buổi học.", 404));
+
+        if (!await CheckClassSessionAccessAsync(classSession, userId))
+            return Forbid();
+
+        if (CurrentUserRole != UserRole.Admin
+            && await classSessionService.IsSessionBlockedByRemainingPaymentAsync(classSessionId))
+        {
+            return BadRequest(APIResponse<object>.Fail(
+                "Phụ huynh chưa thanh toán các buổi học còn lại. Vui lòng hoàn tất thanh toán trước khi vào lớp.", 400));
+        }
+
+        var now = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
+        if (now < classSession.Scheduledstart.AddMinutes(-30))
+            return BadRequest(APIResponse<object>.Fail("Phòng học chưa mở.", 400));
+        if (now > classSession.Scheduledend.AddHours(4))
+            return BadRequest(APIResponse<object>.Fail("Buổi học đã kết thúc.", 400));
+
+        var isTutor = classSession.Tutorid == userId;
+        var room = await whiteboardService.GetOrCreateRoomAsync(classSessionId, isTutor);
+
+        return Ok(APIResponse<object>.Success(new
+        {
+            appIdentifier = room.AppIdentifier,
+            region        = room.Region,
+            roomUuid      = room.RoomUuid,
+            roomToken     = room.RoomToken,
+            role          = room.Role
+        }, "Lấy thông tin phòng whiteboard thành công."));
     }
 
     /// <summary>

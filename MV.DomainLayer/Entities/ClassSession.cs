@@ -79,6 +79,9 @@ public partial class ClassSession
     /// <summary>Object key của file trên S3 (kho đệm) — job relay dùng để đẩy lên Drive rồi xóa. Null sau khi đã relay.</summary>
     public string? Recordings3key { get; set; }
 
+    /// <summary>UUID phòng Agora Interactive Whiteboard (Netless) của buổi học. Null nếu chưa mở bảng.</summary>
+    public string? Whiteboardroomuuid { get; set; }
+
     public virtual Booking? Booking { get; set; }
 
     public virtual ICollection<Dispute> Disputes { get; set; } = new List<Dispute>();
