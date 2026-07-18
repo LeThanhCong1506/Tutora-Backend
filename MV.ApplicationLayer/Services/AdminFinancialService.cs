@@ -1,11 +1,14 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using MV.ApplicationLayer.Interfaces;
 using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO.ResponseModel.Admin;
+using MV.DomainLayer.Entities;
+using MV.DomainLayer.Exceptions;
 using MV.DomainLayer.Helpers;
 using System.Globalization;
+using System.Text.Json;
 
 namespace MV.ApplicationLayer.Services;
 
@@ -473,6 +476,193 @@ public class AdminFinancialService(
             Page        = page,
             PageSize    = pageSize
         };
+    }
+
+    // ─── Real-money transaction audit ───────────────────────────────────────
+
+    public async Task<AdminPaymentTransactionListResponse> GetPaymentTransactionsAsync(
+        int page,
+        int pageSize,
+        string? paymentMethod,
+        string? direction,
+        string? purpose,
+        string? status,
+        string? reconciliationStatus,
+        string? userId,
+        int? bookingId,
+        int? withdrawalId,
+        int? paymentRequestId,
+        DateTimeOffset? from,
+        DateTimeOffset? to,
+        string? search,
+        CancellationToken ct = default)
+    {
+        var query = context.PaymentTransactions.AsNoTracking();
+
+        if (!string.IsNullOrWhiteSpace(paymentMethod))
+            query = query.Where(t => t.Paymentmethod == paymentMethod.Trim());
+        if (!string.IsNullOrWhiteSpace(direction))
+            query = query.Where(t => t.Direction == direction.Trim());
+        if (!string.IsNullOrWhiteSpace(purpose))
+            query = query.Where(t => t.Purpose == purpose.Trim());
+        if (!string.IsNullOrWhiteSpace(status))
+            query = query.Where(t => t.Status == status.Trim());
+        if (!string.IsNullOrWhiteSpace(reconciliationStatus))
+            query = query.Where(t => t.Reconciliationstatus == reconciliationStatus.Trim());
+        if (!string.IsNullOrWhiteSpace(userId))
+            query = query.Where(t => t.Userid == userId.Trim());
+        if (bookingId.HasValue)
+            query = query.Where(t => t.Bookingid == bookingId.Value);
+        if (withdrawalId.HasValue)
+            query = query.Where(t => t.Withdrawalid == withdrawalId.Value);
+        if (paymentRequestId.HasValue)
+            query = query.Where(t => t.Paymentrequestid == paymentRequestId.Value);
+
+        if (from.HasValue)
+        {
+            var fromUtc = from.Value.UtcDateTime;
+            query = query.Where(t => (t.Paidat ?? t.Createdat) >= fromUtc);
+        }
+
+        if (to.HasValue)
+        {
+            var toUtc = to.Value.UtcDateTime;
+            query = query.Where(t => (t.Paidat ?? t.Createdat) <= toUtc);
+        }
+
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var keyword = search.Trim().ToLower();
+            query = query.Where(t =>
+                (t.Providertransactionid != null && t.Providertransactionid.ToLower().Contains(keyword))
+                || (t.Paymentlinkid != null && t.Paymentlinkid.ToLower().Contains(keyword))
+                || (t.Description != null && t.Description.ToLower().Contains(keyword))
+                || (t.Note != null && t.Note.ToLower().Contains(keyword))
+                || (t.Sourceaccountnumber != null && t.Sourceaccountnumber.ToLower().Contains(keyword))
+                || (t.Destinationaccountnumber != null && t.Destinationaccountnumber.ToLower().Contains(keyword))
+                || (t.Destinationvirtualaccountnumber != null && t.Destinationvirtualaccountnumber.ToLower().Contains(keyword))
+                || (t.User != null && t.User.Fullname != null && t.User.Fullname.ToLower().Contains(keyword))
+                || (t.User != null && t.User.Email.ToLower().Contains(keyword)));
+        }
+
+        var totalCount = await query.CountAsync(ct);
+        var totalInboundAmount = await query
+            .Where(t => t.Direction == PaymentTransactionDirection.Inbound)
+            .SumAsync(t => (decimal?)t.Amount, ct) ?? 0;
+        var totalOutboundAmount = await query
+            .Where(t => t.Direction == PaymentTransactionDirection.Outbound)
+            .SumAsync(t => (decimal?)t.Amount, ct) ?? 0;
+
+        var transactions = await query
+            .Include(t => t.User)
+            .Include(t => t.ProcessedbyNavigation)
+            .OrderByDescending(t => t.Paidat ?? t.Createdat)
+            .ThenByDescending(t => t.Paymenttransactionid)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync(ct);
+
+        return new AdminPaymentTransactionListResponse
+        {
+            Items = transactions.Select(MapPaymentTransaction<AdminPaymentTransactionItem>).ToList(),
+            TotalCount = totalCount,
+            Page = page,
+            PageSize = pageSize,
+            TotalInboundAmount = totalInboundAmount,
+            TotalOutboundAmount = totalOutboundAmount
+        };
+    }
+
+    public async Task<AdminPaymentTransactionDetailResponse> GetPaymentTransactionDetailAsync(
+        int paymentTransactionId,
+        CancellationToken ct = default)
+    {
+        var transaction = await context.PaymentTransactions
+            .AsNoTracking()
+            .Include(t => t.User)
+            .Include(t => t.ProcessedbyNavigation)
+            .FirstOrDefaultAsync(t => t.Paymenttransactionid == paymentTransactionId, ct)
+            ?? throw new TransactionNotFoundException();
+
+        var response = MapPaymentTransaction<AdminPaymentTransactionDetailResponse>(transaction);
+        response.SourceAccountBankId = transaction.Sourceaccountbankid;
+        response.SourceAccountBankName = transaction.Sourceaccountbankname;
+        response.SourceAccountNumber = transaction.Sourceaccountnumber;
+        response.SourceAccountName = transaction.Sourceaccountname;
+        response.DestinationAccountBankBin = transaction.Destinationaccountbankbin;
+        response.DestinationAccountBankName = transaction.Destinationaccountbankname;
+        response.DestinationAccountNumber = transaction.Destinationaccountnumber;
+        response.DestinationAccountName = transaction.Destinationaccountname;
+        response.DestinationVirtualAccountNumber = transaction.Destinationvirtualaccountnumber;
+        response.DestinationVirtualAccountName = transaction.Destinationvirtualaccountname;
+        response.WebhookCode = transaction.Webhookcode;
+        response.WebhookDescription = transaction.Webhookdesc;
+        response.WebhookSuccess = transaction.Webhooksuccess;
+        response.ProviderCode = transaction.Providercode;
+        response.ProviderDescription = transaction.Providerdesc;
+        response.ProviderPayload = ParseJsonPayload(transaction.Providerpayload);
+        response.WebhookPayload = ParseJsonPayload(transaction.Webhookpayload);
+        return response;
+    }
+
+    private static T MapPaymentTransaction<T>(PaymentTransaction transaction)
+        where T : AdminPaymentTransactionItem, new()
+    {
+        return new T
+        {
+            PaymentTransactionId = transaction.Paymenttransactionid,
+            UserId = transaction.Userid,
+            UserFullName = transaction.User?.Fullname,
+            UserEmail = transaction.User?.Email,
+            UserRole = transaction.User?.Primaryrole,
+            PaymentMethod = transaction.Paymentmethod,
+            Direction = transaction.Direction,
+            Purpose = transaction.Purpose,
+            Status = transaction.Status,
+            CaptureSource = transaction.Capturesource,
+            ReconciliationStatus = transaction.Reconciliationstatus,
+            CaptureFingerprint = transaction.Capturefingerprint,
+            Amount = transaction.Amount,
+            Currency = transaction.Currency,
+            OrderCode = transaction.Ordercode,
+            ProviderTransactionId = transaction.Providertransactionid,
+            PaymentLinkId = transaction.Paymentlinkid,
+            PaymentRequestId = transaction.Paymentrequestid,
+            BookingId = transaction.Bookingid,
+            WithdrawalId = transaction.Withdrawalid,
+            Description = transaction.Description,
+            PaidAt = AsUtc(transaction.Paidat),
+            CreatedAt = AsUtc(transaction.Createdat),
+            ProcessedBy = transaction.Processedby,
+            ProcessedByName = transaction.ProcessedbyNavigation?.Fullname,
+            Note = transaction.Note
+        };
+    }
+
+    private static DateTime? AsUtc(DateTime? value)
+    {
+        if (!value.HasValue)
+            return null;
+
+        return value.Value.Kind == DateTimeKind.Utc
+            ? value.Value
+            : DateTime.SpecifyKind(value.Value, DateTimeKind.Utc);
+    }
+
+    private static JsonElement? ParseJsonPayload(string? payload)
+    {
+        if (string.IsNullOrWhiteSpace(payload))
+            return null;
+
+        try
+        {
+            using var document = JsonDocument.Parse(payload);
+            return document.RootElement.Clone();
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
     }
 
     // ─── Trend builder ────────────────────────────────────────────────────────

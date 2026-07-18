@@ -304,6 +304,8 @@ builder.Services.AddScoped<IRefreshTokenService, RefreshTokenService>();
 builder.Services.AddScoped<ITutorAvailabilityService, TutorAvailabilityService>();
 builder.Services.AddScoped<ILookupService, LookupService>();
 builder.Services.AddScoped<IBookingService, BookingService>();
+builder.Services.AddScoped<IEkycService, EkycService>();
+builder.Services.AddScoped<IStudentIdentityService, StudentIdentityService>();
 builder.Services.AddScoped<IStudentService, StudentService>();
 builder.Services.AddScoped<IChatService, ChatService>();
 builder.Services.AddScoped<IAiChatService, AiChatService>();
@@ -399,6 +401,7 @@ builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
 // Background job
 //builder.Services.AddHostedService<EmailConsumerService>();
 builder.Services.AddHostedService<PaymentTimeoutJob>();
+builder.Services.AddHostedService<PaymentRequestReconciliationJob>();
 builder.Services.AddHostedService<TutorResponseTimeoutJob>();
 builder.Services.AddHostedService<AutoConfirmClassSessionJob>();
 builder.Services.AddHostedService<AutoUnsuspendJob>();
@@ -506,6 +509,30 @@ builder.Services.AddAuthorization(options =>
 builder.Services.AddSingleton<Microsoft.AspNetCore.Authorization.IAuthorizationHandler, MV.PresentationLayer.Authorization.PermissionRequirementHandler>();
 
 var app = builder.Build();
+
+await using (var schemaScope = app.Services.CreateAsyncScope())
+{
+    var schemaContext = schemaScope.ServiceProvider
+        .GetRequiredService<AgoraDbContext>();
+    var schemaLogger = schemaScope.ServiceProvider
+        .GetRequiredService<ILoggerFactory>()
+        .CreateLogger("PaymentSqlMigrationRunner");
+
+    if (args.Any(a => string.Equals(
+        a,
+        "--migrate-only",
+        StringComparison.OrdinalIgnoreCase)))
+    {
+        await PaymentSqlMigrationRunner.ApplyPendingAsync(
+            schemaContext,
+            schemaLogger);
+        return;
+    }
+
+    await PaymentSqlMigrationRunner.EnsureCurrentAsync(
+        schemaContext,
+        schemaLogger);
+}
 
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())

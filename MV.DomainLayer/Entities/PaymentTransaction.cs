@@ -8,7 +8,7 @@ public partial class PaymentTransaction
 
     public string? Userid { get; set; }
 
-    public string Channel { get; set; } = null!;
+    public string Paymentmethod { get; set; } = null!;
 
     public string Direction { get; set; } = null!;
 
@@ -26,9 +26,9 @@ public partial class PaymentTransaction
 
     public string? Paymentlinkid { get; set; }
 
-    public int? Bookingid { get; set; }
+    public int? Paymentrequestid { get; set; }
 
-    public int? Topuprequestid { get; set; }
+    public int? Bookingid { get; set; }
 
     public int? Withdrawalid { get; set; }
 
@@ -41,6 +41,12 @@ public partial class PaymentTransaction
     public string? Processedby { get; set; }
 
     public string? Note { get; set; }
+
+    public string Capturesource { get; set; } = null!;
+
+    public string Reconciliationstatus { get; set; } = null!;
+
+    public string? Capturefingerprint { get; set; }
 
     public string? Webhookcode { get; set; }
 
@@ -60,7 +66,7 @@ public partial class PaymentTransaction
 
     public string? Sourceaccountname { get; set; }
 
-    public string? Destinationaccountbankid { get; set; }
+    public string? Destinationaccountbankbin { get; set; }
 
     public string? Destinationaccountbankname { get; set; }
 
@@ -68,7 +74,15 @@ public partial class PaymentTransaction
 
     public string? Destinationaccountname { get; set; }
 
+    public string? Destinationvirtualaccountnumber { get; set; }
+
+    public string? Destinationvirtualaccountname { get; set; }
+
     public string? Providerpayload { get; set; }
+
+    public string? Webhookpayload { get; set; }
+
+    public string? Proofimagepath { get; set; }
 
     public virtual User? User { get; set; }
 
@@ -76,7 +90,7 @@ public partial class PaymentTransaction
 
     public virtual Booking? Booking { get; set; }
 
-    public virtual Topuprequest? Topuprequest { get; set; }
+    public virtual PaymentRequest? Paymentrequest { get; set; }
 
     public virtual Withdrawalrequest? Withdrawal { get; set; }
 }

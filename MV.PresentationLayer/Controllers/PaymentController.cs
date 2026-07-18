@@ -7,6 +7,7 @@ using MV.DomainLayer.DTO;
 using MV.DomainLayer.DTO.RequestModel;
 using MV.DomainLayer.DTO.ResponseModel;
 using MV.DomainLayer.Exceptions;
+using MV.PresentationLayer.Authorization;
 using System.Security.Claims;
 using System.Text.Json;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
@@ -47,6 +48,103 @@ public class PaymentController(
         }
     }
 
+    [HttpGet("bookings/{id}/payment/summary")]
+    [Authorize(Roles = UserRole.ParentOrStudent)]
+    public async Task<IActionResult> GetPaymentSummary([FromRoute] int id)
+    {
+        var userId = UserId;
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(APIResponse.Fail(ApiMessages.Unauthorized, 401));
+
+        try
+        {
+            var result = await paymentService.GetPaymentSummaryAsync(id, userId);
+            return Ok(APIResponse<PaymentSummaryResponse>.Success(result, ApiMessages.Success));
+        }
+        catch (BookingException ex)
+        {
+            return StatusCode(ex.HttpStatus, new { errorCode = ex.ErrorCode, message = ex.Message });
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Unexpected error in GetPaymentSummary for booking {BookingId}", id);
+            return StatusCode(500, new { errorCode = ApiErrorCodes.InternalError, message = "Lỗi hệ thống khi tải thông tin thanh toán." });
+        }
+    }
+
+    [HttpPost("bookings/{id}/payment/wallet-shortfall")]
+    [Authorize(Roles = UserRole.ParentOrStudent)]
+    public async Task<IActionResult> CreateWalletShortfallTopup([FromRoute] int id)
+    {
+        var userId = UserId;
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(APIResponse.Fail(ApiMessages.Unauthorized, 401));
+
+        try
+        {
+            var result = await paymentService.CreateBookingShortfallTopupAsync(
+                id,
+                userId,
+                HttpContext.RequestAborted);
+            return Ok(APIResponse<TopupResponse>.Success(
+                result,
+                "Tạo mã nạp phần thiếu thành công."));
+        }
+        catch (BookingException ex)
+        {
+            return StatusCode(ex.HttpStatus, new { errorCode = ex.ErrorCode, message = ex.Message });
+        }
+    }
+
+    [HttpGet("bookings/{id}/payment/wallet-shortfall/{orderCode}/status")]
+    [Authorize(Roles = UserRole.ParentOrStudent)]
+    public async Task<IActionResult> GetWalletShortfallTopupStatus(
+        [FromRoute] int id,
+        [FromRoute] long orderCode)
+    {
+        var userId = UserId;
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(APIResponse.Fail(ApiMessages.Unauthorized, 401));
+
+        try
+        {
+            var result = await walletService.GetBookingShortfallTopupStatusAsync(
+                id,
+                orderCode,
+                userId,
+                HttpContext.RequestAborted);
+            return Ok(APIResponse<TopupStatusResponse>.Success(result, ApiMessages.Success));
+        }
+        catch (BookingException ex)
+        {
+            return StatusCode(ex.HttpStatus, new { errorCode = ex.ErrorCode, message = ex.Message });
+        }
+    }
+
+    [HttpPost("bookings/{id}/payment/wallet-shortfall/{orderCode}/apply")]
+    [Authorize(Roles = UserRole.ParentOrStudent)]
+    public async Task<IActionResult> ApplyWalletShortfallTopup(
+        [FromRoute] int id,
+        [FromRoute] long orderCode)
+    {
+        var userId = UserId;
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(APIResponse.Fail(ApiMessages.Unauthorized, 401));
+
+        try
+        {
+            await paymentService.ApplyBookingShortfallTopupAsync(
+                id,
+                orderCode,
+                userId,
+                HttpContext.RequestAborted);
+            return Ok(APIResponse.Success("Thanh toán booking bằng ví thành công."));
+        }
+        catch (BookingException ex)
+        {
+            return StatusCode(ex.HttpStatus, new { errorCode = ex.ErrorCode, message = ex.Message });
+        }
+    }
     [HttpGet("bookings/{id}/payment/status")]
     [Authorize(Roles = UserRole.ParentOrStudent)]
     public async Task<IActionResult> GetPaymentStatus([FromRoute] int id)
@@ -118,17 +216,42 @@ public class PaymentController(
             if (OrderCodeHelper.IsBookingOrderCode(orderCode) || OrderCodeHelper.IsRemainingOrderCode(orderCode))
             {
                 logger.LogInformation("Processing booking payment webhook for orderCode: {OrderCode}", orderCode);
-                await paymentService.ProcessWebhookAsync(request, HttpContext.RequestAborted);
+                await paymentService.ProcessWebhookAsync(
+                    request,
+                    rawPayload,
+                    HttpContext.RequestAborted);
             }
             else if (OrderCodeHelper.IsTopupOrderCode(orderCode))
             {
                 logger.LogInformation("Processing topup webhook for orderCode: {OrderCode}", orderCode);
-                await walletService.ProcessTopupWebhookAsync(request, HttpContext.RequestAborted);
+                try
+                {
+                    await walletService.ProcessTopupWebhookAsync(
+                        request,
+                        rawPayload,
+                        HttpContext.RequestAborted);
+                }
+                catch (BookingException ex)
+                    when (ex.ErrorCode == WalletErrorCodes.TopupNotFound)
+                {
+                    logger.LogWarning(
+                        "No legacy top-up request matches PayOS orderCode {OrderCode}; recording it for reconciliation.",
+                        orderCode);
+                    await paymentService.RecordUnmatchedPayOSWebhookAsync(
+                        request,
+                        rawPayload,
+                        HttpContext.RequestAborted);
+                }
             }
             else
             {
-                logger.LogWarning("Test or invalid orderCode: {OrderCode} - Ignoring", orderCode);
-                return Ok(new { code = PayOSWebhookCode.SuccessCode, desc = PayOSWebhookCode.SuccessDesc, data = new { } });
+                logger.LogWarning(
+                    "Unrecognized PayOS orderCode {OrderCode}; recording it for reconciliation.",
+                    orderCode);
+                await paymentService.RecordUnmatchedPayOSWebhookAsync(
+                    request,
+                    rawPayload,
+                    HttpContext.RequestAborted);
             }
 
             return Ok(new { code = PayOSWebhookCode.SuccessCode, desc = PayOSWebhookCode.SuccessDesc, data = new { } });
@@ -141,12 +264,13 @@ public class PaymentController(
     }
 
     [HttpPost("admin/bookings/{id}/payment/confirm")]
-    [Authorize(Roles = UserRole.Admin)]
+    [Authorize(Roles = UserRole.AdminOrStaff)]
+    [RequirePermission(Permissions.PaymentConfirm)]
     public async Task<IActionResult> ConfirmPayment([FromRoute] int id, [FromBody] AdminConfirmPaymentRequest request)
     {
         try
         {
-            await paymentService.ConfirmPaymentByAdminAsync(id, request, UserId, HttpContext.RequestAborted);
+            await paymentService.ConfirmPaymentManuallyAsync(id, request, UserId, HttpContext.RequestAborted);
             return Ok(APIResponse.Success("Xác nhận thanh toán thành công."));
         }
         catch (BookingException ex)

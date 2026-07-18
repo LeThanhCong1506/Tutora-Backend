@@ -17,6 +17,7 @@ public static class Permissions
     public const string DashboardView        = "dashboard.view";
     public const string FinancialView        = "financial.view";
     public const string BookingView          = "booking.view";
+    public const string PaymentConfirm       = "payment.confirm";
     public const string PromotionManage      = "promotion.manage";
 
     public const string PayoutView           = "payout.view";
@@ -44,7 +45,7 @@ public static class Permissions
     {
         TutorApprovalView, TutorApprovalDecide, CertificateView, CertificateVerify, TutorCccdView,
         UserView, UserUpdate, UserDeactivate,
-        DashboardView, FinancialView, BookingView, PromotionManage,
+        DashboardView, FinancialView, BookingView, PaymentConfirm, PromotionManage,
         PayoutView, PayoutApprove, PayoutReject, FraudLogView,
         SystemAlertView, SystemAlertResolve,
         DisputeView, DisputeInvestigate, DisputeResolve,
@@ -67,6 +68,7 @@ public static class Permissions
         new(DashboardView,       "Xem dashboard & báo cáo thống kê",    "Reporting"),
         new(FinancialView,       "Xem báo cáo tài chính",               "Reporting"),
         new(BookingView,         "Xem danh sách / chi tiết booking",    "Booking"),
+        new(PaymentConfirm,      "Xác nhận thanh toán thủ công",        "Payment"),
         new(PromotionManage,     "Quản lý mã khuyến mãi",               "Booking"),
         new(PayoutView,          "Xem yêu cầu rút tiền",                "Payout"),
         new(PayoutApprove,       "Duyệt yêu cầu rút tiền",              "Payout"),

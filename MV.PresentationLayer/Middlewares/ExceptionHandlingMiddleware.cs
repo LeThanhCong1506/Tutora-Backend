@@ -1,6 +1,7 @@
 using System.Net;
 using System.Security.Authentication;
 using MV.DomainLayer.Constants;
+using DomainExceptions = MV.DomainLayer.Exceptions;
 
 
 namespace SP25.OJT202.AccountManagement.Presentation.Middlewares
@@ -81,6 +82,14 @@ namespace SP25.OJT202.AccountManagement.Presentation.Middlewares
                 case UserNotFoundException:
                     statusCode = (int)HttpStatusCode.NotFound;
                     message = ApiMessages.UserNotFoundWithPeriod;
+                    break;
+                case DomainExceptions.NotFoundException:
+                    statusCode = (int)HttpStatusCode.NotFound;
+                    message = exception.Message;
+                    break;
+                case DomainExceptions.BadRequestException:
+                    statusCode = (int)HttpStatusCode.BadRequest;
+                    message = exception.Message;
                     break;
                 default:
                     statusCode = (int)HttpStatusCode.InternalServerError;

@@ -1,3 +1,4 @@
+using MV.DomainLayer.DTO.RequestModel.Admin;
 using MV.DomainLayer.DTO.ResponseModel.Admin;
 
 namespace MV.ApplicationLayer.ServiceInterfaces;
@@ -31,11 +32,22 @@ public interface IAdminPayoutService
     /// </summary>
     Task<AdminWithdrawalDetailResponse> GetRequestDetailAsync(int withdrawalId, CancellationToken ct = default);
 
+    /// <summary>Exclusively claim a pending request before making the external bank transfer.</summary>
+    Task<ApproveResult> ClaimRequestAsync(int withdrawalId, string actorUserId, CancellationToken ct = default);
+
+    /// <summary>Release a request claimed by the current actor back to the review queue.</summary>
+    Task<ApproveResult> ReleaseRequestAsync(int withdrawalId, string actorUserId, CancellationToken ct = default);
+
     /// <summary>
     /// Approve a withdrawal request. Decision stored in DB differs based on actorRole:
     /// Admin → ADMIN_APPROVED, Staff → STAFF_APPROVED.
     /// </summary>
-    Task<ApproveResult> ApproveRequestAsync(int withdrawalId, string actorUserId, string actorRole, string? note = null, CancellationToken ct = default);
+    Task<ApproveResult> ApproveRequestAsync(
+        int withdrawalId,
+        string actorUserId,
+        string actorRole,
+        ApproveWithdrawalRequest request,
+        CancellationToken ct = default);
 
     /// <summary>
     /// Reject a withdrawal request and refund the tutor's wallet.

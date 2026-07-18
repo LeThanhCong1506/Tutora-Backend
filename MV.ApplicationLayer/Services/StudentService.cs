@@ -13,16 +13,16 @@ using System.Security.Cryptography;
 
 namespace MV.ApplicationLayer.Services
 {
-    public class StudentService : IStudentService
+    public partial class StudentService : IStudentService
     {
         private readonly IUnitOfWork _unitOfWork;
         private readonly IFileStorageService _storage;
         private readonly IConfiguration _config;
         private readonly IPasswordRepository _passwordRepository;
+        private readonly IStudentIdentityService _identity;
+        private readonly IWalletRepository _walletRepository;
+        private readonly Microsoft.Extensions.Logging.ILogger<StudentService> _logger;
         private const int MaxStudentsPerParent = 5;
-        private const int LinkCodeLength = 6;
-        private const int LinkCodeExpiryHours = 24;
-        private const string LinkCodeChars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
         private const string AvatarBucket = StorageBucket.Avatars;
         private const int UsernameMaxRetries = 100;
         private const string DefaultUsernameBase = "student";
@@ -33,12 +33,18 @@ namespace MV.ApplicationLayer.Services
             IUnitOfWork unitOfWork,
             IFileStorageService storage,
             IConfiguration config,
-            IPasswordRepository passwordRepository)
+            IPasswordRepository passwordRepository,
+            IStudentIdentityService identity,
+            IWalletRepository walletRepository,
+            Microsoft.Extensions.Logging.ILogger<StudentService> logger)
         {
             _unitOfWork = unitOfWork ?? throw new ArgumentNullException(nameof(unitOfWork));
             _storage = storage ?? throw new ArgumentNullException(nameof(storage));
             _config = config ?? throw new ArgumentNullException(nameof(config));
             _passwordRepository = passwordRepository ?? throw new ArgumentNullException(nameof(passwordRepository));
+            _identity = identity ?? throw new ArgumentNullException(nameof(identity));
+            _walletRepository = walletRepository ?? throw new ArgumentNullException(nameof(walletRepository));
+            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         }
 
         public async Task<List<StudentProfileResponse>> GetStudentsByParentIdAsync(string parentId)
@@ -79,6 +85,9 @@ namespace MV.ApplicationLayer.Services
             if (currentCount >= MaxStudentsPerParent)
                 throw new MaxStudentsReachedException();
 
+            // SĐT phụ huynh.
+            var parent = await _unitOfWork.UserRepository.GetUserByIdAsync(parentId);
+
             // 1. Auto-generate credentials cho child
             var childUserId = Guid.NewGuid().ToString();
             var username = await GenerateUniqueUsernameAsync(request.Fullname);
@@ -110,6 +119,7 @@ namespace MV.ApplicationLayer.Services
                 School = request.School,
                 Gradelevelid = request.GradeLevelId,
                 Learninggoals = request.Learninggoals,
+                Parentphone = parent?.Phone,
                 Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
             };
 
@@ -202,110 +212,6 @@ namespace MV.ApplicationLayer.Services
             await _unitOfWork.SaveChangesAsync();
         }
 
-        public async Task<StudentProfileResponse> GenerateLinkCodeAsync(string studentId, string parentId)
-        {
-            var student = await _unitOfWork.StudentRepository.GetByIdAndParentAsync(studentId, parentId)
-                ?? throw new NotStudentOwnerException(studentId);
-
-            student.Studentcode = await GenerateUniqueLinkCodeAsync();
-            student.Studentcodeexpiresat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow.AddHours(LinkCodeExpiryHours);
-
-            _unitOfWork.StudentRepository.Update(student);
-            await _unitOfWork.SaveChangesAsync();
-
-            return MapToResponse(student);
-        }
-
-        public async Task<StudentProfileResponse> LinkStudentWithCodeAsync(string code, string studentUserId)
-        {
-            var student = await _unitOfWork.StudentRepository.FindByStudentCodeAsync(code)
-                ?? throw new LinkCodeNotFoundException();
-
-            if (!student.Studentcodeexpiresat.HasValue || student.Studentcodeexpiresat < MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow)
-                throw new LinkCodeExpiredException();
-
-            if (student.Linkeduserid != null)
-                throw new StudentAlreadyLinkedException();
-
-            student.Linkeduserid = studentUserId;
-            student.Studentcode = null;
-            student.Studentcodeexpiresat = null;
-
-            _unitOfWork.StudentRepository.Update(student);
-            await _unitOfWork.SaveChangesAsync();
-
-            return MapToResponse(student);
-        }
-
-        // === Flow 2: Parent Code-based linking ===
-
-        public async Task<string> GenerateParentCodeAsync(string parentId)
-        {
-            var parent = await _unitOfWork.UserRepository.GetUserByIdAsync(parentId)
-                ?? throw new Exception("Không tìm thấy phụ huynh.");
-
-            // Generate unique parent code
-            var code = await GenerateUniqueParentCodeAsync();
-            parent.Parentcode = code;
-            parent.Parentcodeexpiresat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow.AddHours(LinkCodeExpiryHours);
-
-            await _unitOfWork.UserRepository.UpdateUserAsync(parent);
-            await _unitOfWork.SaveChangesAsync();
-
-            return code;
-        }
-
-        public async Task<StudentProfileResponse> StudentSelfLinkAsync(string parentCode, string studentUserId)
-        {
-            // 1. Tìm parent bằng code
-            var parent = await _unitOfWork.UserRepository.GetUserByParentCodeAsync(parentCode)
-                ?? throw new ParentCodeNotFoundException();
-
-            if (!parent.Parentcodeexpiresat.HasValue || parent.Parentcodeexpiresat < MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow)
-                throw new ParentCodeExpiredException();
-
-            // 2. Tìm Studentprofile của student (nếu có)
-            var studentProfiles = await _unitOfWork.StudentRepository.GetByLinkedUserIdAsync(studentUserId);
-            var student = studentProfiles.FirstOrDefault();
-
-            if (student != null)
-            {
-                // Student đã có profile → kiểm tra đã có parent chưa
-                if (student.Parentid != null)
-                    throw new StudentAlreadyHasParentException();
-
-                // Gắn parent
-                student.Parentid = parent.Userid;
-                _unitOfWork.StudentRepository.Update(student);
-            }
-            else
-            {
-                // Student tự đăng ký chưa có Studentprofile → auto-create từ User entity
-                var user = await _unitOfWork.UserRepository.GetUserByIdAsync(studentUserId)
-                    ?? throw new StudentNotFoundException();
-
-                student = new Studentprofile
-                {
-                    Studentid = await GenerateStudentIdAsync(),
-                    Parentid = parent.Userid,
-                    Linkeduserid = studentUserId,
-                    Fullname = user.Fullname ?? "Học sinh",
-                    Avatarurl = user.Avatarurl,
-                    Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
-                };
-
-                await _unitOfWork.StudentRepository.CreateAsync(student);
-            }
-
-            // 3. Clear parent code (đã sử dụng)
-            parent.Parentcode = null;
-            parent.Parentcodeexpiresat = null;
-            await _unitOfWork.UserRepository.UpdateUserAsync(parent);
-
-            await _unitOfWork.SaveChangesAsync();
-
-            return MapToResponse(student);
-        }
 
         /// <summary>
         /// Reset password cho student (chỉ parent sở hữu mới được gọi)
@@ -359,12 +265,17 @@ namespace MV.ApplicationLayer.Services
                 parentName = parent?.Fullname;
             }
 
+            // Trạng thái xác minh độ tuổi nằm ở bảng Users.
+            var linkedUser = await _unitOfWork.UserRepository.GetUserByIdAsync(studentUserId);
+            var profileResp = MapToResponse(student);
+            profileResp.IsIdentityVerified = linkedUser?.Isidentityverified == true;
+
             return new StudentLinkStatusResponse
             {
                 Linked = linked,
                 ParentName = parentName,
                 ParentId = student.Parentid,
-                StudentProfile = MapToResponse(student)
+                StudentProfile = profileResp
             };
         }
 
@@ -404,24 +315,31 @@ namespace MV.ApplicationLayer.Services
 
             var linkedUser = await _unitOfWork.UserRepository.GetUserByIdAsync(studentUserId);
 
+            // Đã xác minh độ tuổi → ngày sinh là nguồn chuẩn từ CCCD, KHÔNG cho tự sửa
+            var birthdateLocked = linkedUser?.Isidentityverified == true;
+
             // Cập nhật Studentprofile
             student.Fullname = request.Fullname;
-            student.Birthdate = request.Birthdate;
+            if (!birthdateLocked)
+                student.Birthdate = request.Birthdate;
             student.School = request.School;
             student.Gradelevelid = request.GradeLevelId;
             student.Learninggoals = request.Learninggoals;
 
-            // Đồng bộ Fullname + Birthdate sang bảng Users
+            // Đồng bộ Fullname (+ Birthdate nếu chưa bị khóa) sang bảng Users
             if (linkedUser != null)
             {
                 linkedUser.Fullname = request.Fullname;
-                linkedUser.Birthdate = request.Birthdate;
+                if (!birthdateLocked)
+                    linkedUser.Birthdate = request.Birthdate;
             }
 
             // EF change tracking tự detect thay đổi — không cần gọi Update() thủ công
             await _unitOfWork.SaveChangesAsync();
 
-            return MapToResponse(student);
+            var resp = MapToResponse(student);
+            resp.IsIdentityVerified = birthdateLocked;
+            return resp;
         }
 
         #region Private Helpers
@@ -443,30 +361,6 @@ namespace MV.ApplicationLayer.Services
 
         private Task<string> GenerateStudentIdAsync()
             => _unitOfWork.StudentRepository.GenerateUniqueStudentIdAsync();
-
-        private async Task<string> GenerateUniqueLinkCodeAsync()
-        {
-            var existingCodes = (await _unitOfWork.StudentRepository.GetAllStudentCodesAsync()).ToHashSet();
-            for (var i = 0; i < 100; i++)
-            {
-                var code = GenerateRandomCode(LinkCodeLength, LinkCodeChars);
-                if (!existingCodes.Contains(code))
-                    return code;
-            }
-            throw new InvalidOperationException("Không thể tạo mã liên kết duy nhất.");
-        }
-
-        private async Task<string> GenerateUniqueParentCodeAsync()
-        {
-            for (var i = 0; i < 100; i++)
-            {
-                var code = GenerateRandomCode(LinkCodeLength, LinkCodeChars);
-                var existing = await _unitOfWork.UserRepository.GetUserByParentCodeAsync(code);
-                if (existing == null)
-                    return code;
-            }
-            throw new InvalidOperationException("Không thể tạo mã phụ huynh duy nhất.");
-        }
 
         private async Task<string> GenerateUniqueUsernameAsync(string fullName)
         {
@@ -521,17 +415,6 @@ namespace MV.ApplicationLayer.Services
             });
         }
 
-        private static string GenerateRandomCode(int length, string charset)
-        {
-            Span<byte> bytes = stackalloc byte[length];
-            RandomNumberGenerator.Fill(bytes);
-            return string.Create(length, bytes.ToArray(), (chars, b) =>
-            {
-                for (var i = 0; i < chars.Length; i++)
-                    chars[i] = charset[b[i] % charset.Length];
-            });
-        }
-
         private static StudentProfileResponse MapToResponse(Studentprofile s) => new()
         {
             StudentId = s.Studentid,
@@ -552,6 +435,7 @@ namespace MV.ApplicationLayer.Services
             AvatarURL = s.Avatarurl,
             StudentCode = s.Studentcode,
             StudentCodeExpiresAt = s.Studentcodeexpiresat,
+            ParentPhone = s.Parentphone,
             CreatedAt = s.Createdat
         };
 

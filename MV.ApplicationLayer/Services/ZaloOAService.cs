@@ -61,35 +61,32 @@ public class ZaloOAService : IZaloOAService
     }
 
     /// <summary>
-    /// Refresh dùng refresh token trong Redis, fallback sang token cấu hình nếu Redis
-    /// token hỏng.
+    /// Refresh dùng refresh token trong Redis — nguồn DUY NHẤT sau lần refresh thành
+    /// công đầu tiên. appsettings.RefreshToken chỉ dùng để "bootstrap" khi Redis
+    /// hoàn toàn chưa có token nào (lần chạy đầu / sau khi re-auth thủ công và seed
+    /// lại Redis). KHÔNG bao giờ xoá token trong Redis khi refresh thất bại — lỗi có
+    /// thể chỉ tạm thời (mạng, Zalo lỗi), xoá nhầm sẽ mất vĩnh viễn token tốt duy nhất
+    /// (đây chính là bug gây ra sự cố access token invalid kéo dài — token trong Redis
+    /// bị xoá rồi fallback sang giá trị appsettings đã chết từ lâu, lặp lại vô hạn).
     /// </summary>
     private async Task<string> RefreshWithFallbackAsync(IDatabase db)
     {
-        var redisRefreshToken = (string?)await db.StringGetAsync("zalo:oa:refresh_token");
-        var configuredRefreshToken = _config.RefreshToken;
+        var refreshToken = (string?)await db.StringGetAsync("zalo:oa:refresh_token");
 
-        if (string.IsNullOrWhiteSpace(redisRefreshToken) &&
-            string.IsNullOrWhiteSpace(configuredRefreshToken))
+        if (string.IsNullOrWhiteSpace(refreshToken))
         {
-            throw new InvalidOperationException("Zalo OA refresh token chưa được cấu hình.");
+            refreshToken = _config.RefreshToken;
+            if (string.IsNullOrWhiteSpace(refreshToken))
+            {
+                throw new InvalidOperationException(
+                    "Zalo OA refresh token chưa có ở cả Redis lẫn appsettings — cần re-auth OAuth " +
+                    "thủ công rồi seed lại key 'zalo:oa:refresh_token' trong Redis.");
+            }
+            _logger.LogWarning(
+                "Zalo refresh token không có trong Redis — dùng giá trị bootstrap từ appsettings (chỉ áp dụng lần đầu).");
         }
 
-        try
-        {
-            return await RefreshOAAccessTokenAsync(
-                db,
-                redisRefreshToken ?? configuredRefreshToken!);
-        }
-        catch (InvalidOperationException ex) when (
-            !string.IsNullOrWhiteSpace(redisRefreshToken) &&
-            !string.IsNullOrWhiteSpace(configuredRefreshToken) &&
-            !string.Equals(redisRefreshToken, configuredRefreshToken, StringComparison.Ordinal))
-        {
-            _logger.LogWarning(ex, "Zalo refresh token trong Redis không hợp lệ; thử token từ cấu hình");
-            await db.KeyDeleteAsync("zalo:oa:refresh_token");
-            return await RefreshOAAccessTokenAsync(db, configuredRefreshToken);
-        }
+        return await RefreshOAAccessTokenAsync(db, refreshToken);
     }
 
     // Ngưỡng refresh chủ động: refresh khi access token còn dưới bấy nhiêu thời gian

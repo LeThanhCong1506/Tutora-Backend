@@ -110,6 +110,20 @@ public class TutorFinanceController(ITutorFinanceService financeService) : Contr
         }
     }
 
+    [HttpDelete("bank")]
+    public async Task<IActionResult> DeleteBankInfo(CancellationToken ct)
+    {
+        try
+        {
+            await financeService.DeleteBankInfoAsync(TutorId, ct);
+            return Ok(APIResponse.Success("Xóa tài khoản ngân hàng thành công."));
+        }
+        catch (NotFoundException ex)
+        {
+            return NotFound(APIResponse.Fail(ex.Message, 404));
+        }
+    }
+
     [HttpPost("withdrawals")]
     public async Task<IActionResult> CreateWithdrawal([FromBody] CreateWithdrawalRequest request, CancellationToken ct)
     {

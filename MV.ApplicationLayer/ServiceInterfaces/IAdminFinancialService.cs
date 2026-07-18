@@ -39,4 +39,30 @@ public interface IAdminFinancialService
         DateTime? to,
         string? search,
         CancellationToken ct = default);
+
+    /// <summary>
+    /// Returns actual bank/provider money movements. This is deliberately
+    /// separate from the wallet ledger returned by GetTransactionsAsync.
+    /// </summary>
+    Task<AdminPaymentTransactionListResponse> GetPaymentTransactionsAsync(
+        int page,
+        int pageSize,
+        string? paymentMethod,
+        string? direction,
+        string? purpose,
+        string? status,
+        string? reconciliationStatus,
+        string? userId,
+        int? bookingId,
+        int? withdrawalId,
+        int? paymentRequestId,
+        DateTimeOffset? from,
+        DateTimeOffset? to,
+        string? search,
+        CancellationToken ct = default);
+
+    /// <summary>Returns the complete audit record for one real-money transaction.</summary>
+    Task<AdminPaymentTransactionDetailResponse> GetPaymentTransactionDetailAsync(
+        int paymentTransactionId,
+        CancellationToken ct = default);
 }

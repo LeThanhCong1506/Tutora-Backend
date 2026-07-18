@@ -26,9 +26,13 @@ namespace MV.DomainLayer.DTO.ResponseModel
 
         public DateTime? StudentCodeExpiresAt { get; set; }
 
+        public string? ParentPhone { get; set; }
+
         public DateTime? CreatedAt { get; set; }
 
         public string? Username { get; set; }
+
+        public bool IsIdentityVerified { get; set; }
 
         public int? Age => BirthDate.HasValue && BirthDate.Value.Year > 1
             ? DateTime.UtcNow.Year - BirthDate.Value.Year

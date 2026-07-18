@@ -245,6 +245,8 @@ namespace MV.ApplicationLayer.Services
                         Studentid = userId,
                         Parentid = null,
                         Fullname = request.FullName,
+                        // SĐT phụ huynh (tùy chọn) — chỉ để gửi ZNS theo dõi.
+                        Parentphone = string.IsNullOrWhiteSpace(request.ParentPhone) ? null : request.ParentPhone.Trim(),
                         Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
                     });
                 }

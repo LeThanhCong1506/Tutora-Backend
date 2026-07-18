@@ -21,6 +21,7 @@ namespace MV.ApplicationLayer.Services
         private readonly IEncryptionService _encryption;
         private readonly ITutorProfileUpdateStagingService _updateStaging;
         private readonly IAppDbContext _context;
+        private readonly IEkycService _ekyc;
 
         // Storage buckets
         private const string CertificateBucket = StorageBucket.CertificateFiles;
@@ -40,7 +41,8 @@ namespace MV.ApplicationLayer.Services
             ILogger<TutorService> logger,
             IEncryptionService encryption,
             ITutorProfileUpdateStagingService updateStaging,
-            IAppDbContext context)
+            IAppDbContext context,
+            IEkycService ekyc)
         {
             _unitOfWork = unitOfWork;
             _storageService = storageService;
@@ -50,6 +52,7 @@ namespace MV.ApplicationLayer.Services
             _encryption = encryption;
             _updateStaging = updateStaging;
             _context = context;
+            _ekyc = ekyc;
         }
 
         /// <summary>
