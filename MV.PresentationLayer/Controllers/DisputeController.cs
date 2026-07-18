@@ -63,6 +63,17 @@ public class DisputeController : ControllerBase
     }
 
     /// <summary>
+    /// Lấy bản ghi video (link Drive + trạng thái) của buổi học gắn với tranh chấp — phục vụ xử lý tranh chấp.
+    /// </summary>
+    [RequirePermission(Permissions.DisputeView)]
+    [HttpGet("{id}/recording")]
+    public async Task<ActionResult<APIResponse<DisputeRecordingResponse>>> GetRecording(int id)
+    {
+        var result = await _disputeService.GetDisputeRecordingAsync(id);
+        return Ok(APIResponse<DisputeRecordingResponse>.Success(result, "Lấy video buổi học thành công."));
+    }
+
+    /// <summary>
     /// Get chat history for dispute context
     /// </summary>
     [RequirePermission(Permissions.DisputeView)]

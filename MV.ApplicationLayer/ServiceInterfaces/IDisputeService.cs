@@ -19,6 +19,12 @@ public interface IDisputeService
     Task<DisputeDetailResponse?> GetDisputeDetailAsync(int disputeId);
 
     /// <summary>
+    /// Lấy thông tin bản ghi video (link Drive + trạng thái) của buổi học gắn với tranh chấp.
+    /// Dùng cho Admin/Staff khi xử lý tranh chấp.
+    /// </summary>
+    Task<DisputeRecordingResponse> GetDisputeRecordingAsync(int disputeId);
+
+    /// <summary>
     /// Get chat history for a booking (dispute context)
     /// </summary>
     Task<List<ChatMessageResponse>> GetDisputeChatHistoryAsync(int disputeId);

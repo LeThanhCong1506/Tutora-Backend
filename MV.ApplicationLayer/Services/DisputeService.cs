@@ -108,6 +108,9 @@ public class DisputeService : IDisputeService
 
         var warningCount = await _disputeRepo.CountWarningsByTutorAsync(dispute.ClassSession!.Tutorid!);
 
+        var (recordingStatus, recordingUrl) = ResolveRecordingStatus(
+            dispute.ClassSession?.Recordingurl, dispute.ClassSession?.Recordings3key, dispute.ClassSession?.Recordingsid);
+
         return new DisputeDetailResponse
         {
             DisputeId = dispute.Disputeid,
@@ -145,7 +148,9 @@ public class DisputeService : IDisputeService
                 ClassSessionContent = dispute.ClassSession.Lessoncontent,
                 Homework = dispute.ClassSession.Homework,
                 IsTutorPresent = dispute.ClassSession.Istutorpresent,
-                IsStudentPresent = dispute.ClassSession.Isstudentpresent
+                IsStudentPresent = dispute.ClassSession.Isstudentpresent,
+                RecordingStatus = recordingStatus,
+                RecordingUrl = recordingUrl
             } : null,
             Tutor = dispute.ClassSession?.Tutor?.Tutor != null ? new DisputeTutorResponse
             {
@@ -157,6 +162,36 @@ public class DisputeService : IDisputeService
                 AverageRating = dispute.ClassSession.Tutor.Averagerating.HasValue ? (decimal?)dispute.ClassSession.Tutor.Averagerating.Value : null
             } : null
         };
+    }
+
+    public async Task<DisputeRecordingResponse> GetDisputeRecordingAsync(int disputeId)
+    {
+        var dispute = await _disputeRepo.FindWithClassSessionAsync(disputeId)
+            ?? throw new ArgumentException("Không tìm thấy tranh chấp");
+
+        var cs = dispute.ClassSession;
+        var (status, url) = ResolveRecordingStatus(cs?.Recordingurl, cs?.Recordings3key, cs?.Recordingsid);
+
+        return new DisputeRecordingResponse
+        {
+            DisputeId = dispute.Disputeid,
+            ClassSessionId = dispute.Classsessionid,
+            Status = status,
+            RecordingUrl = url,
+            Available = url != null
+        };
+    }
+
+    /// <summary>
+    /// Suy ra trạng thái + link recording từ các cột buổi học (không có cột status riêng):
+    /// có url → available; còn s3key → processing (đang relay lên Drive); còn sid → recording (đang ghi); còn lại none.
+    /// </summary>
+    private static (string status, string? url) ResolveRecordingStatus(string? url, string? s3key, string? sid)
+    {
+        if (!string.IsNullOrEmpty(url)) return ("available", url);
+        if (!string.IsNullOrEmpty(s3key)) return ("processing", null);
+        if (!string.IsNullOrEmpty(sid)) return ("recording", null);
+        return ("none", null);
     }
 
     public async Task<List<ChatMessageResponse>> GetDisputeChatHistoryAsync(int disputeId)
