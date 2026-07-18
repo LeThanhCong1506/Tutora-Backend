@@ -14,9 +14,11 @@ namespace MV.PresentationLayer.Controllers;
 /// Agora RTC Controller — cung cấp token + channel để client join video call.
 ///
 /// Flow hoạt động:
-///   1. Tutor check-in → backend gán Meetinglink = classSessionId (= channel name).
-///   2. Client (Tutor/Student/Parent) gọi GET /api/agora/room/{classSessionId} → nhận token + channel + appId.
-///   3. Client dùng Agora SDK join channel bằng: appId + channel + token + uid (= userId, join bằng user account).
+///   1. Client (Tutor/Student/Parent) gọi GET /api/agora/room/{classSessionId} → nhận token +
+///      channel dùng chung theo booking + appId. Phòng mở 24/7, chặn theo TRẠNG THÁI buổi học.
+///   2. Client join channel bằng Agora SDK: appId + channel + token + uid (= userId).
+///   3. Trong lúc ở trong phòng, client heartbeat định kỳ (POST .../heartbeat) → khi cả gia sư
+///      lẫn học viên cùng có mặt, backend auto check-in buổi học.
 /// </summary>
 [ApiController]
 [Route("api/agora")]
@@ -24,6 +26,7 @@ namespace MV.PresentationLayer.Controllers;
 public class AgoraController(
     IAgoraRTCService agoraService,
     IClassSessionService classSessionService,
+    ISessionPresenceService presence,
     IAppDbContext context) : ControllerBase
 {
     private string UserId => User.FindFirstValue(ClaimTypes.NameIdentifier)
@@ -36,7 +39,7 @@ public class AgoraController(
     /// Chỉ Tutor, Parent hoặc Student thuộc buổi học mới có thể gọi endpoint này.
     /// </summary>
     /// <param name="classSessionId">ID của buổi học</param>
-    /// <returns>{ channel, uid, token, appId, expireAt, participantNames }</returns>
+    /// <returns>{ channel, uid, token, appId, expireAt, tutorName, studentName, participantNames }</returns>
     [HttpGet("room/{classSessionId:int}")]
     public async Task<IActionResult> GetRoomInfo(int classSessionId)
     {
@@ -69,49 +72,102 @@ public class AgoraController(
                 "Phụ huynh chưa thanh toán các buổi học còn lại. Vui lòng hoàn tất thanh toán trước khi vào lớp buổi tiếp theo.", 400));
         }
 
-        // Buổi học phải đang diễn ra hoặc sắp diễn ra (không quá 30 phút trước giờ bắt đầu)
-        var now = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
-        var allowedFrom = classSession.Scheduledstart.AddMinutes(-30);
-        if (now < allowedFrom)
-        {
-            var minutesLeft = (int)(allowedFrom - now).TotalMinutes;
-            return BadRequest(APIResponse<object>.Fail(
-                $"Phòng học chưa mở. Vui lòng thử lại sau {minutesLeft} phút.", 400));
-        }
-
-        // Buổi học đã kết thúc quá lâu (sau checkout hoặc 4 tiếng từ khi bắt đầu)
-        var endDeadline = classSession.Scheduledend.AddHours(4);
-        if (now > endDeadline)
-        {
+        // Phòng mở 24/7 — chặn theo TRẠNG THÁI buổi học thay vì khung giờ.
+        // Buổi đã kết thúc (đã check-out) → đóng phòng, đá mọi người ra.
+        if (classSession.Checkouttime != null)
             return BadRequest(APIResponse<object>.Fail("Buổi học đã kết thúc.", 400));
-        }
 
-        // Lấy thông tin phòng (channel + token)
-        var roomInfo = agoraService.GetRoomInfo(classSessionId, userId);
+        // Chỉ mở với buổi "đã lên lịch" hoặc "đang diễn ra". Ẩn/đóng với các trạng thái khác
+        // (reserved, pending_confirmation, completed, cancelled, no_show...).
+        if (classSession.Status != ClassSessionStatus.Scheduled && classSession.Status != ClassSessionStatus.InProgress)
+            return BadRequest(APIResponse<object>.Fail("Phòng học không khả dụng cho buổi này.", 400));
 
-        // Lấy tên thật của người tham gia (key = UserId = Agora user account)
+        // Lấy thông tin phòng (channel dùng chung theo booking + token)
+        var roomInfo = agoraService.GetRoomInfo(classSessionId, classSession.Bookingid, userId);
+
+        // Tên hai phía chính của lớp học dùng cho tiêu đề phòng. Parent là người tạo/quản lý
+        // booking, không thay thế tên học viên khi Student đã có profile riêng.
+        var tutorName = classSession.Tutor?.Tutor?.Fullname ?? "Gia sư";
+        var studentName = classSession.Booking?.Student?.Fullname ?? "Học sinh";
+        var tutorUserId = classSession.Tutorid;
+        var parentUserId = classSession.Booking?.Parentid;
+        var studentUserId = classSession.Booking?.Student?.Linkeduserid;
+
+        // Bảng tra tên theo Agora UID dùng cho video/chat. Vẫn giữ Parent trong bảng này vì
+        // Parent có quyền tham gia phòng và cần hiển thị đúng tên nếu thực sự join.
         var participantNames = new Dictionary<string, string>();
-        if (classSession.Tutor?.Tutor != null) {
-            participantNames[classSession.Tutorid] = classSession.Tutor.Tutor.Fullname ?? "Gia sư";
+        if (classSession.Tutor?.Tutor != null && !string.IsNullOrEmpty(tutorUserId)) {
+            participantNames[tutorUserId] = tutorName;
         }
-        if (classSession.Booking?.Parent != null) {
-            participantNames[classSession.Booking.Parentid] = classSession.Booking.Parent.Fullname ?? "Phụ huynh";
+        if (classSession.Booking?.Parent != null && !string.IsNullOrEmpty(parentUserId)) {
+            participantNames[parentUserId] = classSession.Booking.Parent.Fullname ?? "Phụ huynh";
         }
-        if (classSession.Booking?.Student != null) {
-            if (!string.IsNullOrEmpty(classSession.Booking.Student.Linkeduserid)) {
-                participantNames[classSession.Booking.Student.Linkeduserid] = classSession.Booking.Student.Fullname ?? "Học sinh";
-            }
+        if (!string.IsNullOrEmpty(studentUserId)) {
+            participantNames[studentUserId] = studentName;
         }
 
         return Ok(APIResponse<object>.Success(new
         {
             channel          = roomInfo.Channel,
+            classSessionId   = roomInfo.ClassSessionId,
             uid              = roomInfo.Uid,
             token            = roomInfo.Token,
             appId            = roomInfo.AppId,
             expireAt         = roomInfo.ExpireAt,
-            participantNames = participantNames
+            tutorName        = tutorName,
+            studentName      = studentName,
+            participantNames = participantNames,
+            // FE dùng để chặn deep-link: buổi scheduled chưa check-in phải đi qua lobby chờ đủ 2 người.
+            status           = classSession.Status,
+            checkedIn        = classSession.Checkintime != null
         }, "Lấy thông tin phòng Agora RTC thành công."));
+    }
+
+    /// <summary>
+    /// POST /api/agora/room/{classSessionId}/heartbeat
+    /// Client gọi định kỳ (~20s) khi đang trong phòng để báo "đang có mặt". Presence được ghi
+    /// dưới UserId từ JWT (không ai khai hộ được). Sau khi cập nhật, thử auto check-in nếu đủ cả
+    /// gia sư và học viên. Trả trạng thái presence + check-in để FE hiển thị / tự rời khi phòng đóng.
+    /// </summary>
+    [HttpPost("room/{classSessionId:int}/heartbeat")]
+    public async Task<IActionResult> Heartbeat(int classSessionId)
+    {
+        var userId = UserId;
+
+        var classSession = await context.ClassSessions
+            .Include(l => l.Booking)
+            .FirstOrDefaultAsync(l => l.Classsessionid == classSessionId);
+
+        if (classSession == null)
+            return NotFound(APIResponse<object>.Fail("Không tìm thấy buổi học.", 404));
+
+        if (!await CheckClassSessionAccessAsync(classSession, userId))
+            return Forbid();
+
+        presence.Heartbeat(classSessionId, userId);
+
+        var status = await classSessionService.TryAutoCheckInAsync(classSessionId);
+
+        return Ok(APIResponse<object>.Success(new
+        {
+            tutorPresent     = status.TutorPresent,
+            studentPresent   = status.StudentPresent,
+            isCheckedIn      = status.IsCheckedIn,
+            roomClosed       = status.RoomClosed,
+            blockedByPayment = status.BlockedByPayment
+        }, "OK"));
+    }
+
+    /// <summary>
+    /// POST /api/agora/room/{classSessionId}/leave
+    /// Client gọi khi rời phòng (kể cả beforeunload) để xoá presence ngay, giúp phía kia biết
+    /// mình đã rời. Không đổi trạng thái buổi học.
+    /// </summary>
+    [HttpPost("room/{classSessionId:int}/leave")]
+    public IActionResult Leave(int classSessionId)
+    {
+        presence.Leave(classSessionId, UserId);
+        return Ok(APIResponse<object>.Success(new { }, "OK"));
     }
 
     /// <summary>

@@ -11,7 +11,8 @@ namespace MV.ApplicationLayer.Services;
 /// Sinh Agora RTC token (AccessToken2 — version "007") để client join video call.
 ///
 /// Thiết kế:
-///   - Channel = lessonId (deterministic, không cần gọi API ngoài).
+///   - Channel dùng chung theo booking: <c>booking-{bookingId}</c> (deterministic, không
+///     gọi API ngoài). Mọi buổi của cùng một booking chia sẻ một phòng — "một meet link".
 ///   - Agora user account = UserId của người dùng → client map remote user ↔ app user
 ///     trực tiếp, đồng bộ với dictionary participantNames trả về từ controller.
 ///   - Role mặc định = Publisher (tutor / student / parent đều publish audio + video).
@@ -52,14 +53,16 @@ public class AgoraRTCService(
     }
 
     /// <inheritdoc/>
-    public AgoraRoomInfo GetRoomInfo(int lessonId, string userId)
+    public AgoraRoomInfo GetRoomInfo(int classSessionId, int? bookingId, string userId)
     {
-        var channelName = lessonId.ToString();
+        // Channel dùng chung theo booking. Fallback theo classSessionId nếu buổi chưa gắn booking.
+        var channelName = bookingId.HasValue ? $"booking-{bookingId.Value}" : classSessionId.ToString();
         var token = GenerateToken(channelName, userId);
         var expireAt = (int)(DateTimeOffset.UtcNow.ToUnixTimeSeconds() + _settings.TokenExpireSeconds);
 
         return new AgoraRoomInfo(
             Channel: channelName,
+            ClassSessionId: classSessionId,
             Uid: userId,
             Token: token,
             AppId: _settings.AppId,
