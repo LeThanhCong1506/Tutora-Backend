@@ -19,28 +19,30 @@ namespace MV.PresentationLayer.Controllers;
 public class RecordingController(ICloudRecordingService recording) : ControllerBase
 {
     /// <summary>
-    /// POST /api/recording/{classSessionId}/start
+    /// POST /api/recording/{classSessionId}/start?bookingId=...
     /// Bắt đầu record. Trả về resourceId + sid — GIỮ LẠI để gọi stop.
+    /// Truyền <paramref name="bookingId"/> của buổi để recorder join ĐÚNG channel "booking-{id}"
+    /// mà người dùng đang ở; bỏ trống thì recorder vào channel "classSessionId" và sẽ ghi phòng trống.
     /// </summary>
     [HttpPost("{classSessionId:int}/start")]
-    public async Task<IActionResult> Start(int classSessionId)
+    public async Task<IActionResult> Start(int classSessionId, [FromQuery] int? bookingId)
     {
-        var handle = await recording.StartAsync(classSessionId);
+        var handle = await recording.StartAsync(classSessionId, bookingId);
         return Ok(APIResponse<object>.Success(
             new { handle.ResourceId, handle.Sid }, "Đã bắt đầu Cloud Recording."));
     }
 
     /// <summary>
-    /// POST /api/recording/{classSessionId}/stop?resourceId=...&amp;sid=...
-    /// Dừng record. Cần resourceId + sid từ bước start.
+    /// POST /api/recording/{classSessionId}/stop?resourceId=...&amp;sid=...&amp;bookingId=...
+    /// Dừng record. Cần resourceId + sid từ bước start, và cùng bookingId đã dùng lúc start.
     /// </summary>
     [HttpPost("{classSessionId:int}/stop")]
-    public async Task<IActionResult> Stop(int classSessionId, [FromQuery] string resourceId, [FromQuery] string sid)
+    public async Task<IActionResult> Stop(int classSessionId, [FromQuery] string resourceId, [FromQuery] string sid, [FromQuery] int? bookingId)
     {
         if (string.IsNullOrWhiteSpace(resourceId) || string.IsNullOrWhiteSpace(sid))
             return BadRequest(APIResponse<object>.Fail("Thiếu resourceId hoặc sid.", 400));
 
-        var result = await recording.StopAsync(classSessionId, resourceId, sid);
+        var result = await recording.StopAsync(classSessionId, bookingId, resourceId, sid);
         return Ok(APIResponse<object>.Success(
             new { result.FileNames, result.PlaybackUrl }, "Đã dừng Cloud Recording."));
     }

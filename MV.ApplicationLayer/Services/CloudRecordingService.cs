@@ -54,10 +54,12 @@ public class CloudRecordingService : ICloudRecordingService
 
     public bool Enabled => _rec.Enabled;
 
-    public async Task<CloudRecordingHandle> StartAsync(int classSessionId, CancellationToken ct = default)
+    public async Task<CloudRecordingHandle> StartAsync(int classSessionId, int? bookingId, CancellationToken ct = default)
     {
         Validate();
-        var channel = classSessionId.ToString();
+        // PHẢI join đúng channel mà tutor/student đang ở (booking-{id}); nếu không recorder ghi
+        // một phòng trống → 0 file. Dùng chung helper với AgoraRTCService.GetRoomInfo.
+        var channel = AgoraChannel.Resolve(classSessionId, bookingId);
         var uid = _rec.RecorderUid.ToString();
 
         // ① acquire — xin resourceId
@@ -113,10 +115,11 @@ public class CloudRecordingService : ICloudRecordingService
     }
 
     public async Task<CloudRecordingResult> StopAsync(
-        int classSessionId, string resourceId, string sid, CancellationToken ct = default)
+        int classSessionId, int? bookingId, string resourceId, string sid, CancellationToken ct = default)
     {
         Validate();
-        var channel = classSessionId.ToString();
+        // cname khi stop PHẢI trùng lúc start → cùng cách suy channel.
+        var channel = AgoraChannel.Resolve(classSessionId, bookingId);
         var uid = _rec.RecorderUid.ToString();
 
         var stopBody = new

@@ -29,9 +29,13 @@ public interface ICloudRecordingService
     /// <summary>True nếu tính năng đã bật (AgoraRecording:Enabled). Dùng để bỏ qua khi chưa cấu hình.</summary>
     bool Enabled { get; }
 
-    /// <summary>Bắt đầu record cho một buổi học (channel = classSessionId). Trả resourceId + sid.</summary>
-    Task<CloudRecordingHandle> StartAsync(int classSessionId, CancellationToken ct = default);
+    /// <summary>
+    /// Bắt đầu record cho một buổi học. Recorder join ĐÚNG channel mà client đang ở
+    /// (theo <paramref name="bookingId"/> — xem AgoraChannel.Resolve), không thì ghi phòng trống.
+    /// classSessionId chỉ dùng cho thư mục lưu file + log. Trả resourceId + sid.
+    /// </summary>
+    Task<CloudRecordingHandle> StartAsync(int classSessionId, int? bookingId, CancellationToken ct = default);
 
-    /// <summary>Dừng record. Cần resourceId + sid nhận được lúc start.</summary>
-    Task<CloudRecordingResult> StopAsync(int classSessionId, string resourceId, string sid, CancellationToken ct = default);
+    /// <summary>Dừng record. cname phải khớp lúc start nên cần cùng <paramref name="bookingId"/>.</summary>
+    Task<CloudRecordingResult> StopAsync(int classSessionId, int? bookingId, string resourceId, string sid, CancellationToken ct = default);
 }

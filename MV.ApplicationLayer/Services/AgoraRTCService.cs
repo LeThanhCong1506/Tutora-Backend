@@ -56,7 +56,8 @@ public class AgoraRTCService(
     public AgoraRoomInfo GetRoomInfo(int classSessionId, int? bookingId, string userId)
     {
         // Channel dùng chung theo booking. Fallback theo classSessionId nếu buổi chưa gắn booking.
-        var channelName = bookingId.HasValue ? $"booking-{bookingId.Value}" : classSessionId.ToString();
+        // Dùng chung helper với Cloud Recording để recorder luôn join đúng phòng này.
+        var channelName = AgoraChannel.Resolve(classSessionId, bookingId);
         var token = GenerateToken(channelName, userId);
         var expireAt = (int)(DateTimeOffset.UtcNow.ToUnixTimeSeconds() + _settings.TokenExpireSeconds);
 

@@ -255,7 +255,7 @@ public partial class ClassSessionService
 
         try
         {
-            var handle = await _cloudRecording.StartAsync(classSession.Classsessionid);
+            var handle = await _cloudRecording.StartAsync(classSession.Classsessionid, classSession.Bookingid);
             classSession.Recordingresourceid = handle.ResourceId;
             classSession.Recordingsid = handle.Sid;
             await _context.SaveChangesAsync();
@@ -278,7 +278,7 @@ public partial class ClassSessionService
         try
         {
             var result = await _cloudRecording.StopAsync(
-                classSession.Classsessionid, classSession.Recordingresourceid, classSession.Recordingsid);
+                classSession.Classsessionid, classSession.Bookingid, classSession.Recordingresourceid, classSession.Recordingsid);
 
             // Lấy S3 object key của file .mp4 để job relay đẩy lên Google Drive
             string? mp4Key = null;
@@ -287,6 +287,15 @@ public partial class ClassSessionService
                 if (f.EndsWith(".mp4", StringComparison.OrdinalIgnoreCase)) { mp4Key = f; break; }
             }
             if (mp4Key == null && result.FileNames.Count > 0) mp4Key = result.FileNames[0];
+
+            if (mp4Key == null)
+            {
+                // Stop chạy nhưng Agora KHÔNG trả file nào → không có gì để relay lên Drive.
+                // Hay gặp khi buổi quá ngắn / không có media / recorder đã tự dừng trước đó.
+                _logger.LogWarning(
+                    "Cloud recording buổi {ClassSessionId} dừng nhưng KHÔNG có file nào (fileList rỗng) → recording_url sẽ không có. resourceId={ResourceId} sid={Sid}",
+                    classSession.Classsessionid, classSession.Recordingresourceid, classSession.Recordingsid);
+            }
 
             classSession.Recordings3key = mp4Key;            // job relay sẽ đẩy lên Drive rồi xóa file S3
             classSession.Recordingurl = result.PlaybackUrl;  // link S3 tạm (nếu có PublicUrlBase)

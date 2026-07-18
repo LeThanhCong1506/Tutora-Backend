@@ -128,7 +128,7 @@ public class AgoraController(
     /// GET /api/agora/whiteboard/{classSessionId}
     /// Lấy thông tin để join phòng Interactive Whiteboard (Netless) của buổi học.
     /// Cùng điều kiện truy cập với phòng video: chỉ Tutor/Parent/Student thuộc buổi học,
-    /// trong khung giờ phòng mở, và không bị chặn bởi thanh toán còn thiếu.
+    /// buổi đang mở (scheduled/in_progress, chưa check-out), và không bị chặn bởi thanh toán còn thiếu.
     /// </summary>
     /// <returns>{ appIdentifier, region, roomUuid, roomToken, role }</returns>
     [HttpGet("whiteboard/{classSessionId:int}")]
@@ -153,11 +153,14 @@ public class AgoraController(
                 "Phụ huynh chưa thanh toán các buổi học còn lại. Vui lòng hoàn tất thanh toán trước khi vào lớp.", 400));
         }
 
-        var now = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
-        if (now < classSession.Scheduledstart.AddMinutes(-30))
-            return BadRequest(APIResponse<object>.Fail("Phòng học chưa mở.", 400));
-        if (now > classSession.Scheduledend.AddHours(4))
+        // Đồng nhất với phòng video (GetRoomInfo): phòng mở 24/7, chặn theo TRẠNG THÁI buổi
+        // học chứ KHÔNG theo khung giờ. Trước đây whiteboard chặn theo thời gian
+        // [start-30', end+4h] nên buổi vào được video nhưng không mở nổi bảng vẽ (nhất là
+        // buổi test ngoài giờ đã lên lịch) → lỗi "Không thể mở bảng vẽ".
+        if (classSession.Checkouttime != null)
             return BadRequest(APIResponse<object>.Fail("Buổi học đã kết thúc.", 400));
+        if (classSession.Status != ClassSessionStatus.Scheduled && classSession.Status != ClassSessionStatus.InProgress)
+            return BadRequest(APIResponse<object>.Fail("Phòng học không khả dụng cho buổi này.", 400));
 
         var isTutor = classSession.Tutorid == userId;
         var room = await whiteboardService.GetOrCreateRoomAsync(classSessionId, isTutor);
