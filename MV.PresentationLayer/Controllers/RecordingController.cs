@@ -9,9 +9,9 @@ namespace MV.PresentationLayer.Controllers;
 /// <summary>
 /// Thao tác thủ công Agora Cloud Recording — dùng để TEST độc lập (Admin).
 ///
-/// Luồng thật đã chạy TỰ ĐỘNG: tutor check-in → start, check-out → stop
-/// (xem ClassSessionService.CheckInAsync / CheckOutAsync). Controller này chỉ để
-/// kiểm thử API mà không cần đi qua toàn bộ luồng buổi học.
+/// Luồng thật đã chạy TỰ ĐỘNG: auto check-in (cả gia sư + học viên cùng vào phòng học
+/// chính) → start; check-out → stop (xem ClassSessionService.TryAutoCheckInAsync /
+/// CheckOutAsync). Controller này chỉ để kiểm thử API mà không cần đi qua toàn bộ luồng buổi học.
 /// </summary>
 [ApiController]
 [Route("api/recording")]

@@ -85,12 +85,6 @@ public interface IClassSessionService
     Task<ClassSessionDetailResponse> CheckOutAsync(int classSessionId, string tutorId, CheckOutRequest request);
 
     /// <summary>
-    /// Bắt đầu ghi hình buổi học khi Tutor vào lớp (join call) — thay cho lúc check-in.
-    /// Idempotent: đã ghi thì bỏ qua. Chỉ tutor của buổi mới gọi được.
-    /// </summary>
-    Task StartSessionRecordingAsync(int classSessionId, string tutorId);
-
-    /// <summary>
     /// Tutor submits a post-classSession report (homework, notes, rating).
     /// </summary>
     Task<ClassSessionDetailResponse> SubmitReportAsync(int classSessionId, string tutorId, SubmitReportRequest request);

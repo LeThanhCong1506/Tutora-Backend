@@ -81,6 +81,17 @@ public partial class ClassSessionService
             }
         }
 
+        // ── Ghi hình PHÒNG HỌC CHÍNH ──────────────────────────────────────────────
+        // Chỉ bắt đầu Cloud Recording khi buổi đã vào phòng học CHÍNH: cả gia sư lẫn học
+        // viên cùng có mặt VÀ buổi đang diễn ra (đã check-in). KHÔNG ghi ở phòng chờ
+        // (lobby), cũng không ghi khi mới một người vào. Chạy cả trên nhịp heartbeat vừa
+        // check-in lẫn các nhịp sau (tự retry nếu lần đầu lỗi mạng) — TryStartRecordingAsync
+        // idempotent theo Recordingsid nên gọi lặp lại vô hại.
+        if (isCheckedIn && !roomClosed && tutorPresent && studentPresent)
+        {
+            await TryStartRecordingAsync(classSession);
+        }
+
         return new SessionPresenceStatus(
             TutorPresent: tutorPresent,
             StudentPresent: studentPresent,
@@ -97,8 +108,8 @@ public partial class ClassSessionService
     {
         var tutorId = classSession.Tutorid;
         if (string.IsNullOrEmpty(tutorId)) return;
-        // Ghi hình KHÔNG còn bắt đầu ở check-in nữa — chuyển sang lúc Tutor "Vào lớp" (join call),
-        // gọi qua StartSessionRecordingAsync. Xem AgoraController.StartRecording.
+        // Ghi hình được bắt đầu ngay tại thời điểm check-in (vào phòng học chính) trong
+        // TryAutoCheckInAsync — không còn phụ thuộc FE gọi khi "Vào lớp" nữa.
 
         var classSessionId = classSession.Classsessionid;
         var parentId = classSession.Booking?.Parentid;
@@ -233,20 +244,8 @@ public partial class ClassSessionService
     }
 
     /// <summary>
-    /// Bắt đầu ghi hình buổi học — gọi khi TUTOR vào lớp (join call), thay cho lúc check-in.
-    /// Query gắn Tutorid nên chỉ tutor của buổi mới gọi được (sai tutor → không tìm thấy).
-    /// </summary>
-    public async Task StartSessionRecordingAsync(int classSessionId, string tutorId)
-    {
-        var classSession = await _context.ClassSessions
-            .FirstOrDefaultAsync(l => l.Classsessionid == classSessionId && l.Tutorid == tutorId)
-            ?? throw new ClassSessionException(ClassSessionErrorCodes.ClassSessionNotFound, "Không tìm thấy buổi học", 404);
-
-        await TryStartRecordingAsync(classSession);
-    }
-
-    /// <summary>
     /// Bắt đầu Agora Cloud Recording cho buổi học (nếu tính năng bật).
+    /// Gọi từ <see cref="TryAutoCheckInAsync"/> ngay khi buổi vào phòng học chính (cả 2 có mặt).
     /// Lỗi record KHÔNG được làm hỏng luồng gọi → nuốt exception, chỉ log cảnh báo.
     /// </summary>
     private async Task TryStartRecordingAsync(ClassSession classSession)

@@ -125,18 +125,6 @@ public class AgoraController(
     }
 
     /// <summary>
-    /// POST /api/agora/room/{classSessionId}/recording/start
-    /// Bắt đầu ghi hình buổi học — FE gọi khi TUTOR vào lớp (join call thành công).
-    /// Chỉ tutor của buổi mới bật được (sai tutor → 404). Idempotent (đã ghi thì bỏ qua).
-    /// </summary>
-    [HttpPost("room/{classSessionId:int}/recording/start")]
-    public async Task<IActionResult> StartRecording(int classSessionId)
-    {
-        await classSessionService.StartSessionRecordingAsync(classSessionId, UserId);
-        return Ok(APIResponse<object>.Success(new { }, "Đã bắt đầu ghi hình buổi học."));
-    }
-
-    /// <summary>
     /// GET /api/agora/whiteboard/{classSessionId}
     /// Lấy thông tin để join phòng Interactive Whiteboard (Netless) của buổi học.
     /// Cùng điều kiện truy cập với phòng video: chỉ Tutor/Parent/Student thuộc buổi học,
