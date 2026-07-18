@@ -230,42 +230,179 @@ public class WalletService(
         };
     }
 
-    public async Task<TransactionHistoryResponse> GetTransactionDetailAsync(
-        string userId, int transactionId, CancellationToken ct = default)
+    public async Task<TransactionDetailResponse> GetTransactionDetailAsync(string userId, int transactionId, CancellationToken ct = default)
     {
-        var raw = await context.Wallettransactions
-            .AsNoTracking()
-            .Where(t => t.Transactionid == transactionId && t.Wallet!.Userid == userId)
+        var wallet = await context.Wallets.AsNoTracking()
+            .FirstOrDefaultAsync(w => w.Userid == userId, ct)
+            ?? throw new WalletNotFoundException();
+
+        var tx = await context.Wallettransactions.AsNoTracking()
+            .Where(t => t.Transactionid == transactionId && t.Walletid == wallet.Walletid)
             .Select(t => new { t.Transactionid, t.Amount, t.Transactiontype, t.Description, t.Referenceid, t.Referencetable, t.Createdat })
-            .FirstOrDefaultAsync(ct);
+            .FirstOrDefaultAsync(ct)
+            ?? throw new TransactionNotFoundException();
 
-        if (raw == null)
-            throw new TransactionNotFoundException();
-
-        string? providerTransactionId = null;
-        DateTime? paidAt = null;
-        string? proofImageUrl = null;
-
-        if (raw.Referencetable == ReferenceTable.Withdrawal && raw.Referenceid.HasValue)
+        var detail = new TransactionDetailResponse
         {
-            var proof = await PayoutProofResolver.ResolveAsync(context, fileStorageService, raw.Referenceid.Value, ct);
-            providerTransactionId = proof.ProviderTransactionId;
-            paidAt = proof.PaidAt;
-            proofImageUrl = proof.ProofImageUrl;
+            TransactionId = tx.Transactionid,
+            Amount = tx.Amount ?? 0,
+            TransactionType = tx.Transactiontype ?? "",
+            Description = tx.Description ?? "",
+            ReferenceId = tx.Referenceid,
+            ReferenceTable = tx.Referencetable,
+            CreatedAt = tx.Createdat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
+        };
+
+        if (tx.Referenceid is int refId)
+        {
+            switch (tx.Referencetable)
+            {
+                case ReferenceTable.Booking:
+                    detail.Booking = await BuildBookingInvoiceAsync(refId, ct);
+                    break;
+                case ReferenceTable.Withdrawal:
+                    detail.Withdrawal = await BuildWithdrawalDetailAsync(refId, ct);
+                    // Chứng từ chi trả (mã provider + ảnh) — giữ từ luồng rút tiền của develop.
+                    var proof = await PayoutProofResolver.ResolveAsync(context, fileStorageService, refId, ct);
+                    detail.ProviderTransactionId = proof.ProviderTransactionId;
+                    detail.PaidAt = proof.PaidAt;
+                    detail.ProofImageUrl = proof.ProofImageUrl;
+                    break;
+                // "dispute" chưa nằm trong ReferenceTable constants nhưng có thể xuất hiện
+                // ở dữ liệu — so khớp không phân biệt hoa thường cho chắc.
+                default:
+                    if (string.Equals(tx.Referencetable, "dispute", StringComparison.OrdinalIgnoreCase))
+                        detail.Dispute = await BuildDisputeDetailAsync(refId, ct);
+                    break;
+            }
         }
 
-        return new TransactionHistoryResponse
+        return detail;
+    }
+
+    private async Task<BookingInvoiceDetail?> BuildBookingInvoiceAsync(int bookingId, CancellationToken ct)
+    {
+        var b = await context.Bookings.AsNoTracking()
+            .Where(x => x.Bookingid == bookingId)
+            .Select(x => new
+            {
+                x.Bookingid,
+                x.Tutorid,
+                x.Studentid,
+                x.Tutorsubjectgradepriceid,
+                x.Totalsessions,
+                x.Priceperhour,
+                x.Totalamount,
+                x.Depositamount,
+                x.Remainingamount,
+                x.Status,
+                x.Paymentstatus,
+                x.Startdate,
+                x.Createdat
+            })
+            .FirstOrDefaultAsync(ct);
+
+        if (b == null) return null;
+
+        var tutorName = b.Tutorid == null ? null : await context.Users.AsNoTracking()
+            .Where(u => u.Userid == b.Tutorid).Select(u => u.Fullname).FirstOrDefaultAsync(ct);
+        var studentName = b.Studentid == null ? null : await context.Users.AsNoTracking()
+            .Where(u => u.Userid == b.Studentid).Select(u => u.Fullname).FirstOrDefaultAsync(ct);
+
+        string? subjectName = null;
+        if (b.Tutorsubjectgradepriceid is int tsgpId)
         {
-            TransactionId = raw.Transactionid,
-            Amount = raw.Amount ?? 0,
-            TransactionType = raw.Transactiontype ?? string.Empty,
-            Description = raw.Description ?? string.Empty,
-            ReferenceId = raw.Referenceid,
-            ReferenceTable = raw.Referencetable,
-            CreatedAt = raw.Createdat ?? TimeZoneHelper.UtcNow,
-            ProviderTransactionId = providerTransactionId,
-            PaidAt = paidAt,
-            ProofImageUrl = proofImageUrl
+            subjectName = await context.Tutorsubjectgradeprices.AsNoTracking()
+                .Where(t => t.Id == tsgpId)
+                .Select(t => t.Subject != null ? t.Subject.Subjectname : null)
+                .FirstOrDefaultAsync(ct);
+        }
+
+        return new BookingInvoiceDetail
+        {
+            BookingId = b.Bookingid,
+            SubjectName = subjectName,
+            TutorName = tutorName,
+            StudentName = studentName,
+            TotalSessions = b.Totalsessions,
+            PricePerHour = b.Priceperhour,
+            TotalAmount = b.Totalamount,
+            DepositAmount = b.Depositamount,
+            RemainingAmount = b.Remainingamount,
+            Status = b.Status,
+            PaymentStatus = b.Paymentstatus,
+            StartDate = b.Startdate,
+            CreatedAt = b.Createdat
+        };
+    }
+
+    private async Task<DisputeTransactionDetail?> BuildDisputeDetailAsync(int disputeId, CancellationToken ct)
+    {
+        var d = await context.Disputes.AsNoTracking()
+            .Where(x => x.Disputeid == disputeId)
+            .Select(x => new
+            {
+                x.Disputeid,
+                x.Bookingid,
+                x.Disputetype,
+                x.Reason,
+                x.Status,
+                x.Resolutionnote,
+                x.Refundamount,
+                x.Refundpercentage,
+                x.Createdat,
+                x.Resolvedat
+            })
+            .FirstOrDefaultAsync(ct);
+
+        if (d == null) return null;
+
+        return new DisputeTransactionDetail
+        {
+            DisputeId = d.Disputeid,
+            BookingId = d.Bookingid,
+            DisputeType = d.Disputetype,
+            Reason = d.Reason,
+            Status = d.Status,
+            ResolutionNote = d.Resolutionnote,
+            RefundAmount = d.Refundamount,
+            RefundPercentage = d.Refundpercentage,
+            CreatedAt = d.Createdat,
+            ResolvedAt = d.Resolvedat
+        };
+    }
+
+    private async Task<WithdrawalTransactionDetail?> BuildWithdrawalDetailAsync(int withdrawalId, CancellationToken ct)
+    {
+        var w = await context.Withdrawalrequests.AsNoTracking()
+            .Where(x => x.Withdrawalid == withdrawalId)
+            .Select(x => new
+            {
+                x.Withdrawalid,
+                x.Amount,
+                x.Status,
+                x.Bankname,
+                x.Accountnumber,
+                x.Accountholdername,
+                x.Requestedat,
+                x.Processedat,
+                x.Completionnote
+            })
+            .FirstOrDefaultAsync(ct);
+
+        if (w == null) return null;
+
+        return new WithdrawalTransactionDetail
+        {
+            WithdrawalId = w.Withdrawalid,
+            Amount = w.Amount ?? 0,
+            Status = w.Status,
+            BankName = w.Bankname,
+            AccountNumber = w.Accountnumber,
+            AccountHolderName = w.Accountholdername,
+            RequestedAt = w.Requestedat,
+            ProcessedAt = w.Processedat,
+            CompletionNote = w.Completionnote
         };
     }
 

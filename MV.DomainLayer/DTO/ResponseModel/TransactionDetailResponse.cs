@@ -14,6 +14,11 @@ public class TransactionDetailResponse
     public string? ReferenceTable { get; set; }
     public DateTime CreatedAt { get; set; }
 
+    // Chứng từ chi trả (rút tiền) — mã giao dịch phía provider, thời điểm trả, ảnh chứng từ.
+    public string? ProviderTransactionId { get; set; }
+    public DateTime? PaidAt { get; set; }
+    public string? ProofImageUrl { get; set; }
+
     // Hoá đơn booking (referenceTable = "booking")
     public BookingInvoiceDetail? Booking { get; set; }
 
