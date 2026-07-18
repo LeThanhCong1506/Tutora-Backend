@@ -1,3 +1,4 @@
+using FirebaseAdmin;
 using FirebaseAdmin.Messaging;
 using Microsoft.Extensions.Logging;
 
@@ -37,6 +38,14 @@ namespace MV.ApplicationLayer.Services
                     Data = data,
                     Token = fcmToken
                 };
+
+                // Firebase Admin chưa khởi tạo (thiếu serviceAccountKey.json / config Firebase:ServiceAccountJson)
+                // → DefaultInstance null. Thoát sạch thay vì để ném NullReferenceException.
+                if (FirebaseApp.DefaultInstance == null)
+                {
+                    _logger.LogWarning("Firebase Admin chưa được khởi tạo — bỏ qua push notification (thông báo trong app vẫn được lưu bình thường).");
+                    return false;
+                }
 
                 var messaging = FirebaseMessaging.DefaultInstance;
                 string response = await messaging.SendAsync(message);
