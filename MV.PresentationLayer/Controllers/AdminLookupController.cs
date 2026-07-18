@@ -6,6 +6,7 @@ using MV.DomainLayer.DTO;
 using MV.DomainLayer.DTO.RequestModel.Question;
 using MV.DomainLayer.DTO.ResponseModel;
 using MV.DomainLayer.DTO.ResponseModel.Question;
+using MV.PresentationLayer.Authorization;
 
 namespace MV.PresentationLayer.Controllers;
 
@@ -14,7 +15,7 @@ namespace MV.PresentationLayer.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/admin/lookup")]
-[Authorize(Roles = UserRole.AdminOrStaff)]
+[Authorize]
 public class AdminLookupController : ControllerBase
 {
     private readonly ILookupService _lookup;
@@ -27,6 +28,7 @@ public class AdminLookupController : ControllerBase
     // Subjects
     /// <summary>Liệt kê tất cả môn học (gồm cả đã ngừng dùng). GET /api/admin/lookup/subjects</summary>
     [HttpGet("subjects")]
+    [RequirePermission(Permissions.LookupView)]
     public async Task<ActionResult<APIResponse<List<SubjectResponse>>>> GetSubjects()
     {
         var result = await _lookup.GetAllSubjectsAsync();
@@ -34,6 +36,7 @@ public class AdminLookupController : ControllerBase
     }
 
     [HttpPost("subjects")]
+    [RequirePermission(Permissions.LookupCreate)]
     public async Task<ActionResult<APIResponse<SubjectResponse>>> CreateSubject(
         [FromBody] SubjectRequest req)
     {
@@ -43,6 +46,7 @@ public class AdminLookupController : ControllerBase
     }
 
     [HttpPut("subjects/{id:int}")]
+    [RequirePermission(Permissions.LookupUpdate)]
     public async Task<ActionResult<APIResponse<SubjectResponse>>> UpdateSubject(
         int id, [FromBody] SubjectRequest req)
     {
@@ -54,6 +58,7 @@ public class AdminLookupController : ControllerBase
     }
 
     [HttpDelete("subjects/{id:int}")]
+    [RequirePermission(Permissions.LookupDelete)]
     public Task<ActionResult<APIResponse<object>>> DeleteSubject(int id)
         => DeleteGuarded(() => _lookup.DeleteSubjectAsync(id), "môn học");
 
@@ -61,6 +66,7 @@ public class AdminLookupController : ControllerBase
 
     /// <summary>Liệt kê tất cả khối lớp (gồm cả đã ngừng dùng). GET /api/admin/lookup/grade-levels</summary>
     [HttpGet("grade-levels")]
+    [RequirePermission(Permissions.LookupView)]
     public async Task<ActionResult<APIResponse<List<GradeLevelResponse>>>> GetGradeLevels()
     {
         var result = await _lookup.GetAllGradeLevelsAsync();
@@ -68,6 +74,7 @@ public class AdminLookupController : ControllerBase
     }
 
     [HttpPost("grade-levels")]
+    [RequirePermission(Permissions.LookupCreate)]
     public async Task<ActionResult<APIResponse<GradeLevelResponse>>> CreateGradeLevel(
         [FromBody] GradeLevelRequest req)
     {
@@ -77,6 +84,7 @@ public class AdminLookupController : ControllerBase
     }
 
     [HttpPut("grade-levels/{id:int}")]
+    [RequirePermission(Permissions.LookupUpdate)]
     public async Task<ActionResult<APIResponse<GradeLevelResponse>>> UpdateGradeLevel(
         int id, [FromBody] GradeLevelRequest req)
     {
@@ -88,12 +96,14 @@ public class AdminLookupController : ControllerBase
     }
 
     [HttpDelete("grade-levels/{id:int}")]
+    [RequirePermission(Permissions.LookupDelete)]
     public Task<ActionResult<APIResponse<object>>> DeleteGradeLevel(int id)
         => DeleteGuarded(() => _lookup.DeleteGradeLevelAsync(id), "khối lớp");
 
     // Chapters
 
     [HttpPost("chapters")]
+    [RequirePermission(Permissions.LookupCreate)]
     public async Task<ActionResult<APIResponse<ChapterResponse>>> CreateChapter(
         [FromBody] ChapterRequest req)
     {
@@ -103,6 +113,7 @@ public class AdminLookupController : ControllerBase
     }
 
     [HttpPut("chapters/{id:int}")]
+    [RequirePermission(Permissions.LookupUpdate)]
     public async Task<ActionResult<APIResponse<ChapterResponse>>> UpdateChapter(
         int id, [FromBody] ChapterRequest req)
     {
@@ -114,12 +125,14 @@ public class AdminLookupController : ControllerBase
     }
 
     [HttpDelete("chapters/{id:int}")]
+    [RequirePermission(Permissions.LookupDelete)]
     public Task<ActionResult<APIResponse<object>>> DeleteChapter(int id)
         => DeleteGuarded(() => _lookup.DeleteChapterAsync(id), "chương");
 
     // QuestionTypes
 
     [HttpPost("question-types")]
+    [RequirePermission(Permissions.LookupCreate)]
     public async Task<ActionResult<APIResponse<QuestionTypeResponse>>> CreateQuestionType(
         [FromBody] QuestionTypeRequest req)
     {
@@ -129,6 +142,7 @@ public class AdminLookupController : ControllerBase
     }
 
     [HttpPut("question-types/{id:int}")]
+    [RequirePermission(Permissions.LookupUpdate)]
     public async Task<ActionResult<APIResponse<QuestionTypeResponse>>> UpdateQuestionType(
         int id, [FromBody] QuestionTypeRequest req)
     {
@@ -140,6 +154,7 @@ public class AdminLookupController : ControllerBase
     }
 
     [HttpDelete("question-types/{id:int}")]
+    [RequirePermission(Permissions.LookupDelete)]
     public Task<ActionResult<APIResponse<object>>> DeleteQuestionType(int id)
         => DeleteGuarded(() => _lookup.DeleteQuestionTypeAsync(id), "loại câu hỏi");
 

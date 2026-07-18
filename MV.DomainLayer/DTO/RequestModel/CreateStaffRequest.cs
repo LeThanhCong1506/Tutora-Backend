@@ -1,4 +1,4 @@
-using System.ComponentModel.DataAnnotations;
+﻿using System.ComponentModel.DataAnnotations;
 
 namespace MV.DomainLayer.DTO.RequestModel
 {
@@ -29,6 +29,10 @@ namespace MV.DomainLayer.DTO.RequestModel
         [Required(ErrorMessage = "Full name must not be empty.")]
         [StringLength(100, ErrorMessage = "Full name must not exceed 100 characters.")]
         public string Fullname { get; set; } = null!;
+
+        public Guid? PermissionGroupId { get; set; }
+
+
 
         [Phone(ErrorMessage = "Phone number is not in a valid format.")]
         public string? Phone { get; set; }

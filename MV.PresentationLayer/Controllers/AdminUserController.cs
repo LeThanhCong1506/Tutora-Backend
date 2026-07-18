@@ -28,7 +28,8 @@ public class AdminUserController : ControllerBase
     [HttpGet]
     public async Task<IActionResult> GetAllUsers([FromQuery] AdminUserFilterParameters parameters)
     {
-        var users = await _userService.AdminGetAllUsersAsync(parameters);
+        var users = await _userService.AdminGetAllUsersAsync(
+            parameters, includeInternalAccounts: User.IsInRole(UserRole.Admin));
 
         var metadata = new
         {
@@ -51,6 +52,9 @@ public class AdminUserController : ControllerBase
     {
         try
         {
+            var guardResult = await GuardInternalTargetAsync(id, mutation: false);
+            if (guardResult != null) return guardResult;
+
             var user = await _userService.GetUserByIdAsync(id);
             return Ok(APIResponse<UserResponse>.Success(user, "Lấy thông tin người dùng thành công."));
         }
@@ -69,6 +73,9 @@ public class AdminUserController : ControllerBase
 
         try
         {
+            var guardResult = await GuardInternalTargetAsync(id, mutation: true);
+            if (guardResult != null) return guardResult;
+
             await _userService.AdminUpdateUserAsync(id, request);
             return Ok(APIResponse<object>.Success(null!, "Cập nhật thông tin người dùng thành công."));
         }
@@ -88,6 +95,9 @@ public class AdminUserController : ControllerBase
     {
         try
         {
+            var guardResult = await GuardInternalTargetAsync(id, mutation: true);
+            if (guardResult != null) return guardResult;
+
             await _userService.AdminDeactivateUserAsync(id);
             return Ok(APIResponse<object>.Success(null!, "Vô hiệu hóa tài khoản người dùng thành công."));
         }
@@ -112,6 +122,9 @@ public class AdminUserController : ControllerBase
     {
         try
         {
+            var guardResult = await GuardInternalTargetAsync(id, mutation: true);
+            if (guardResult != null) return guardResult;
+
             await _userService.AdminReactivateUserAsync(id);
             return Ok(APIResponse<object>.Success(null!, "Mở khóa tài khoản người dùng thành công."));
         }
@@ -180,5 +193,23 @@ public class AdminUserController : ControllerBase
         {
             return StatusCode(500, APIResponse<object>.Fail(ApiMessages.GenericErrorPrefix + ex.Message, 500));
         }
+    }
+    private async Task<IActionResult?> GuardInternalTargetAsync(string targetUserId, bool mutation)
+    {
+        var target = await _userService.GetUserByIdAsync(targetUserId);
+        var isAdminTarget = string.Equals(target.Role, UserRole.Admin, StringComparison.OrdinalIgnoreCase);
+        var isStaffTarget = string.Equals(target.Role, UserRole.Staff, StringComparison.OrdinalIgnoreCase);
+
+        // Delegated user permissions are only for customer accounts.
+        if (!User.IsInRole(UserRole.Admin) && (isAdminTarget || isStaffTarget))
+            return StatusCode(403, APIResponse<object>.Fail(
+                "Staff không được xem hoặc thao tác tài khoản nội bộ.", 403));
+
+        // Even Admin must use dedicated role/staff-management flows for internal accounts.
+        if (mutation && isAdminTarget)
+            return StatusCode(403, APIResponse<object>.Fail(
+                "Không thể sửa hoặc khóa tài khoản Admin qua endpoint được phân quyền.", 403));
+
+        return null;
     }
 }

@@ -1,4 +1,4 @@
-using MV.DomainLayer.Enums;
+﻿using MV.DomainLayer.Enums;
 
 namespace MV.DomainLayer.DTO.ResponseModel
 {
@@ -18,5 +18,7 @@ namespace MV.DomainLayer.DTO.ResponseModel
         public DateTime? Createdat { get; set; }
         public DateTime? LastLoginAt { get; set; }
         public string? Role { get; set; }
+        public PermissionGroupReferenceResponse? PermissionGroup { get; set; }
+        public long AssignmentVersion { get; set; }
     }
 }

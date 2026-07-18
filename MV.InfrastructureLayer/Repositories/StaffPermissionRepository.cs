@@ -1,56 +1,152 @@
-using Microsoft.EntityFrameworkCore;
-using MV.DomainLayer.Entities;
-using MV.InfrastructureLayer.DBContext;
+﻿using Microsoft.EntityFrameworkCore;
 using MV.ApplicationLayer.RepositoryInterfaces;
+using MV.DomainLayer.Constants;
+using MV.DomainLayer.Entities;
+using MV.DomainLayer.Exceptions;
+using MV.InfrastructureLayer.DBContext;
+using System.Text.Json;
 
-namespace MV.InfrastructureLayer.Repositories
+namespace MV.InfrastructureLayer.Repositories;
+
+public class StaffPermissionRepository : IStaffPermissionRepository
 {
-    public class StaffPermissionRepository : IStaffPermissionRepository
+    private readonly AgoraDbContext _context;
+
+    public StaffPermissionRepository(AgoraDbContext context)
     {
-        private readonly AgoraDbContext _context;
+        _context = context;
+    }
 
-        public StaffPermissionRepository(AgoraDbContext context)
+    public async Task<IReadOnlySet<string>> GetGrantedPermissionKeysAsync(string userId)
+    {
+        // Legacy staff_permissions rows remain rollback-only after migration.
+        var keys = await _context.StaffPermissionGroupAssignments
+            .AsNoTracking()
+            .Where(a => a.StaffUserId == userId
+                && a.PermissionGroupId != null
+                && a.PermissionGroup != null
+                && !a.PermissionGroup.IsDeleted)
+            .SelectMany(a => a.PermissionGroup!.Permissions.Select(p => p.PermissionKey))
+            .ToListAsync();
+
+        return new HashSet<string>(keys.Where(Permissions.All.Contains), StringComparer.Ordinal);
+    }
+
+    public Task<StaffPermissionGroupAssignment?> GetAssignmentAsync(string staffUserId, bool tracked = false)
+    {
+        IQueryable<StaffPermissionGroupAssignment> query = _context.StaffPermissionGroupAssignments
+            .Include(a => a.PermissionGroup);
+        if (!tracked)
+            query = query.AsNoTracking();
+        return query.FirstOrDefaultAsync(a => a.StaffUserId == staffUserId);
+    }
+
+    public async Task<IReadOnlyDictionary<string, StaffPermissionGroupAssignment>> GetAssignmentsAsync(
+        IReadOnlyCollection<string> staffUserIds)
+    {
+        if (staffUserIds.Count == 0)
+            return new Dictionary<string, StaffPermissionGroupAssignment>(StringComparer.Ordinal);
+
+        var assignments = await _context.StaffPermissionGroupAssignments
+            .AsNoTracking()
+            .Include(a => a.PermissionGroup)
+            .Where(a => staffUserIds.Contains(a.StaffUserId))
+            .ToListAsync();
+        return assignments.ToDictionary(a => a.StaffUserId, StringComparer.Ordinal);
+    }
+
+    public async Task SetGroupAssignmentAsync(
+        string staffUserId,
+        Guid? permissionGroupId,
+        long expectedVersion,
+        string updatedBy,
+        DateTime updatedAt)
+    {
+        if (permissionGroupId.HasValue)
         {
-            _context = context;
+            var groupExists = await _context.PermissionGroups
+                .AnyAsync(g => g.PermissionGroupId == permissionGroupId.Value && !g.IsDeleted);
+            if (!groupExists)
+                throw new KeyNotFoundException("Không tìm thấy nhóm quyền đang hoạt động.");
         }
 
-        public async Task<IReadOnlySet<string>> GetGrantedPermissionKeysAsync(string userId)
+        var assignment = await _context.StaffPermissionGroupAssignments
+            .FirstOrDefaultAsync(a => a.StaffUserId == staffUserId);
+        var previousGroupId = assignment?.PermissionGroupId;
+
+        if (assignment == null)
         {
-            var keys = await _context.StaffPermissions
-                .AsNoTracking()
-                .Where(p => p.Userid == userId)
-                .Select(p => p.PermissionKey)
-                .ToListAsync();
-
-            return new HashSet<string>(keys, StringComparer.Ordinal);
-        }
-
-        public async Task ReplacePermissionsAsync(string userId, IReadOnlyCollection<string> permissionKeys, string grantedBy, DateTime grantedAt)
-        {
-            var existing = await _context.StaffPermissions
-                .Where(p => p.Userid == userId)
-                .ToListAsync();
-
-            // Diff instead of blind remove-all + add-all: removing and re-adding a row with the
-            // SAME (Userid, PermissionKey) key in one SaveChanges batch makes EF Core's change
-            // tracker throw ("another instance with the same key value is already being tracked"),
-            // since the old row is still tracked as Deleted when Add() tries to reuse its key.
-            var newKeys = new HashSet<string>(permissionKeys, StringComparer.Ordinal);
-            var existingKeys = new HashSet<string>(existing.Select(e => e.PermissionKey), StringComparer.Ordinal);
-
-            var toRemove = existing.Where(e => !newKeys.Contains(e.PermissionKey));
-            _context.StaffPermissions.RemoveRange(toRemove);
-
-            foreach (var key in newKeys.Where(k => !existingKeys.Contains(k)))
+            if (expectedVersion != 0)
+                throw new PermissionVersionConflictException(
+                    "Assignment đã thay đổi. Vui lòng tải lại dữ liệu Staff.", 0);
+            assignment = new StaffPermissionGroupAssignment
             {
-                _context.StaffPermissions.Add(new StaffPermission
-                {
-                    Userid = userId,
-                    PermissionKey = key,
-                    GrantedBy = grantedBy,
-                    GrantedAt = grantedAt
-                });
-            }
+                StaffUserId = staffUserId,
+                PermissionGroupId = permissionGroupId,
+                Version = 1,
+                UpdatedBy = updatedBy,
+                UpdatedAt = updatedAt
+            };
+            _context.StaffPermissionGroupAssignments.Add(assignment);
         }
+        else
+        {
+            if (assignment.Version != expectedVersion)
+                throw new PermissionVersionConflictException(
+                    "Assignment đã thay đổi. Vui lòng tải lại dữ liệu Staff.", assignment.Version);
+            assignment.PermissionGroupId = permissionGroupId;
+            assignment.Version++;
+            assignment.UpdatedBy = updatedBy;
+            assignment.UpdatedAt = updatedAt;
+        }
+
+        AddAssignmentAudit(
+            assignment,
+            previousGroupId,
+            permissionGroupId,
+            updatedBy,
+            updatedAt,
+            permissionGroupId.HasValue ? "STAFF_GROUP_ASSIGNED" : "STAFF_GROUP_UNASSIGNED");
+    }
+
+    public async Task RevokeGroupAssignmentAsync(string staffUserId, string updatedBy, DateTime updatedAt)
+    {
+        var assignment = await _context.StaffPermissionGroupAssignments
+            .FirstOrDefaultAsync(a => a.StaffUserId == staffUserId);
+        if (assignment == null || assignment.PermissionGroupId == null)
+            return;
+
+        var previousGroupId = assignment.PermissionGroupId;
+        assignment.PermissionGroupId = null;
+        assignment.Version++;
+        assignment.UpdatedBy = updatedBy;
+        assignment.UpdatedAt = updatedAt;
+        AddAssignmentAudit(assignment, previousGroupId, null, updatedBy, updatedAt, "STAFF_GROUP_REVOKED");
+    }
+
+    private void AddAssignmentAudit(
+        StaffPermissionGroupAssignment assignment,
+        Guid? previousGroupId,
+        Guid? newGroupId,
+        string actorUserId,
+        DateTime changedAt,
+        string action)
+    {
+        _context.PermissionAuditLogs.Add(new PermissionAuditLog
+        {
+            Action = action,
+            EntityType = nameof(StaffPermissionGroupAssignment),
+            EntityId = assignment.StaffUserId,
+            PermissionGroupId = newGroupId,
+            StaffUserId = assignment.StaffUserId,
+            Version = assignment.Version,
+            ActorUserId = actorUserId,
+            DetailsJson = JsonSerializer.Serialize(new
+            {
+                PreviousGroupId = previousGroupId,
+                NewGroupId = newGroupId
+            }),
+            CreatedAt = changedAt
+        });
     }
 }
