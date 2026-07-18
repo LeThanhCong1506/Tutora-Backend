@@ -121,6 +121,27 @@ internal sealed class ServiceRtc : Service
     }
 }
 
+/// <summary>Service RTM (Real-Time Messaging / chat) trong AccessToken2.</summary>
+internal sealed class ServiceRtm : Service
+{
+    public const ushort ServiceType = 2;
+
+    public const ushort PrivilegeLogin = 1;
+
+    private readonly string _userId;
+
+    public ServiceRtm(string userId) : base(ServiceType)
+    {
+        _userId = userId;
+    }
+
+    public override void Pack(ByteBuf buf)
+    {
+        base.Pack(buf);
+        buf.PutString(_userId);
+    }
+}
+
 /// <summary>
 /// Sinh Agora AccessToken2 (version "007") theo thuật toán chính thức của Agora.
 ///

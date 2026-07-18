@@ -1308,6 +1308,9 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
             entity.Property(e => e.Studentcodeexpiresat)
                 .HasColumnType("timestamp without time zone")
                 .HasColumnName("student_code_expires_at");
+            entity.Property(e => e.Parentphone)
+                .HasMaxLength(20)
+                .HasColumnName("parent_phone");
             entity.Property(e => e.Deletedat)
                 .HasColumnType("timestamp without time zone")
                 .HasColumnName("deleted_at");

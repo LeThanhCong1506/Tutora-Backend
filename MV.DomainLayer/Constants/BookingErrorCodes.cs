@@ -8,6 +8,11 @@ public static class BookingErrorCodes
     public const string InvalidStartDate = "INVALID_START_DATE";
     public const string LocationRequired = "LOCATION_REQUIRED";
     public const string NotStudentOwner = "NOT_STUDENT_OWNER";
+    // Tài khoản học sinh do phụ huynh tạo/quản lý → không được tự đặt lịch.
+    public const string StudentManagedByParent = "STUDENT_MANAGED_BY_PARENT";
+    // Học sinh tự đăng ký chưa xác minh CCCD hoặc dưới 16 tuổi → không được đặt lịch.
+    public const string StudentIdentityNotVerified = "STUDENT_IDENTITY_NOT_VERIFIED";
+    public const string StudentUnderage = "STUDENT_UNDERAGE";
     public const string TutorNotFound = "TUTOR_NOT_FOUND";
     public const string SubjectNotFound = "SUBJECT_NOT_FOUND";
     public const string TutorNotAvailable = "TUTOR_NOT_AVAILABLE";
