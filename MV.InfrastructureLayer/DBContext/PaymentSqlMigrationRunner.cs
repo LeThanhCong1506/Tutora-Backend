@@ -34,7 +34,10 @@ public static class PaymentSqlMigrationRunner
             "MV.InfrastructureLayer.Migrations.V20260717__rename_payment_transaction_channel_to_payment_method.sql"),
         new(
             "20260717b_scope_topup_requests_to_booking_shortfall",
-            "MV.InfrastructureLayer.Migrations.V20260717b__scope_topup_requests_to_booking_shortfall.sql")
+            "MV.InfrastructureLayer.Migrations.V20260717b__scope_topup_requests_to_booking_shortfall.sql"),
+        new(
+            "20260718_manual_payout_claim_and_proof",
+            "MV.InfrastructureLayer.Migrations.V20260718__manual_payout_claim_and_proof.sql")
     ];
 
     public static async Task ApplyPendingAsync(
@@ -304,7 +307,49 @@ public static class PaymentSqlMigrationRunner
         CancellationToken ct)
     {
         await using var command = connection.CreateCommand();
-        if (version.StartsWith("20260715b", StringComparison.Ordinal))
+        if (version.StartsWith("20260718", StringComparison.Ordinal))
+        {
+            command.CommandText = """
+                SELECT EXISTS (
+                    SELECT 1
+                    FROM information_schema.columns
+                    WHERE table_schema = 'public'
+                      AND table_name = 'withdrawal_requests'
+                      AND column_name = 'claimed_by'
+                )
+                AND EXISTS (
+                    SELECT 1
+                    FROM information_schema.columns
+                    WHERE table_schema = 'public'
+                      AND table_name = 'withdrawal_requests'
+                      AND column_name = 'claimed_at'
+                )
+                AND EXISTS (
+                    SELECT 1
+                    FROM information_schema.columns
+                    WHERE table_schema = 'public'
+                      AND table_name = 'withdrawal_requests'
+                      AND column_name = 'rejection_reason'
+                )
+                AND EXISTS (
+                    SELECT 1
+                    FROM information_schema.columns
+                    WHERE table_schema = 'public'
+                      AND table_name = 'payment_transactions'
+                      AND column_name = 'proof_image_path'
+                )
+                AND EXISTS (
+                    SELECT 1
+                    FROM pg_constraint
+                    WHERE conname = 'withdrawal_requests_claimed_by_fkey'
+                      AND conrelid = 'public.withdrawal_requests'::regclass
+                )
+                AND to_regclass(
+                    'public.idx_withdrawal_requests_status_claimed_by'
+                ) IS NOT NULL
+                """;
+        }
+        else if (version.StartsWith("20260715b", StringComparison.Ordinal))
         {
             command.CommandText = """
                 SELECT to_regclass('public.payment_transactions') IS NOT NULL

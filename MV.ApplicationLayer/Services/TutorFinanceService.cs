@@ -15,9 +15,10 @@ namespace MV.ApplicationLayer.Services;
 public class TutorFinanceService(
     IAppDbContext context,
     INotificationService notificationService,
+    IFileStorageService fileStorageService,
     ILogger<TutorFinanceService> logger) : ITutorFinanceService
 {
-    private const decimal MinWithdrawalAmount = 100000m;
+    private const decimal MinWithdrawalAmount = 10000m;
 
     public async Task<FinanceSummaryResponse> GetSummaryAsync(string tutorId, CancellationToken ct = default)
     {
@@ -170,6 +171,19 @@ public class TutorFinanceService(
         if (raw == null)
             throw new TransactionNotFoundException();
 
+        string? providerTransactionId = null;
+        DateTime? paidAt = null;
+        string? proofImageUrl = null;
+
+        if (raw.Referencetable == ReferenceTable.Withdrawal && raw.Referenceid.HasValue)
+        {
+            var proof = await MV.ApplicationLayer.Helpers.PayoutProofResolver.ResolveAsync(
+                context, fileStorageService, raw.Referenceid.Value, ct);
+            providerTransactionId = proof.ProviderTransactionId;
+            paidAt = proof.PaidAt;
+            proofImageUrl = proof.ProofImageUrl;
+        }
+
         return new TransactionHistoryResponse
         {
             TransactionId = raw.Transactionid,
@@ -178,22 +192,25 @@ public class TutorFinanceService(
             Description = raw.Description ?? string.Empty,
             ReferenceId = raw.Referenceid,
             ReferenceTable = raw.Referencetable,
-            CreatedAt = raw.Createdat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
+            CreatedAt = raw.Createdat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow,
+            ProviderTransactionId = providerTransactionId,
+            PaidAt = paidAt,
+            ProofImageUrl = proofImageUrl
         };
     }
 
-    public async Task<TutorBankInfoResponse> GetBankInfoAsync(string tutorId, CancellationToken ct = default)
+    public async Task<TutorBankInfoResponse> GetBankInfoAsync(string userId, CancellationToken ct = default)
     {
-        var tutorExists = await context.Tutorprofiles
+        var userExists = await context.Users
             .AsNoTracking()
-            .AnyAsync(t => t.Tutorid == tutorId, ct);
+            .AnyAsync(u => u.Userid == userId, ct);
 
-        if (!tutorExists)
-            throw new TutorProfileNotFoundException();
+        if (!userExists)
+            throw new UserNotFoundException(userId);
 
         var bankAccount = await context.BankAccounts
             .AsNoTracking()
-            .FirstOrDefaultAsync(b => b.Userid == tutorId, ct);
+            .FirstOrDefaultAsync(b => b.Userid == userId, ct);
 
         return new TutorBankInfoResponse
         {
@@ -203,34 +220,40 @@ public class TutorFinanceService(
             BankChangedAt = bankAccount?.Updatedat
         };
     }
-    public async Task<TutorBankInfoResponse> UpdateBankInfoAsync(string tutorId, UpdateTutorBankInfoRequest request, CancellationToken ct = default)
-    {
-        var tutor = await context.Tutorprofiles.FirstOrDefaultAsync(t => t.Tutorid == tutorId, ct);
-        if (tutor == null)
-            throw new TutorProfileNotFoundException();
 
-        var now = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
-        var bankAccount = await context.BankAccounts.FirstOrDefaultAsync(b => b.Userid == tutorId, ct);
+    public async Task<TutorBankInfoResponse> UpdateBankInfoAsync(
+        string userId,
+        UpdateTutorBankInfoRequest request,
+        CancellationToken ct = default)
+    {
+        var userExists = await context.Users
+            .AsNoTracking()
+            .AnyAsync(u => u.Userid == userId, ct);
+        if (!userExists)
+            throw new UserNotFoundException(userId);
+
+        var now = TimeZoneHelper.UtcNow;
+        var bankAccount = await context.BankAccounts
+            .FirstOrDefaultAsync(b => b.Userid == userId, ct);
 
         if (bankAccount == null)
         {
             bankAccount = new BankAccount
             {
-                Userid = tutorId,
+                Userid = userId,
                 Createdat = now
             };
             context.BankAccounts.Add(bankAccount);
         }
 
-        bankAccount.Bankname = request.BankName;
-        bankAccount.Accountnumber = request.AccountNumber;
-        bankAccount.Accountholdername = request.AccountHolderName;
+        bankAccount.Bankname = request.BankName.Trim();
+        bankAccount.Accountnumber = request.AccountNumber.Trim();
+        bankAccount.Accountholdername = request.AccountHolderName.Trim();
         bankAccount.Updatedat = now;
-        tutor.Updatedat = now;
 
         await context.SaveChangesAsync(ct);
 
-        logger.LogInformation("Updated bank info for tutor {TutorId}", tutorId);
+        logger.LogInformation("Updated bank info for user {UserId}", userId);
 
         return new TutorBankInfoResponse
         {
@@ -239,6 +262,24 @@ public class TutorFinanceService(
             AccountHolderName = bankAccount.Accountholdername,
             BankChangedAt = bankAccount.Updatedat
         };
+    }
+
+    public async Task DeleteBankInfoAsync(string userId, CancellationToken ct = default)
+    {
+        var userExists = await context.Users
+            .AsNoTracking()
+            .AnyAsync(u => u.Userid == userId, ct);
+        if (!userExists)
+            throw new UserNotFoundException(userId);
+
+        var deleted = await context.BankAccounts
+            .Where(b => b.Userid == userId)
+            .ExecuteDeleteAsync(ct);
+
+        logger.LogInformation(
+            "Deleted {DeletedCount} saved bank account(s) for user {UserId}",
+            deleted,
+            userId);
     }
     public async Task<WithdrawalDetailResponse> CreateWithdrawalAsync(string tutorId, CreateWithdrawalRequest request, CancellationToken ct = default)
     {
@@ -307,12 +348,17 @@ public class TutorFinanceService(
                 Walletid = wallet.Walletid,
                 Amount = -request.Amount,
                 Transactiontype = TransactionType.Withdrawal,
+                Referencetable = ReferenceTable.Withdrawal,
                 Description = "Withdrawal request",
                 Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
             };
 
             context.Wallettransactions.Add(walletTransaction);
 
+            await context.SaveChangesAsync(ct);
+
+            walletTransaction.Referenceid = withdrawal.Withdrawalid;
+            walletTransaction.Description = $"Withdrawal request #{withdrawal.Withdrawalid}";
             await context.SaveChangesAsync(ct);
 
             await transaction.CommitAsync(ct);
@@ -326,7 +372,9 @@ public class TutorFinanceService(
                 {
                     Userid = tutorId,
                     Title = "Yêu cầu rút tiền đã được tạo",
-                    Message = notificationMessage
+                    Message = notificationMessage,
+                    Type = NotificationType.WithdrawalRequest,
+                    Referenceid = withdrawal.Withdrawalid.ToString()
                 });
             }
             catch (Exception ex)
@@ -396,11 +444,27 @@ public class TutorFinanceService(
         var raw = await context.Withdrawalrequests
             .AsNoTracking()
             .Where(w => w.Withdrawalid == withdrawalId && w.Userid == tutorId)
-            .Select(w => new { w.Withdrawalid, w.Amount, w.Status, w.Bankname, w.Accountnumber, w.Accountholdername, w.Requestedat, w.Processedat })
+            .Select(w => new
+            {
+                w.Withdrawalid,
+                w.Amount,
+                w.Status,
+                w.Bankname,
+                w.Accountnumber,
+                w.Accountholdername,
+                w.Requestedat,
+                w.Processedat,
+                w.Claimedat,
+                w.Completionnote,
+                w.Rejectionreason
+            })
             .FirstOrDefaultAsync(ct);
 
         if (raw == null)
             throw new WithdrawalNotFoundException();
+
+        var proof = await MV.ApplicationLayer.Helpers.PayoutProofResolver.ResolveAsync(
+            context, fileStorageService, withdrawalId, ct);
 
         return new WithdrawalDetailResponse
         {
@@ -411,7 +475,13 @@ public class TutorFinanceService(
             AccountNumber = raw.Accountnumber,
             AccountHolderName = raw.Accountholdername,
             RequestedAt = raw.Requestedat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow,
-            ProcessedAt = raw.Processedat
+            ProcessedAt = raw.Processedat,
+            ClaimedAt = raw.Claimedat,
+            CompletionNote = raw.Completionnote,
+            RejectionReason = raw.Rejectionreason,
+            TransactionId = proof.ProviderTransactionId,
+            PaidAt = proof.PaidAt,
+            ProofImageUrl = proof.ProofImageUrl
         };
     }
 
@@ -424,8 +494,8 @@ public class TutorFinanceService(
         if (withdrawal == null)
             throw new WithdrawalNotFoundException();
 
-        // Manual bank transfer has no system-side "in progress" lock. Staff must reject the
-        // request after verifying no transfer was sent; tutor self-cancel would risk double payout.
+        // A claimed request may already be in external bank processing. Staff must reject it
+        // after verifying no transfer was sent; tutor self-cancel would risk a double payout.
         throw new WithdrawalCancellationException();
     }
 

@@ -2311,6 +2311,9 @@ entity.HasOne(d => d.Tutor).WithOne(p => p.Tutorprofile)
             entity.Property(e => e.Webhookpayload)
                 .HasColumnType("text")
                 .HasColumnName("webhook_payload");
+            entity.Property(e => e.Proofimagepath)
+                .HasColumnType("text")
+                .HasColumnName("proof_image_path");
 
             entity.HasOne(d => d.User).WithMany()
                 .HasForeignKey(d => d.Userid)
@@ -2373,6 +2376,10 @@ entity.HasOne(d => d.Tutor).WithOne(p => p.Tutorprofile)
 
             entity.ToTable("withdrawal_requests");
 
+            entity.HasIndex(
+                    e => new { e.Status, e.Claimedby, e.Claimedat },
+                    "idx_withdrawal_requests_status_claimed_by");
+
             entity.Property(e => e.Withdrawalid).HasColumnName("withdrawal_id");
             entity.Property(e => e.Accountholdername)
                 .HasMaxLength(100)
@@ -2402,6 +2409,13 @@ entity.HasOne(d => d.Tutor).WithOne(p => p.Tutorprofile)
             entity.Property(e => e.Walletid).HasColumnName("wallet_id");
 
             entity.Property(e => e.Completionnote).HasColumnName("completion_note");
+            entity.Property(e => e.Claimedby)
+                .HasMaxLength(50)
+                .HasColumnName("claimed_by");
+            entity.Property(e => e.Claimedat)
+                .HasColumnType("timestamp without time zone")
+                .HasColumnName("claimed_at");
+            entity.Property(e => e.Rejectionreason).HasColumnName("rejection_reason");
 
             // Decision tracking fields
             entity.Property(e => e.Decision)
@@ -2414,6 +2428,11 @@ entity.HasOne(d => d.Tutor).WithOne(p => p.Tutorprofile)
             entity.HasOne(d => d.User).WithMany(p => p.Withdrawalrequests)
                 .HasForeignKey(d => d.Userid)
                 .HasConstraintName("withdrawalrequests_userid_fkey");
+
+            entity.HasOne<User>().WithMany()
+                .HasForeignKey(d => d.Claimedby)
+                .OnDelete(DeleteBehavior.SetNull)
+                .HasConstraintName("withdrawal_requests_claimed_by_fkey");
 
             entity.HasOne(d => d.Wallet).WithMany(p => p.Withdrawalrequests)
                 .HasForeignKey(d => d.Walletid)

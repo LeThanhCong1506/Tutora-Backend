@@ -27,6 +27,9 @@
 		<EmbeddedResource Include="..\migrations\V20260717b__scope_topup_requests_to_booking_shortfall.sql">
 			<LogicalName>MV.InfrastructureLayer.Migrations.V20260717b__scope_topup_requests_to_booking_shortfall.sql</LogicalName>
 		</EmbeddedResource>
+		<EmbeddedResource Include="..\migrations\V20260718__manual_payout_claim_and_proof.sql">
+			<LogicalName>MV.InfrastructureLayer.Migrations.V20260718__manual_payout_claim_and_proof.sql</LogicalName>
+		</EmbeddedResource>
 	</ItemGroup>
 
 	<ItemGroup>
