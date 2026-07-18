@@ -375,6 +375,7 @@ public class ParentService : IParentService
                     ClassSessions = g.Select(l => new CalendarClassSessionResponse
                     {
                         ClassSessionId = l.Classsessionid,
+                        BookingId = l.Bookingid,
                         ScheduledStart = l.Scheduledstart,
                         ScheduledEnd = l.Scheduledend,
                         StudentName = l.Booking?.Student?.Fullname,

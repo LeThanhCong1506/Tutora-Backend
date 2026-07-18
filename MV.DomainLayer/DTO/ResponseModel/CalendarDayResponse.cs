@@ -24,6 +24,13 @@ public class CalendarDayResponse
 public class CalendarClassSessionResponse
 {
     public int ClassSessionId { get; set; }
+
+    /// <summary>
+    /// Booking chứa buổi học — FE tutor dùng để điều hướng tới trang chi tiết lớp
+    /// (/tutor-portal/classes/:bookingId) khi bấm vào một buổi trên lịch.
+    /// </summary>
+    public int? BookingId { get; set; }
+
     public DateTime ScheduledStart { get; set; }
     public DateTime ScheduledEnd { get; set; }
     public string? StudentName { get; set; }
