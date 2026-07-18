@@ -382,7 +382,8 @@ public class ParentService : IParentService
                         TutorName = l.Booking?.Tutor?.Tutor?.Fullname,
                         SubjectName = l.Booking?.Subject?.Subjectname,
                         Status = l.Status,
-                        MeetingLink = l.Meetinglink
+                        MeetingLink = l.Meetinglink,
+                        CheckOutTime = l.Checkouttime
                     }).ToList()
                 })
                 .ToList();

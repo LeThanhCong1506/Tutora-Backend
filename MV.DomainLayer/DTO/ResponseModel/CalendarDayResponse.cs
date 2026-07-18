@@ -40,6 +40,13 @@ public class CalendarClassSessionResponse
     public string? MeetingLink { get; set; }
 
     /// <summary>
+    /// Giờ check-out của buổi học (nếu đã kết thúc). Buổi in_progress mà ĐÃ có CheckOutTime
+    /// nghĩa là phòng học đã đóng vĩnh viễn, chỉ còn chờ gia sư gửi báo cáo — FE dựa vào đây
+    /// để ẩn nút "Vào lớp" và hiển thị "Chờ gửi báo cáo" thay vì "Đang diễn ra".
+    /// </summary>
+    public DateTime? CheckOutTime { get; set; }
+
+    /// <summary>
     /// Color code based on status for UI rendering
     /// </summary>
     public string StatusColor => Status switch
