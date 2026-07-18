@@ -59,9 +59,8 @@ public partial class ClassSessionService
             await _context.SaveChangesAsync();
         }
 
-        // ── Tự động bắt đầu Cloud Recording (không chặn check-in nếu lỗi) ──
-        await TryStartRecordingAsync(classSession);
-
+        // Ghi hình KHÔNG còn bắt đầu ở check-in nữa — chuyển sang lúc Tutor "Vào lớp" (join call),
+        // gọi qua StartSessionRecordingAsync. Xem AgoraController.StartRecording.
 
         // ── Gửi thông báo + link vào chat cho Parent và Student ──
         var parentId = classSession.Booking?.Parentid;
@@ -210,8 +209,21 @@ public partial class ClassSessionService
     }
 
     /// <summary>
+    /// Bắt đầu ghi hình buổi học — gọi khi TUTOR vào lớp (join call), thay cho lúc check-in.
+    /// Query gắn Tutorid nên chỉ tutor của buổi mới gọi được (sai tutor → không tìm thấy).
+    /// </summary>
+    public async Task StartSessionRecordingAsync(int classSessionId, string tutorId)
+    {
+        var classSession = await _context.ClassSessions
+            .FirstOrDefaultAsync(l => l.Classsessionid == classSessionId && l.Tutorid == tutorId)
+            ?? throw new ClassSessionException(ClassSessionErrorCodes.ClassSessionNotFound, "Không tìm thấy buổi học", 404);
+
+        await TryStartRecordingAsync(classSession);
+    }
+
+    /// <summary>
     /// Bắt đầu Agora Cloud Recording cho buổi học (nếu tính năng bật).
-    /// Lỗi record KHÔNG được làm hỏng check-in → nuốt exception, chỉ log cảnh báo.
+    /// Lỗi record KHÔNG được làm hỏng luồng gọi → nuốt exception, chỉ log cảnh báo.
     /// </summary>
     private async Task TryStartRecordingAsync(ClassSession classSession)
     {

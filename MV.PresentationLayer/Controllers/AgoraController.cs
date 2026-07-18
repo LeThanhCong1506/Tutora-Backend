@@ -111,8 +111,22 @@ public class AgoraController(
             token            = roomInfo.Token,
             appId            = roomInfo.AppId,
             expireAt         = roomInfo.ExpireAt,
+            // Mốc CHUNG để timer 2 màn đồng bộ: thời điểm buổi bắt đầu (check-in) hoặc giờ lên lịch.
+            startedAt        = classSession.Realstart ?? classSession.Scheduledstart,
             participantNames = participantNames
         }, "Lấy thông tin phòng Agora RTC thành công."));
+    }
+
+    /// <summary>
+    /// POST /api/agora/room/{classSessionId}/recording/start
+    /// Bắt đầu ghi hình buổi học — FE gọi khi TUTOR vào lớp (join call thành công).
+    /// Chỉ tutor của buổi mới bật được (sai tutor → 404). Idempotent (đã ghi thì bỏ qua).
+    /// </summary>
+    [HttpPost("room/{classSessionId:int}/recording/start")]
+    public async Task<IActionResult> StartRecording(int classSessionId)
+    {
+        await classSessionService.StartSessionRecordingAsync(classSessionId, UserId);
+        return Ok(APIResponse<object>.Success(new { }, "Đã bắt đầu ghi hình buổi học."));
     }
 
     /// <summary>
