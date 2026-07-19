@@ -49,6 +49,9 @@ builder.Services.Configure<GoogleGeminiSettings>(builder.Configuration.GetSectio
 builder.Services.Configure<PaymentSettings>(builder.Configuration.GetSection(PaymentSettings.SectionName));
 builder.Services.Configure<GoogleSettings>(builder.Configuration.GetSection(GoogleSettings.SectionName));
 builder.Services.Configure<AgoraSettings>(builder.Configuration.GetSection(AgoraSettings.SectionName));
+builder.Services.Configure<AgoraRecordingSettings>(builder.Configuration.GetSection(AgoraRecordingSettings.SectionName));
+builder.Services.Configure<GoogleDriveSettings>(builder.Configuration.GetSection(GoogleDriveSettings.SectionName));
+builder.Services.Configure<WhiteboardSettings>(builder.Configuration.GetSection(WhiteboardSettings.SectionName));
 builder.Services.Configure<VietQRSettings>(builder.Configuration.GetSection(VietQRSettings.SectionName));
 builder.Services.Configure<ZaloOAConfig>(builder.Configuration.GetSection(ConfigurationKeys.ZaloOA.SectionName));
 builder.Services.Configure<CloudinarySettings>(builder.Configuration.GetSection("Cloudinary"));
@@ -316,6 +319,14 @@ builder.Services.AddScoped<IPaymentService, PaymentService>();
 builder.Services.AddScoped<IWalletService, WalletService>();
 builder.Services.AddScoped<IClassSessionService, ClassSessionService>();
 builder.Services.AddScoped<IAgoraRTCService, AgoraRTCService>();
+// Presence in-memory (Singleton): theo dõi ai đang trong phòng học để auto check-in khi đủ cả 2.
+builder.Services.AddSingleton<ISessionPresenceService, SessionPresenceService>();
+// Cloud Recording: auto start khi auto check-in, stop khi check-out; relay file S3 → Drive chạy nền.
+builder.Services.AddHttpClient<ICloudRecordingService, CloudRecordingService>();
+builder.Services.AddHttpClient<IWhiteboardService, WhiteboardService>();
+builder.Services.AddScoped<IGoogleDriveService, GoogleDriveService>();
+builder.Services.AddScoped<IRecordingRelayService, RecordingRelayService>();
+builder.Services.AddHostedService<MV.PresentationLayer.BackgroundServices.RecordingRelayHostedService>();
 builder.Services.AddScoped<ITutorFinanceService, TutorFinanceService>();
 builder.Services.AddScoped<ILearningMaterialService, LearningMaterialService>();
 
@@ -455,8 +466,8 @@ builder.Services.AddAuthentication(options =>
         {
             var accessToken = context.Request.Query[OAuthFieldNames.AccessToken];
             var path = context.HttpContext.Request.Path;
-            if (!string.IsNullOrEmpty(accessToken) && 
-    (path.StartsWithSegments("/notificationHub") || path.StartsWithSegments("/hubs/chat")))
+            if (!string.IsNullOrEmpty(accessToken) &&
+    (path.StartsWithSegments("/notificationHub") || path.StartsWithSegments("/hubs/chat") || path.StartsWithSegments("/hubs/session-lobby")))
             {
                 context.Token = accessToken;
             }
@@ -590,6 +601,7 @@ app.MapGet("/", () => Results.Content("""
 app.MapControllers();
 app.MapHub<NotificationHub>("/notificationHub");
 app.MapHub<ChatHub>("/hubs/chat");
+app.MapHub<SessionLobbyHub>("/hubs/session-lobby");
 
 // --- KHỞI TẠO STORAGE BUCKET ---
 using (var scope = app.Services.CreateScope())
