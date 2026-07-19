@@ -11,8 +11,8 @@ namespace MV.ApplicationLayer.Services;
 /// Sinh Agora RTC token (AccessToken2 — version "007") để client join video call.
 ///
 /// Thiết kế:
-///   - Channel dùng chung theo booking: <c>booking-{bookingId}</c> (deterministic, không
-///     gọi API ngoài). Mọi buổi của cùng một booking chia sẻ một phòng — "một meet link".
+///   - Channel riêng theo classSessionId (deterministic, không gọi API ngoài), cùng scope
+///     với device lease/presence để các buổi trong một booking không trộn media với nhau.
 ///   - Agora user account = UserId của người dùng → client map remote user ↔ app user
 ///     trực tiếp, đồng bộ với dictionary participantNames trả về từ controller.
 ///   - Role mặc định = Publisher (tutor / student / parent đều publish audio + video).
@@ -21,10 +21,18 @@ public class AgoraRTCService(
     IOptions<AgoraSettings> settings,
     ILogger<AgoraRTCService> logger) : IAgoraRTCService
 {
+    // A revoked device cannot renew this token because every renewal goes through the Redis
+    // lease check. Keeping the media credential short bounds the fallback disconnect time when
+    // SignalR/heartbeat are unavailable (for example, a suspended mobile browser).
+    public const int LiveSessionTokenMaxSeconds = 120;
+
     private readonly AgoraSettings _settings = settings.Value;
 
     /// <inheritdoc/>
     public string GenerateToken(string channelName, string account)
+        => GenerateToken(channelName, account, Math.Max(1, _settings.TokenExpireSeconds));
+
+    private string GenerateToken(string channelName, string account, int expireSeconds)
     {
         if (string.IsNullOrWhiteSpace(_settings.AppId) || string.IsNullOrWhiteSpace(_settings.AppCertificate))
             throw new InvalidOperationException("Agora chưa được cấu hình (thiếu AppId hoặc AppCertificate).");
@@ -33,7 +41,7 @@ public class AgoraRTCService(
             throw new ArgumentException("channelName không được rỗng.", nameof(channelName));
 
         var issueTs = (uint)DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-        var expire = (uint)_settings.TokenExpireSeconds;
+        var expire = (uint)expireSeconds;
         var salt = GenerateSalt();
 
         var token = RtcTokenBuilder2.BuildTokenWithUserAccount(
@@ -55,10 +63,13 @@ public class AgoraRTCService(
     /// <inheritdoc/>
     public AgoraRoomInfo GetRoomInfo(int classSessionId, int? bookingId, string userId)
     {
-        // Channel dùng chung theo booking. Fallback theo classSessionId nếu buổi chưa gắn booking.
+        // Channel riêng theo classSessionId; bookingId được giữ trong contract để tương thích caller.
         var channelName = AgoraChannelName.ForSession(classSessionId, bookingId);
-        var token = GenerateToken(channelName, userId);
-        var expireAt = (int)(DateTimeOffset.UtcNow.ToUnixTimeSeconds() + _settings.TokenExpireSeconds);
+        var expireSeconds = Math.Min(
+            Math.Max(1, _settings.TokenExpireSeconds),
+            LiveSessionTokenMaxSeconds);
+        var token = GenerateToken(channelName, userId, expireSeconds);
+        var expireAt = (int)(DateTimeOffset.UtcNow.ToUnixTimeSeconds() + expireSeconds);
 
         return new AgoraRoomInfo(
             Channel: channelName,
