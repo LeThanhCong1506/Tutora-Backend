@@ -18,9 +18,12 @@ namespace MV.ApplicationLayer.BackgroundJobs;
 /// </summary>
 public class ZaloTokenRefreshJob(IServiceProvider sp, ILogger<ZaloTokenRefreshJob> logger) : BackgroundService
 {
-    // Chạy mỗi 6h; access token TTL ~23h, ngưỡng proactive refresh 3h -> luôn refresh
-    // trước khi hết, với thừa số an toàn (kể cả bỏ lỡ 1-2 lần chạy do restart).
-    private readonly TimeSpan _interval = TimeSpan.FromHours(6);
+    // Chạy mỗi 1h; PHẢI nhỏ hơn ProactiveRefreshThreshold (3h, xem ZaloOAService) —
+    // nếu chu kỳ check dài hơn ngưỡng, có khoảng hở toán học: 1 lần check thấy TTL vừa
+    // trên ngưỡng (bỏ qua, không log) rồi token chết hẳn trước lần check kế tiếp, khiến
+    // bot dính -216 tới khi job tự bắt kịp (từng xảy ra thực tế: check lúc TTL=3h05p bỏ
+    // qua, 6h sau mới check lại, token đã chết ~3h trước đó rồi).
+    private readonly TimeSpan _interval = TimeSpan.FromHours(1);
 
     protected override async Task ExecuteAsync(CancellationToken ct)
     {
