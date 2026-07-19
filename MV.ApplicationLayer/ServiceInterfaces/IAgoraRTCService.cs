@@ -3,8 +3,8 @@ namespace MV.ApplicationLayer.ServiceInterfaces;
 /// <summary>
 /// Thông tin phòng Agora RTC để client join video call.
 /// </summary>
-/// <param name="Channel">Tên kênh (channel name) — dùng chung theo booking: <c>booking-{bookingId}</c>. Mọi buổi của cùng một booking chia sẻ một phòng.</param>
-/// <param name="ClassSessionId">ID buổi học hiện tại — client dùng để gia hạn token / heartbeat presence (không suy ra được từ Channel nữa).</param>
+/// <param name="Channel">Tên kênh (channel name) riêng của buổi học.</param>
+/// <param name="ClassSessionId">ID buổi học hiện tại — client dùng để gia hạn token / heartbeat presence.</param>
 /// <param name="Uid">Agora user account (= UserId của người dùng). Client join channel bằng account này.</param>
 /// <param name="Token">RTC token (AccessToken2, bắt đầu bằng "007").</param>
 /// <param name="AppId">Agora App ID.</param>
@@ -34,12 +34,10 @@ public interface IAgoraRTCService
 
     /// <summary>
     /// Lấy đầy đủ thông tin để client join kênh của một buổi học.
-    /// Channel dùng chung theo booking (<c>booking-{bookingId}</c>) — tất cả buổi của một
-    /// booking vào cùng một phòng. Nếu buổi chưa gắn booking thì fallback về channel theo
-    /// classSessionId để không vỡ luồng cũ.
+    /// Channel được cô lập theo classSessionId để khớp với scope lease và presence.
     /// </summary>
     /// <param name="classSessionId">ID buổi học hiện tại.</param>
-    /// <param name="bookingId">ID booking chứa buổi học (nguồn của channel dùng chung).</param>
+    /// <param name="bookingId">ID booking chứa buổi học (giữ để tương thích contract hiện tại).</param>
     /// <param name="userId">UserId của người dùng đang join (dùng làm Agora user account).</param>
     AgoraRoomInfo GetRoomInfo(int classSessionId, int? bookingId, string userId);
 }
