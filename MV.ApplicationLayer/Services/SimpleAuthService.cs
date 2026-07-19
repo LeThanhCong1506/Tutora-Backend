@@ -199,6 +199,13 @@ namespace MV.ApplicationLayer.Services
                     {
                         existingUserByPhone.Email = request.Email;
                     }
+
+                    // Lần đăng ký dở trước có thể đã tạo Studentprofile → cập nhật tên cho khớp bảng Users.
+                    var existingProfile = await _unitOfWork.StudentRepository
+                        .FindByStudentOrLinkedUserAsync(existingUserByPhone.Userid);
+                    if (existingProfile != null)
+                        existingProfile.Fullname = request.FullName;
+
                     await _unitOfWork.UserRepository.UpdateUserAsync(existingUserByPhone);
                     await _unitOfWork.SaveChangesAsync();
 
