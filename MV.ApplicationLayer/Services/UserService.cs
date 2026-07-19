@@ -265,11 +265,20 @@ namespace MV.ApplicationLayer.Services
             var user = await _unitOfWork.UserRepository.GetUserByIdAsync(userId)
                 ?? throw new UserNotFoundException();
 
+            var studentProfile = await _unitOfWork.StudentRepository.FindByStudentOrLinkedUserAsync(userId);
+
+            // Học sinh đã xác minh CCCD: ngày sinh lấy từ CCCD là nguồn chuẩn, không cho tự sửa
+            // (cùng quy tắc với StudentService.UpdateSelfProfileAsync).
+            var birthdateLocked = studentProfile != null && user.Isidentityverified == true;
+
             user.Fullname = request.Fullname;
             user.Address = request.Address;
             user.Avatarurl = request.Avatarurl;
-            user.Birthdate = request.Birthdate;
+            if (!birthdateLocked)
+                user.Birthdate = request.Birthdate;
             user.Gender = request.Gender;
+
+            SyncStudentProfile(user, studentProfile);
 
             await _unitOfWork.UserRepository.UpdateUserAsync(user);
             await _unitOfWork.SaveChangesAsync();
@@ -336,6 +345,7 @@ namespace MV.ApplicationLayer.Services
 
             var avatarUrl = await _storage.UploadFileAsync(UserAvatarBucket, userId, avatarFile);
             user.Avatarurl = avatarUrl;
+            await SyncStudentProfileAsync(user);
             await _unitOfWork.UserRepository.UpdateUserAsync(user);
             await _unitOfWork.SaveChangesAsync();
 
@@ -343,6 +353,23 @@ namespace MV.ApplicationLayer.Services
         }
 
         // ─── Private helpers ──────────────────────────────────────────────────
+
+        /// <summary>
+        /// Studentprofile giữ bản sao Fullname/Birthdate/Avatarurl của học sinh — lịch học, booking,
+        /// settlement, export... đều đọc từ đó. Mọi chỗ ghi 3 trường này trên bảng Users phải gọi
+        /// hàm này để 2 bảng không bị lệch. Không làm gì nếu user không phải học sinh.
+        /// </summary>
+        private async Task SyncStudentProfileAsync(User user)
+            => SyncStudentProfile(user, await _unitOfWork.StudentRepository.FindByStudentOrLinkedUserAsync(user.Userid));
+
+        private static void SyncStudentProfile(User user, Studentprofile? profile)
+        {
+            if (profile == null) return;
+
+            profile.Fullname = user.Fullname;
+            profile.Birthdate = user.Birthdate;
+            profile.Avatarurl = user.Avatarurl;
+        }
 
         private static UserResponse MapToUserResponse(User user) => new UserResponse
         {
