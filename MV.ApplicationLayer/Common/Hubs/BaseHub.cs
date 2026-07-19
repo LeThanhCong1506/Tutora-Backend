@@ -1,7 +1,7 @@
 ﻿using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using MV.ApplicationLayer.Interfaces;
+using MV.ApplicationLayer.ServiceInterfaces;
 using System.Security.Claims;
 
 namespace MV.ApplicationLayer.Common.Hubs
@@ -9,6 +9,7 @@ namespace MV.ApplicationLayer.Common.Hubs
     public abstract class BaseHub : Hub
     {
         protected string? CurrentUserId => Context.User?.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        protected virtual bool TracksPresence => false;
 
         private readonly ILogger<BaseHub> _logger;
         private readonly IServiceProvider _serviceProvider;
@@ -25,6 +26,22 @@ namespace MV.ApplicationLayer.Common.Hubs
             {
                 await Groups.AddToGroupAsync(Context.ConnectionId, $"user:{CurrentUserId}");
                 _logger.LogInformation("User {UserId} connected with ConnectionId {ConnectionId}", CurrentUserId, Context.ConnectionId);
+
+                if (TracksPresence)
+                {
+                    try
+                    {
+                        using var scope = _serviceProvider.CreateScope();
+                        var presence = scope.ServiceProvider.GetRequiredService<IPresenceService>();
+                        await presence.RegisterConnectionAsync(CurrentUserId, Context.ConnectionId);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex,
+                            "Failed to register presence lease for user {UserId}, connection {ConnectionId}",
+                            CurrentUserId, Context.ConnectionId);
+                    }
+                }
             }
             else
             {
@@ -47,15 +64,20 @@ namespace MV.ApplicationLayer.Common.Hubs
                     _logger.LogWarning(exception, "User {UserId} disconnected due to an exception", CurrentUserId);
                 }
 
-                try
+                if (TracksPresence)
                 {
-                    using var scope = _serviceProvider.CreateScope();
-                    var unitOfWork = scope.ServiceProvider.GetRequiredService<IUnitOfWork>();
-                    await unitOfWork.UserRepository.UpdateLastLoginAtAsync(CurrentUserId, MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Failed to update last logout time for user {UserId}", CurrentUserId);
+                    try
+                    {
+                        using var scope = _serviceProvider.CreateScope();
+                        var presence = scope.ServiceProvider.GetRequiredService<IPresenceService>();
+                        await presence.RemoveConnectionAsync(CurrentUserId, Context.ConnectionId);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex,
+                            "Failed to remove presence lease for user {UserId}, connection {ConnectionId}",
+                            CurrentUserId, Context.ConnectionId);
+                    }
                 }
             }
             else
@@ -64,6 +86,16 @@ namespace MV.ApplicationLayer.Common.Hubs
             }
 
             await base.OnDisconnectedAsync(exception);
+        }
+
+        protected async Task RefreshPresenceLeaseAsync()
+        {
+            if (!TracksPresence || string.IsNullOrEmpty(CurrentUserId))
+                return;
+
+            using var scope = _serviceProvider.CreateScope();
+            var presence = scope.ServiceProvider.GetRequiredService<IPresenceService>();
+            await presence.RefreshConnectionAsync(CurrentUserId, Context.ConnectionId);
         }
 
         protected async Task SendToUserAsync<T>(string userId, string method, T payload)

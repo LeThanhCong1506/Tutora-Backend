@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using MV.DomainLayer.Entities;
 using MV.InfrastructureLayer.DBContext;
 using MV.ApplicationLayer.RepositoryInterfaces;
+using MV.DomainLayer.Constants;
 
 namespace MV.InfrastructureLayer.Repositories;
 
@@ -39,6 +40,100 @@ public class ChatRepository(AgoraDbContext context) : IChatRepository
             .OrderByDescending(c => c.Lastmessageat)
             .AsNoTracking()
             .ToListAsync();
+
+    public Task<bool> IsChannelParticipantAsync(int channelId, string userId)
+        => context.Chatchannels
+            .AsNoTracking()
+            .AnyAsync(c =>
+                c.Channelid == channelId &&
+                (c.Parentid == userId || c.Tutorid == userId || c.Studentid == userId));
+
+    public Task<bool> AreActiveChatPartnersAsync(string userId, string targetUserId)
+        => context.Chatchannels
+            .AsNoTracking()
+            .AnyAsync(c =>
+                c.Status == ChatChannelStatus.Active &&
+                (c.Parentid == userId || c.Tutorid == userId || c.Studentid == userId) &&
+                (c.Parentid == targetUserId || c.Tutorid == targetUserId || c.Studentid == targetUserId));
+
+    public async Task<List<string>> GetAuthorizedPresenceUserIdsAsync(
+        string requesterUserId,
+        IReadOnlyCollection<string> requestedUserIds)
+    {
+        var requested = requestedUserIds
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+
+        if (requested.Length == 0)
+            return [];
+
+        var activeChannels = context.Chatchannels
+            .AsNoTracking()
+            .Where(c =>
+                c.Status == ChatChannelStatus.Active &&
+                (c.Parentid == requesterUserId ||
+                 c.Tutorid == requesterUserId ||
+                 c.Studentid == requesterUserId));
+
+        var parentIds = activeChannels
+            .Where(c =>
+                c.Parentid != null &&
+                c.Parentid != requesterUserId &&
+                requested.Contains(c.Parentid))
+            .Select(c => c.Parentid!);
+        var tutorIds = activeChannels
+            .Where(c =>
+                c.Tutorid != null &&
+                c.Tutorid != requesterUserId &&
+                requested.Contains(c.Tutorid))
+            .Select(c => c.Tutorid!);
+        var studentIds = activeChannels
+            .Where(c =>
+                c.Studentid != null &&
+                c.Studentid != requesterUserId &&
+                requested.Contains(c.Studentid))
+            .Select(c => c.Studentid!);
+
+        var authorizedPartners = await parentIds
+            .Concat(tutorIds)
+            .Concat(studentIds)
+            .Distinct()
+            .ToListAsync();
+
+        if (requested.Contains(requesterUserId) &&
+            !authorizedPartners.Contains(requesterUserId, StringComparer.Ordinal))
+        {
+            authorizedPartners.Add(requesterUserId);
+        }
+
+        return authorizedPartners;
+    }
+
+    public async Task<List<string>> GetChatPartnerUserIdsAsync(string userId)
+    {
+        var activeChannels = context.Chatchannels
+            .AsNoTracking()
+            .Where(c =>
+                c.Status == ChatChannelStatus.Active &&
+                (c.Parentid == userId || c.Tutorid == userId || c.Studentid == userId));
+
+        var parentIds = activeChannels
+            .Where(c => c.Parentid != null && c.Parentid != userId)
+            .Select(c => c.Parentid!);
+        var tutorIds = activeChannels
+            .Where(c => c.Tutorid != null && c.Tutorid != userId)
+            .Select(c => c.Tutorid!);
+        var studentIds = activeChannels
+            .Where(c => c.Studentid != null && c.Studentid != userId)
+            .Select(c => c.Studentid!);
+
+        return await parentIds
+            .Concat(tutorIds)
+            .Concat(studentIds)
+            .Distinct()
+            .ToListAsync();
+    }
 
     public void AddChannel(Chatchannel channel)
         => context.Chatchannels.Add(channel);

@@ -43,6 +43,11 @@ namespace MV.ApplicationLayer.RepositoryInterfaces
         Task UpdateUserAsync(User user);
         Task UpdateTutorProfileAsync(Tutorprofile profile);
         Task UpdateLastLoginAtAsync(string userId, DateTime time);
+        /// <summary>
+        /// Advances last-seen only when <paramref name="time"/> is newer than
+        /// the stored value, making delayed disconnect cleanup retry-safe.
+        /// </summary>
+        Task UpdateLastSeenAtAsync(string userId, DateTime time);
 
         /// <summary>
         /// Update (or clear when token is empty) the FCM device token for the given user.
