@@ -84,6 +84,16 @@ public class AiChatController : ControllerBase
         return Ok(APIResponse.Success("Đã xoá phiên chat AI."));
     }
 
+    [HttpDelete("sessions")]
+    public async Task<IActionResult> DeleteAllSessions([FromQuery] string? chatType = null)
+    {
+        if (string.IsNullOrEmpty(UserId))
+            return Unauthorized(APIResponse.Fail(ApiMessages.Unauthorized, 401));
+
+        var count = await _aiChatService.DeleteAllSessionsAsync(UserId, chatType);
+        return Ok(APIResponse.Success($"Đã xoá {count} phiên chat AI."));
+    }
+
     /// <summary>
     /// POST /api/ai-chat/sessions/{id}/solve — hỏi AI giải toán (SSE streaming).
     /// .NET lưu user message, proxy stream từ tutora-ai về FE, rồi tự lưu assistant message.

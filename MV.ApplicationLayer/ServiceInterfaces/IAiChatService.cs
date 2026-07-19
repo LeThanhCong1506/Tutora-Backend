@@ -27,4 +27,7 @@ public interface IAiChatService
 
     /// <summary>Xoá một phiên chat AI (cascade xoá tin nhắn) — chỉ chủ phiên.</summary>
     Task DeleteSessionAsync(string userId, Guid sessionId);
+
+    /// <summary>Xoá TẤT CẢ phiên chat AI của user. Trả về số phiên đã xoá.</summary>
+    Task<int> DeleteAllSessionsAsync(string userId, string? sessionType = null);
 }

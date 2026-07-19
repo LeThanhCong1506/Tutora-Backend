@@ -98,6 +98,8 @@ namespace MV.ApplicationLayer.Services
             if (request.Gender != null) user.Gender = request.Gender;
             if (request.Avatarurl != null) user.Avatarurl = request.Avatarurl;
 
+            await SyncStudentProfileAsync(user);
+
             await _unitOfWork.UserRepository.UpdateUserAsync(user);
             await _unitOfWork.SaveChangesAsync();
         }

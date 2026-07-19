@@ -106,6 +106,9 @@ public class AiChatService(
         await aiChatRepo.SaveChangesAsync();
     }
 
+    public Task<int> DeleteAllSessionsAsync(string userId, string? sessionType = null)
+        => aiChatRepo.RemoveSessionsByUserAsync(userId, sessionType);
+
     public async IAsyncEnumerable<string> SolveStreamAsync(
         string userId, Guid sessionId, AiSolveRequest dto,
         [EnumeratorCancellation] CancellationToken ct = default)
@@ -164,47 +167,50 @@ public class AiChatService(
         var assistant = new StringBuilder();
         var ragUsed = false;
 
-        using var resp = await client.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct);
-        resp.EnsureSuccessStatusCode();
-
-        using var stream = await resp.Content.ReadAsStreamAsync(ct);
-        using var reader = new StreamReader(stream);
-
-        string? line;
-        while ((line = await reader.ReadLineAsync(ct)) is not null)
+        try
         {
-            // Bỏ qua dòng trống ngăn cách event (sẽ tự thêm lại "\n\n" ở controller)
-            if (line.Length == 0) continue;
-            if (!line.StartsWith("data:", StringComparison.Ordinal)) continue;
+            using var resp = await client.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct);
+            resp.EnsureSuccessStatusCode();
 
-            // Pass-through dòng "data: {...}" cho FE
-            yield return line;
+            using var stream = await resp.Content.ReadAsStreamAsync(ct);
+            using var reader = new StreamReader(stream);
 
-            // Gom delta để lưu assistant message khi xong
-            var json = line["data:".Length..].Trim();
-            if (json.Length == 0) continue;
-            var (delta, rag) = TryExtractDelta(json);
-            if (!string.IsNullOrEmpty(delta)) assistant.Append(delta);
-            if (rag) ragUsed = true;
-        }
-
-        // 4. Lưu assistant message (do backend tự lưu, FE không cần gọi lại)
-        if (assistant.Length > 0)
-        {
-            var finishedAt = TimeZoneHelper.UtcNow;
-            aiChatRepo.AddMessage(new ChatHistory
+            string? line;
+            while ((line = await reader.ReadLineAsync(ct)) is not null)
             {
-                MessageId = Guid.NewGuid(),
-                SessionId = sessionId,
-                Role = ChatHistoryRole.Assistant,
-                Content = assistant.ToString(),
-                Grade = dto.Grade,
-                RagUsed = ragUsed,
-                CreatedAt = finishedAt
-            });
-            session.UpdatedAt = finishedAt;
-            aiChatRepo.UpdateSession(session);
-            await aiChatRepo.SaveChangesAsync();
+                if (line.Length == 0) continue;
+                if (!line.StartsWith("data:", StringComparison.Ordinal)) continue;
+
+                yield return line;
+
+                // Gom delta để lưu assistant message khi xong
+                var json = line["data:".Length..].Trim();
+                if (json.Length == 0) continue;
+                var (delta, rag) = TryExtractDelta(json);
+                if (!string.IsNullOrEmpty(delta)) assistant.Append(delta);
+                if (rag) ragUsed = true;
+            }
+        }
+        finally
+        {
+            // 4. Lưu assistant message.
+            if (assistant.Length > 0)
+            {
+                var finishedAt = TimeZoneHelper.UtcNow;
+                aiChatRepo.AddMessage(new ChatHistory
+                {
+                    MessageId = Guid.NewGuid(),
+                    SessionId = sessionId,
+                    Role = ChatHistoryRole.Assistant,
+                    Content = assistant.ToString(),
+                    Grade = dto.Grade,
+                    RagUsed = ragUsed,
+                    CreatedAt = finishedAt
+                });
+                session.UpdatedAt = finishedAt;
+                aiChatRepo.UpdateSession(session);
+                await aiChatRepo.SaveChangesAsync();
+            }
         }
     }
 
@@ -224,7 +230,7 @@ public class AiChatService(
         }
     }
 
-    // ── Helpers ──────────────────────────────────────────────────────────────────
+    // Helpers
 
     private async Task<ChatSession> GetOwnedSessionAsync(string userId, Guid sessionId)
     {
