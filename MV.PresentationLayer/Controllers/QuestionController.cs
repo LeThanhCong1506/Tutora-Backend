@@ -2,9 +2,11 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.DTO;
+using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO.RequestModel.Question;
 using MV.DomainLayer.DTO.ResponseModel.Question;
 using MV.PresentationLayer.Helpers;
+using MV.PresentationLayer.Authorization;
 
 namespace MV.PresentationLayer.Controllers;
 
@@ -26,6 +28,7 @@ public class QuestionController : ControllerBase
 
     /// <summary>Tạo câu hỏi mới. Sau khi lưu, hệ thống embed content thành vector.</summary>
     [HttpPost]
+    [RequirePermission(Permissions.QuestionBankCreate)]
     public async Task<ActionResult<APIResponse<QuestionResponse>>> Create(
         [FromBody] CreateQuestionRequest request, CancellationToken ct)
     {
@@ -39,6 +42,7 @@ public class QuestionController : ControllerBase
 
     /// <summary>Danh sách câu hỏi có phân trang + filter.</summary>
     [HttpGet]
+    [RequirePermission(Permissions.QuestionBankView)]
     public async Task<ActionResult<APIResponse<object>>> GetPaged(
         [FromQuery] int pageNumber = 1,
         [FromQuery] int pageSize = 20,
@@ -95,6 +99,7 @@ public class QuestionController : ControllerBase
 
     /// <summary>Chi tiết 1 câu hỏi.</summary>
     [HttpGet("{id:guid}")]
+    [RequirePermission(Permissions.QuestionBankView)]
     public async Task<ActionResult<APIResponse<QuestionResponse>>> GetById(Guid id, CancellationToken ct)
     {
         var result = await _questionService.GetByIdAsync(id, ct);
@@ -105,6 +110,7 @@ public class QuestionController : ControllerBase
 
     /// <summary>Cập nhật câu hỏi. Nếu content đổi -> tự re-embed vector.</summary>
     [HttpPut("{id:guid}")]
+    [RequirePermission(Permissions.QuestionBankUpdate)]
     public async Task<ActionResult<APIResponse<QuestionResponse>>> Update(
         Guid id, [FromBody] UpdateQuestionRequest request, CancellationToken ct)
     {
@@ -119,6 +125,7 @@ public class QuestionController : ControllerBase
 
     /// <summary>Xoá câu hỏi.</summary>
     [HttpDelete("{id:guid}")]
+    [RequirePermission(Permissions.QuestionBankDelete)]
     public async Task<ActionResult<APIResponse<object>>> Delete(Guid id, CancellationToken ct)
     {
         var ok = await _questionService.DeleteAsync(id, ct);

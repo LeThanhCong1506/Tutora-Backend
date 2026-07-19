@@ -13,6 +13,7 @@ using MV.ApplicationLayer.Services;
 using MV.ApplicationLayer.BackgroundJobs;
 using MV.DomainLayer.Constants;
 using MV.PresentationLayer.Filters;
+using MV.PresentationLayer.Migrations;
 using Hangfire;
 using Hangfire.PostgreSql;
 using MV.DomainLayer.Configuration;
@@ -281,11 +282,13 @@ builder.Services.AddScoped<INotificationRepository, NotificationRepository>();
 builder.Services.AddScoped<IRefreshTokenRepository, RefreshTokenRepository>();
 builder.Services.AddScoped<ITutorSearchRepository, TutorSearchRepository>();
 builder.Services.AddScoped<IStaffPermissionRepository, StaffPermissionRepository>();
+builder.Services.AddScoped<IPermissionGroupRepository, PermissionGroupRepository>();
 builder.Services.AddScoped<ILearningMaterialRepository, LearningMaterialRepository>();
 
 // Service injection
 builder.Services.AddScoped<ITutorVerificationService, TutorVerificationService>();
 builder.Services.AddScoped<IUserService, UserService>();
+builder.Services.AddScoped<IPermissionGroupService, PermissionGroupService>();
 builder.Services.AddScoped<ILoginService, LoginService>();
 builder.Services.AddScoped<ITutorService, TutorService>();
 builder.Services.AddScoped<ITutorProfileUpdateStagingService, TutorProfileUpdateStagingService>();
@@ -487,19 +490,25 @@ builder.Services.AddAuthentication(options =>
                     return;
                 }
 
-                // Nạp permission claims cho Staff. Không nhúng vào JWT để đổi quyền
-                // có hiệu lực ngay lập tức mà không cần đăng nhập lại.
+                var identity = context.Principal?.Identity as System.Security.Claims.ClaimsIdentity;
+                if (identity == null || string.IsNullOrWhiteSpace(user.Primaryrole))
+                {
+                    context.Fail("Không xác định được role hiện tại của tài khoản.");
+                    return;
+                }
+
+                // JWT có thể còn role/quyền cũ. Lấy quyền hiệu lực từ DB ở mỗi request,
+                // rồi thay toàn bộ claim trước khi authorization chạy.
+                IEnumerable<string> grantedKeys = Array.Empty<string>();
                 if (string.Equals(user.Primaryrole, UserRole.Staff, StringComparison.OrdinalIgnoreCase))
                 {
                     var permissionRepo = context.HttpContext.RequestServices.GetRequiredService<MV.ApplicationLayer.RepositoryInterfaces.IStaffPermissionRepository>();
-                    var grantedKeys = await permissionRepo.GetGrantedPermissionKeysAsync(userId);
-                    if (grantedKeys.Count > 0)
-                    {
-                        var identity = (System.Security.Claims.ClaimsIdentity)context.Principal!.Identity!;
-                        foreach (var key in grantedKeys)
-                            identity.AddClaim(new System.Security.Claims.Claim(MV.DomainLayer.Constants.Permissions.ClaimType, key));
-                    }
+                    grantedKeys = await permissionRepo.GetGrantedPermissionKeysAsync(userId);
                 }
+                MV.PresentationLayer.Authorization.CurrentAccessClaims.Replace(
+                    identity,
+                    user.Primaryrole,
+                    grantedKeys);
             }
         }
     };
@@ -515,6 +524,12 @@ builder.Services.AddAuthorization(options =>
     });
 });
 builder.Services.AddSingleton<Microsoft.AspNetCore.Authorization.IAuthorizationHandler, MV.PresentationLayer.Authorization.PermissionRequirementHandler>();
+
+if (args.Any(arg => string.Equals(arg, "--run-managed-migrations", StringComparison.OrdinalIgnoreCase)))
+{
+    await ManagedMigrationRunner.RunAsync(builder.Configuration);
+    return;
+}
 
 var app = builder.Build();
 
