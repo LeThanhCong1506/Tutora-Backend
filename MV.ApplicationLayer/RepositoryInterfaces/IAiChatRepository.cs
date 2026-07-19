@@ -10,6 +10,7 @@ public interface IAiChatRepository
     void AddSession(ChatSession session);
     void UpdateSession(ChatSession session);
     void RemoveSession(ChatSession session);
+    Task<int> RemoveSessionsByUserAsync(string userId, string? sessionType = null);
 
     // Messages (chat_histories)
     Task<(IReadOnlyList<ChatHistory> Items, int Total)> GetMessagesPagedAsync(
