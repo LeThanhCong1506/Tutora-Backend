@@ -36,6 +36,17 @@ services:
     networks:
       - tutora-network
 
+  migrate:
+    image: ${APP_IMAGE:-hoangnv1005/tutora-k12:latest}
+    restart: "no"
+    env_file:
+      - .env
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+    entrypoint: ["dotnet", "MV.PresentationLayer.dll", "--run-managed-migrations"]
+    networks:
+      - tutora-network
+
 networks:
   tutora-network:
     driver: bridge

@@ -76,14 +76,11 @@ public interface IClassSessionService
     Task<ClassSessionDetailResponse?> GetTutorClassSessionDetailAsync(int classSessionId, string tutorId);
 
     // ── Check-in / Check-out / Report ──────────────────────────────────────
+    // Check-in không còn thủ công: xem TryAutoCheckInAsync (presence-driven) bên dưới.
 
     /// <summary>
-    /// Tutor marks the classSession as started (check-in) with attendance info.
-    /// </summary>
-    Task<ClassSessionDetailResponse> CheckInAsync(int classSessionId, string tutorId, CheckInRequest request);
-
-    /// <summary>
-    /// Tutor marks the classSession as ended (check-out) with duration data.
+    /// Tutor kết thúc buổi học (check-out): ghi giờ ra và đóng phòng. Giữ trạng thái
+    /// <c>in_progress</c> để gia sư vẫn gửi được báo cáo sau đó.
     /// </summary>
     Task<ClassSessionDetailResponse> CheckOutAsync(int classSessionId, string tutorId, CheckOutRequest request);
 
@@ -91,6 +88,14 @@ public interface IClassSessionService
     /// Tutor submits a post-classSession report (homework, notes, rating).
     /// </summary>
     Task<ClassSessionDetailResponse> SubmitReportAsync(int classSessionId, string tutorId, SubmitReportRequest request);
+
+    /// <summary>
+    /// Presence-driven auto check-in: khi cả gia sư và học viên (hoặc phụ huynh thay thế)
+    /// cùng có mặt trong phòng của buổi <paramref name="classSessionId"/>, tự chuyển buổi từ
+    /// <c>scheduled</c> sang <c>in_progress</c> và ghi check-in. Một người có mặt không đủ.
+    /// An toàn khi gọi lặp (idempotent) — chỉ đổi trạng thái đúng một lần.
+    /// </summary>
+    Task<SessionPresenceStatus> TryAutoCheckInAsync(int classSessionId);
 
     /// <summary>
     /// Upload a file attachment to a classSession (e.g. homework document).

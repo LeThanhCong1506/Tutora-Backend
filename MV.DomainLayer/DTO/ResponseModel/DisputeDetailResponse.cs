@@ -68,6 +68,12 @@ public class DisputeClassSessionResponse
     public string? Homework { get; set; }
     public bool? IsTutorPresent { get; set; }
     public bool? IsStudentPresent { get; set; }
+
+    /// <summary>Trạng thái bản ghi video: available | processing | recording | none.</summary>
+    public string? RecordingStatus { get; set; }
+
+    /// <summary>Link xem video buổi học (Google Drive) — chỉ có khi RecordingStatus = "available".</summary>
+    public string? RecordingUrl { get; set; }
 }
 
 public class DisputeTutorResponse
@@ -78,4 +84,22 @@ public class DisputeTutorResponse
     public string? Phone { get; set; }
     public int WarningCount { get; set; }
     public decimal? AverageRating { get; set; }
+}
+
+/// <summary>
+/// Thông tin bản ghi video của buổi học gắn với tranh chấp — cho Admin/Staff xem khi xử lý.
+/// </summary>
+public class DisputeRecordingResponse
+{
+    public int DisputeId { get; set; }
+    public int? ClassSessionId { get; set; }
+
+    /// <summary>available (có link xem) | processing (đang đẩy lên Drive) | recording (đang ghi) | none.</summary>
+    public string Status { get; set; } = "none";
+
+    /// <summary>Link xem video (Google Drive) — chỉ có khi Status = "available".</summary>
+    public string? RecordingUrl { get; set; }
+
+    /// <summary>True nếu đã có link xem được.</summary>
+    public bool Available { get; set; }
 }

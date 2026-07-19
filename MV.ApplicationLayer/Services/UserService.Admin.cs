@@ -1,4 +1,4 @@
-﻿using MV.DomainLayer.Constants;
+using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO.RequestModel;
 using MV.DomainLayer.DTO.ResponseModel;
 using MV.DomainLayer.Exceptions;
@@ -12,13 +12,18 @@ namespace MV.ApplicationLayer.Services
     {
         // ─── Admin User Management ────────────────────────────────────────────
 
-        public async Task<PagedList<UserResponse>> AdminGetAllUsersAsync(AdminUserFilterParameters parameters)
+        public async Task<PagedList<UserResponse>> AdminGetAllUsersAsync(AdminUserFilterParameters parameters, bool includeInternalAccounts = true)
         {
             var users = await _unitOfWork.UserRepository.GetUsersAsync(parameters);
 
             // Admin sees every account by default, including Admin and Staff.
             // Optional query parameters below are applied only when explicitly provided.
             var filtered = users.AsEnumerable();
+
+            if (!includeInternalAccounts)
+                filtered = filtered.Where(u =>
+                    !string.Equals(u.Primaryrole, UserRole.Admin, StringComparison.OrdinalIgnoreCase) &&
+                    !string.Equals(u.Primaryrole, UserRole.Staff, StringComparison.OrdinalIgnoreCase));
 
             if (!string.IsNullOrWhiteSpace(parameters.SearchTerm))
             {
@@ -88,11 +93,7 @@ namespace MV.ApplicationLayer.Services
             if (request.Email != null) user.Email = request.Email;
             if (request.Phone != null) user.Phone = request.Phone;
 
-            // Thay đổi role qua general update bị chặn — phải dùng PUT /api/admin/users/{id}/role
-            if (request.Primaryrole != null)
-                throw new InvalidOperationException("Không thể thay đổi role qua endpoint này. Vui lòng dùng PUT /api/admin/users/{id}/role.");
 
-            if (request.Status.HasValue) user.Status = request.Status.Value;
             if (request.Address != null) user.Address = request.Address;
             if (request.Gender != null) user.Gender = request.Gender;
             if (request.Avatarurl != null) user.Avatarurl = request.Avatarurl;
@@ -130,8 +131,8 @@ namespace MV.ApplicationLayer.Services
             if (string.Equals(previousRole, UserRole.Staff, StringComparison.OrdinalIgnoreCase)
                 && !string.Equals(newRole, UserRole.Staff, StringComparison.OrdinalIgnoreCase))
             {
-                await _unitOfWork.StaffPermissionRepository.ReplacePermissionsAsync(
-                    targetUserId, Array.Empty<string>(), adminUserId, MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow);
+                await _unitOfWork.StaffPermissionRepository.RevokeGroupAssignmentAsync(
+                    targetUserId, adminUserId, MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow);
             }
 
             await _unitOfWork.UserRepository.UpdateUserAsync(targetUser);

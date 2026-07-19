@@ -1,4 +1,4 @@
-﻿using MV.DomainLayer.Constants;
+using MV.DomainLayer.Constants;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using MV.ApplicationLayer.ServiceInterfaces;
@@ -183,8 +183,9 @@ namespace MV.PresentationLayer.Controllers
             if (notification == null)
                 return NotFound();
 
-            // owner or Admin/Staff only
-            if (notification.Userid != currentUserId && !User.IsInRole(UserRole.Admin) && !User.IsInRole(UserRole.Staff))
+            // Owner is always allowed; cross-user access requires notification.view.
+            if (notification.Userid != currentUserId && !User.IsInRole(UserRole.Admin) &&
+                !User.HasClaim(Permissions.ClaimType, Permissions.NotificationView))
                 return Forbid();
 
             return Ok(notification);
