@@ -21,7 +21,7 @@ namespace MV.ApplicationLayer.Services;
 /// Agora Cloud Recording — điều phối 3 bước REST API acquire → start → stop (mode = mix).
 ///
 /// Thiết kế:
-///   - channel do caller truyền vào (AgoraChannelName.ForSession — channel chung theo booking),
+///   - channel do caller truyền vào (AgoraChannelName.ForSession — channel riêng theo buổi),
 ///     PHẢI khớp với channel client join thì recorder mới thấy stream.
 ///   - Recorder join bằng UID số riêng (RecorderUid), token ký bằng AppCertificate hiện có.
 ///   - Ghi tất cả stream (#allstream#) ghép thành 1 video (mix) → xuất HLS + MP4 lên storage.

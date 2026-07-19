@@ -244,7 +244,7 @@ public partial class ClassSessionService
 
         try
         {
-            // Recorder phải join ĐÚNG channel client đang dùng (channel chung theo booking).
+            // Recorder phải join ĐÚNG channel riêng của buổi mà client đang dùng.
             var channel = AgoraChannelName.ForSession(classSession.Classsessionid, classSession.Bookingid);
             var handle = await _cloudRecording.StartAsync(classSession.Classsessionid, channel);
             classSession.Recordingresourceid = handle.ResourceId;
