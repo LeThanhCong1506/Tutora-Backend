@@ -44,6 +44,13 @@ public partial class User
 
     public DateTime? Lastloginat { get; set; }
 
+    /// <summary>
+    /// UTC timestamp when the user's final canonical presence lease ended.
+    /// Kept separate from <see cref="Lastloginat"/> so admin login audit data
+    /// is not overwritten by chat disconnects.
+    /// </summary>
+    public DateTime? Lastseenat { get; set; }
+
     public DateTime? Createdat { get; set; }
 
     public string? Ekycrawdata { get; set; }
