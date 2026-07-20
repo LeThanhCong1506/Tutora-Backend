@@ -39,4 +39,14 @@ public interface ISettlementService
     /// Releases escrow for completed classSessions, cancels remaining classSessions, marks booking Completed.
     /// </summary>
     Task FinalizeBookingEarlyAsync(int bookingId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Parent/student explicitly ends a course after delivered sessions and before
+    /// paying the remaining phase. Delivered-session payments are not refunded.
+    /// </summary>
+    Task<bool> FinalizeBookingEarlyByUserAsync(
+        int bookingId,
+        string userId,
+        string? reason = null,
+        CancellationToken ct = default);
 }

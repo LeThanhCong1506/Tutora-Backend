@@ -37,6 +37,16 @@ public interface IBookingService
     Task<bool> CancelBookingAsync(int bookingId, string userId, string? reason = null);
 
     /// <summary>
+    /// End a partially delivered booking before its remaining payment is made.
+    /// Delivered sessions are paid to the tutor and future sessions are cancelled.
+    /// </summary>
+    Task<bool> FinalizeBookingEarlyByUserAsync(
+        int bookingId,
+        string userId,
+        string? reason = null,
+        CancellationToken ct = default);
+
+    /// <summary>
     /// Admin creates a promotion (discount code) for the platform.
     /// </summary>
     Task<PromotionCreatedResponse> CreatePromotionAsync(CreatePromotionRequest dto);
