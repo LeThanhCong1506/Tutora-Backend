@@ -29,6 +29,19 @@ public class AdminDashboardService(
         BookingStatus.PaymentTimeout
     ];
 
+    // Booking statuses that have actually collected (or are collecting) payment —
+    // mirrors AdminFinancialService.RevenueBookingStatuses. Excludes pending_tutor,
+    // accepted, pending_payment (never paid) and cancelled/cancelled_noshow/payment_timeout
+    // (paid amount, if any, was reversed).
+    private static readonly string[] RevenueBookingStatuses =
+    [
+        BookingStatus.Paid,
+        BookingStatus.DepositPaid,
+        BookingStatus.PendingRemainingPayment,
+        BookingStatus.Ongoing,
+        BookingStatus.Completed
+    ];
+
     private static readonly string[] PendingWithdrawalStatuses =
     [
         WithdrawalStatus.Pending,
@@ -106,12 +119,11 @@ public class AdminDashboardService(
         var completedBookings = bookings.Count(b => b.Status == BookingStatus.Completed);
         var cancelledBookings = bookings.Count(b => CancelledBookingStatuses.Contains(b.Status ?? ""));
 
-        var gmvThisMonth = bookings
-            .Where(b => b.Createdat >= monthStartUtc && b.Createdat < monthStartUtc.AddMonths(1))
-            .Sum(b => b.Finalprice ?? 0);
-        var revenueThisMonth = bookings
-            .Where(b => b.Createdat >= monthStartUtc && b.Createdat < monthStartUtc.AddMonths(1))
-            .Sum(b => b.Platformfee ?? 0);
+        var revenueBookingsThisMonth = bookings
+            .Where(b => b.Createdat >= monthStartUtc && b.Createdat < monthStartUtc.AddMonths(1)
+                        && RevenueBookingStatuses.Contains(b.Status ?? ""));
+        var gmvThisMonth = revenueBookingsThisMonth.Sum(b => b.Finalprice ?? 0);
+        var revenueThisMonth = revenueBookingsThisMonth.Sum(b => b.Platformfee ?? 0);
 
         // ClassSession summary
         var classSessionsToday = classSessions.Count(l =>
@@ -167,17 +179,13 @@ public class AdminDashboardService(
     // ─── API 2: GET /api/admin/dashboard/users ────────────────────────────────
 
     public async Task<AdminUserStatsResponse> GetUserStatsAsync(
-        DateTime? from,
-        DateTime? to,
+        DateTimeOffset? from,
+        DateTimeOffset? to,
         CancellationToken ct = default)
     {
         var nowUtc = TimeZoneHelper.UtcNow;
-        var toUtc = to.HasValue
-            ? (to.Value.Kind == DateTimeKind.Utc ? to.Value : DateTime.SpecifyKind(to.Value, DateTimeKind.Utc))
-            : nowUtc;
-        var fromUtc = from.HasValue
-            ? (from.Value.Kind == DateTimeKind.Utc ? from.Value : DateTime.SpecifyKind(from.Value, DateTimeKind.Utc))
-            : toUtc.AddDays(-30);
+        var toUtc = to?.UtcDateTime ?? nowUtc;
+        var fromUtc = from?.UtcDateTime ?? toUtc.AddDays(-30);
 
         var userNow = nowUtc;
         var weekStartUtc = nowUtc.AddDays(-7);
@@ -259,17 +267,13 @@ public class AdminDashboardService(
 
     public async Task<AdminTutorPerformanceResponse> GetTutorPerformanceAsync(
         int top,
-        DateTime? from,
-        DateTime? to,
+        DateTimeOffset? from,
+        DateTimeOffset? to,
         CancellationToken ct = default)
     {
         var nowUtc = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
-        var toUtc = to.HasValue
-            ? (to.Value.Kind == DateTimeKind.Utc ? to.Value : DateTime.SpecifyKind(to.Value, DateTimeKind.Utc))
-            : nowUtc;
-        var fromUtc = from.HasValue
-            ? (from.Value.Kind == DateTimeKind.Utc ? from.Value : DateTime.SpecifyKind(from.Value, DateTimeKind.Utc))
-            : toUtc.AddDays(-30);
+        var toUtc = to?.UtcDateTime ?? nowUtc;
+        var fromUtc = from?.UtcDateTime ?? toUtc.AddDays(-30);
 
         logger.LogInformation(
             "AdminDashboardService.GetTutorPerformanceAsync top={Top} from={From} to={To}",
@@ -401,14 +405,14 @@ public class AdminDashboardService(
     // ─── API 5: GET /api/admin/dashboard/summary ─────────────────────────────
 
     public async Task<AdminDashboardSummaryResponse> GetSummaryAsync(
-        DateTime? from,
-        DateTime? to,
+        DateTimeOffset? from,
+        DateTimeOffset? to,
         string timezone = "Asia/Ho_Chi_Minh",
         CancellationToken ct = default)
     {
         var nowUtc = TimeZoneHelper.UtcNow;
-        var toUtc   = to.HasValue   ? DateTime.SpecifyKind(to.Value,   DateTimeKind.Utc) : nowUtc;
-        var fromUtc = from.HasValue ? DateTime.SpecifyKind(from.Value, DateTimeKind.Utc) : toUtc.AddDays(-30);
+        var toUtc   = to?.UtcDateTime   ?? nowUtc;
+        var fromUtc = from?.UtcDateTime ?? toUtc.AddDays(-30);
 
         // Previous period: same length, immediately preceding the current period
         var periodLength = toUtc - fromUtc;
@@ -452,14 +456,18 @@ public class AdminDashboardService(
         var currentPeriodBookings = bookings
             .Where(b => b.Createdat >= fromUtc && b.Createdat <= toUtc)
             .ToList();
-        var gmvCurrent     = currentPeriodBookings.Sum(b => b.Finalprice  ?? 0);
-        var revenueCurrent = currentPeriodBookings.Sum(b => b.Platformfee ?? 0);
+        var currentPeriodRevenueBookings = currentPeriodBookings
+            .Where(b => RevenueBookingStatuses.Contains(b.Status ?? ""));
+        var gmvCurrent     = currentPeriodRevenueBookings.Sum(b => b.Finalprice  ?? 0);
+        var revenueCurrent = currentPeriodRevenueBookings.Sum(b => b.Platformfee ?? 0);
 
         var prevPeriodBookings = bookings
             .Where(b => b.Createdat >= prevFromUtc && b.Createdat <= prevToUtc)
             .ToList();
-        var gmvPrev     = prevPeriodBookings.Sum(b => b.Finalprice  ?? 0);
-        var revenuePrev = prevPeriodBookings.Sum(b => b.Platformfee ?? 0);
+        var prevPeriodRevenueBookings = prevPeriodBookings
+            .Where(b => RevenueBookingStatuses.Contains(b.Status ?? ""));
+        var gmvPrev     = prevPeriodRevenueBookings.Sum(b => b.Finalprice  ?? 0);
+        var revenuePrev = prevPeriodRevenueBookings.Sum(b => b.Platformfee ?? 0);
 
         decimal? gmvChange     = gmvPrev     == 0 ? null : Math.Round((gmvCurrent     - gmvPrev)     / gmvPrev     * 100, 1);
         decimal? revenueChange = revenuePrev == 0 ? null : Math.Round((revenueCurrent - revenuePrev) / revenuePrev * 100, 1);
@@ -515,17 +523,13 @@ public class AdminDashboardService(
     // ─── API 4: GET /api/admin/dashboard/disputes ────────────────────────────
 
     public async Task<AdminDisputeStatsResponse> GetDisputeStatsAsync(
-        DateTime? from,
-        DateTime? to,
+        DateTimeOffset? from,
+        DateTimeOffset? to,
         CancellationToken ct = default)
     {
         var nowUtc = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
-        var toUtc = to.HasValue
-            ? (to.Value.Kind == DateTimeKind.Utc ? to.Value : DateTime.SpecifyKind(to.Value, DateTimeKind.Utc))
-            : nowUtc;
-        var fromUtc = from.HasValue
-            ? (from.Value.Kind == DateTimeKind.Utc ? from.Value : DateTime.SpecifyKind(from.Value, DateTimeKind.Utc))
-            : toUtc.AddDays(-30);
+        var toUtc = to?.UtcDateTime ?? nowUtc;
+        var fromUtc = from?.UtcDateTime ?? toUtc.AddDays(-30);
 
         logger.LogInformation(
             "AdminDashboardService.GetDisputeStatsAsync from={From} to={To}", fromUtc, toUtc);

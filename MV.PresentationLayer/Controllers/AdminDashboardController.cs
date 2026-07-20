@@ -47,8 +47,8 @@ public class AdminDashboardController(IAdminDashboardService dashboardService) :
     /// </summary>
     [HttpGet("users")]
     public async Task<IActionResult> GetUserStats(
-        [FromQuery] DateTime? from = null,
-        [FromQuery] DateTime? to = null,
+        [FromQuery] DateTimeOffset? from = null,
+        [FromQuery] DateTimeOffset? to = null,
         CancellationToken ct = default)
     {
         try
@@ -73,8 +73,8 @@ public class AdminDashboardController(IAdminDashboardService dashboardService) :
     [HttpGet("tutor-performance")]
     public async Task<IActionResult> GetTutorPerformance(
         [FromQuery] int top = 10,
-        [FromQuery] DateTime? from = null,
-        [FromQuery] DateTime? to = null,
+        [FromQuery] DateTimeOffset? from = null,
+        [FromQuery] DateTimeOffset? to = null,
         CancellationToken ct = default)
     {
         try
@@ -104,8 +104,8 @@ public class AdminDashboardController(IAdminDashboardService dashboardService) :
     /// </summary>
     [HttpGet("summary")]
     public async Task<IActionResult> GetSummary(
-        [FromQuery] DateTime? from = null,
-        [FromQuery] DateTime? to = null,
+        [FromQuery] DateTimeOffset? from = null,
+        [FromQuery] DateTimeOffset? to = null,
         [FromQuery] string timezone = "Asia/Ho_Chi_Minh",
         CancellationToken ct = default)
     {
@@ -130,8 +130,8 @@ public class AdminDashboardController(IAdminDashboardService dashboardService) :
     /// </summary>
     [HttpGet("disputes")]
     public async Task<IActionResult> GetDisputeStats(
-        [FromQuery] DateTime? from = null,
-        [FromQuery] DateTime? to = null,
+        [FromQuery] DateTimeOffset? from = null,
+        [FromQuery] DateTimeOffset? to = null,
         CancellationToken ct = default)
     {
         try
