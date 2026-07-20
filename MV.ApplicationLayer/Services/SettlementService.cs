@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using MV.ApplicationLayer.Helpers;
 using MV.ApplicationLayer.Interfaces;
+using MV.ApplicationLayer.RepositoryInterfaces;
 using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO.RequestModel;
@@ -15,18 +16,21 @@ namespace MV.ApplicationLayer.Services;
 /// <summary>
 /// Service for settlement and escrow management
 /// </summary>
-public class SettlementService : ISettlementService
+public partial class SettlementService : ISettlementService
 {
     private readonly IAppDbContext _context;
+    private readonly IBookingRepository _bookingRepository;
     private readonly INotificationService _notificationService;
     private readonly ILogger<SettlementService> _logger;
 
     public SettlementService(
         IAppDbContext context,
+        IBookingRepository bookingRepository,
         INotificationService notificationService,
         ILogger<SettlementService> logger)
     {
         _context = context;
+        _bookingRepository = bookingRepository;
         _notificationService = notificationService;
         _logger = logger;
     }
@@ -264,6 +268,7 @@ public class SettlementService : ISettlementService
 
         var classSession = await _context.ClassSessions
             .Include(l => l.Booking)
+                .ThenInclude(b => b!.Student)
             .FirstOrDefaultAsync(l => l.Classsessionid == classSessionId)
             ?? throw new ClassSessionException(ClassSessionErrorCodes.ClassSessionNotFound, "Không tìm thấy buổi học", 404);
 
@@ -282,7 +287,12 @@ public class SettlementService : ISettlementService
             var tutorEscrowPerSession = LessonRefundCalculator.TutorEscrowPerSession(booking);
             var refundAmount = Math.Round(parentRefundPerSession * refundPercentage / 100m, 2);
             var tutorAmount = Math.Round(tutorEscrowPerSession * (100 - refundPercentage) / 100m, 2);
-            var parentId = booking.Parentid;
+            // Người nhận hoàn tiền = người đã trả: phụ huynh đặt hộ → Parentid; học sinh tự đặt → ví học sinh.
+            var refundRecipientId = !string.IsNullOrWhiteSpace(booking.Parentid)
+                ? booking.Parentid
+                : (!string.IsNullOrWhiteSpace(booking.Student?.Linkeduserid)
+                    ? booking.Student!.Linkeduserid
+                    : booking.Studentid);
             var tutorId = classSession.Tutorid;
 
             // Get wallets (with row lock for concurrency safety)
@@ -290,10 +300,9 @@ public class SettlementService : ISettlementService
                 .FromSqlRaw(SqlQueries.LockWalletByUserId, tutorId)
                 .FirstOrDefaultAsync();
 
-            var parentWallet = parentId != null
-                ? await _context.Wallets
-                    .FromSqlRaw(SqlQueries.LockWalletByUserId, parentId)
-                    .FirstOrDefaultAsync()
+            // Tự tạo ví nếu người nhận chưa có (học sinh tự đặt thường đã có ví sau xác minh tuổi, nhưng phòng hờ).
+            var parentWallet = !string.IsNullOrWhiteSpace(refundRecipientId)
+                ? await WalletLockHelper.GetOrCreateForUpdateAsync(_context, refundRecipientId, MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow)
                 : null;
 
             // Release exactly one session's worth of escrow from tutor frozen balance
@@ -379,11 +388,11 @@ public class SettlementService : ISettlementService
             {
                 try
                 {
-                    if (parentId != null && refundAmount > 0)
+                    if (!string.IsNullOrWhiteSpace(refundRecipientId) && refundAmount > 0)
                     {
                         await _notificationService.CreateNotificationAsync(new NotificationRequest
                         {
-                            Userid = parentId,
+                            Userid = refundRecipientId,
                             Title = "Hoàn tiền buổi học",
                             Message = $"Bạn đã nhận được hoàn tiền {refundAmount:N0}đ ({refundPercentage}%) cho buổi học #{classSession.Classsessionid}. Số dư ví: {parentWallet?.Balance:N0}đ"
                         });

@@ -11,6 +11,8 @@ on:
       - '**/appsettings*.json'
       - 'Dockerfile'
       - 'docker-compose.yml'
+      - 'migrations/**'
+      - '.dockerignore'
       - '.github/workflows/deploy.yml'
   pull_request:
     branches: [ main ]
@@ -18,7 +20,12 @@ on:
       - '**/*.cs'
       - '**/*.csproj'
       - '**/*.sln'
+      - 'migrations/managed/**'
       - 'Dockerfile'
+      - 'docker-compose.yml'
+      - 'migrations/**'
+      - '.dockerignore'
+      - '.github/workflows/deploy.yml'
   workflow_dispatch:
     inputs:
       environment:
@@ -163,7 +170,16 @@ jobs:
               sed -i '/^APP_IMAGE=/d' .env
               echo "APP_IMAGE=$IMAGE_NAME:$IMAGE_TAG" >> .env
 
-              docker compose pull app
+              docker compose pull app migrate
+
+              # Two independent migration runners, each scoped to its own tables:
+              # payment schema (PaymentSqlMigrationRunner) and the new managed
+              # permission-groups schema (ManagedMigrationRunner). Both must run.
+              docker compose run --rm --no-deps \
+                --entrypoint dotnet app \
+                MV.PresentationLayer.dll --migrate-only
+              docker compose run --rm migrate
+
               docker compose up -d --no-deps --force-recreate app
 
               sleep 15

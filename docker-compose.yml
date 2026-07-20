@@ -21,7 +21,7 @@ services:
   #     - agora-network
 
   app:
-    image: hoangnv1005/tutora-k12:latest
+    image: ${APP_IMAGE:-hoangnv1005/tutora-k12:latest}
     container_name: tutora-app
     restart: unless-stopped
     ports:
@@ -33,6 +33,17 @@ services:
     environment:
       - ASPNETCORE_ENVIRONMENT=Production
       - ASPNETCORE_URLS=http://+:8080
+    networks:
+      - tutora-network
+
+  migrate:
+    image: ${APP_IMAGE:-hoangnv1005/tutora-k12:latest}
+    restart: "no"
+    env_file:
+      - .env
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+    entrypoint: ["dotnet", "MV.PresentationLayer.dll", "--run-managed-migrations"]
     networks:
       - tutora-network
 

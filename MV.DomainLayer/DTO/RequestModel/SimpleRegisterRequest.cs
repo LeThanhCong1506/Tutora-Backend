@@ -31,5 +31,10 @@ namespace MV.DomainLayer.DTO.RequestModel
         /// Role: Student, Tutor, Parent (mặc định là Student)
         /// </summary>
         public string Role { get; set; } = UserRole.Student;
+
+        /// <summary>
+        /// SĐT phụ huynh để nhận ZNS theo dõi.
+        /// </summary>
+        public string? ParentPhone { get; set; }
     }
 }

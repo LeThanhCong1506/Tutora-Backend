@@ -18,7 +18,10 @@ public class AdminPayoutController(
     ISystemAlertService systemAlertService) : ControllerBase
 {
     private string? ActorUserId => User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-    private string  ActorRole   => User.IsInRole(UserRole.Staff) ? UserRole.Staff : UserRole.Admin;
+    private string? ActorRole =>
+        User.IsInRole(UserRole.Admin) ? UserRole.Admin :
+        User.IsInRole(UserRole.Staff) ? UserRole.Staff :
+        null;
 
     private IActionResult ValidatePagination(int page, int pageSize) =>
         page < 1 || pageSize is < 1 or > 100
@@ -108,18 +111,59 @@ public class AdminPayoutController(
     }
 
     [RequirePermission(Permissions.PayoutApprove)]
-    [HttpPost("{id}/approve")]
-    public async Task<IActionResult> ApproveRequest(
-        int id,
-        [FromBody] ApproveWithdrawalRequest request,
-        CancellationToken ct)
+    [HttpPost("{id}/claim")]
+    public async Task<IActionResult> ClaimRequest(int id, CancellationToken ct)
     {
         try
         {
             if (string.IsNullOrEmpty(ActorUserId))
                 return Unauthorized(APIResponse<object>.Fail(ApiMessages.ActorUserIdNotFound, 401));
 
-            var result = await adminPayoutService.ApproveRequestAsync(id, ActorUserId, ActorRole, request.Note, ct);
+            var result = await adminPayoutService.ClaimRequestAsync(id, ActorUserId, ct);
+            return Ok(APIResponse<ApproveResult>.Success(result, result.Message));
+        }
+        catch (Exception ex)
+        {
+            return HandleException(ex, "claiming request");
+        }
+    }
+
+    [RequirePermission(Permissions.PayoutApprove)]
+    [HttpPost("{id}/release")]
+    public async Task<IActionResult> ReleaseRequest(int id, CancellationToken ct)
+    {
+        try
+        {
+            if (string.IsNullOrEmpty(ActorUserId))
+                return Unauthorized(APIResponse<object>.Fail(ApiMessages.ActorUserIdNotFound, 401));
+
+            var result = await adminPayoutService.ReleaseRequestAsync(id, ActorUserId, ct);
+            return Ok(APIResponse<ApproveResult>.Success(result, result.Message));
+        }
+        catch (Exception ex)
+        {
+            return HandleException(ex, "releasing request");
+        }
+    }
+
+    [RequirePermission(Permissions.PayoutApprove)]
+    [HttpPost("{id}/approve")]
+    [Consumes("multipart/form-data")]
+    public async Task<IActionResult> ApproveRequest(
+        int id,
+        [FromForm] ApproveWithdrawalRequest request,
+        CancellationToken ct)
+    {
+        try
+        {
+            var actorUserId = ActorUserId;
+            var actorRole = ActorRole;
+            if (string.IsNullOrEmpty(actorUserId))
+                return Unauthorized(APIResponse<object>.Fail(ApiMessages.ActorUserIdNotFound, 401));
+            if (actorRole == null)
+                return Forbid();
+
+            var result = await adminPayoutService.ApproveRequestAsync(id, actorUserId, actorRole, request, ct);
             return result.Success
                 ? Ok(APIResponse<ApproveResult>.Success(result, "Duyệt yêu cầu rút tiền thành công."))
                 : BadRequest(APIResponse<object>.Fail(result.Message, 400));

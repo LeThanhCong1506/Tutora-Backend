@@ -30,6 +30,26 @@ public class AiChatRepository(AgoraDbContext context) : IAiChatRepository
     public void RemoveSession(ChatSession session)
         => context.ChatSessions.Remove(session);
 
+    /// Xoá TẤT CẢ phiên chat AI của user (kèm toàn bộ tin nhắn). Trả về số phiên đã xoá.
+    public async Task<int> RemoveSessionsByUserAsync(string userId, string? sessionType = null)
+    {
+        var sessionIds = await context.ChatSessions
+            .Where(s => s.UserId == userId)
+            .Where(s => string.IsNullOrEmpty(sessionType) || s.SessionType == sessionType)
+            .Select(s => s.SessionId)
+            .ToListAsync();
+
+        if (sessionIds.Count == 0) return 0;
+
+        await context.ChatHistories
+            .Where(m => sessionIds.Contains(m.SessionId))
+            .ExecuteDeleteAsync();
+
+        return await context.ChatSessions
+            .Where(s => sessionIds.Contains(s.SessionId))
+            .ExecuteDeleteAsync();
+    }
+
     // Messages (chat_histories)
 
     public async Task<(IReadOnlyList<ChatHistory> Items, int Total)> GetMessagesPagedAsync(

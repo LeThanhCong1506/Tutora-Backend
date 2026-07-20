@@ -1,19 +1,15 @@
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using MV.DomainLayer.Constants;
+using MV.DomainLayer.DTO;
 using MV.DomainLayer.DTO.RequestModel;
 using MV.DomainLayer.DTO.ResponseModel;
 using MV.DomainLayer.Helpers;
-using MV.DomainLayer.Utilities;
-using System.Globalization;
-using System.Text.Json;
 
 namespace MV.ApplicationLayer.Services
 {
     public partial class TutorService
     {
-        private const double CccdNameMatchThreshold = 0.80;
-
         // ─── Media Methods (avatar + video) ─────────────────────────────────
 
         public async Task<string?> UpdateTutorAvatarAsync(string userId, IFormFile avatarFile)
@@ -72,122 +68,28 @@ namespace MV.ApplicationLayer.Services
 
         public async Task<CccdUploadResponse> UploadCccdImagesAsync(string userId, UploadCccdRequest request)
         {
-            ValidateCccdImageFile(request.FrontImage, "mặt trước");
-            ValidateCccdImageFile(request.BackImage, "mặt sau");
-
             var user = await _unitOfWork.UserRepository.GetUserByIdAsync(userId)
                 ?? throw new ArgumentException("Không tìm thấy người dùng.");
 
-            // 1. Đọc bytes mặt trước để gửi trực tiếp cho FPT.AI OCR (không qua URL)
-            byte[] frontBytes;
-            using (var ms = new MemoryStream())
+            // Dùng chung luồng eKYC (FPT.AI OCR + khớp tên + chống trùng). Tutor cho phép OCR
+            // thất bại (Admin xác minh thủ công), không gate độ tuổi.
+            var result = await _ekyc.VerifyAndApplyAsync(user, request, new EkycVerificationOptions
             {
-                await request.FrontImage.CopyToAsync(ms);
-                frontBytes = ms.ToArray();
-            }
-
-            // 2. Gọi FPT.AI OCR trực tiếp bằng bytes — không qua URL, không lộ ảnh
-            var ocrResult = await RunFptAiOcrAsync(frontBytes, request.FrontImage.FileName);
-
-            if (ocrResult != null)
-            {
-                // 3. Kiểm tra độ tin cậy OCR (< 90% → ảnh mờ/giả)
-                if (ocrResult.Probability < 90.0)
-                    throw new InvalidOperationException(
-                        $"Ảnh CCCD không đủ rõ nét hoặc có dấu hiệu giả mạo (độ tin cậy: {ocrResult.Probability:F1}%). Vui lòng chụp lại.");
-
-                // 4. Validate tên CCCD vs tên hồ sơ bằng Fuzzy Matching (Levenshtein)
-                if (!string.IsNullOrWhiteSpace(ocrResult.Name) && !string.IsNullOrWhiteSpace(user.Fullname))
-                {
-                    var (isMatch, similarity) = StringSimilarity.CompareNames(ocrResult.Name, user.Fullname, CccdNameMatchThreshold);
-                    _logger.LogInformation(
-                        "CCCD name match for user {UserId}: OCR='{OcrName}' Profile='{ProfileName}' Similarity={Sim:F2} Match={Match}",
-                        userId, ocrResult.Name, user.Fullname, similarity, isMatch);
-
-                    if (!isMatch)
-                        throw new InvalidOperationException(
-                            $"Họ và tên trên CCCD \"{ocrResult.Name}\" không khớp với hồ sơ \"{user.Fullname}\" " +
-                            $"(độ tương đồng: {similarity:P0}). Vui lòng cập nhật đúng họ tên trước khi xác minh CCCD.");
-                }
-
-                // 5. Kiểm tra số CCCD trùng với tài khoản khác
-                if (!string.IsNullOrEmpty(ocrResult.Id) && ocrResult.Id != _encryption.Decrypt(user.Identitynumber))
-                {
-                    var isUnique = await _unitOfWork.UserRepository.IsIdentityNumberUniqueAsync(_encryption.Encrypt(ocrResult.Id));
-                    if (!isUnique)
-                        throw new InvalidOperationException(
-                            "Số CCCD này đã được xác minh bởi tài khoản khác. Vui lòng liên hệ hỗ trợ nếu đây là nhầm lẫn.");
-                }
-            }
-
-            // 6. Không lưu ảnh lên Cloudinary — data đã mã hóa trong DB, ảnh gốc không được giữ lại
-            user.Idcardfronturl = null;
-            user.Idcardbackurl  = null;
-
-            if (ocrResult != null)
-            {
-                // 7. Lưu số CCCD + raw OCR data (AES-256-CBC encrypted)
-                user.Identitynumber = _encryption.Encrypt(ocrResult.Id);
-                user.Ekycrawdata    = _encryption.Encrypt(JsonSerializer.Serialize(new
-                {
-                    OcrResult = new { id = ocrResult.Id, name = ocrResult.Name, dob = ocrResult.Dob, sex = ocrResult.Sex, address = ocrResult.Address },
-                    VerifiedAt = TimeZoneHelper.UtcNow.ToString("o")
-                }));
-
-                // 8. Mark identity verified nếu OCR đạt ngưỡng tin cậy
-                user.Isidentityverified = ocrResult.Probability >= 90.0;
-
-                // 9. Auto-fill thông tin cá nhân nếu user chưa điền
-                if (string.IsNullOrWhiteSpace(user.Fullname))
-                    user.Fullname = ocrResult.Name;
-
-                if (string.IsNullOrWhiteSpace(user.Address))
-                    user.Address = ocrResult.Address;
-
-                if (user.Gender == null)
-                    user.Gender = GenderHelper.FromEkycSex(ocrResult.Sex);
-
-                if (user.Birthdate == null && !string.IsNullOrWhiteSpace(ocrResult.Dob) &&
-                    DateOnly.TryParseExact(ocrResult.Dob, "dd/MM/yyyy", CultureInfo.InvariantCulture, DateTimeStyles.None, out var dob))
-                    user.Birthdate = dob;
-            }
+                RequireOcr = false,
+                MinAgeRequired = null,
+                AutoFillProfile = true
+            });
 
             await _unitOfWork.UserRepository.UpdateUserAsync(user);
             await _unitOfWork.SaveChangesAsync();
 
             _logger.LogInformation("CCCD uploaded for user {UserId}, OCR={OcrSuccess}, Verified={Verified}",
-                userId, ocrResult != null, user.Isidentityverified);
+                userId, result.Ocr != null, result.Verified);
 
-            if (user.Isidentityverified == true)
+            if (result.Verified)
                 await AutoSubmitIfCompleteAsync(userId);
 
-            return new CccdUploadResponse
-            {
-                OcrSuccess     = ocrResult != null,
-                IdentityNumber = MaskIdentityNumber(ocrResult?.Id),
-                FullName       = ocrResult?.Name,
-                DateOfBirth    = ocrResult?.Dob,
-                Gender         = ocrResult?.Sex,
-                Address        = ocrResult?.Address,
-                Message        = ocrResult != null
-                    ? "Upload và đọc CCCD thành công."
-                    : "Upload thành công. Không đọc được thông tin CCCD, Admin sẽ xác minh thủ công."
-            };
-        }
-
-        private async Task<FptAiResult?> RunFptAiOcrAsync(byte[] imageBytes, string fileName)
-        {
-            try
-            {
-                using var stream = new MemoryStream(imageBytes);
-                var response = await _fptAiService.VerifyIdCardAsync(stream, fileName);
-                return response?.Data?.FirstOrDefault();
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "FPT.AI OCR failed, proceeding without OCR data.");
-                return null;
-            }
+            return result.Response;
         }
 
         // ─── Private helpers ─────────────────────────────────────────────────
@@ -201,24 +103,5 @@ namespace MV.ApplicationLayer.Services
                 throw new ArgumentException("Ảnh đại diện phải nhỏ hơn 5MB");
         }
 
-        private static void ValidateCccdImageFile(IFormFile file, string side)
-        {
-            if (file == null || file.Length == 0)
-                throw new ArgumentException($"Ảnh CCCD {side} không được để trống.");
-            var allowedExtensions = new[] { ".jpg", ".jpeg", ".png" };
-            if (!allowedExtensions.Contains(Path.GetExtension(file.FileName).ToLowerInvariant()))
-                throw new ArgumentException($"Ảnh CCCD {side} chỉ chấp nhận định dạng JPG, JPEG hoặc PNG.");
-            if (file.Length > 5 * 1024 * 1024)
-                throw new ArgumentException($"Ảnh CCCD {side} phải nhỏ hơn 5MB.");
-        }
-
-        private static string? MaskIdentityNumber(string? number)
-        {
-            if (string.IsNullOrWhiteSpace(number) || number.Length < 6) return null;
-            var visible = Math.Min(3, number.Length);
-            var tail = Math.Min(4, number.Length - visible);
-            var masked = new string('*', number.Length - visible - tail);
-            return number[..visible] + masked + number[^tail..];
-        }
     }
 }

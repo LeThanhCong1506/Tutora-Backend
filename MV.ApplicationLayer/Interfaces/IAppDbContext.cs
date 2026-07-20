@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using MV.DomainLayer.Entities;
 
@@ -49,12 +49,19 @@ public interface IAppDbContext
     DbSet<Userwarning> Userwarnings { get; }
     DbSet<Wallet> Wallets { get; }
     DbSet<Wallettransaction> Wallettransactions { get; }
+    DbSet<PaymentRequest> PaymentRequests { get; }
     DbSet<PaymentTransaction> PaymentTransactions { get; }
     DbSet<Withdrawalrequest> Withdrawalrequests { get; }
     DbSet<WithdrawalScore> Withdrawalscores { get; }
     DbSet<Systemalert> Systemalerts { get; }
     DbSet<RefreshToken> Refreshtokens { get; }
     DbSet<StaffPermission> StaffPermissions { get; }
+    DbSet<PermissionDefinition> PermissionDefinitions { get; }
+    DbSet<PermissionDefinitionRequirement> PermissionDefinitionRequirements { get; }
+    DbSet<PermissionGroup> PermissionGroups { get; }
+    DbSet<PermissionGroupPermission> PermissionGroupPermissions { get; }
+    DbSet<StaffPermissionGroupAssignment> StaffPermissionGroupAssignments { get; }
+    DbSet<PermissionAuditLog> PermissionAuditLogs { get; }
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 }

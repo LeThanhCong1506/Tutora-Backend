@@ -7,6 +7,10 @@ public partial class Topuprequest
 {
     public int Topuprequestid { get; set; }
 
+    public int? Bookingid { get; set; }
+
+    public string? Paymentphase { get; set; }
+
     public long Ordercode { get; set; }
 
     public string? Userid { get; set; }

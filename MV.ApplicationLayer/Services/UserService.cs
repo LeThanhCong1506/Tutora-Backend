@@ -1,4 +1,5 @@
-﻿using Microsoft.AspNetCore.Http;
+﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.Http;
 using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO.RequestModel;
@@ -71,6 +72,25 @@ namespace MV.ApplicationLayer.Services
         {
             var users = await _unitOfWork.UserRepository.GetUsersByRoleAsync(roleName, parameters);
             var mapped = users.Select(MapToUserResponse).ToList();
+            if (string.Equals(roleName, UserRole.Staff, StringComparison.OrdinalIgnoreCase))
+            {
+                var assignments = await _unitOfWork.StaffPermissionRepository.GetAssignmentsAsync(
+                    mapped.Select(user => user.Userid).ToArray());
+                foreach (var response in mapped)
+                {
+                    if (!assignments.TryGetValue(response.Userid, out var assignment))
+                        continue;
+                    response.AssignmentVersion = assignment.Version;
+                    if (assignment.PermissionGroup is { IsDeleted: false } group)
+                    {
+                        response.PermissionGroup = new PermissionGroupReferenceResponse
+                        {
+                            Id = group.PermissionGroupId,
+                            Name = group.Name
+                        };
+                    }
+                }
+            }
             return new PagedList<UserResponse>(mapped, users.TotalCount, users.CurrentPage, users.PageSize);
         }
 
@@ -146,7 +166,7 @@ namespace MV.ApplicationLayer.Services
         // (SimpleAuth/Social) — không đi qua đây, nên không còn branch theo role.
         // Chỉ nhận trường tối thiểu; hồ sơ cá nhân staff tự bổ sung sau qua
         // UpdateUserAsync (PUT /api/users/{id}).
-        public async Task<UserResponse> CreateStaffAsync(CreateStaffRequest request)
+        public async Task<UserResponse> CreateStaffAsync(CreateStaffRequest request, string adminUserId)
         {
             if (!await _unitOfWork.UserRepository.IsEmailUniqueAsync(request.Email))
                 throw new EmailAlreadyExistsException();
@@ -155,8 +175,17 @@ namespace MV.ApplicationLayer.Services
             if (!string.IsNullOrEmpty(request.Phone) && !await _unitOfWork.UserRepository.IsPhoneUniqueAsync(request.Phone))
                 throw new PhoneAlreadyExistsException();
 
-            var userId = Guid.NewGuid().ToString();
+            PermissionGroup? group = null;
+            if (request.PermissionGroupId.HasValue)
+            {
+                group = await _context.PermissionGroups
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(g => g.PermissionGroupId == request.PermissionGroupId.Value && !g.IsDeleted)
+                    ?? throw new KeyNotFoundException("Không tìm thấy nhóm quyền đang hoạt động.");
+            }
 
+            var now = TimeZoneHelper.UtcNow;
+            var userId = Guid.NewGuid().ToString();
             var newUser = new User
             {
                 Userid = userId,
@@ -166,16 +195,51 @@ namespace MV.ApplicationLayer.Services
                 Fullname = request.Fullname,
                 Phone = request.Phone,
                 Status = 1,
-                Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow,
+                Createdat = now,
                 Primaryrole = UserRole.Staff
             };
 
             await _unitOfWork.UserRepository.CreateUserAsync(newUser);
+            var assignment = new StaffPermissionGroupAssignment
+            {
+                StaffUserId = userId,
+                PermissionGroupId = group?.PermissionGroupId,
+                Version = group == null ? 0 : 1,
+                UpdatedBy = adminUserId,
+                UpdatedAt = now,
+                StaffUser = newUser
+            };
+            _context.StaffPermissionGroupAssignments.Add(assignment);
+            _context.PermissionAuditLogs.Add(new PermissionAuditLog
+            {
+                Action = group == null ? "STAFF_CREATED_WITHOUT_GROUP" : "STAFF_GROUP_ASSIGNED",
+                EntityType = nameof(StaffPermissionGroupAssignment),
+                EntityId = userId,
+                PermissionGroupId = group?.PermissionGroupId,
+                StaffUserId = userId,
+                Version = assignment.Version,
+                ActorUserId = adminUserId,
+                DetailsJson = JsonSerializer.Serialize(new
+                {
+                    PreviousGroupId = (Guid?)null,
+                    NewGroupId = group?.PermissionGroupId
+                }),
+                CreatedAt = now
+            });
             await _unitOfWork.SaveChangesAsync();
 
-            return await GetUserByIdAsync(newUser.Userid);
+            var response = await GetUserByIdAsync(newUser.Userid);
+            response.AssignmentVersion = assignment.Version;
+            if (group != null)
+            {
+                response.PermissionGroup = new PermissionGroupReferenceResponse
+                {
+                    Id = group.PermissionGroupId,
+                    Name = group.Name
+                };
+            }
+            return response;
         }
-
         public async Task CreateTutorSubjectAsync(string tutorId, SelectTutorSubjectRequest request)
         {
             if (!await _unitOfWork.UserRepository.SubjectExistsAsync(request.SubjectId))
@@ -201,11 +265,20 @@ namespace MV.ApplicationLayer.Services
             var user = await _unitOfWork.UserRepository.GetUserByIdAsync(userId)
                 ?? throw new UserNotFoundException();
 
+            var studentProfile = await _unitOfWork.StudentRepository.FindByStudentOrLinkedUserAsync(userId);
+
+            // Học sinh đã xác minh CCCD: ngày sinh lấy từ CCCD là nguồn chuẩn, không cho tự sửa
+            // (cùng quy tắc với StudentService.UpdateSelfProfileAsync).
+            var birthdateLocked = studentProfile != null && user.Isidentityverified == true;
+
             user.Fullname = request.Fullname;
             user.Address = request.Address;
             user.Avatarurl = request.Avatarurl;
-            user.Birthdate = request.Birthdate;
+            if (!birthdateLocked)
+                user.Birthdate = request.Birthdate;
             user.Gender = request.Gender;
+
+            SyncStudentProfile(user, studentProfile);
 
             await _unitOfWork.UserRepository.UpdateUserAsync(user);
             await _unitOfWork.SaveChangesAsync();
@@ -272,6 +345,7 @@ namespace MV.ApplicationLayer.Services
 
             var avatarUrl = await _storage.UploadFileAsync(UserAvatarBucket, userId, avatarFile);
             user.Avatarurl = avatarUrl;
+            await SyncStudentProfileAsync(user);
             await _unitOfWork.UserRepository.UpdateUserAsync(user);
             await _unitOfWork.SaveChangesAsync();
 
@@ -279,6 +353,23 @@ namespace MV.ApplicationLayer.Services
         }
 
         // ─── Private helpers ──────────────────────────────────────────────────
+
+        /// <summary>
+        /// Studentprofile giữ bản sao Fullname/Birthdate/Avatarurl của học sinh — lịch học, booking,
+        /// settlement, export... đều đọc từ đó. Mọi chỗ ghi 3 trường này trên bảng Users phải gọi
+        /// hàm này để 2 bảng không bị lệch. Không làm gì nếu user không phải học sinh.
+        /// </summary>
+        private async Task SyncStudentProfileAsync(User user)
+            => SyncStudentProfile(user, await _unitOfWork.StudentRepository.FindByStudentOrLinkedUserAsync(user.Userid));
+
+        private static void SyncStudentProfile(User user, Studentprofile? profile)
+        {
+            if (profile == null) return;
+
+            profile.Fullname = user.Fullname;
+            profile.Birthdate = user.Birthdate;
+            profile.Avatarurl = user.Avatarurl;
+        }
 
         private static UserResponse MapToUserResponse(User user) => new UserResponse
         {

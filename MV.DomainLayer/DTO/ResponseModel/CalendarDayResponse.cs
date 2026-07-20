@@ -24,6 +24,13 @@ public class CalendarDayResponse
 public class CalendarClassSessionResponse
 {
     public int ClassSessionId { get; set; }
+
+    /// <summary>
+    /// Booking chứa buổi học — FE tutor dùng để điều hướng tới trang chi tiết lớp
+    /// (/tutor-portal/classes/:bookingId) khi bấm vào một buổi trên lịch.
+    /// </summary>
+    public int? BookingId { get; set; }
+
     public DateTime ScheduledStart { get; set; }
     public DateTime ScheduledEnd { get; set; }
     public string? StudentName { get; set; }
@@ -31,6 +38,13 @@ public class CalendarClassSessionResponse
     public string? SubjectName { get; set; }
     public string? Status { get; set; }
     public string? MeetingLink { get; set; }
+
+    /// <summary>
+    /// Giờ check-out của buổi học (nếu đã kết thúc). Buổi in_progress mà ĐÃ có CheckOutTime
+    /// nghĩa là phòng học đã đóng vĩnh viễn, chỉ còn chờ gia sư gửi báo cáo — FE dựa vào đây
+    /// để ẩn nút "Vào lớp" và hiển thị "Chờ gửi báo cáo" thay vì "Đang diễn ra".
+    /// </summary>
+    public DateTime? CheckOutTime { get; set; }
 
     /// <summary>
     /// Color code based on status for UI rendering

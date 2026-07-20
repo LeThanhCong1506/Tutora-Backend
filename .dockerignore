@@ -16,3 +16,5 @@
 **/docs
 **/*.md
 **/migrations/*.sql
+!migrations/V20260715b__drop_payment_transactions_topup_request_id.sql
+!migrations/V20260716__payment_requests_and_transaction_reconciliation.sql

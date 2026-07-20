@@ -41,6 +41,14 @@ internal static class RtcTokenBuilder2
         }
 
         token.AddService(service);
+
+        if (!string.IsNullOrEmpty(account))
+        {
+            var rtmService = new ServiceRtm(account);
+            rtmService.AddPrivilege(ServiceRtm.PrivilegeLogin, privilegeExpire);
+            token.AddService(rtmService);
+        }
+
         return token.Build();
     }
 

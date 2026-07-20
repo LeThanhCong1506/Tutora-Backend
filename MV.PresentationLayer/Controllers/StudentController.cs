@@ -78,34 +78,61 @@ namespace MV.PresentationLayer.Controllers
         }
 
         /// <summary>
-        /// Student self-links with a parent using a parent code.
+        /// Trạng thái đủ điều kiện đặt lịch của học sinh
         /// </summary>
-        [HttpPost("self-link")]
-        public async Task<IActionResult> StudentSelfLink([FromBody] StudentSelfLinkRequest request)
+        [HttpGet("me/booking-eligibility")]
+        public async Task<IActionResult> GetBookingEligibility()
+        {
+            var result = await _studentService.GetBookingEligibilityAsync(GetStudentUserId());
+            return Ok(APIResponse<StudentBookingEligibilityResponse>.Success(result, "Lấy trạng thái đặt lịch thành công."));
+        }
+
+        /// <summary>
+        /// Học sinh tự đăng ký xác minh CCCD để chứng minh đủ 16 tuổi (bắt buộc trước khi đặt lịch).
+        /// </summary>
+        [HttpPost("me/verify-cccd")]
+        public async Task<IActionResult> VerifyCccd([FromForm] UploadCccdRequest request)
+        {
+            if (!ModelState.IsValid)
+                return BadRequest(APIResponse<object>.Fail("Dữ liệu ảnh CCCD không hợp lệ.", 400));
+
+            try
+            {
+                var result = await _studentService.VerifyStudentCccdAsync(GetStudentUserId(), request);
+                return Ok(APIResponse<CccdUploadResponse>.Success(result, result.Message));
+            }
+            catch (StudentNotFoundException)
+            {
+                return NotFound(APIResponse<object>.Fail("Không tìm thấy hồ sơ học sinh.", 404));
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(APIResponse<object>.Fail(ex.Message, 400));
+            }
+            catch (InvalidOperationException ex)
+            {
+                // Ảnh mờ/giả, tên không khớp, chưa đủ 16 tuổi, số CCCD trùng...
+                return UnprocessableEntity(APIResponse<object>.Fail(ex.Message, 422));
+            }
+        }
+
+        /// <summary>
+        /// Học sinh tự đăng ký nhập/cập nhật SĐT phụ huynh (tùy chọn) để nhận ZNS theo dõi.
+        /// </summary>
+        [HttpPut("me/parent-phone")]
+        public async Task<IActionResult> SetParentPhone([FromBody] SetParentPhoneRequest request)
         {
             if (!ModelState.IsValid)
                 return BadRequest(APIResponse<object>.Fail(ApiMessages.InvalidInputData, 400));
 
             try
             {
-                var result = await _studentService.StudentSelfLinkAsync(request.ParentCode, GetStudentUserId());
-                return Ok(APIResponse<StudentProfileResponse>.Success(result, "Liên kết với phụ huynh thành công."));
-            }
-            catch (ParentCodeNotFoundException)
-            {
-                return NotFound(APIResponse<object>.Fail("Mã phụ huynh không hợp lệ.", 404));
-            }
-            catch (ParentCodeExpiredException)
-            {
-                return BadRequest(APIResponse<object>.Fail("Mã phụ huynh đã hết hạn.", 400));
-            }
-            catch (StudentAlreadyHasParentException)
-            {
-                return Conflict(APIResponse<object>.Fail("Học sinh này đã có phụ huynh liên kết.", 409));
+                var saved = await _studentService.SetParentPhoneAsync(GetStudentUserId(), request.ParentPhone);
+                return Ok(APIResponse<object>.Success(new { ParentPhone = saved }, "Cập nhật số điện thoại phụ huynh thành công."));
             }
             catch (StudentNotFoundException)
             {
-                return NotFound(APIResponse<object>.Fail("Không tìm thấy hồ sơ học sinh. Vui lòng đăng ký trước.", 404));
+                return NotFound(APIResponse<object>.Fail("Không tìm thấy hồ sơ học sinh.", 404));
             }
         }
     }

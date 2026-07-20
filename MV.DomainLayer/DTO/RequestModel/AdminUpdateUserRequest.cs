@@ -14,10 +14,6 @@ namespace MV.DomainLayer.DTO.RequestModel
         [Phone(ErrorMessage = "Invalid phone format.")]
         public string? Phone { get; set; }
 
-        public string? Primaryrole { get; set; }
-
-        public int? Status { get; set; }
-
         [StringLength(255, ErrorMessage = "Address must not exceed 255 characters.")]
         public string? Address { get; set; }
 

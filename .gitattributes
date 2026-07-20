@@ -1,0 +1,11 @@
+# SQL migration checksums are byte-sensitive; always preserve Unix line endings.
+migrations/*.sql text eol=lf
+migrations/**/*.sql text eol=lf
+
+# These migrations have already been applied with their original, mixed line
+# endings. Treat them as immutable binary artifacts so checkout cannot rewrite
+# their recorded checksums.
+migrations/V20260715b__drop_payment_transactions_topup_request_id.sql binary
+migrations/V20260716__payment_requests_and_transaction_reconciliation.sql binary
+migrations/V20260716b__backfill_payment_transaction_destination_accounts.sql binary
+migrations/V20260717__rename_payment_transaction_channel_to_payment_method.sql binary

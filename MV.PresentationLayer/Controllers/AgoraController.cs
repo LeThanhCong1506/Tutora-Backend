@@ -1,10 +1,15 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
+using MV.ApplicationLayer.Helpers;
+using MV.ApplicationLayer.Hubs;
 using MV.ApplicationLayer.Interfaces;
 using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO;
+using MV.DomainLayer.DTO.RequestModel;
+using MV.DomainLayer.Entities;
 using MV.PresentationLayer.Helpers;
 using System.Security.Claims;
 
@@ -14,104 +19,190 @@ namespace MV.PresentationLayer.Controllers;
 /// Agora RTC Controller — cung cấp token + channel để client join video call.
 ///
 /// Flow hoạt động:
-///   1. Tutor check-in → backend gán Meetinglink = classSessionId (= channel name).
-///   2. Client (Tutor/Student/Parent) gọi GET /api/agora/room/{classSessionId} → nhận token + channel + appId.
-///   3. Client dùng Agora SDK join channel bằng: appId + channel + token + uid (= userId, join bằng user account).
+///   1. Client (Tutor/Student/Parent) POST /api/agora/room/{classSessionId}/join với danh tính
+///      thiết bị. Chỉ thiết bị giữ lease hiện hành mới nhận token + channel + appId.
+///   2. Client join channel bằng Agora SDK: appId + channel + token + uid (= userId).
+///   3. Trong lúc ở trong phòng, client heartbeat định kỳ (POST .../heartbeat) → khi cả gia sư
+///      lẫn học viên cùng có mặt, backend auto check-in buổi học.
 /// </summary>
 [ApiController]
 [Route("api/agora")]
 [Authorize]
+[ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
 public class AgoraController(
     IAgoraRTCService agoraService,
     IClassSessionService classSessionService,
-    IAppDbContext context) : ControllerBase
+    ISessionPresenceService presence,
+    ILiveSessionDeviceLeaseService deviceLeases,
+    IWhiteboardService whiteboardService,
+    IAppDbContext context,
+    IHubContext<LiveSessionHub> liveSessionHub,
+    ILogger<AgoraController> logger) : ControllerBase
 {
     private string UserId => User.FindFirstValue(ClaimTypes.NameIdentifier)
         ?? throw new UnauthorizedAccessException("Không tìm thấy UserId trong token.");
     private string? CurrentUserRole => User.FindFirstValue("http://schemas.microsoft.com/ws/2008/06/identity/claims/role");
 
     /// <summary>
-    /// GET /api/agora/room/{classSessionId}
-    /// Lấy thông tin để join kênh Agora RTC của một buổi học.
-    /// Chỉ Tutor, Parent hoặc Student thuộc buổi học mới có thể gọi endpoint này.
+    /// Legacy route deliberately does not issue an Agora token. A device admission lease is
+    /// mandatory; clients must use POST /join or POST /takeover.
     /// </summary>
-    /// <param name="classSessionId">ID của buổi học</param>
-    /// <returns>{ channel, uid, token, appId, expireAt, participantNames }</returns>
     [HttpGet("room/{classSessionId:int}")]
-    public async Task<IActionResult> GetRoomInfo(int classSessionId)
+    public IActionResult GetRoomInfo(int classSessionId)
+    {
+        return BadRequest(APIResponse<object>.Fail(
+            "Thiết bị phải đăng ký phiên tham gia trước khi nhận thông tin phòng học.",
+            400,
+            new { code = LiveSessionDeviceErrorCodes.DeviceSessionRequired }));
+    }
+
+    [HttpPost("room/{classSessionId:int}/join")]
+    public Task<IActionResult> JoinRoom(
+        int classSessionId,
+        [FromBody] LiveSessionJoinRequest request,
+        CancellationToken cancellationToken)
+    {
+        return AdmitAndBuildRoomAsync(classSessionId, request, null, cancellationToken);
+    }
+
+    [HttpPost("room/{classSessionId:int}/takeover")]
+    public Task<IActionResult> TakeOverRoom(
+        int classSessionId,
+        [FromBody] LiveSessionTakeoverRequest request,
+        CancellationToken cancellationToken)
+    {
+        return AdmitAndBuildRoomAsync(classSessionId, request, request.ExpectedActiveLeaseId, cancellationToken);
+    }
+
+    /// <summary>
+    /// POST /api/agora/room/{classSessionId}/heartbeat
+    /// Client gọi định kỳ (~20s) khi đang trong phòng để báo "đang có mặt". Presence được ghi
+    /// dưới UserId từ JWT (không ai khai hộ được). Sau khi cập nhật, thử auto check-in nếu đủ cả
+    /// gia sư và học viên. Trả trạng thái presence + check-in để FE hiển thị / tự rời khi phòng đóng.
+    /// </summary>
+    [HttpPost("room/{classSessionId:int}/heartbeat")]
+    public async Task<IActionResult> Heartbeat(
+        int classSessionId,
+        [FromBody] LiveSessionLeaseRequest request,
+        CancellationToken cancellationToken)
     {
         var userId = UserId;
+        if (!TryNormalizeLeaseRequest(request, out var participationId, out var leaseId))
+            return InvalidDeviceSession();
 
-        // Kiểm tra buổi học tồn tại và quyền truy cập
         var classSession = await context.ClassSessions
-            .Include(l => l.Tutor)
-                .ThenInclude(t => t.Tutor)
             .Include(l => l.Booking)
-                .ThenInclude(b => b!.Parent)
-            .Include(l => l.Booking)
-                .ThenInclude(b => b!.Student)
             .FirstOrDefaultAsync(l => l.Classsessionid == classSessionId);
 
         if (classSession == null)
             return NotFound(APIResponse<object>.Fail("Không tìm thấy buổi học.", 404));
 
-        // Kiểm tra quyền: chỉ Tutor, Parent của booking, hoặc Student được join
-        var hasAccess = await CheckClassSessionAccessAsync(classSession, userId);
-        if (!hasAccess)
+        if (!await CheckClassSessionAccessAsync(classSession, userId))
             return Forbid();
 
-        // Chặn vào lớp buổi TIẾP THEO khi phụ huynh chưa thanh toán đợt 2 (các buổi còn
-        // lại). Áp cho cả tutor lẫn học viên/phụ huynh; miễn Admin để còn giám sát.
+        if (!await deviceLeases.RenewAsync(
+                classSessionId, userId, participationId, leaseId, cancellationToken))
+        {
+            return RevokedLease();
+        }
+
+        presence.Heartbeat(classSessionId, userId);
+
+        var status = await classSessionService.TryAutoCheckInAsync(classSessionId);
+
+        return Ok(APIResponse<object>.Success(new
+        {
+            tutorPresent     = status.TutorPresent,
+            studentPresent   = status.StudentPresent,
+            isCheckedIn      = status.IsCheckedIn,
+            roomClosed       = status.RoomClosed,
+            blockedByPayment = status.BlockedByPayment
+        }, "OK"));
+    }
+
+    /// <summary>
+    /// POST /api/agora/room/{classSessionId}/leave
+    /// Client gọi khi rời phòng (kể cả beforeunload) để xoá presence ngay, giúp phía kia biết
+    /// mình đã rời. Không đổi trạng thái buổi học.
+    /// </summary>
+    [HttpPost("room/{classSessionId:int}/leave")]
+    public async Task<IActionResult> Leave(
+        int classSessionId,
+        [FromBody] LiveSessionLeaseRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (!TryNormalizeLeaseRequest(request, out var participationId, out var leaseId))
+            return InvalidDeviceSession();
+
+        var released = await deviceLeases.ReleaseAsync(
+            classSessionId, UserId, participationId, leaseId, cancellationToken);
+        if (released)
+            presence.Leave(classSessionId, UserId);
+
+        return Ok(APIResponse<object>.Success(new { released }, "OK"));
+    }
+
+    /// <summary>
+    /// POST /api/agora/whiteboard/{classSessionId}
+    /// Lấy thông tin để join phòng Interactive Whiteboard (Netless) của buổi học.
+    /// Cùng điều kiện truy cập với phòng video: chỉ Tutor/Parent/Student thuộc buổi học,
+    /// buổi đang mở (scheduled/in_progress, chưa check-out), không bị chặn bởi thanh toán.
+    /// </summary>
+    /// <returns>{ appIdentifier, region, roomUuid, roomToken, role }</returns>
+    [HttpPost("whiteboard/{classSessionId:int}")]
+    public async Task<IActionResult> GetWhiteboardRoom(
+        int classSessionId,
+        [FromBody] LiveSessionLeaseRequest request,
+        CancellationToken cancellationToken)
+    {
+        var userId = UserId;
+        if (!TryNormalizeLeaseRequest(request, out var normalizedParticipationId, out var normalizedLeaseId))
+            return InvalidDeviceSession();
+
+        var classSession = await context.ClassSessions
+            .Include(l => l.Booking)
+            .FirstOrDefaultAsync(l => l.Classsessionid == classSessionId);
+
+        if (classSession == null)
+            return NotFound(APIResponse<object>.Fail("Không tìm thấy buổi học.", 404));
+
+        if (!await CheckClassSessionAccessAsync(classSession, userId))
+            return Forbid();
+
+        if (!await deviceLeases.IsActiveAsync(
+                classSessionId,
+                userId,
+                normalizedParticipationId,
+                normalizedLeaseId,
+                cancellationToken))
+        {
+            return RevokedLease();
+        }
+
         if (CurrentUserRole != UserRole.Admin
             && await classSessionService.IsSessionBlockedByRemainingPaymentAsync(classSessionId))
         {
             return BadRequest(APIResponse<object>.Fail(
-                "Phụ huynh chưa thanh toán các buổi học còn lại. Vui lòng hoàn tất thanh toán trước khi vào lớp buổi tiếp theo.", 400));
+                "Phụ huynh chưa thanh toán các buổi học còn lại. Vui lòng hoàn tất thanh toán trước khi vào lớp.", 400));
         }
 
-        // Buổi học phải đang diễn ra hoặc sắp diễn ra (không quá 30 phút trước giờ bắt đầu)
-        var now = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
-        var allowedFrom = classSession.Scheduledstart.AddMinutes(-30);
-        if (now < allowedFrom)
-        {
-            var minutesLeft = (int)(allowedFrom - now).TotalMinutes;
-            return BadRequest(APIResponse<object>.Fail(
-                $"Phòng học chưa mở. Vui lòng thử lại sau {minutesLeft} phút.", 400));
-        }
-
-        // Buổi học đã kết thúc quá lâu (sau checkout hoặc 4 tiếng từ khi bắt đầu)
-        var endDeadline = classSession.Scheduledend.AddHours(4);
-        if (now > endDeadline)
-        {
+        // Cùng chính sách mở phòng với GetRoomInfo: theo TRẠNG THÁI buổi học, không theo khung giờ.
+        if (classSession.Checkouttime != null)
             return BadRequest(APIResponse<object>.Fail("Buổi học đã kết thúc.", 400));
-        }
+        if (classSession.Status != ClassSessionStatus.Scheduled && classSession.Status != ClassSessionStatus.InProgress)
+            return BadRequest(APIResponse<object>.Fail("Phòng học không khả dụng cho buổi này.", 400));
 
-        // Lấy thông tin phòng (channel + token)
-        var roomInfo = agoraService.GetRoomInfo(classSessionId, userId);
-
-        // Lấy tên thật của người tham gia (key = UserId = Agora user account)
-        var participantNames = new Dictionary<string, string>();
-        if (classSession.Tutor?.Tutor != null) {
-            participantNames[classSession.Tutorid] = classSession.Tutor.Tutor.Fullname ?? "Gia sư";
-        }
-        if (classSession.Booking?.Parent != null) {
-            participantNames[classSession.Booking.Parentid] = classSession.Booking.Parent.Fullname ?? "Phụ huynh";
-        }
-        if (classSession.Booking?.Student != null) {
-            if (!string.IsNullOrEmpty(classSession.Booking.Student.Linkeduserid)) {
-                participantNames[classSession.Booking.Student.Linkeduserid] = classSession.Booking.Student.Fullname ?? "Học sinh";
-            }
-        }
+        var isTutor = classSession.Tutorid == userId;
+        var room = await whiteboardService.GetOrCreateRoomAsync(classSessionId, isTutor);
 
         return Ok(APIResponse<object>.Success(new
         {
-            channel          = roomInfo.Channel,
-            uid              = roomInfo.Uid,
-            token            = roomInfo.Token,
-            appId            = roomInfo.AppId,
-            expireAt         = roomInfo.ExpireAt,
-            participantNames = participantNames
-        }, "Lấy thông tin phòng Agora RTC thành công."));
+            appIdentifier = room.AppIdentifier,
+            region        = room.Region,
+            roomUuid      = room.RoomUuid,
+            roomToken     = room.RoomToken,
+            role          = room.Role
+        }, "Lấy thông tin phòng whiteboard thành công."));
     }
 
     /// <summary>
@@ -140,7 +231,209 @@ public class AgoraController(
 
     // ── Private helpers ───────────────────────────────────────────────────────
 
-    private async Task<bool> CheckClassSessionAccessAsync(MV.DomainLayer.Entities.ClassSession classSession, string userId)
+    private async Task<IActionResult> AdmitAndBuildRoomAsync(
+        int classSessionId,
+        LiveSessionJoinRequest request,
+        string? expectedActiveLeaseId,
+        CancellationToken cancellationToken)
+    {
+        if (!TryNormalizeJoinRequest(
+                request,
+                out var participationId,
+                out var deviceId,
+                out var deviceLabel))
+        {
+            return InvalidDeviceSession();
+        }
+
+        string? normalizedExpectedLeaseId = null;
+        if (expectedActiveLeaseId != null
+            && !LiveSessionDeviceInputValidator.TryNormalizeGuid(
+                expectedActiveLeaseId,
+                out normalizedExpectedLeaseId))
+        {
+            return InvalidDeviceSession();
+        }
+
+        var userId = UserId;
+        var classSession = await context.ClassSessions
+            .Include(l => l.Tutor!)
+                .ThenInclude(t => t.Tutor)
+            .Include(l => l.Booking)
+                .ThenInclude(b => b!.Parent)
+            .Include(l => l.Booking)
+                .ThenInclude(b => b!.Student)
+            .FirstOrDefaultAsync(l => l.Classsessionid == classSessionId, cancellationToken);
+
+        if (classSession == null)
+            return NotFound(APIResponse<object>.Fail("Không tìm thấy buổi học.", 404));
+
+        if (!await CheckClassSessionAccessAsync(classSession, userId))
+            return Forbid();
+
+        if (CurrentUserRole != UserRole.Admin
+            && await classSessionService.IsSessionBlockedByRemainingPaymentAsync(classSessionId))
+        {
+            return BadRequest(APIResponse<object>.Fail(
+                "Phụ huynh chưa thanh toán các buổi học còn lại. Vui lòng hoàn tất thanh toán trước khi vào lớp buổi tiếp theo.",
+                400));
+        }
+
+        if (classSession.Checkouttime != null)
+            return BadRequest(APIResponse<object>.Fail("Buổi học đã kết thúc.", 400));
+
+        if (classSession.Status != ClassSessionStatus.Scheduled
+            && classSession.Status != ClassSessionStatus.InProgress)
+        {
+            return BadRequest(APIResponse<object>.Fail("Phòng học không khả dụng cho buổi này.", 400));
+        }
+
+        LiveSessionDeviceLease lease;
+        if (normalizedExpectedLeaseId == null)
+        {
+            var admission = await deviceLeases.AdmitAsync(
+                classSessionId,
+                userId,
+                participationId,
+                deviceId,
+                deviceLabel,
+                cancellationToken);
+
+            if (!admission.Admitted || admission.Lease == null)
+                return ActiveDeviceConflict(admission.ActiveLeaseId, admission.ActiveDeviceLabel);
+
+            lease = admission.Lease;
+        }
+        else
+        {
+            var takeover = await deviceLeases.TakeoverAsync(
+                classSessionId,
+                userId,
+                participationId,
+                deviceId,
+                deviceLabel,
+                normalizedExpectedLeaseId,
+                cancellationToken);
+
+            if (!takeover.TakenOver || takeover.Lease == null)
+                return ActiveDeviceConflict(takeover.ActiveLeaseId, takeover.ActiveDeviceLabel);
+
+            lease = takeover.Lease;
+
+            if (!string.IsNullOrEmpty(takeover.ReplacedLeaseId))
+            {
+                try
+                {
+                    await liveSessionHub.Clients
+                        .Group(LiveSessionHub.LeaseGroup(takeover.ReplacedLeaseId))
+                        .SendAsync("sessionReplaced", new
+                        {
+                            classSessionId,
+                            leaseId = takeover.ReplacedLeaseId,
+                            reason = "taken_over"
+                        }, cancellationToken);
+                }
+                catch (Exception ex)
+                {
+                    // The lease CAS is already committed. Heartbeat rejection remains the
+                    // authoritative fallback if the best-effort real-time signal cannot be sent.
+                    logger.LogWarning(
+                        ex,
+                        "Could not signal replaced live-session device for user {UserId}, classSession {ClassSessionId}",
+                        userId,
+                        classSessionId);
+                }
+            }
+        }
+
+        var roomInfo = agoraService.GetRoomInfo(classSessionId, classSession.Bookingid, userId);
+        var tutorName = classSession.Tutor?.Tutor?.Fullname ?? "Gia sư";
+        var studentName = classSession.Booking?.Student?.Fullname ?? "Học sinh";
+        var tutorUserId = classSession.Tutorid;
+        var parentUserId = classSession.Booking?.Parentid;
+        var studentUserId = classSession.Booking?.Student?.Linkeduserid;
+        var participantNames = new Dictionary<string, string>();
+
+        if (classSession.Tutor?.Tutor != null && !string.IsNullOrEmpty(tutorUserId))
+            participantNames[tutorUserId] = tutorName;
+        if (classSession.Booking?.Parent != null && !string.IsNullOrEmpty(parentUserId))
+            participantNames[parentUserId] = classSession.Booking.Parent.Fullname ?? "Phụ huynh";
+        if (!string.IsNullOrEmpty(studentUserId))
+            participantNames[studentUserId] = studentName;
+
+        return Ok(APIResponse<object>.Success(new
+        {
+            channel = roomInfo.Channel,
+            classSessionId = roomInfo.ClassSessionId,
+            uid = roomInfo.Uid,
+            token = roomInfo.Token,
+            appId = roomInfo.AppId,
+            expireAt = roomInfo.ExpireAt,
+            tutorName,
+            studentName,
+            participantNames,
+            status = classSession.Status,
+            checkedIn = classSession.Checkintime != null,
+            participationId = lease.ParticipationId,
+            leaseId = lease.LeaseId
+        }, "Lấy thông tin phòng Agora RTC thành công."));
+    }
+
+    private IActionResult ActiveDeviceConflict(string? activeLeaseId, string? activeDeviceLabel)
+    {
+        return Conflict(APIResponse<object>.Fail(
+            "Bạn đã tham gia buổi học trên một thiết bị khác.",
+            409,
+            new
+            {
+                code = LiveSessionDeviceErrorCodes.ActiveOnAnotherDevice,
+                activeLeaseId,
+                activeDeviceLabel
+            }));
+    }
+
+    private IActionResult RevokedLease()
+    {
+        return Conflict(APIResponse<object>.Fail(
+            "Phiên tham gia trên thiết bị này đã được thay thế.",
+            409,
+            new { code = LiveSessionDeviceErrorCodes.LeaseRevoked }));
+    }
+
+    private IActionResult InvalidDeviceSession()
+    {
+        return BadRequest(APIResponse<object>.Fail(
+            "Thông tin phiên hoặc thiết bị không hợp lệ.",
+            400,
+            new { code = LiveSessionDeviceErrorCodes.InvalidDeviceSession }));
+    }
+
+    private static bool TryNormalizeJoinRequest(
+        LiveSessionJoinRequest request,
+        out string participationId,
+        out string deviceId,
+        out string deviceLabel)
+    {
+        participationId = string.Empty;
+        deviceId = string.Empty;
+        deviceLabel = string.Empty;
+        return LiveSessionDeviceInputValidator.TryNormalizeGuid(request.ParticipationId, out participationId)
+            && LiveSessionDeviceInputValidator.TryNormalizeGuid(request.DeviceId, out deviceId)
+            && LiveSessionDeviceInputValidator.TryNormalizeDeviceLabel(request.DeviceLabel, out deviceLabel);
+    }
+
+    private static bool TryNormalizeLeaseRequest(
+        LiveSessionLeaseRequest request,
+        out string participationId,
+        out string leaseId)
+    {
+        participationId = string.Empty;
+        leaseId = string.Empty;
+        return LiveSessionDeviceInputValidator.TryNormalizeGuid(request.ParticipationId, out participationId)
+            && LiveSessionDeviceInputValidator.TryNormalizeGuid(request.LeaseId, out leaseId);
+    }
+
+    private async Task<bool> CheckClassSessionAccessAsync(ClassSession classSession, string userId)
     {
         // Admin có toàn quyền
         if (CurrentUserRole == MV.DomainLayer.Constants.UserRole.Admin)

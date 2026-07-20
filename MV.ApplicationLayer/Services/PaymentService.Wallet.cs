@@ -16,14 +16,58 @@ public partial class PaymentService
 {
     // ─── Wallet Payment ───────────────────────────────────────────────────
 
-    public async Task PayWithWalletAsync(int bookingId, string userId, CancellationToken ct = default)
+    public Task PayWithWalletAsync(
+        int bookingId,
+        string userId,
+        CancellationToken ct = default)
+        => PayWithWalletCoreAsync(bookingId, userId, null, ct);
+
+    private async Task PayWithWalletCoreAsync(
+        int bookingId,
+        string userId,
+        string? expectedPhase,
+        CancellationToken ct)
     {
-        var booking = await bookingRepo.FindForPaymentByUserAsync(bookingId, userId, ct)
-            ?? throw new BookingException(BookingErrorCodes.BookingNotFound, ApiMessages.BookingNotFound, 404);
+        Booking booking;
+        bool isDepositPhase;
 
-        EnsureDepositAmountsCalculated(booking);
+        await using (var tx = await context.Database.BeginTransactionAsync(
+            System.Data.IsolationLevel.Serializable,
+            ct))
+        {
+            try
+            {
+                booking = await bookingRepo
+                    .FindWithRelationsForUpdateAsync(bookingId, ct)
+                    ?? throw new BookingException(
+                        BookingErrorCodes.BookingNotFound,
+                        ApiMessages.BookingNotFound,
+                        404);
+                var ownsBooking = booking.Parentid == userId
+                    || booking.Studentid == userId
+                    || booking.Student?.Linkeduserid == userId;
+                if (!ownsBooking)
+                {
+                    throw new BookingException(
+                        BookingErrorCodes.BookingNotFound,
+                        ApiMessages.BookingNotFound,
+                        404);
+                }
 
-        bool isDepositPhase = booking.Depositpaidat == null;
+                EnsureDepositAmountsCalculated(booking);
+
+                isDepositPhase = booking.Depositpaidat == null;
+
+                var currentPhase = isDepositPhase
+                    ? PaymentRequestPhase.Deposit
+                    : PaymentRequestPhase.Remaining;
+                if (expectedPhase != null && expectedPhase != currentPhase)
+                {
+                    throw new BookingException(
+                        BookingErrorCodes.BookingAlreadyPaid,
+                        "Giai đoạn thanh toán của booking đã thay đổi. Tiền nạp bù vẫn được giữ an toàn trong ví.",
+                        409);
+                }
 
         if (isDepositPhase)
         {
@@ -60,9 +104,6 @@ public partial class PaymentService
             ? $"Deposit for booking #{bookingId}"
             : $"Remaining payment for booking #{bookingId}";
 
-        await using var tx = await context.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, ct);
-        try
-        {
             var wallet = await walletRepo.GetByUserIdForUpdateAsync(userId, ct)
                 ?? throw new BookingException(BookingErrorCodes.BookingNotFound, "Không tìm thấy ví người dùng", 404);
 
@@ -84,6 +125,14 @@ public partial class PaymentService
             });
 
             var txId = $"wallet-{bookingId}-{(isDepositPhase ? PaymentPhase.DepositShort : PaymentPhase.RemainingShort)}-{MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow:yyyyMMddHHmmss}";
+
+            context.PaymentTransactions.Add(
+                WalletPaymentTransactionFactory.Create(
+                    bookingId,
+                    userId,
+                    isDepositPhase,
+                    amount,
+                    MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow));
 
             if (isDepositPhase)
             {
@@ -164,18 +213,29 @@ public partial class PaymentService
 
             await context.SaveChangesAsync(ct);
             await tx.CommitAsync(ct);
-
-            await SendPaymentPhaseNotificationsAsync(booking, isDepositPhase);
-
-            logger.LogInformation("Parent {ParentId} paid {Phase} for booking {BookingId} with wallet",
-                userId, isDepositPhase ? PaymentPhase.Deposit : PaymentPhase.Remaining, bookingId);
-
+            }
+            catch
+            {
+                await tx.RollbackAsync(ct);
+                throw;
+            }
         }
-        catch
-        {
-            await tx.RollbackAsync(ct);
-            throw;
-        }
+
+        // The wallet transaction is disposed before PayOS cleanup starts. This
+        // allows the cleanup helper to open its own serializable transaction and
+        // prevents post-commit notification failures from attempting rollback.
+        await SupersedeActivePayOSRequestsAsync(
+            bookingId,
+            isDepositPhase
+                ? PaymentRequestPhase.Deposit
+                : PaymentRequestPhase.Remaining,
+            "Booking phase was paid with wallet balance.",
+            ct);
+
+        await SendPaymentPhaseNotificationsAsync(booking, isDepositPhase);
+
+        logger.LogInformation("Parent {ParentId} paid {Phase} for booking {BookingId} with wallet",
+            userId, isDepositPhase ? PaymentPhase.Deposit : PaymentPhase.Remaining, bookingId);
     }
 
     public async Task<WalletSummaryResponse> GetTutorWalletSummaryAsync(string tutorId)

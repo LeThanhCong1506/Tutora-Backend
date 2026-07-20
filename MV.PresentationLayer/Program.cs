@@ -13,6 +13,7 @@ using MV.ApplicationLayer.Services;
 using MV.ApplicationLayer.BackgroundJobs;
 using MV.DomainLayer.Constants;
 using MV.PresentationLayer.Filters;
+using MV.PresentationLayer.Migrations;
 using Hangfire;
 using Hangfire.PostgreSql;
 using MV.DomainLayer.Configuration;
@@ -48,6 +49,9 @@ builder.Services.Configure<GoogleGeminiSettings>(builder.Configuration.GetSectio
 builder.Services.Configure<PaymentSettings>(builder.Configuration.GetSection(PaymentSettings.SectionName));
 builder.Services.Configure<GoogleSettings>(builder.Configuration.GetSection(GoogleSettings.SectionName));
 builder.Services.Configure<AgoraSettings>(builder.Configuration.GetSection(AgoraSettings.SectionName));
+builder.Services.Configure<AgoraRecordingSettings>(builder.Configuration.GetSection(AgoraRecordingSettings.SectionName));
+builder.Services.Configure<GoogleDriveSettings>(builder.Configuration.GetSection(GoogleDriveSettings.SectionName));
+builder.Services.Configure<WhiteboardSettings>(builder.Configuration.GetSection(WhiteboardSettings.SectionName));
 builder.Services.Configure<VietQRSettings>(builder.Configuration.GetSection(VietQRSettings.SectionName));
 builder.Services.Configure<ZaloOAConfig>(builder.Configuration.GetSection(ConfigurationKeys.ZaloOA.SectionName));
 builder.Services.Configure<CloudinarySettings>(builder.Configuration.GetSection("Cloudinary"));
@@ -278,11 +282,13 @@ builder.Services.AddScoped<INotificationRepository, NotificationRepository>();
 builder.Services.AddScoped<IRefreshTokenRepository, RefreshTokenRepository>();
 builder.Services.AddScoped<ITutorSearchRepository, TutorSearchRepository>();
 builder.Services.AddScoped<IStaffPermissionRepository, StaffPermissionRepository>();
+builder.Services.AddScoped<IPermissionGroupRepository, PermissionGroupRepository>();
 builder.Services.AddScoped<ILearningMaterialRepository, LearningMaterialRepository>();
 
 // Service injection
 builder.Services.AddScoped<ITutorVerificationService, TutorVerificationService>();
 builder.Services.AddScoped<IUserService, UserService>();
+builder.Services.AddScoped<IPermissionGroupService, PermissionGroupService>();
 builder.Services.AddScoped<ILoginService, LoginService>();
 builder.Services.AddScoped<ITutorService, TutorService>();
 builder.Services.AddScoped<ITutorProfileUpdateStagingService, TutorProfileUpdateStagingService>();
@@ -304,13 +310,26 @@ builder.Services.AddScoped<IRefreshTokenService, RefreshTokenService>();
 builder.Services.AddScoped<ITutorAvailabilityService, TutorAvailabilityService>();
 builder.Services.AddScoped<ILookupService, LookupService>();
 builder.Services.AddScoped<IBookingService, BookingService>();
+builder.Services.AddScoped<IEkycService, EkycService>();
+builder.Services.AddScoped<IStudentIdentityService, StudentIdentityService>();
 builder.Services.AddScoped<IStudentService, StudentService>();
 builder.Services.AddScoped<IChatService, ChatService>();
+builder.Services.AddScoped<IPresenceService, PresenceService>();
+builder.Services.AddHostedService<PresenceLeaseCleanupService>();
 builder.Services.AddScoped<IAiChatService, AiChatService>();
 builder.Services.AddScoped<IPaymentService, PaymentService>();
 builder.Services.AddScoped<IWalletService, WalletService>();
 builder.Services.AddScoped<IClassSessionService, ClassSessionService>();
 builder.Services.AddScoped<IAgoraRTCService, AgoraRTCService>();
+builder.Services.AddSingleton<ILiveSessionDeviceLeaseService, LiveSessionDeviceLeaseService>();
+// Presence in-memory (Singleton): theo dõi ai đang trong phòng học để auto check-in khi đủ cả 2.
+builder.Services.AddSingleton<ISessionPresenceService, SessionPresenceService>();
+// Cloud Recording: auto start khi auto check-in, stop khi check-out; relay file S3 → Drive chạy nền.
+builder.Services.AddHttpClient<ICloudRecordingService, CloudRecordingService>();
+builder.Services.AddHttpClient<IWhiteboardService, WhiteboardService>();
+builder.Services.AddScoped<IGoogleDriveService, GoogleDriveService>();
+builder.Services.AddScoped<IRecordingRelayService, RecordingRelayService>();
+builder.Services.AddHostedService<MV.PresentationLayer.BackgroundServices.RecordingRelayHostedService>();
 builder.Services.AddScoped<ITutorFinanceService, TutorFinanceService>();
 builder.Services.AddScoped<ILearningMaterialService, LearningMaterialService>();
 
@@ -397,6 +416,7 @@ builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
 // Background job
 //builder.Services.AddHostedService<EmailConsumerService>();
 builder.Services.AddHostedService<PaymentTimeoutJob>();
+builder.Services.AddHostedService<PaymentRequestReconciliationJob>();
 builder.Services.AddHostedService<TutorResponseTimeoutJob>();
 builder.Services.AddHostedService<AutoConfirmClassSessionJob>();
 builder.Services.AddHostedService<AutoUnsuspendJob>();
@@ -449,8 +469,11 @@ builder.Services.AddAuthentication(options =>
         {
             var accessToken = context.Request.Query[OAuthFieldNames.AccessToken];
             var path = context.HttpContext.Request.Path;
-            if (!string.IsNullOrEmpty(accessToken) && 
-    (path.StartsWithSegments("/notificationHub") || path.StartsWithSegments("/hubs/chat")))
+            if (!string.IsNullOrEmpty(accessToken)
+                && (path.StartsWithSegments("/notificationHub")
+                    || path.StartsWithSegments("/hubs/chat")
+                    || path.StartsWithSegments("/hubs/session-lobby")
+                    || path.StartsWithSegments("/hubs/live-session")))
             {
                 context.Token = accessToken;
             }
@@ -474,19 +497,25 @@ builder.Services.AddAuthentication(options =>
                     return;
                 }
 
-                // Nạp permission claims cho Staff. Không nhúng vào JWT để đổi quyền
-                // có hiệu lực ngay lập tức mà không cần đăng nhập lại.
+                var identity = context.Principal?.Identity as System.Security.Claims.ClaimsIdentity;
+                if (identity == null || string.IsNullOrWhiteSpace(user.Primaryrole))
+                {
+                    context.Fail("Không xác định được role hiện tại của tài khoản.");
+                    return;
+                }
+
+                // JWT có thể còn role/quyền cũ. Lấy quyền hiệu lực từ DB ở mỗi request,
+                // rồi thay toàn bộ claim trước khi authorization chạy.
+                IEnumerable<string> grantedKeys = Array.Empty<string>();
                 if (string.Equals(user.Primaryrole, UserRole.Staff, StringComparison.OrdinalIgnoreCase))
                 {
                     var permissionRepo = context.HttpContext.RequestServices.GetRequiredService<MV.ApplicationLayer.RepositoryInterfaces.IStaffPermissionRepository>();
-                    var grantedKeys = await permissionRepo.GetGrantedPermissionKeysAsync(userId);
-                    if (grantedKeys.Count > 0)
-                    {
-                        var identity = (System.Security.Claims.ClaimsIdentity)context.Principal!.Identity!;
-                        foreach (var key in grantedKeys)
-                            identity.AddClaim(new System.Security.Claims.Claim(MV.DomainLayer.Constants.Permissions.ClaimType, key));
-                    }
+                    grantedKeys = await permissionRepo.GetGrantedPermissionKeysAsync(userId);
                 }
+                MV.PresentationLayer.Authorization.CurrentAccessClaims.Replace(
+                    identity,
+                    user.Primaryrole,
+                    grantedKeys);
             }
         }
     };
@@ -503,7 +532,37 @@ builder.Services.AddAuthorization(options =>
 });
 builder.Services.AddSingleton<Microsoft.AspNetCore.Authorization.IAuthorizationHandler, MV.PresentationLayer.Authorization.PermissionRequirementHandler>();
 
+if (args.Any(arg => string.Equals(arg, "--run-managed-migrations", StringComparison.OrdinalIgnoreCase)))
+{
+    await ManagedMigrationRunner.RunAsync(builder.Configuration);
+    return;
+}
+
 var app = builder.Build();
+
+await using (var schemaScope = app.Services.CreateAsyncScope())
+{
+    var schemaContext = schemaScope.ServiceProvider
+        .GetRequiredService<AgoraDbContext>();
+    var schemaLogger = schemaScope.ServiceProvider
+        .GetRequiredService<ILoggerFactory>()
+        .CreateLogger("PaymentSqlMigrationRunner");
+
+    if (args.Any(a => string.Equals(
+        a,
+        "--migrate-only",
+        StringComparison.OrdinalIgnoreCase)))
+    {
+        await PaymentSqlMigrationRunner.ApplyPendingAsync(
+            schemaContext,
+            schemaLogger);
+        return;
+    }
+
+    await PaymentSqlMigrationRunner.EnsureCurrentAsync(
+        schemaContext,
+        schemaLogger);
+}
 
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
@@ -548,6 +607,8 @@ app.MapGet("/", () => Results.Content("""
 app.MapControllers();
 app.MapHub<NotificationHub>("/notificationHub");
 app.MapHub<ChatHub>("/hubs/chat");
+app.MapHub<SessionLobbyHub>("/hubs/session-lobby");
+app.MapHub<LiveSessionHub>("/hubs/live-session");
 
 // --- KHỞI TẠO STORAGE BUCKET ---
 using (var scope = app.Services.CreateScope())

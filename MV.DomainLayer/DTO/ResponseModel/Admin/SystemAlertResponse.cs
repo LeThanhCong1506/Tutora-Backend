@@ -14,6 +14,7 @@ public class SystemAlertItem
     public string Type { get; set; } = string.Empty;
     public string Severity { get; set; } = string.Empty;
     public string Message { get; set; } = string.Empty;
+    public string? Metadata { get; set; }
     public bool Resolved { get; set; }
     public DateTime? ResolvedAt { get; set; }
     public string? ResolvedBy { get; set; }

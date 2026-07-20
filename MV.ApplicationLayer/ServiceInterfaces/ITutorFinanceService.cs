@@ -35,6 +35,9 @@ public interface ITutorFinanceService
     /// </summary>
     Task<TutorBankInfoResponse> UpdateBankInfoAsync(string tutorId, UpdateTutorBankInfoRequest request, CancellationToken ct = default);
 
+    /// <summary>Delete the authenticated user's saved bank account.</summary>
+    Task DeleteBankInfoAsync(string userId, CancellationToken ct = default);
+
     /// <summary>
     /// Submit a withdrawal request; runs fraud detection and trust scoring before queuing.
     /// </summary>

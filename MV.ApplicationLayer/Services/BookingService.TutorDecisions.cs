@@ -204,7 +204,7 @@ public partial class BookingService
         {
             await notificationService.CreateNotificationAsync(new NotificationRequest
             {
-                Userid = booking.Parentid!,
+                Userid = ResolveRefundRecipientId(booking)!,
                 Title = "Gia sư đã từ chối lịch học",
                 Message = $"Gia sư đã từ chối yêu cầu đặt lịch #{bookingId}. Tiền cọc đã được hoàn vào ví của bạn.",
                 Type = NotificationType.BookingDeclined,
@@ -227,12 +227,15 @@ public partial class BookingService
 
         var refundAmount = TutorResponseTimeoutPolicy.ParentRefundAmount(booking);
 
-        if (refundAmount <= 0 || string.IsNullOrWhiteSpace(booking.Parentid))
+        // Hoàn về người đã trả: phụ huynh đặt hộ → Parentid; học sinh tự đặt → ví học sinh.
+        var refundRecipientId = ResolveRefundRecipientId(booking);
+
+        if (refundAmount <= 0 || string.IsNullOrWhiteSpace(refundRecipientId))
             throw new InvalidOperationException(
                 $"Booking #{booking.Bookingid} has no valid refund recipient or amount.");
 
         var now = TimeZoneHelper.UtcNow;
-        var parentWallet = await WalletLockHelper.GetOrCreateForUpdateAsync(context, booking.Parentid, now);
+        var parentWallet = await WalletLockHelper.GetOrCreateForUpdateAsync(context, refundRecipientId, now);
         parentWallet.Balance = (parentWallet.Balance ?? 0) + refundAmount;
         parentWallet.Lastupdated = now;
 

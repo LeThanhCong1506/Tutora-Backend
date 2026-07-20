@@ -199,6 +199,13 @@ namespace MV.ApplicationLayer.Services
                     {
                         existingUserByPhone.Email = request.Email;
                     }
+
+                    // Lần đăng ký dở trước có thể đã tạo Studentprofile → cập nhật tên cho khớp bảng Users.
+                    var existingProfile = await _unitOfWork.StudentRepository
+                        .FindByStudentOrLinkedUserAsync(existingUserByPhone.Userid);
+                    if (existingProfile != null)
+                        existingProfile.Fullname = request.FullName;
+
                     await _unitOfWork.UserRepository.UpdateUserAsync(existingUserByPhone);
                     await _unitOfWork.SaveChangesAsync();
 
@@ -245,6 +252,8 @@ namespace MV.ApplicationLayer.Services
                         Studentid = userId,
                         Parentid = null,
                         Fullname = request.FullName,
+                        // SĐT phụ huynh (tùy chọn) — chỉ để gửi ZNS theo dõi.
+                        Parentphone = string.IsNullOrWhiteSpace(request.ParentPhone) ? null : request.ParentPhone.Trim(),
                         Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
                     });
                 }

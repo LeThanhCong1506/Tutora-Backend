@@ -146,6 +146,28 @@ public class BookingController : ControllerBase
         return Ok(APIResponse.Success("Đặt lịch đã được hủy thành công."));
     }
 
+    [HttpPost("bookings/{id}/finalize-early")]
+    [Authorize(Roles = UserRole.ParentOrStudent)]
+    public async Task<IActionResult> FinalizeBookingEarly(
+        [FromRoute] int id,
+        [FromQuery] string? reason = null,
+        CancellationToken ct = default)
+    {
+        var userId = UserId;
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(APIResponse.Fail(ApiMessages.Unauthorized, 401));
+
+        var ok = await _bookingService.FinalizeBookingEarlyByUserAsync(id, userId, reason, ct);
+        if (!ok)
+        {
+            return Conflict(APIResponse.Fail(
+                "Không thể kết thúc khóa học lúc này. Hãy tải lại để kiểm tra trạng thái thanh toán và buổi học.",
+                409));
+        }
+
+        return Ok(APIResponse.Success("Khóa học đã được kết thúc. Các buổi chưa học đã được hủy."));
+    }
+
     [HttpGet("promotions/validate")]
     [Authorize(Roles = UserRole.ParentOrStudent)]
     public async Task<IActionResult> ValidatePromotion([FromQuery] string? code, [FromQuery] decimal orderValue = 0)

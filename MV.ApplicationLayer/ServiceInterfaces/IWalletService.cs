@@ -6,14 +6,15 @@ namespace MV.ApplicationLayer.ServiceInterfaces;
 public interface IWalletService
 {
     /// <summary>
-    /// Initiate a wallet top-up; returns payment URL / QR data.
-    /// </summary>
-    Task<TopupResponse> CreateTopupRequestAsync(string userId, TopupRequest request);
-
-    /// <summary>
     /// Process an inbound webhook for a wallet top-up transaction.
     /// </summary>
-    Task ProcessTopupWebhookAsync(PaymentWebhookRequest request, CancellationToken ct = default);
+    Task ProcessTopupWebhookAsync(PaymentWebhookRequest request, string rawPayload, CancellationToken ct = default);
+
+    /// <summary>
+    /// Trạng thái lệnh nạp phần thiếu gắn với một booking; có self-heal khi webhook PayOS chưa về.
+    /// Không cung cấp API nạp ví độc lập.
+    /// </summary>
+    Task<TopupStatusResponse> GetBookingShortfallTopupStatusAsync(int bookingId, long orderCode, string userId, CancellationToken ct = default);
 
     /// <summary>
     /// Current wallet balance and currency for a user.
@@ -25,9 +26,22 @@ public interface IWalletService
     /// </summary>
     Task<TransactionHistoryPagedResponse> GetTransactionHistoryAsync(string userId, int page = 1, int pageSize = 20);
 
+    /// <summary>Ownership-checked wallet transaction detail: hoá đơn booking/dispute/withdrawal + chứng từ chi trả.</summary>
+    Task<TransactionDetailResponse> GetTransactionDetailAsync(
+        string userId,
+        int transactionId,
+        CancellationToken ct = default);
+
     /// <summary>
-    /// Verify the HMAC-SHA256 signature on a raw webhook payload.
+    /// Submit a withdrawal request for a wallet owner who has no saved bank account on file
+    /// (e.g. a parent) — the bank destination is snapshotted directly from the request.
     /// </summary>
-    Task<bool> VerifyWebhookSignatureAsync(string payload, string signature);
+    Task<WithdrawalDetailResponse> CreateWithdrawalAsync(string userId, CreateWithdrawalRequest request, CancellationToken ct = default);
+
+    /// <summary>Paged list of the caller's own past and pending withdrawal requests.</summary>
+    Task<WithdrawalListResponse> GetWithdrawalsAsync(string userId, int page, int pageSize, CancellationToken ct = default);
+
+    /// <summary>Single withdrawal detail by id — ownership-checked, includes payout proof.</summary>
+    Task<WithdrawalDetailResponse> GetWithdrawalDetailAsync(string userId, int withdrawalId, CancellationToken ct = default);
 }
 
