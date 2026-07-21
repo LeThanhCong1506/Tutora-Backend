@@ -15,4 +15,10 @@ public interface IGoogleDriveService
     /// Trả về fileId của file trên Drive.
     /// </summary>
     Task<string> UploadAsync(Stream content, string fileName, string mimeType, CancellationToken ct = default);
+
+    /// <summary>
+    /// Tìm file đã tồn tại trên Drive theo đúng tên (trong folder cấu hình, chưa bị xóa).
+    /// Trả về fileId nếu có, null nếu chưa từng upload — dùng để chống upload trùng.
+    /// </summary>
+    Task<string?> FindFileIdByNameAsync(string fileName, CancellationToken ct = default);
 }

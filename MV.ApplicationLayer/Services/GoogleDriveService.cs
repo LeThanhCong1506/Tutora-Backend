@@ -67,6 +67,26 @@ public class GoogleDriveService : IGoogleDriveService
         return fileId;
     }
 
+    public async Task<string?> FindFileIdByNameAsync(string fileName, CancellationToken ct = default)
+    {
+        var drive = CreateService();
+
+        // Escape dấu ' để tránh vỡ cú pháp query (tên chuẩn "session-{id}.mp4" vốn không có, nhưng phòng xa)
+        var safeName = fileName.Replace("\\", "\\\\").Replace("'", "\\'");
+        var q = $"name = '{safeName}' and trashed = false";
+        if (!string.IsNullOrWhiteSpace(_settings.FolderId))
+            q += $" and '{_settings.FolderId}' in parents";
+
+        var list = drive.Files.List();
+        list.Q = q;
+        list.Spaces = "drive";
+        list.Fields = "files(id)";
+        list.PageSize = 1;
+
+        var result = await list.ExecuteAsync(ct);
+        return result.Files != null && result.Files.Count > 0 ? result.Files[0].Id : null;
+    }
+
     private DriveService CreateService()
     {
         if (string.IsNullOrWhiteSpace(_settings.ClientId)

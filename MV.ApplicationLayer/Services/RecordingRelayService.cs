@@ -61,14 +61,23 @@ public class RecordingRelayService : IRecordingRelayService
         foreach (var session in pending)
         {
             var key = session.Recordings3key!;
+            var fileName = $"session-{session.Classsessionid}.mp4";
             try
             {
-                // ① tải file từ S3 (stream, không buffer toàn bộ vào RAM)
-                using var s3Obj = await s3.GetObjectAsync(_rec.StorageBucket, key, ct);
+                // ⓪ CHỐNG TRÙNG: nếu Drive đã có file (vòng trước upload xong nhưng
+                //    SaveChanges lỗi / app restart giữa chừng khiến s3key chưa được xóa)
+                //    → dùng lại fileId cũ, KHÔNG upload lần 2. Tên "session-{id}.mp4" cố định
+                //    nên tra cứu theo tên là đủ; với scope drive.file chỉ thấy file do app này tạo.
+                var fileId = await _drive.FindFileIdByNameAsync(fileName, ct);
 
-                // ② upload thẳng lên Google Drive
-                var fileName = $"session-{session.Classsessionid}.mp4";
-                var fileId = await _drive.UploadAsync(s3Obj.ResponseStream, fileName, "video/mp4", ct);
+                if (fileId == null)
+                {
+                    // ① tải file từ S3 (stream, không buffer toàn bộ vào RAM)
+                    using var s3Obj = await s3.GetObjectAsync(_rec.StorageBucket, key, ct);
+
+                    // ② upload thẳng lên Google Drive
+                    fileId = await _drive.UploadAsync(s3Obj.ResponseStream, fileName, "video/mp4", ct);
+                }
 
                 // ③ lưu link Drive + xóa s3key (= đánh dấu đã relay xong)
                 session.Recordingurl = $"https://drive.google.com/file/d/{fileId}/view";
