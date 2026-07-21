@@ -34,6 +34,7 @@ namespace MV.ApplicationLayer.Services
                 {
                     SubjectId = s.Subjectid,
                     SubjectName = s.Subjectname,
+                    Description = s.Description,
                     IsActive = s.IsActive,
                     Slug = s.Slug,
                     IconUrl = s.IconUrl,
@@ -68,6 +69,7 @@ namespace MV.ApplicationLayer.Services
                 {
                     SubjectId = s.Subjectid,
                     SubjectName = s.Subjectname,
+                    Description = s.Description,
                     IsActive = s.IsActive,
                     Slug = s.Slug,
                     IconUrl = s.IconUrl,
@@ -87,6 +89,48 @@ namespace MV.ApplicationLayer.Services
                     GradeName = g.Gradename,
                     LevelOrder = g.Levelorder,
                     IsActive = g.IsActive
+                })
+                .ToListAsync();
+        }
+
+        // Admin: KHÔNG lọc IsActive.
+        // QuestionCount cho biết trước xoá có bị chặn 409 hay không.
+        public async Task<List<AdminChapterResponse>> GetAllChaptersAsync(int? subjectId, int? gradeLevelId)
+        {
+            var query = _context.Chapters.AsQueryable();
+            if (subjectId.HasValue) query = query.Where(c => c.SubjectId == subjectId.Value);
+            if (gradeLevelId.HasValue) query = query.Where(c => c.GradeLevelId == gradeLevelId.Value);
+
+            return await query
+                .OrderBy(c => c.DisplayOrder).ThenBy(c => c.Name)
+                .Select(c => new AdminChapterResponse
+                {
+                    Id = c.Id,
+                    SubjectId = c.SubjectId,
+                    GradeLevelId = c.GradeLevelId,
+                    Slug = c.Slug,
+                    Name = c.Name,
+                    DisplayOrder = c.DisplayOrder,
+                    SubjectName = c.Subject != null ? c.Subject.Subjectname : null,
+                    GradeName = c.Gradelevel != null ? c.Gradelevel.Gradename : null,
+                    IsActive = c.IsActive,
+                    QuestionCount = c.Questions.Count,
+                })
+                .ToListAsync();
+        }
+
+        public async Task<List<AdminQuestionTypeResponse>> GetAllQuestionTypesAsync()
+        {
+            return await _context.QuestionTypes
+                .OrderBy(t => t.DisplayOrder).ThenBy(t => t.Name)
+                .Select(t => new AdminQuestionTypeResponse
+                {
+                    Id = t.Id,
+                    Slug = t.Slug,
+                    Name = t.Name,
+                    DisplayOrder = t.DisplayOrder,
+                    IsActive = t.IsActive,
+                    QuestionCount = _context.QuestionBanks.Count(q => q.QuestionTypeId == t.Id),
                 })
                 .ToListAsync();
         }
@@ -140,6 +184,47 @@ namespace MV.ApplicationLayer.Services
                     DisplayOrder = t.DisplayOrder,
                 })
                 .ToListAsync();
+        }
+
+        // Reorder
+        public Task<bool> ReorderSubjectsAsync(ReorderRequest req)
+            => ReorderAsync(req, ids => _context.Subjects.Where(s => ids.Contains(s.Subjectid)),
+                s => s.Subjectid, (s, order) => s.DisplayOrder = order);
+
+        public Task<bool> ReorderGradeLevelsAsync(ReorderRequest req)
+            => ReorderAsync(req, ids => _context.Gradelevels.Where(g => ids.Contains(g.Gradelevelid)),
+                g => g.Gradelevelid, (g, order) => g.Levelorder = order);
+
+        public Task<bool> ReorderChaptersAsync(ReorderRequest req)
+            => ReorderAsync(req, ids => _context.Chapters.Where(c => ids.Contains(c.Id)),
+                c => c.Id, (c, order) => { c.DisplayOrder = order; c.UpdatedAt = DateTime.UtcNow; });
+
+        public Task<bool> ReorderQuestionTypesAsync(ReorderRequest req)
+            => ReorderAsync(req, ids => _context.QuestionTypes.Where(t => ids.Contains(t.Id)),
+                t => t.Id, (t, order) => { t.DisplayOrder = order; t.UpdatedAt = DateTime.UtcNow; });
+
+        /// <summary>
+        /// Nạp đúng các bản ghi theo id, gán thứ tự mới rồi lưu trong 1 transaction.
+        /// </summary>
+        private async Task<bool> ReorderAsync<TEntity>(
+            ReorderRequest req,
+            Func<List<int>, IQueryable<TEntity>> query,
+            Func<TEntity, int> idOf,
+            Action<TEntity, int> setOrder) where TEntity : class
+        {
+            var ids = req.Items.Select(i => i.Id).Distinct().ToList();
+            var entities = await query(ids).ToListAsync();
+            if (entities.Count != ids.Count) return false;
+
+            var orderById = req.Items.ToDictionary(i => i.Id, i => i.DisplayOrder);
+
+            await using var tx = await _context.Database.BeginTransactionAsync();
+            foreach (var entity in entities)
+                setOrder(entity, orderById[idOf(entity)]);
+
+            await _context.SaveChangesAsync();
+            await tx.CommitAsync();
+            return true;
         }
 
         // Subject
@@ -352,6 +437,7 @@ namespace MV.ApplicationLayer.Services
         {
             SubjectId = s.Subjectid,
             SubjectName = s.Subjectname,
+            Description = s.Description,
             IsActive = s.IsActive,
             Slug = s.Slug,
             IconUrl = s.IconUrl,
