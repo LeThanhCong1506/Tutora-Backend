@@ -44,6 +44,14 @@ public interface IDisputeService
     /// </summary>
     Task<DisputeStatsResponse> GetDisputeStatsAsync();
 
+    // ── Parent/Student-facing ────────────────────────────────────────────────
+
+    /// <summary>
+    /// Get the dispute tied to a classSession the parent (or self-managed student) owns, if any —
+    /// used to view evidence/status of a dispute already created, not just the creation snapshot.
+    /// </summary>
+    Task<DisputeDetailResponse?> GetDisputeByClassSessionForUserAsync(int classSessionId, string userId, string role);
+
     // ── Tutor-facing (rebuttal channel) ─────────────────────────────────────
 
     /// <summary>

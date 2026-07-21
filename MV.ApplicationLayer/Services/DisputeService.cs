@@ -344,6 +344,22 @@ public class DisputeService : IDisputeService
         };
     }
 
+    // ── Parent/Student-facing ────────────────────────────────────────────────
+
+    public async Task<DisputeDetailResponse?> GetDisputeByClassSessionForUserAsync(int classSessionId, string userId, string role)
+    {
+        var studentIds = role == UserRole.Parent
+            ? await _context.Studentprofiles.Where(s => s.Parentid == userId).Select(s => s.Studentid).ToListAsync()
+            : await _context.Studentprofiles.Where(s => s.Studentid == userId || s.Linkeduserid == userId).Select(s => s.Studentid).ToListAsync();
+
+        var disputeId = await _context.Disputes
+            .Where(d => d.Classsessionid == classSessionId && studentIds.Contains(d.ClassSession!.Studentid!))
+            .Select(d => (int?)d.Disputeid)
+            .FirstOrDefaultAsync();
+
+        return disputeId.HasValue ? await GetDisputeDetailAsync(disputeId.Value) : null;
+    }
+
     // ── Tutor-facing (rebuttal channel) ─────────────────────────────────────
 
     public async Task<DisputeDetailResponse?> GetTutorDisputeByClassSessionAsync(int classSessionId, string tutorId)

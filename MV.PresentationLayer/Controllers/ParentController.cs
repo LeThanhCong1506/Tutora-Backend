@@ -23,17 +23,20 @@ public class ParentController : ControllerBase
     private readonly IParentService _parentService;
     private readonly IStudentService _studentService;
     private readonly IClassSessionService _classSessionService;
+    private readonly IDisputeService _disputeService;
     private readonly ILogger<ParentController> _logger;
 
     public ParentController(
         IParentService parentService,
         IStudentService studentService,
         IClassSessionService classSessionService,
+        IDisputeService disputeService,
         ILogger<ParentController> logger)
     {
         _parentService = parentService;
         _studentService = studentService;
         _classSessionService = classSessionService;
+        _disputeService = disputeService;
         _logger = logger;
     }
 
@@ -119,6 +122,24 @@ public class ParentController : ControllerBase
         {
             return BadRequest(APIResponse<object>.Fail(ex.Message, 400));
         }
+    }
+
+    /// <summary>
+    /// Get the dispute already created for this classSession (status, evidence, tutor response
+    /// once resolved) — the create endpoint above only returns a one-time creation snapshot.
+    /// </summary>
+    [HttpGet("class-sessions/{id}/dispute")]
+    [Authorize(Roles = UserRole.ParentOrStudent)]
+    public async Task<ActionResult<APIResponse<DisputeDetailResponse>>> GetDispute(int id)
+    {
+        var userId = UserHelper.GetUserId(User);
+        var role = User.FindFirstValue(ClaimTypes.Role) ?? "";
+        var result = await _disputeService.GetDisputeByClassSessionForUserAsync(id, userId, role);
+
+        if (result == null)
+            return NotFound(APIResponse<DisputeDetailResponse>.Fail("Buổi học này không có tranh chấp."));
+
+        return Ok(APIResponse<DisputeDetailResponse>.Success(result, "Lấy thông tin tranh chấp thành công."));
     }
 
     /// <summary>
