@@ -59,6 +59,7 @@ public class LiveSessionDeviceEndpointContractTests
             null!,
             null!,
             null!,
+            null!,
             null!);
 
         var result = Assert.IsType<BadRequestObjectResult>(controller.GetRoomInfo(42));

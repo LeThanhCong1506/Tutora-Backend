@@ -314,6 +314,8 @@ builder.Services.AddScoped<IEkycService, EkycService>();
 builder.Services.AddScoped<IStudentIdentityService, StudentIdentityService>();
 builder.Services.AddScoped<IStudentService, StudentService>();
 builder.Services.AddScoped<IChatService, ChatService>();
+builder.Services.AddScoped<IPresenceService, PresenceService>();
+builder.Services.AddHostedService<PresenceLeaseCleanupService>();
 builder.Services.AddScoped<IAiChatService, AiChatService>();
 builder.Services.AddScoped<IPaymentService, PaymentService>();
 builder.Services.AddScoped<IWalletService, WalletService>();

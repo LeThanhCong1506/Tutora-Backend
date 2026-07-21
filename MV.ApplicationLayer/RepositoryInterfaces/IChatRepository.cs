@@ -9,6 +9,19 @@ public interface IChatRepository
     Task<Chatchannel?> FindChannelByIdWithBookingAsync(int channelId);
     Task<Chatchannel?> FindChannelByParticipantsAsync(string tutorId, string? parentId, string? studentId);
     Task<List<Chatchannel>> GetChannelsByUserAsync(string userId);
+    /// <summary>Kiểm tra quyền tham gia kênh bằng một truy vấn Any phía máy chủ.</summary>
+    Task<bool> IsChannelParticipantAsync(int channelId, string userId);
+    /// <summary>Kiểm tra hai người có kênh chat đang hoạt động hay không.</summary>
+    Task<bool> AreActiveChatPartnersAsync(string userId, string targetUserId);
+    /// <summary>
+    /// Lọc tập user được yêu cầu xuống self và các đối tác chat đang hoạt động.
+    /// Kết quả distinct được thực hiện phía cơ sở dữ liệu.
+    /// </summary>
+    Task<List<string>> GetAuthorizedPresenceUserIdsAsync(
+        string requesterUserId,
+        IReadOnlyCollection<string> requestedUserIds);
+    /// <summary>Danh sách UserId distinct của các đối tác trong kênh chat đang hoạt động. Dùng cho broadcast presence.</summary>
+    Task<List<string>> GetChatPartnerUserIdsAsync(string userId);
     void AddChannel(Chatchannel channel);
     void UpdateChannel(Chatchannel channel);
 

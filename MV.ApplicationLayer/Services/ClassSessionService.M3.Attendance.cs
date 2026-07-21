@@ -102,8 +102,9 @@ public partial class ClassSessionService
     }
 
     /// <summary>
-    /// Gửi thông báo + tin nhắn chat "buổi học đã bắt đầu" cho phụ huynh và học viên khi buổi
-    /// vừa được check-in. Best-effort: mọi lỗi gửi được nuốt và chỉ log cảnh báo.
+    /// Gửi thông báo "buổi học đã bắt đầu" cho phụ huynh và học viên khi buổi vừa được
+    /// check-in. Chỉ gửi qua Notification (KHÔNG còn gửi tin nhắn vào chat) — realtime qua
+    /// NotificationHub + FCM push. Best-effort: mọi lỗi gửi được nuốt và chỉ log cảnh báo.
     /// </summary>
     private async Task SendClassSessionStartedNotificationsAsync(ClassSession classSession)
     {
@@ -113,23 +114,8 @@ public partial class ClassSessionService
         var classSessionId = classSession.Classsessionid;
         var parentId = classSession.Booking?.Parentid;
         var studentProfileId = classSession.Booking?.Studentid; // ProfileId (stu_xxx), KHÔNG phải UserId
-        var classSessionTimeVn = classSession.Scheduledstart.ToString("dd/MM HH:mm");
-        var hasMeetLink = !string.IsNullOrWhiteSpace(classSession.Meetinglink);
 
-        string chatContent;
-        string messageType;
-        if (hasMeetLink)
-        {
-            chatContent = $"🟢 Buổi học đã bắt đầu lúc {classSessionTimeVn}!\n\n🔗 Cả gia sư và học viên đã vào phòng học trực tuyến.";
-            messageType = ChatMessageType.MeetLink;
-        }
-        else
-        {
-            chatContent = $"🟢 Buổi học đã bắt đầu lúc {classSessionTimeVn}.";
-            messageType = ChatMessageType.Text;
-        }
-
-        // Resolve Student LinkedUserId (UserId thực sự để tạo channel/notification)
+        // Resolve Student LinkedUserId (UserId thực sự để tạo notification)
         string? studentLinkedUserId = null;
         if (!string.IsNullOrEmpty(studentProfileId))
         {
@@ -139,31 +125,9 @@ public partial class ClassSessionService
                 .FirstOrDefaultAsync();
         }
 
-        var chatMetadata = new
-        {
-            classSessionId,
-            meetingLink = classSession.Meetinglink,
-            scheduledStart = classSession.Scheduledstart
-        };
-
         // ── Gửi cho Parent ──
         if (!string.IsNullOrEmpty(parentId))
         {
-            try
-            {
-                var parentChannelId = await _chatService.GetOrCreateChannelAsync(parentId, tutorId);
-                await _chatService.SendMessageAsync(tutorId, parentChannelId, new ChatMessageCreateRequest
-                {
-                    Content     = chatContent,
-                    MessageType = messageType,
-                    Metadata    = chatMetadata
-                });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to send check-in chat to parent for classSession {ClassSessionId}", classSessionId);
-            }
-
             try
             {
                 await _notificationService.CreateNotificationAsync(new NotificationRequest
@@ -184,21 +148,6 @@ public partial class ClassSessionService
         // ── Gửi cho Student (chỉ khi student có tài khoản riêng - linkedUserId != null) ──
         if (!string.IsNullOrEmpty(studentLinkedUserId))
         {
-            try
-            {
-                var studentChannelId = await _chatService.GetOrCreateChannelAsync(studentLinkedUserId, tutorId, isStudent: true);
-                await _chatService.SendMessageAsync(tutorId, studentChannelId, new ChatMessageCreateRequest
-                {
-                    Content     = chatContent,
-                    MessageType = messageType,
-                    Metadata    = chatMetadata
-                });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to send check-in chat to student for classSession {ClassSessionId}", classSessionId);
-            }
-
             try
             {
                 await _notificationService.CreateNotificationAsync(new NotificationRequest

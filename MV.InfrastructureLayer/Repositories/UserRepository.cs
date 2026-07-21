@@ -283,6 +283,14 @@ namespace MV.InfrastructureLayer.Repositories
                 .ExecuteUpdateAsync(s => s.SetProperty(u => u.Lastloginat, time));
         }
 
+        public async Task UpdateLastSeenAtAsync(string userId, DateTime time)
+        {
+            await _context.Users
+                .Where(u => u.Userid == userId
+                    && (u.Lastseenat == null || u.Lastseenat < time))
+                .ExecuteUpdateAsync(s => s.SetProperty(u => u.Lastseenat, time));
+        }
+
         public async Task<bool> UpdateFcmTokenAsync(string userId, string fcmToken)
         {
             var user = await _context.Users.FirstOrDefaultAsync(u => u.Userid == userId);

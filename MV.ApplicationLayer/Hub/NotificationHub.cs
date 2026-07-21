@@ -9,6 +9,8 @@ namespace MV.ApplicationLayer.Hubs
     [Authorize]
     public class NotificationHub : BaseHub
     {
+        protected override bool TracksPresence => true;
+
         private readonly ILogger<NotificationHub> _logger;
         private readonly INotificationService _notificationService;
 
@@ -29,6 +31,18 @@ namespace MV.ApplicationLayer.Hubs
             await _notificationService.MarkAsReadAsync(notificationId, CurrentUserId);
 
             await Clients.Caller.SendAsync("NotificationMarkedAsRead", notificationId);
+        }
+
+        /// <summary>
+        /// Canonical system-presence heartbeat. The portal client invokes this
+        /// every ~25 seconds; a lease is reclaimed after 75 seconds without one.
+        /// </summary>
+        public async Task PresenceHeartbeat()
+        {
+            if (string.IsNullOrEmpty(CurrentUserId))
+                throw new HubException("User not authenticated");
+
+            await RefreshPresenceLeaseAsync();
         }
     }
 }

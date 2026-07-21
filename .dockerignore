@@ -18,3 +18,7 @@
 **/migrations/*.sql
 !migrations/V20260715b__drop_payment_transactions_topup_request_id.sql
 !migrations/V20260716__payment_requests_and_transaction_reconciliation.sql
+!migrations/V20260716b__backfill_payment_transaction_destination_accounts.sql
+!migrations/V20260717__rename_payment_transaction_channel_to_payment_method.sql
+!migrations/V20260717b__scope_topup_requests_to_booking_shortfall.sql
+!migrations/V20260718__manual_payout_claim_and_proof.sql

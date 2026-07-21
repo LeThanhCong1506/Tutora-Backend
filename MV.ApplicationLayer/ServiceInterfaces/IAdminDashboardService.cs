@@ -17,8 +17,8 @@ public interface IAdminDashboardService
     /// Supports optional date-range filtering for growth metrics (default: last 30 days).
     /// </summary>
     Task<AdminUserStatsResponse> GetUserStatsAsync(
-        DateTime? from,
-        DateTime? to,
+        DateTimeOffset? from,
+        DateTimeOffset? to,
         CancellationToken ct = default);
 
     /// <summary>
@@ -27,8 +27,8 @@ public interface IAdminDashboardService
     /// </summary>
     Task<AdminTutorPerformanceResponse> GetTutorPerformanceAsync(
         int top,
-        DateTime? from,
-        DateTime? to,
+        DateTimeOffset? from,
+        DateTimeOffset? to,
         CancellationToken ct = default);
 
     /// <summary>
@@ -36,8 +36,8 @@ public interface IAdminDashboardService
     /// Supports optional date-range filtering (default: last 30 days).
     /// </summary>
     Task<AdminDisputeStatsResponse> GetDisputeStatsAsync(
-        DateTime? from,
-        DateTime? to,
+        DateTimeOffset? from,
+        DateTimeOffset? to,
         CancellationToken ct = default);
 
     /// <summary>
@@ -46,8 +46,8 @@ public interface IAdminDashboardService
     /// Supports optional date-range filtering (default: last 30 days). Timezone is informational — from/to are treated as UTC.
     /// </summary>
     Task<AdminDashboardSummaryResponse> GetSummaryAsync(
-        DateTime? from,
-        DateTime? to,
+        DateTimeOffset? from,
+        DateTimeOffset? to,
         string timezone = "Asia/Ho_Chi_Minh",
         CancellationToken ct = default);
 
