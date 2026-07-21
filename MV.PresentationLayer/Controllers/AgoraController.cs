@@ -1,10 +1,15 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
+using MV.ApplicationLayer.Hubs;
 using MV.ApplicationLayer.Interfaces;
 using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO;
+using MV.DomainLayer.DTO.RequestModel;
+using MV.DomainLayer.Entities;
+using MV.DomainLayer.Helpers;
 using MV.PresentationLayer.Helpers;
 using System.Security.Claims;
 
@@ -28,6 +33,7 @@ public class AgoraController(
     IClassSessionService classSessionService,
     ISessionPresenceService presence,
     IWhiteboardService whiteboardService,
+    IHubContext<NotificationHub> notificationHub,
     IAppDbContext context) : ControllerBase
 {
     private string UserId => User.FindFirstValue(ClaimTypes.NameIdentifier)
@@ -243,7 +249,187 @@ public class AgoraController(
         }, "Tạo Agora token thành công."));
     }
 
+    // ── Emotion / Engagement monitoring ───────────────────────────────────────
+    // Máy HỌC VIÊN tự phân tích cảm xúc/độ tập trung cục bộ (MediaPipe + FER+ trong trình duyệt).
+    // Ảnh khuôn mặt KHÔNG rời máy học viên — chỉ điểm số/nhãn đã tổng hợp mới gửi lên đây.
+
+    /// <summary>
+    /// POST /api/agora/room/{classSessionId}/engagement
+    /// Học viên gửi lô mẫu điểm cảm xúc/độ tập trung (~mỗi 15-30s) để lưu, phục vụ báo cáo sau buổi.
+    /// Chỉ HỌC VIÊN của buổi học được gửi (gia sư/phụ huynh không tự sinh dữ liệu này).
+    /// </summary>
+    [HttpPost("room/{classSessionId:int}/engagement")]
+    public async Task<IActionResult> IngestEngagement(int classSessionId, [FromBody] EngagementSampleBatchRequest body)
+    {
+        var userId = UserId;
+
+        var classSession = await context.ClassSessions
+            .Include(l => l.Booking)
+            .FirstOrDefaultAsync(l => l.Classsessionid == classSessionId);
+
+        if (classSession == null)
+            return NotFound(APIResponse<object>.Fail("Không tìm thấy buổi học.", 404));
+
+        // Chỉ chính học viên của buổi mới được gửi mẫu (không phải bất kỳ ai có quyền truy cập).
+        if (!await IsSessionStudentAsync(classSession, userId))
+            return Forbid();
+
+        if (body?.Samples == null || body.Samples.Count == 0)
+            return Ok(APIResponse<object>.Success(new { inserted = 0 }, "Không có mẫu nào để lưu."));
+
+        var now = TimeZoneHelper.UtcNow;
+        var rows = body.Samples.Select(s => new SessionEngagementSample
+        {
+            ClassSessionId  = classSessionId,
+            StudentUserId   = userId,
+            Emotion         = s.Emotion,
+            EngagementScore = s.EngagementScore,
+            Drowsy          = s.Drowsy,
+            SampledAt       = now,
+        }).ToList();
+
+        context.SessionEngagementSamples.AddRange(rows);
+        await context.SaveChangesAsync();
+
+        return Ok(APIResponse<object>.Success(new { inserted = rows.Count }, "Đã lưu mẫu độ tập trung."));
+    }
+
+    /// <summary>
+    /// POST /api/agora/room/{classSessionId}/engagement-alert
+    /// Học viên báo một cảnh báo (rời màn hình / buồn ngủ / mất tập trung / căng thẳng). BE lưu lại
+    /// kèm mẫu và đẩy realtime tới GIA SƯ của buổi qua SignalR để hiện toast.
+    /// </summary>
+    [HttpPost("room/{classSessionId:int}/engagement-alert")]
+    public async Task<IActionResult> EngagementAlert(int classSessionId, [FromBody] EngagementAlertRequest body)
+    {
+        var userId = UserId;
+
+        var classSession = await context.ClassSessions
+            .Include(l => l.Booking)
+            .FirstOrDefaultAsync(l => l.Classsessionid == classSessionId);
+
+        if (classSession == null)
+            return NotFound(APIResponse<object>.Fail("Không tìm thấy buổi học.", 404));
+
+        if (!await IsSessionStudentAsync(classSession, userId))
+            return Forbid();
+
+        if (body == null || string.IsNullOrWhiteSpace(body.Reason) || string.IsNullOrWhiteSpace(body.Message))
+            return BadRequest(APIResponse<object>.Fail("Thiếu 'reason' hoặc 'message'.", 400));
+
+        // Lưu alert như một mẫu có alert_reason để báo cáo đếm được số cảnh báo mà không cần bảng riêng.
+        context.SessionEngagementSamples.Add(new SessionEngagementSample
+        {
+            ClassSessionId  = classSessionId,
+            StudentUserId   = userId,
+            Emotion         = null,
+            EngagementScore = body.EngagementScore ?? 0,
+            Drowsy          = body.Reason == "drowsy",
+            AlertReason     = body.Reason,
+            SampledAt       = TimeZoneHelper.UtcNow,
+        });
+        await context.SaveChangesAsync();
+
+        // Đẩy tới gia sư qua NotificationHub, group "user:{tutorUserId}" — BaseHub.OnConnectedAsync
+        // tự thêm mọi connection vào group này. Dùng NotificationHub (không phải SessionLobbyHub) vì
+        // gia sư luôn kết nối NotificationHub toàn app; SessionLobbyHub chỉ sống ở trang phòng chờ.
+        var tutorUserId = classSession.Tutorid;
+        if (!string.IsNullOrEmpty(tutorUserId))
+        {
+            await notificationHub.Clients.Group($"user:{tutorUserId}").SendAsync("engagementAlert", new
+            {
+                classSessionId,
+                reason  = body.Reason,
+                level   = body.Level,
+                message = body.Message,
+            });
+        }
+
+        return Ok(APIResponse<object>.Success(new { }, "Đã gửi cảnh báo."));
+    }
+
+    /// <summary>
+    /// GET /api/agora/room/{classSessionId}/engagement/summary
+    /// Tổng hợp cho báo cáo sau buổi: điểm tập trung trung bình, phân bố cảm xúc, số cảnh báo.
+    /// Tutor / Parent / Student của buổi đều xem được.
+    /// </summary>
+    [HttpGet("room/{classSessionId:int}/engagement/summary")]
+    public async Task<IActionResult> EngagementSummary(int classSessionId)
+    {
+        var userId = UserId;
+
+        var classSession = await context.ClassSessions
+            .Include(l => l.Booking)
+            .FirstOrDefaultAsync(l => l.Classsessionid == classSessionId);
+
+        if (classSession == null)
+            return NotFound(APIResponse<object>.Fail("Không tìm thấy buổi học.", 404));
+
+        if (!await CheckClassSessionAccessAsync(classSession, userId))
+            return Forbid();
+
+        var samples = await context.SessionEngagementSamples
+            .AsNoTracking()
+            .Where(s => s.ClassSessionId == classSessionId)
+            .OrderBy(s => s.SampledAt)
+            .ToListAsync();
+
+        // Chỉ các mẫu điểm thường (không phải alert) mới tính vào trung bình / phân bố cảm xúc.
+        var scoreSamples = samples.Where(s => s.AlertReason == null).ToList();
+        var avgEngagement = scoreSamples.Count > 0
+            ? Math.Round(scoreSamples.Average(s => s.EngagementScore), 4)
+            : 0d;
+
+        var emotionDistribution = scoreSamples
+            .Where(s => !string.IsNullOrEmpty(s.Emotion))
+            .GroupBy(s => s.Emotion!)
+            .ToDictionary(g => g.Key, g => g.Count());
+
+        var alertCounts = samples
+            .Where(s => s.AlertReason != null)
+            .GroupBy(s => s.AlertReason!)
+            .ToDictionary(g => g.Key, g => g.Count());
+
+        // Chuỗi thời gian điểm tập trung (cho biểu đồ) — chỉ mẫu điểm thường.
+        var timeline = scoreSamples.Select(s => new
+        {
+            sampledAt       = s.SampledAt,
+            engagementScore = s.EngagementScore,
+            emotion         = s.Emotion,
+            drowsy          = s.Drowsy,
+        });
+
+        return Ok(APIResponse<object>.Success(new
+        {
+            classSessionId,
+            sampleCount        = scoreSamples.Count,
+            avgEngagement,
+            emotionDistribution,
+            alertCounts,
+            totalAlerts        = samples.Count(s => s.AlertReason != null),
+            timeline,
+        }, "Lấy tổng hợp độ tập trung thành công."));
+    }
+
     // ── Private helpers ───────────────────────────────────────────────────────
+
+    /// <summary>
+    /// True nếu <paramref name="userId"/> chính là HỌC VIÊN của buổi học (tài khoản student có
+    /// Linkeduserid). Chặt hơn <see cref="CheckClassSessionAccessAsync"/> — không tính tutor/parent/admin.
+    /// </summary>
+    private async Task<bool> IsSessionStudentAsync(ClassSession classSession, string userId)
+    {
+        var studentId = classSession.Booking?.Studentid;
+        if (string.IsNullOrEmpty(studentId))
+            return false;
+
+        var linkedUserId = await context.Studentprofiles
+            .Where(s => s.Studentid == studentId)
+            .Select(s => s.Linkeduserid)
+            .FirstOrDefaultAsync();
+
+        return linkedUserId == userId;
+    }
 
     private async Task<bool> CheckClassSessionAccessAsync(MV.DomainLayer.Entities.ClassSession classSession, string userId)
     {

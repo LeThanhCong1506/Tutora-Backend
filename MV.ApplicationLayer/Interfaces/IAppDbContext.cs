@@ -24,6 +24,7 @@ public interface IAppDbContext
     DbSet<Learningmaterial> Learningmaterials { get; }
     DbSet<ClassSession> ClassSessions { get; }
     DbSet<ClassSessionReport> ClassSessionReports { get; }
+    DbSet<SessionEngagementSample> SessionEngagementSamples { get; }
     DbSet<Notification> Notifications { get; }
     DbSet<QuestionBank> QuestionBanks { get; }
     DbSet<AiCreditTransaction> AiCreditTransactions { get; }
