@@ -281,6 +281,17 @@ public class ParentService : IParentService
             await _notificationService.CreateNotificationsAsync(notis);
         }
 
+        // Notify the tutor too — otherwise they have no way to know a rebuttal is open for them.
+        if (!string.IsNullOrEmpty(classSession.Tutorid))
+        {
+            await _notificationService.CreateNotificationAsync(new NotificationRequest
+            {
+                Userid = classSession.Tutorid,
+                Title = "Có khiếu nại về buổi học của bạn",
+                Message = $"Một khiếu nại đã được tạo cho buổi học #{classSessionId}. Bạn có thể xem chi tiết và gửi phản hồi."
+            });
+        }
+
         return new DisputeDetailResponse
         {
             DisputeId = dispute.Disputeid,
