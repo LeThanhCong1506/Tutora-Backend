@@ -26,6 +26,8 @@ public partial class ClassSessionService : IClassSessionService
     private readonly IFileStorageService _storageService;
     private readonly ISessionPresenceService _presence;
     private readonly ICloudRecordingService _cloudRecording;
+    private readonly ISettlementService _settlementService;
+    private readonly IWarningService _warningService;
     private readonly ILogger<ClassSessionService> _logger;
 
     // Retained for transaction management only (BeginTransactionAsync)
@@ -44,6 +46,8 @@ public partial class ClassSessionService : IClassSessionService
         IFileStorageService storageService,
         ISessionPresenceService presence,
         ICloudRecordingService cloudRecording,
+        ISettlementService settlementService,
+        IWarningService warningService,
         ILogger<ClassSessionService> logger)
     {
         _classSessionRepo = classSessionRepo;
@@ -56,6 +60,8 @@ public partial class ClassSessionService : IClassSessionService
         _storageService = storageService;
         _presence = presence;
         _cloudRecording = cloudRecording;
+        _settlementService = settlementService;
+        _warningService = warningService;
         _logger = logger;
     }
 

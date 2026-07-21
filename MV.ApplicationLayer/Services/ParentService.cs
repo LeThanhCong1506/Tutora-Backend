@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.Constants;
@@ -10,6 +10,7 @@ using MV.DomainLayer.Helpers;
 using MV.ApplicationLayer.Interfaces;
 using System.Text.Json;
 using static MV.DomainLayer.Constants.ClassSessionStatus;
+using Microsoft.AspNetCore.Http;
 namespace MV.ApplicationLayer.Services;
 
 /// <summary>
@@ -20,17 +21,20 @@ public class ParentService : IParentService
     private readonly IAppDbContext _context;
     private readonly ISettlementService _settlementService;
     private readonly INotificationService _notificationService;
+    private readonly IFileStorageService _storageService;
     private readonly ILogger<ParentService> _logger;
 
     public ParentService(
         IAppDbContext context,
         ISettlementService settlementService,
         INotificationService notificationService,
+        IFileStorageService storageService,
         ILogger<ParentService> logger)
     {
         _context = context;
         _settlementService = settlementService;
         _notificationService = notificationService;
+        _storageService = storageService;
         _logger = logger;
     }
 
@@ -214,6 +218,15 @@ public class ParentService : IParentService
             .Include(l => l.Disputes)
             .FirstOrDefaultAsync(l => l.Classsessionid == classSessionId && studentIds.Contains(l.Studentid!))
             ?? throw new ClassSessionException(ClassSessionErrorCodes.ClassSessionNotFound, "Không tìm thấy buổi học hoặc bạn không có quyền truy cập", 404);
+
+        if (role == UserRole.Student)
+        {
+            var studentProfile = await _context.Studentprofiles.FirstOrDefaultAsync(s => s.Studentid == userId || s.Linkeduserid == userId);
+            if (studentProfile != null && studentProfile.Parentid != null)
+            {
+                throw new ClassSessionException(BookingErrorCodes.StudentManagedByParent, "Tài khoản học sinh do phụ huynh quản lý không thể tự tạo tranh chấp", 403);
+            }
+        }
 
         // An already-settled classSession cannot be disputed: a refund would throw on Issettled and a
         // Release would throw on status → the dispute would deadlock (unresolvable).
@@ -408,5 +421,31 @@ public class ParentService : IParentService
         }
 
         return value.Split(',', StringSplitOptions.RemoveEmptyEntries).ToList();
+    }
+
+    /// <summary>
+    /// Upload dispute evidence for a classSession
+    /// </summary>
+    public async Task<string> UploadDisputeEvidenceAsync(int classSessionId, string userId, string role, IFormFile file)
+    {
+        var studentIds = role == UserRole.Parent
+            ? await _context.Studentprofiles.Where(s => s.Parentid == userId).Select(s => s.Studentid).ToListAsync()
+            : await _context.Studentprofiles.Where(s => s.Studentid == userId || s.Linkeduserid == userId).Select(s => s.Studentid).ToListAsync();
+
+        var classSession = await _context.ClassSessions
+            .FirstOrDefaultAsync(l => l.Classsessionid == classSessionId && studentIds.Contains(l.Studentid!))
+            ?? throw new ClassSessionException(ClassSessionErrorCodes.ClassSessionNotFound, "Không tìm thấy buổi học hoặc bạn không có quyền truy cập", 404);
+
+        if (classSession.Issettled == true)
+            throw new ClassSessionException(ClassSessionErrorCodes.ClassSessionAlreadyConfirmed, "Buổi học đã thanh toán, không thể tạo tranh chấp", 400);
+
+        // Ensure bucket exists
+        await _storageService.EnsureBucketExistsAsync(StorageBucket.ClassSessionAttachments);
+
+        // Upload to Storage using class-session-specific folder
+        var folderPath = $"dispute-evidence-{classSessionId}";
+        var fileUrl = await _storageService.UploadFileAsync(StorageBucket.ClassSessionAttachments, folderPath, file);
+
+        return fileUrl;
     }
 }

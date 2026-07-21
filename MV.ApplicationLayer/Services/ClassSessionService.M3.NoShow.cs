@@ -120,60 +120,13 @@ public partial class ClassSessionService
             switch (request.ActionType)
             {
                 case NoShowActionTypes.FreeSession:
-                    classSession.Status = Cancelled;
-                    classSession.Issettled = true;
-
-                    // Clamp parent refund against what was actually paid minus any prior booking refunds
-                    // (mirrors ChangeTutor's clamp below, scoped to 1 session instead of `remaining`).
-                    decimal totalPaidByParentSingle = booking.Remainingpaidat.HasValue
-                        ? (booking.Finalprice ?? 0)
-                        : (booking.Depositpaidat.HasValue ? (booking.Depositamount ?? 0) : 0m);
-                    var totalAlreadyRefundedSingle = await _context.Wallettransactions
-                        .Where(wt => wt.Referencetable == ReferenceTable.Booking
-                                  && wt.Referenceid == classSession.Bookingid
-                                  && wt.Transactiontype == TransactionType.Refund)
-                        .SumAsync(wt => wt.Amount ?? 0);
-                    var maxParentRefundSingle = Math.Max(0, totalPaidByParentSingle - totalAlreadyRefundedSingle);
-                    var parentRefundClamped = Math.Round(Math.Min(parentRefundPerSession, maxParentRefundSingle), 2);
-
-                    // Clamp tutor escrow release against actual frozen balance so the wallet-transaction
-                    // ledger always matches the real balance delta (same reasoning as ChangeTutor below).
-                    var tutorEscrowClamped = Math.Round(
-                        Math.Min(tutorEscrowPerSession, Math.Max(0, tutorWallet?.Frozenbalance ?? 0)), 2);
-
-                    if (tutorWallet != null && tutorEscrowClamped > 0)
-                    {
-                        tutorWallet.Frozenbalance = Math.Max(0, (tutorWallet.Frozenbalance ?? 0) - tutorEscrowClamped);
-                        tutorWallet.Lastupdated = now;
-                        _context.Wallettransactions.Add(new Wallettransaction
-                        {
-                            Walletid = tutorWallet.Walletid,
-                            Amount = -tutorEscrowClamped,
-                            Transactiontype = TransactionType.EscrowReversal,
-                            Referencetable = ReferenceTable.Booking,
-                            Referenceid = classSession.Bookingid,
-                            Description = $"Giải phóng escrow no-show classSession #{classSessionId}",
-                            Createdat = now
-                        });
-                    }
-
-                    if (parentWallet != null && parentRefundClamped > 0)
-                    {
-                        parentWallet.Balance += parentRefundClamped;
-                        parentWallet.Lastupdated = now;
-                        _context.Wallettransactions.Add(new Wallettransaction
-                        {
-                            Walletid = parentWallet.Walletid,
-                            Amount = parentRefundClamped,
-                            Transactiontype = TransactionType.Refund,
-                            Referencetable = ReferenceTable.Booking,
-                            Referenceid = classSession.Bookingid,
-                            Description = $"Hoàn tiền no-show classSession #{classSessionId}",
-                            Createdat = now
-                        });
-                    }
-
-                    result.AmountRefunded = parentRefundClamped;
+                    // Delegate to the same 100%-refund path dispute resolution uses (release=refund_100):
+                    // handles the escrow/refund math, decrements Booking.Sessionsremaining, and releases
+                    // any remaining held escrow once the booking's last session is resolved. Runs inside
+                    // this method's already-open transaction (ownsTx=false inside), so it neither opens a
+                    // nested transaction nor sends its own notification — this method still controls both.
+                    var freeSessionResult = await _settlementService.ProcessRefundAsync(classSessionId, 100, parentId);
+                    result.AmountRefunded = freeSessionResult.AmountRefunded;
                     result.Message = "Buổi học đã được hủy và hoàn tiền 100%";
                     break;
 
@@ -263,15 +216,41 @@ public partial class ClassSessionService
                     break;
             }
 
-            _context.Userwarnings.Add(new Userwarning
+            // Close out the auto-created no-show dispute so it doesn't sit "pending" forever in the
+            // admin queue after the parent has already resolved it themselves. Guarded against
+            // Resolved/Closed in case an admin somehow already acted on it concurrently.
+            var noShowDispute = await _context.Disputes
+                .FirstOrDefaultAsync(d => d.Classsessionid == classSessionId
+                    && d.Disputetype == DisputeTypes.NoShow
+                    && d.Status != DisputeStatus.Resolved
+                    && d.Status != DisputeStatus.Closed);
+            if (noShowDispute != null)
             {
-                Userid = classSession.Tutorid,
-                Warninglevel = 1,
-                Reason = "Tutor no-show for class session",
-                Relatedbookingid = classSession.Bookingid,
-                Createdat = now
-            });
-            result.WarningCreated = true;
+                var disputeRefundPercentage = request.ActionType == NoShowActionTypes.Makeup ? 0 : 100;
+                noShowDispute.Status = DisputeStatus.Resolved;
+                noShowDispute.Resolvedat = now;
+                noShowDispute.Resolvedby = parentId;
+                noShowDispute.Resolutionnote = $"Phụ huynh tự xử lý ({request.ActionType}): {result.Message}";
+                noShowDispute.Refundpercentage = disputeRefundPercentage;
+                noShowDispute.Refundamount = result.AmountRefunded;
+                noShowDispute.Refundissued = result.AmountRefunded > 0;
+            }
+
+            // Makeup reschedules the session with the tutor's agreement — not a fault finding,
+            // so no warning. FreeSession/ChangeTutor mean the tutor genuinely no-showed.
+            if (request.ActionType != NoShowActionTypes.Makeup && !string.IsNullOrEmpty(classSession.Tutorid))
+            {
+                await _warningService.CreateWarningAsync(
+                    classSession.Tutorid,
+                    new CreateWarningRequest
+                    {
+                        WarningLevel = 1,
+                        Reason = $"Gia sư vắng mặt buổi học #{classSessionId} — phụ huynh xử lý: {request.ActionType}",
+                        RelatedBookingId = classSession.Bookingid
+                    },
+                    parentId);
+                result.WarningCreated = true;
+            }
 
             await _context.SaveChangesAsync();
             await tx.CommitAsync();

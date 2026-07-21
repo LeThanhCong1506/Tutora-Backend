@@ -1,6 +1,7 @@
 using MV.DomainLayer.Constants;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Http;
 using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.DTO;
 using MV.DomainLayer.DTO.RequestModel;
@@ -117,6 +118,55 @@ public class ParentController : ControllerBase
         catch (ArgumentException ex)
         {
             return BadRequest(APIResponse<object>.Fail(ex.Message, 400));
+        }
+    }
+
+    /// <summary>
+    /// Upload dispute evidence for a classSession (images/PDF).
+    /// </summary>
+    [HttpPost("class-sessions/{id}/dispute/evidence")]
+    [Authorize(Roles = UserRole.ParentOrStudent)]
+    public async Task<ActionResult<APIResponse<string>>> UploadDisputeEvidence(int id, IFormFile file)
+    {
+        if (file == null || file.Length == 0)
+            return BadRequest(APIResponse<string>.Fail("Tệp bằng chứng là bắt buộc."));
+
+        var userId = UserHelper.GetUserId(User);
+        var role = User.FindFirstValue(ClaimTypes.Role) ?? "";
+        try
+        {
+            var fileUrl = await _parentService.UploadDisputeEvidenceAsync(id, userId, role, file);
+            return Ok(APIResponse<string>.Success(fileUrl, "Tải tệp bằng chứng thành công."));
+        }
+        catch (ClassSessionException ex)
+        {
+            return StatusCode(ex.HttpStatus, APIResponse<object>.Fail(ex.Message, ex.HttpStatus));
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(500, APIResponse<object>.Fail($"Lỗi hệ thống: {ex.Message}", 500));
+        }
+    }
+
+    /// <summary>
+    /// Get parent's/student's dispute history
+    /// </summary>
+    [HttpGet("disputes")]
+    [Authorize(Roles = UserRole.ParentOrStudent)]
+    public async Task<ActionResult<APIResponse<PagedList<DisputeListResponse>>>> GetDisputes(
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 10)
+    {
+        var userId = UserHelper.GetUserId(User);
+        var role = User.FindFirstValue(ClaimTypes.Role) ?? "";
+        try
+        {
+            var result = await _parentService.GetParentDisputesAsync(userId, role, page, pageSize);
+            return Ok(APIResponse<PagedList<DisputeListResponse>>.Success(result, "Lấy danh sách khiếu nại thành công."));
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(500, APIResponse<PagedList<DisputeListResponse>>.Fail($"Lỗi hệ thống: {ex.Message}", 500));
         }
     }
 
