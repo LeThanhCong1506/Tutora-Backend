@@ -15,17 +15,23 @@ public partial class ClassSessionService
 {
     // ── M3-T7: No-show Handling ───────────────────────────────────────────────
 
-    public async Task<ClassSessionDetailResponse> ReportTutorNoShowAsync(int classSessionId, string parentId)
+    public async Task<ClassSessionDetailResponse> ReportTutorNoShowAsync(int classSessionId, string userId, string role)
     {
-        var studentIds = await _context.Studentprofiles
-            .Where(s => s.Parentid == parentId)
-            .Select(s => s.Studentid)
-            .ToListAsync();
+        var studentIds = role == UserRole.Parent
+            ? await _context.Studentprofiles.Where(s => s.Parentid == userId).Select(s => s.Studentid).ToListAsync()
+            : await _context.Studentprofiles.Where(s => s.Studentid == userId || s.Linkeduserid == userId).Select(s => s.Studentid).ToListAsync();
 
         var classSession = await _context.ClassSessions
             .Include(l => l.Booking)
             .FirstOrDefaultAsync(l => l.Classsessionid == classSessionId && studentIds.Contains(l.Studentid!))
             ?? throw new ClassSessionException(ClassSessionErrorCodes.ClassSessionNotFound, "Không tìm thấy buổi học hoặc bạn không có quyền truy cập", 404);
+
+        if (role == UserRole.Student)
+        {
+            var studentProfile = await _context.Studentprofiles.FirstOrDefaultAsync(s => s.Studentid == userId || s.Linkeduserid == userId);
+            if (studentProfile != null && studentProfile.Parentid != null)
+                throw new ClassSessionException(BookingErrorCodes.StudentManagedByParent, "Tài khoản học sinh do phụ huynh quản lý không thể tự báo cáo vắng mặt", 403);
+        }
 
         var now = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
         if ((now - classSession.Scheduledstart).TotalMinutes < 15)
@@ -42,7 +48,7 @@ public partial class ClassSessionService
         {
             Classsessionid = classSessionId,
             Bookingid = classSession.Bookingid,
-            Createdby = parentId,
+            Createdby = userId,
             Disputetype = DisputeTypes.NoShow,
             Reason = "Tutor no-show: Gia sư không có mặt sau 15 phút",
             Status = DisputeStatus.Pending,
@@ -59,26 +65,32 @@ public partial class ClassSessionService
             {
                 Userid = classSession.Tutorid,
                 Title = "Báo cáo vắng mặt",
-                Message = $"Phụ huynh đã báo cáo bạn vắng mặt cho buổi học #{classSessionId}."
+                Message = $"Bạn đã bị báo cáo vắng mặt cho buổi học #{classSessionId}."
             });
         }
 
-        _logger.LogInformation("Parent {ParentId} reported tutor no-show for classSession {ClassSessionId}, dispute {DisputeId} created", parentId, classSessionId, dispute.Disputeid);
+        _logger.LogInformation("User {UserId} ({Role}) reported tutor no-show for classSession {ClassSessionId}, dispute {DisputeId} created", userId, role, classSessionId, dispute.Disputeid);
         return MapToClassSessionDetailResponse(classSession);
     }
 
-    public async Task<NoShowActionResultResponse> ProcessNoShowActionAsync(int classSessionId, string parentId, NoShowActionRequest request)
+    public async Task<NoShowActionResultResponse> ProcessNoShowActionAsync(int classSessionId, string userId, string role, NoShowActionRequest request)
     {
         // Pre-tx: ownership + fast-fail status check (stale read OK here)
-        var studentIds = await _context.Studentprofiles
-            .Where(s => s.Parentid == parentId)
-            .Select(s => s.Studentid)
-            .ToListAsync();
+        var studentIds = role == UserRole.Parent
+            ? await _context.Studentprofiles.Where(s => s.Parentid == userId).Select(s => s.Studentid).ToListAsync()
+            : await _context.Studentprofiles.Where(s => s.Studentid == userId || s.Linkeduserid == userId).Select(s => s.Studentid).ToListAsync();
 
         var classSession = await _context.ClassSessions
             .Include(l => l.Booking)
             .FirstOrDefaultAsync(l => l.Classsessionid == classSessionId && studentIds.Contains(l.Studentid!))
             ?? throw new ClassSessionException(ClassSessionErrorCodes.ClassSessionNotFound, "Không tìm thấy buổi học hoặc bạn không có quyền truy cập", 404);
+
+        if (role == UserRole.Student)
+        {
+            var studentProfile = await _context.Studentprofiles.FirstOrDefaultAsync(s => s.Studentid == userId || s.Linkeduserid == userId);
+            if (studentProfile != null && studentProfile.Parentid != null)
+                throw new ClassSessionException(BookingErrorCodes.StudentManagedByParent, "Tài khoản học sinh do phụ huynh quản lý không thể tự xử lý vắng mặt", 403);
+        }
 
         if (classSession.Status != NoShow)
             throw new ClassSessionException(ClassSessionErrorCodes.InvalidClassSessionStatus, "Buổi học không ở trạng thái vắng mặt", 400);
@@ -93,7 +105,7 @@ public partial class ClassSessionService
                 .FromSqlRaw(SqlQueries.LockWalletByUserId, classSession.Tutorid)
                 .FirstOrDefaultAsync();
             var parentWallet = await _context.Wallets
-                .FromSqlRaw(SqlQueries.LockWalletByUserId, parentId)
+                .FromSqlRaw(SqlQueries.LockWalletByUserId, userId)
                 .FirstOrDefaultAsync();
 
             // Fresh DB read inside tx — AsNoTracking bypasses EF identity map, picks up concurrent commits
@@ -125,7 +137,7 @@ public partial class ClassSessionService
                     // any remaining held escrow once the booking's last session is resolved. Runs inside
                     // this method's already-open transaction (ownsTx=false inside), so it neither opens a
                     // nested transaction nor sends its own notification — this method still controls both.
-                    var freeSessionResult = await _settlementService.ProcessRefundAsync(classSessionId, 100, parentId);
+                    var freeSessionResult = await _settlementService.ProcessRefundAsync(classSessionId, 100, userId);
                     result.AmountRefunded = freeSessionResult.AmountRefunded;
                     result.Message = "Buổi học đã được hủy và hoàn tiền 100%";
                     break;
@@ -229,8 +241,8 @@ public partial class ClassSessionService
                 var disputeRefundPercentage = request.ActionType == NoShowActionTypes.Makeup ? 0 : 100;
                 noShowDispute.Status = DisputeStatus.Resolved;
                 noShowDispute.Resolvedat = now;
-                noShowDispute.Resolvedby = parentId;
-                noShowDispute.Resolutionnote = $"Phụ huynh tự xử lý ({request.ActionType}): {result.Message}";
+                noShowDispute.Resolvedby = userId;
+                noShowDispute.Resolutionnote = $"Người dùng tự xử lý ({request.ActionType}): {result.Message}";
                 noShowDispute.Refundpercentage = disputeRefundPercentage;
                 noShowDispute.Refundamount = result.AmountRefunded;
                 noShowDispute.Refundissued = result.AmountRefunded > 0;
@@ -245,10 +257,10 @@ public partial class ClassSessionService
                     new CreateWarningRequest
                     {
                         WarningLevel = 1,
-                        Reason = $"Gia sư vắng mặt buổi học #{classSessionId} — phụ huynh xử lý: {request.ActionType}",
+                        Reason = $"Gia sư vắng mặt buổi học #{classSessionId} — người dùng xử lý: {request.ActionType}",
                         RelatedBookingId = classSession.Bookingid
                     },
-                    parentId);
+                    userId);
                 result.WarningCreated = true;
             }
 
@@ -270,14 +282,14 @@ public partial class ClassSessionService
                 {
                     Userid = classSession.Tutorid,
                     Title = "Xử lý vắng mặt",
-                    Message = $"Phụ huynh đã chọn '{request.ActionType}' cho buổi học #{classSessionId} bị vắng mặt."
+                    Message = $"'{request.ActionType}' đã được chọn cho buổi học #{classSessionId} bị vắng mặt."
                 });
             }
         }
         catch (Exception ex) { _logger.LogWarning(ex, "Failed to notify tutor for no-show action classSession {ClassSessionId}", classSessionId); }
 
-        _logger.LogInformation("NoShow action {ActionType} processed for classSession {ClassSessionId} by parent {ParentId}",
-            request.ActionType, classSessionId, parentId);
+        _logger.LogInformation("NoShow action {ActionType} processed for classSession {ClassSessionId} by user {UserId} ({Role})",
+            request.ActionType, classSessionId, userId, role);
         return result;
     }
 
