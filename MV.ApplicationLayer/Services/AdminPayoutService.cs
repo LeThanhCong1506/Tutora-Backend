@@ -113,6 +113,7 @@ public class AdminPayoutService(
             },
             DecisionBreakdown = new DecisionBreakdownResponse
             {
+                TotalRequests = monthStats?.TotalRequests ?? 0,
                 AutoApprove = monthStats?.AutoApproved ?? 0,
                 Delayed = monthStats?.Delayed ?? 0,
                 ManualReview = monthStats?.ManualReview ?? 0,

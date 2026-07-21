@@ -95,7 +95,13 @@ public class BookingRepository(AgoraDbContext context) : IBookingRepository
             .Where(b => b.Parentid == parentId);
 
         if (!string.IsNullOrWhiteSpace(status))
-            q = q.Where(b => b.Status == status);
+        {
+            // Hỗ trợ lọc nhiều status cùng lúc: "cancelled,cancelled_noshow,payment_timeout"
+            var statuses = status.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            q = statuses.Length == 1
+                ? q.Where(b => b.Status == statuses[0])
+                : q.Where(b => statuses.Contains(b.Status));
+        }
 
         var total = await q.CountAsync();
         var items = await q.OrderByDescending(b => b.Createdat)
@@ -122,7 +128,13 @@ public class BookingRepository(AgoraDbContext context) : IBookingRepository
             .Where(b => b.Studentid != null && ids.Contains(b.Studentid));
 
         if (!string.IsNullOrWhiteSpace(status))
-            q = q.Where(b => b.Status == status);
+        {
+            // Hỗ trợ lọc nhiều status cùng lúc: "cancelled,cancelled_noshow,payment_timeout"
+            var statuses = status.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            q = statuses.Length == 1
+                ? q.Where(b => b.Status == statuses[0])
+                : q.Where(b => statuses.Contains(b.Status));
+        }
 
         var total = await q.CountAsync();
         var items = await q.OrderByDescending(b => b.Createdat)

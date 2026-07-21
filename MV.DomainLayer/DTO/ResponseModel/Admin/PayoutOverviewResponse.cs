@@ -33,6 +33,7 @@ public class FinancialStatsResponse
 
 public class DecisionBreakdownResponse
 {
+    public int TotalRequests { get; set; }
     public int AutoApprove { get; set; }
     public int Delayed { get; set; }
     public int ManualReview { get; set; }

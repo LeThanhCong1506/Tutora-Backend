@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using MV.ApplicationLayer.Helpers;
 using MV.ApplicationLayer.Interfaces;
+using MV.ApplicationLayer.RepositoryInterfaces;
 using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO.RequestModel;
@@ -15,18 +16,21 @@ namespace MV.ApplicationLayer.Services;
 /// <summary>
 /// Service for settlement and escrow management
 /// </summary>
-public class SettlementService : ISettlementService
+public partial class SettlementService : ISettlementService
 {
     private readonly IAppDbContext _context;
+    private readonly IBookingRepository _bookingRepository;
     private readonly INotificationService _notificationService;
     private readonly ILogger<SettlementService> _logger;
 
     public SettlementService(
         IAppDbContext context,
+        IBookingRepository bookingRepository,
         INotificationService notificationService,
         ILogger<SettlementService> logger)
     {
         _context = context;
+        _bookingRepository = bookingRepository;
         _notificationService = notificationService;
         _logger = logger;
     }

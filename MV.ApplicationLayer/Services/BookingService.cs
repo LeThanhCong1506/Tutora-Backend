@@ -23,6 +23,7 @@ public partial class BookingService(
     IAppDbContext context,          // retained only for: ClassSessions (conflict check), Subjects, Tutorsubjects, Tutoravailabilities, Promotions, Wallets, Wallettransactions, Notifications
     INotificationService notificationService,
     IChatService chatService,
+    ISettlementService settlementService,
     ILogger<BookingService> logger) : IBookingService
 {
     private const int AvailabilityValidDays = 30;
@@ -432,6 +433,14 @@ public partial class BookingService(
 
         return true;
     }
+
+    public Task<bool> FinalizeBookingEarlyByUserAsync(
+        int bookingId,
+        string userId,
+        string? reason = null,
+        CancellationToken ct = default)
+        => settlementService.FinalizeBookingEarlyByUserAsync(bookingId, userId, reason, ct);
+
 
     /// <summary>
     /// Người nhận hoàn tiền của booking = người đã trả tiền:
