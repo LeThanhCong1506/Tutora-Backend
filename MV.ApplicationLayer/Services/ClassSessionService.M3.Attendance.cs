@@ -31,7 +31,7 @@ public partial class ClassSessionService
             .FirstOrDefaultAsync(l => l.Classsessionid == classSessionId);
 
         if (classSession == null)
-            return new SessionPresenceStatus(false, false, false, false, false);
+            return new SessionPresenceStatus(false, false, false, false, false, false);
 
         var tutorId = classSession.Tutorid;
         var studentUserId = classSession.Booking?.Student?.Linkeduserid; // UserId thực của student (có thể null với dữ liệu cũ)
@@ -84,12 +84,21 @@ public partial class ClassSessionService
             }
         }
 
+        // Ghi hình đang chạy khi đã có Sid (được TryStartRecordingAsync gán, hoặc nạp sẵn từ DB
+        // nếu buổi record ở nhịp heartbeat trước). Tính sau khối auto check-in để bắt cả 2 trường hợp.
+        var isRecording = !string.IsNullOrEmpty(classSession.Recordingsid) && !roomClosed;
+        // TODO(TEMP-DEV): revert trước khi merge. Cloud Recording thật chưa bật ở develop
+        // (Recordingsid luôn null) nên badge không bao giờ hiện. Dòng dưới coi buổi đã check-in
+        // là "đang ghi hình" để test chỉ báo bằng gia sư + học viên thật. Xoá dòng này khi bật record thật.
+        isRecording = isRecording || (isCheckedIn && !roomClosed);
+
         return new SessionPresenceStatus(
             TutorPresent: tutorPresent,
             StudentPresent: studentPresent,
             IsCheckedIn: isCheckedIn,
             RoomClosed: roomClosed,
-            BlockedByPayment: blockedByPayment);
+            BlockedByPayment: blockedByPayment,
+            IsRecording: isRecording);
     }
 
     /// <summary>
