@@ -31,7 +31,7 @@ public interface ICloudRecordingService
 
     /// <summary>
     /// Bắt đầu record cho một buổi học. <paramref name="channel"/> PHẢI là channel mà client
-    /// đang join (xem <c>AgoraChannelName.ForSession</c> — channel chung theo booking).
+    /// đang join (xem <c>AgoraChannelName.ForSession</c> — channel riêng theo buổi).
     /// classSessionId chỉ dùng đặt tên thư mục file + log. Trả resourceId + sid.
     /// </summary>
     Task<CloudRecordingHandle> StartAsync(int classSessionId, string channel, CancellationToken ct = default);

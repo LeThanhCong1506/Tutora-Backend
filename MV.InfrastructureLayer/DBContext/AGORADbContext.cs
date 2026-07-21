@@ -2025,6 +2025,9 @@ entity.HasOne(d => d.Tutor).WithOne(p => p.Tutorprofile)
             entity.Property(e => e.Lastloginat)
                 .HasColumnType("timestamp without time zone")
                 .HasColumnName("last_login_at");
+            entity.Property(e => e.Lastseenat)
+                .HasColumnType("timestamp without time zone")
+                .HasColumnName("last_seen_at");
             entity.Property(e => e.Password)
                 .HasMaxLength(255)
                 .HasColumnName("password");
