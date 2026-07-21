@@ -35,6 +35,10 @@ public partial class Dispute
 
     public DateTime? Resolvedat { get; set; }
 
+    public string? Tutorresponse { get; set; }
+
+    public DateTime? Tutorrespondedat { get; set; }
+
     public virtual Booking? Booking { get; set; }
 
     public virtual User? CreatedbyNavigation { get; set; }

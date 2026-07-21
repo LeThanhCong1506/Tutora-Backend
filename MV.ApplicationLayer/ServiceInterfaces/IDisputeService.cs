@@ -43,4 +43,26 @@ public interface IDisputeService
     /// Get dispute statistics for admin dashboard
     /// </summary>
     Task<DisputeStatsResponse> GetDisputeStatsAsync();
+
+    // ── Tutor-facing (rebuttal channel) ─────────────────────────────────────
+
+    /// <summary>
+    /// Get the dispute tied to a tutor's own classSession, if any.
+    /// </summary>
+    Task<DisputeDetailResponse?> GetTutorDisputeByClassSessionAsync(int classSessionId, string tutorId);
+
+    /// <summary>
+    /// Get all disputes across a tutor's own classSessions.
+    /// </summary>
+    Task<PagedList<DisputeListResponse>> GetTutorDisputesAsync(string tutorId, int page, int pageSize);
+
+    /// <summary>
+    /// Tutor submits a written rebuttal to a dispute raised against them.
+    /// </summary>
+    Task<DisputeDetailResponse> SubmitTutorResponseAsync(int classSessionId, string tutorId, string response);
+
+    /// <summary>
+    /// Tutor uploads supporting evidence for a dispute raised against them.
+    /// </summary>
+    Task<string> UploadTutorDisputeEvidenceAsync(int classSessionId, string tutorId, Microsoft.AspNetCore.Http.IFormFile file);
 }

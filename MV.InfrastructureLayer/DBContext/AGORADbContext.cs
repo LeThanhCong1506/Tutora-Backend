@@ -734,6 +734,10 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
             entity.Property(e => e.Status)
                 .HasMaxLength(50)
                 .HasColumnName("status");
+            entity.Property(e => e.Tutorresponse).HasColumnName("tutor_response");
+            entity.Property(e => e.Tutorrespondedat)
+                .HasColumnType("timestamp without time zone")
+                .HasColumnName("tutor_responded_at");
 
             entity.HasOne(d => d.Booking).WithMany(p => p.Disputes)
                 .HasForeignKey(d => d.Bookingid)

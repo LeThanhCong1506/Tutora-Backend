@@ -1,9 +1,11 @@
-﻿using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.AspNetCore.Http;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO.RequestModel;
 using MV.DomainLayer.DTO.ResponseModel;
+using MV.DomainLayer.Entities;
 using MV.DomainLayer.Helpers;
 using MV.ApplicationLayer.Interfaces;
 using MV.ApplicationLayer.RepositoryInterfaces;
@@ -22,6 +24,7 @@ public class DisputeService : IDisputeService
     private readonly ISettlementService _settlementService;
     private readonly IWarningService _warningService;
     private readonly INotificationService _notificationService;
+    private readonly IFileStorageService _storageService;
     private readonly ILogger<DisputeService> _logger;
 
     public DisputeService(
@@ -30,6 +33,7 @@ public class DisputeService : IDisputeService
         ISettlementService settlementService,
         IWarningService warningService,
         INotificationService notificationService,
+        IFileStorageService storageService,
         ILogger<DisputeService> logger)
     {
         _disputeRepo = disputeRepo;
@@ -37,6 +41,7 @@ public class DisputeService : IDisputeService
         _settlementService = settlementService;
         _warningService = warningService;
         _notificationService = notificationService;
+        _storageService = storageService;
         _logger = logger;
     }
 
@@ -125,6 +130,18 @@ public class DisputeService : IDisputeService
             ResolutionNote = dispute.Resolutionnote,
             RefundAmount = dispute.Refundamount,
             RefundPercentage = dispute.Refundpercentage,
+            TutorResponse = dispute.Tutorresponse,
+            TutorRespondedAt = dispute.Tutorrespondedat,
+            TutorEvidence = dispute.DisputeEvidences?.Count > 0
+                ? dispute.DisputeEvidences.Select(e => new DisputeEvidenceItemResponse
+                {
+                    DisputeEvidenceId = e.Disputeevidenceid,
+                    FileUrl = e.Fileurl,
+                    FileType = e.Filetype,
+                    Description = e.Description,
+                    CreatedAt = e.Createdat
+                }).OrderBy(e => e.CreatedAt).ToList()
+                : null,
             CreatedBy = dispute.CreatedbyNavigation != null ? new DisputeUserResponse
             {
                 UserId = dispute.Createdby,
@@ -325,6 +342,113 @@ public class DisputeService : IDisputeService
             ResolvedThisMonth = await _disputeRepo.CountResolvedSinceAsync(startOfMonth),
             TotalRefundedThisMonth = await _disputeRepo.SumRefundedSinceAsync(startOfMonth)
         };
+    }
+
+    // ── Tutor-facing (rebuttal channel) ─────────────────────────────────────
+
+    public async Task<DisputeDetailResponse?> GetTutorDisputeByClassSessionAsync(int classSessionId, string tutorId)
+    {
+        var disputeId = await _context.Disputes
+            .Where(d => d.Classsessionid == classSessionId && d.ClassSession!.Tutorid == tutorId)
+            .Select(d => (int?)d.Disputeid)
+            .FirstOrDefaultAsync();
+
+        return disputeId.HasValue ? await GetDisputeDetailAsync(disputeId.Value) : null;
+    }
+
+    public async Task<PagedList<DisputeListResponse>> GetTutorDisputesAsync(string tutorId, int page, int pageSize)
+    {
+        var query = _context.Disputes
+            .AsNoTracking()
+            .Where(d => d.ClassSession!.Tutorid == tutorId)
+            .OrderByDescending(d => d.Createdat);
+
+        var totalCount = await query.CountAsync();
+
+        var disputes = await query
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .Select(d => new DisputeListResponse
+            {
+                DisputeId = d.Disputeid,
+                ClassSessionId = d.Classsessionid,
+                BookingId = d.Bookingid,
+                DisputeType = d.Disputetype,
+                Status = d.Status,
+                Reason = d.Reason,
+                ClassSessionPrice = d.ClassSession!.Lessonprice,
+                CreatedAt = d.Createdat
+            })
+            .ToListAsync();
+
+        return new PagedList<DisputeListResponse>(disputes, totalCount, page, pageSize);
+    }
+
+    /// <summary>
+    /// Tutor submits a written rebuttal to a dispute raised against them. Text-only — evidence
+    /// files go through <see cref="UploadTutorDisputeEvidenceAsync"/> and attach independently,
+    /// so a tutor can add evidence without having written the rebuttal yet (and vice versa).
+    /// </summary>
+    public async Task<DisputeDetailResponse> SubmitTutorResponseAsync(int classSessionId, string tutorId, string response)
+    {
+        var dispute = await _context.Disputes
+            .FirstOrDefaultAsync(d => d.Classsessionid == classSessionId && d.ClassSession!.Tutorid == tutorId)
+            ?? throw new ArgumentException("Không tìm thấy tranh chấp cho buổi học này");
+
+        if (dispute.Status == DisputeStatus.Resolved || dispute.Status == DisputeStatus.Closed)
+            throw new InvalidOperationException("Tranh chấp này đã được giải quyết, không thể phản hồi thêm");
+
+        dispute.Tutorresponse = response;
+        dispute.Tutorrespondedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
+        await _context.SaveChangesAsync();
+
+        _logger.LogInformation("Tutor {TutorId} submitted a response to dispute {DisputeId}", tutorId, dispute.Disputeid);
+
+        if (!string.IsNullOrEmpty(dispute.Createdby))
+        {
+            try
+            {
+                await _notificationService.CreateNotificationAsync(new NotificationRequest
+                {
+                    Userid = dispute.Createdby,
+                    Title = "Gia sư đã phản hồi khiếu nại",
+                    Message = $"Gia sư đã gửi phản hồi cho khiếu nại #{dispute.Disputeid}. Admin sẽ xem xét và xử lý."
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to notify dispute creator {CreatedBy} of tutor response for dispute {DisputeId}",
+                    dispute.Createdby, dispute.Disputeid);
+            }
+        }
+
+        return (await GetDisputeDetailAsync(dispute.Disputeid))!;
+    }
+
+    public async Task<string> UploadTutorDisputeEvidenceAsync(int classSessionId, string tutorId, IFormFile file)
+    {
+        var dispute = await _context.Disputes
+            .FirstOrDefaultAsync(d => d.Classsessionid == classSessionId && d.ClassSession!.Tutorid == tutorId)
+            ?? throw new ArgumentException("Không tìm thấy tranh chấp cho buổi học này");
+
+        if (dispute.Status == DisputeStatus.Resolved || dispute.Status == DisputeStatus.Closed)
+            throw new InvalidOperationException("Tranh chấp này đã được giải quyết, không thể nộp thêm bằng chứng");
+
+        await _storageService.EnsureBucketExistsAsync(StorageBucket.ClassSessionAttachments);
+        var folderPath = $"dispute-evidence-{classSessionId}";
+        var fileUrl = await _storageService.UploadFileAsync(StorageBucket.ClassSessionAttachments, folderPath, file);
+
+        _context.DisputeEvidences.Add(new DisputeEvidence
+        {
+            Disputeid = dispute.Disputeid,
+            Uploadedby = tutorId,
+            Fileurl = fileUrl,
+            Filetype = file.ContentType,
+            Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
+        });
+        await _context.SaveChangesAsync();
+
+        return fileUrl;
     }
 
     private static List<string>? DeserializeJsonList(string? value)

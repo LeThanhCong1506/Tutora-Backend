@@ -22,6 +22,11 @@ public class DisputeDetailResponse
     public decimal? RefundAmount { get; set; }
     public int? RefundPercentage { get; set; }
 
+    // Tutor rebuttal
+    public string? TutorResponse { get; set; }
+    public DateTime? TutorRespondedAt { get; set; }
+    public List<DisputeEvidenceItemResponse>? TutorEvidence { get; set; }
+
     // Created by info
     public DisputeUserResponse? CreatedBy { get; set; }
     public DisputeUserResponse? ResolvedBy { get; set; }
@@ -84,6 +89,16 @@ public class DisputeTutorResponse
     public string? Phone { get; set; }
     public int WarningCount { get; set; }
     public decimal? AverageRating { get; set; }
+}
+
+/// <summary>Bằng chứng gia sư nộp thêm sau khi tranh chấp đã được tạo (bảng dispute_evidences).</summary>
+public class DisputeEvidenceItemResponse
+{
+    public int DisputeEvidenceId { get; set; }
+    public string? FileUrl { get; set; }
+    public string? FileType { get; set; }
+    public string? Description { get; set; }
+    public DateTime? CreatedAt { get; set; }
 }
 
 /// <summary>

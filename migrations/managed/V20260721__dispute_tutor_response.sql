@@ -1,0 +1,3 @@
+ALTER TABLE disputes
+    ADD COLUMN IF NOT EXISTS tutor_response TEXT,
+    ADD COLUMN IF NOT EXISTS tutor_responded_at TIMESTAMP WITHOUT TIME ZONE;
