@@ -49,6 +49,8 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
 
     public virtual DbSet<ClassSessionReport> ClassSessionReports { get; set; }
 
+    public virtual DbSet<SessionEngagementSample> SessionEngagementSamples { get; set; }
+
     public virtual DbSet<Notification> Notifications { get; set; }
 
     public virtual DbSet<QuestionBank> QuestionBanks { get; set; }
@@ -218,6 +220,39 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
                 .HasForeignKey(d => d.Userid)
                 .OnDelete(DeleteBehavior.Cascade)
                 .HasConstraintName("fk_login_history_user");
+        });
+
+        modelBuilder.Entity<SessionEngagementSample>(entity =>
+        {
+            entity.HasKey(e => e.SampleId).HasName("session_engagement_samples_pkey");
+
+            entity.ToTable("session_engagement_samples");
+
+            entity.Property(e => e.SampleId).HasColumnName("sample_id");
+            entity.Property(e => e.ClassSessionId).HasColumnName("class_session_id");
+            entity.Property(e => e.StudentUserId)
+                .HasMaxLength(50)
+                .HasColumnName("student_user_id");
+            entity.Property(e => e.Emotion)
+                .HasMaxLength(20)
+                .HasColumnName("emotion");
+            entity.Property(e => e.EngagementScore).HasColumnName("engagement_score");
+            entity.Property(e => e.Drowsy).HasColumnName("drowsy");
+            entity.Property(e => e.AlertReason)
+                .HasMaxLength(20)
+                .HasColumnName("alert_reason");
+            entity.Property(e => e.SampledAt)
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
+                .HasColumnType("timestamp without time zone")
+                .HasColumnName("sampled_at");
+
+            entity.HasOne(d => d.ClassSession).WithMany()
+                .HasForeignKey(d => d.ClassSessionId)
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("fk_session_engagement_samples_class_session");
+
+            entity.HasIndex(e => new { e.ClassSessionId, e.SampledAt })
+                .HasDatabaseName("idx_session_engagement_samples_session_time");
         });
 
         modelBuilder.Entity<WithdrawalScore>(entity =>
