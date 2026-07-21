@@ -311,6 +311,7 @@ builder.Services.AddScoped<IZaloAuthService, ZaloAuthService>();
 builder.Services.AddScoped<IRefreshTokenService, RefreshTokenService>();
 builder.Services.AddScoped<ITutorAvailabilityService, TutorAvailabilityService>();
 builder.Services.AddScoped<ILookupService, LookupService>();
+builder.Services.AddScoped<IStudyResourceService, StudyResourceService>();
 builder.Services.AddScoped<IBookingService, BookingService>();
 builder.Services.AddScoped<IEkycService, EkycService>();
 builder.Services.AddScoped<IStudentIdentityService, StudentIdentityService>();

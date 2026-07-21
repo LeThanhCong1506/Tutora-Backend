@@ -55,6 +55,8 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
 
     public virtual DbSet<QuestionBank> QuestionBanks { get; set; }
 
+    public virtual DbSet<QuestionVote> QuestionVotes { get; set; }
+
     public virtual DbSet<SourceDocument> SourceDocuments { get; set; }
 
     public virtual DbSet<Chapter> Chapters { get; set; }
@@ -1689,6 +1691,38 @@ entity.HasOne(d => d.Tutor).WithOne(p => p.Tutorprofile)
             entity.HasOne(d => d.QuestionType).WithMany(p => p.Questions)
                 .HasForeignKey(d => d.QuestionTypeId)
                 .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<QuestionVote>(entity =>
+        {
+            entity.HasKey(e => e.Id).HasName("question_votes_pkey");
+
+            entity.ToTable("question_votes");
+
+            // 1 user 1 vote / câu — chống vote trùng.
+            entity.HasIndex(e => new { e.QuestionId, e.UserId }, "question_votes_unique").IsUnique();
+            entity.HasIndex(e => e.QuestionId, "idx_question_votes_question");
+
+            entity.Property(e => e.Id)
+                .HasDefaultValueSql("gen_random_uuid()")
+                .HasColumnName("id");
+            entity.Property(e => e.QuestionId).HasColumnName("question_id");
+            entity.Property(e => e.UserId)
+                .HasMaxLength(50)
+                .HasColumnName("user_id");
+            entity.Property(e => e.Vote).HasColumnName("vote");
+            entity.Property(e => e.CreatedAt)
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
+                .HasColumnType("timestamp with time zone")
+                .HasColumnName("created_at");
+            entity.Property(e => e.UpdatedAt)
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
+                .HasColumnType("timestamp with time zone")
+                .HasColumnName("updated_at");
+
+            entity.HasOne(d => d.Question).WithMany()
+                .HasForeignKey(d => d.QuestionId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<SourceDocument>(entity =>
