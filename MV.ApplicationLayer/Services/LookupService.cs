@@ -25,14 +25,20 @@ namespace MV.ApplicationLayer.Services
 
         public async Task<List<SubjectResponse>> GetSubjectsAsync()
         {
+            // display_order do admin đặt; cùng giá trị thì xếp theo tên cho ổn định.
             return await _context.Subjects
                 .Where(s => s.IsActive)
-                .OrderBy(s => s.Subjectid)
+                .OrderBy(s => s.DisplayOrder)
+                .ThenBy(s => s.Subjectname)
                 .Select(s => new SubjectResponse
                 {
                     SubjectId = s.Subjectid,
                     SubjectName = s.Subjectname,
-                    IsActive = s.IsActive
+                    IsActive = s.IsActive,
+                    Slug = s.Slug,
+                    IconUrl = s.IconUrl,
+                    IsHomeworkEnabled = s.IsHomeworkEnabled,
+                    DisplayOrder = s.DisplayOrder
                 })
                 .ToListAsync();
         }
@@ -56,12 +62,17 @@ namespace MV.ApplicationLayer.Services
         public async Task<List<SubjectResponse>> GetAllSubjectsAsync()
         {
             return await _context.Subjects
-                .OrderBy(s => s.Subjectid)
+                .OrderBy(s => s.DisplayOrder)
+                .ThenBy(s => s.Subjectname)
                 .Select(s => new SubjectResponse
                 {
                     SubjectId = s.Subjectid,
                     SubjectName = s.Subjectname,
-                    IsActive = s.IsActive
+                    IsActive = s.IsActive,
+                    Slug = s.Slug,
+                    IconUrl = s.IconUrl,
+                    IsHomeworkEnabled = s.IsHomeworkEnabled,
+                    DisplayOrder = s.DisplayOrder
                 })
                 .ToListAsync();
         }
@@ -139,6 +150,10 @@ namespace MV.ApplicationLayer.Services
                 Subjectname = req.SubjectName.Trim(),
                 Description = req.Description?.Trim(),
                 IsActive = req.IsActive,
+                Slug = NormalizeSlug(req.Slug, req.SubjectName),
+                IconUrl = req.IconUrl?.Trim(),
+                IsHomeworkEnabled = req.IsHomeworkEnabled,
+                DisplayOrder = req.DisplayOrder,
             };
             _context.Subjects.Add(entity);
             await _context.SaveChangesAsync();
@@ -152,6 +167,10 @@ namespace MV.ApplicationLayer.Services
             entity.Subjectname = req.SubjectName.Trim();
             entity.Description = req.Description?.Trim();
             entity.IsActive = req.IsActive;
+            entity.Slug = NormalizeSlug(req.Slug, req.SubjectName);
+            entity.IconUrl = req.IconUrl?.Trim();
+            entity.IsHomeworkEnabled = req.IsHomeworkEnabled;
+            entity.DisplayOrder = req.DisplayOrder;
             await _context.SaveChangesAsync();
             return ToSubjectResponse(entity);
         }
@@ -303,11 +322,41 @@ namespace MV.ApplicationLayer.Services
         }
 
         // Helpers
+        /// <summary>
+        /// Chuẩn hoá slug: bỏ dấu tiếng Việt, chữ thường, nối bằng "-" (vd: toan-hoc).
+        /// Bỏ trống thì tự sinh từ tên môn.
+        /// </summary>
+        private static string? NormalizeSlug(string? slug, string subjectName)
+        {
+            var source = string.IsNullOrWhiteSpace(slug) ? subjectName : slug;
+            if (string.IsNullOrWhiteSpace(source)) return null;
+
+            // đ/Đ không phải nguyên âm có dấu -> FormD không tách được, phải thay tay.
+            var normalized = source.Replace('đ', 'd').Replace('Đ', 'D')
+                .Normalize(NormalizationForm.FormD);
+
+            var builder = new StringBuilder(normalized.Length);
+            foreach (var c in normalized)
+            {
+                if (CharUnicodeInfo.GetUnicodeCategory(c) == UnicodeCategory.NonSpacingMark) continue;
+                builder.Append(char.IsLetterOrDigit(c) ? char.ToLowerInvariant(c) : '-');
+            }
+
+            // Gộp dấu "-" liên tiếp và cắt hai đầu.
+            var parts = builder.ToString().Split('-', StringSplitOptions.RemoveEmptyEntries);
+            var result = string.Join('-', parts);
+            return result.Length == 0 ? null : result;
+        }
+
         private static SubjectResponse ToSubjectResponse(Subject s) => new()
         {
             SubjectId = s.Subjectid,
             SubjectName = s.Subjectname,
             IsActive = s.IsActive,
+            Slug = s.Slug,
+            IconUrl = s.IconUrl,
+            IsHomeworkEnabled = s.IsHomeworkEnabled,
+            DisplayOrder = s.DisplayOrder,
         };
 
         private static GradeLevelResponse ToGradeResponse(Gradelevel g) => new()

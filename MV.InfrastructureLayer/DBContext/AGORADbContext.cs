@@ -1379,6 +1379,10 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
                 .HasMaxLength(100)
                 .HasColumnName("subject_name");
             entity.Property(e => e.IsActive).HasDefaultValue(true).HasColumnName("is_active");
+            entity.Property(e => e.Slug).HasColumnName("slug");
+            entity.Property(e => e.IconUrl).HasColumnName("icon_url");
+            entity.Property(e => e.IsHomeworkEnabled).HasDefaultValue(false).HasColumnName("is_homework_enabled");
+            entity.Property(e => e.DisplayOrder).HasDefaultValue(0).HasColumnName("display_order");
         });
 
         modelBuilder.Entity<Systemconfig>(entity =>

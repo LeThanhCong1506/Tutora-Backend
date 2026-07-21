@@ -16,6 +16,16 @@ public class SubjectRequest
 
     /// <summary>true = còn dùng được, false = ngừng dùng. Dùng để khôi phục khi Update.</summary>
     public bool IsActive { get; set; } = true;
+
+    [StringLength(150)]
+    public string? Slug { get; set; }
+
+    [StringLength(500)]
+    public string? IconUrl { get; set; }
+
+    public bool IsHomeworkEnabled { get; set; }
+
+    public int DisplayOrder { get; set; }
 }
 
 // GradeLevel
