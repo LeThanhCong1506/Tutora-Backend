@@ -190,12 +190,14 @@ builder.Services.AddCors(options =>
         {
             policy.WithOrigins(
                     "https://localhost:7203", "http://localhost:5173", "http://localhost:5174", "http://localhost:5166",
+                    "http://localhost:5180",
                     // Next.js dev server (apps/web-next)
                     "http://localhost:3000",
                     "https://swd-391-frontend-d4ek.vercel.app", "http://localhost:5500",
                     "https://www.tutora.vn", "https://tutora.vn", "https://tutorahelps.vercel.app",
                     // Vite app sau cutover sang Next (portal + auth)
                     "https://app.tutora.vn",
+                    "https://apps.tutora.vn",
                     // Developer app
                     "https://tutora-developer.vercel.app",
                     // Zalo Mini App domains
@@ -309,6 +311,7 @@ builder.Services.AddScoped<IZaloAuthService, ZaloAuthService>();
 builder.Services.AddScoped<IRefreshTokenService, RefreshTokenService>();
 builder.Services.AddScoped<ITutorAvailabilityService, TutorAvailabilityService>();
 builder.Services.AddScoped<ILookupService, LookupService>();
+builder.Services.AddScoped<IStudyResourceService, StudyResourceService>();
 builder.Services.AddScoped<IBookingService, BookingService>();
 builder.Services.AddScoped<IEkycService, EkycService>();
 builder.Services.AddScoped<IStudentIdentityService, StudentIdentityService>();

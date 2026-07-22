@@ -20,6 +20,7 @@ public class AiChatService(
     IAiChatRepository aiChatRepo,
     IHttpClientFactory httpClientFactory,
     IConfiguration config,
+    IFileStorageService storage,
     ILogger<AiChatService> logger) : IAiChatService
 {
     private static readonly string[] AllowedRoles =
@@ -27,6 +28,8 @@ public class AiChatService(
 
     // History tối đa nạp từ DB để gửi kèm /solve (tránh prompt quá dài)
     private const int HistoryWindow = 20;
+
+    private const string ImageBucket = "homework-images";
 
     public async Task<AiChatSessionResponse> CreateSessionAsync(string userId, AiChatSessionCreateRequest dto)
     {
@@ -115,8 +118,10 @@ public class AiChatService(
     {
         var session = await GetOwnedSessionAsync(userId, sessionId);
 
-        // 1. Lưu user message ngay (không mất kể cả nếu AI lỗi sau đó)
-        var userContent = dto.Text ?? dto.ImageUrl ?? "[hình ảnh]";
+        // 1. Lưu user message ngay (không mất kể cả nếu AI lỗi sau đó).
+        // Ảnh base64 -> upload lấy URL để mở lại phiên cũ vẫn thấy đề bài.
+        var imageUrl = dto.ImageUrl ?? await TryUploadImageAsync(dto.ImageBase64, userId);
+        var userContent = !string.IsNullOrWhiteSpace(dto.Text) ? dto.Text : "[hình ảnh]";
         var now = TimeZoneHelper.UtcNow;
         var userMessage = new ChatHistory
         {
@@ -124,7 +129,7 @@ public class AiChatService(
             SessionId = sessionId,
             Role = ChatHistoryRole.User,
             Content = userContent,
-            ImageUrl = dto.ImageUrl,
+            ImageUrl = imageUrl,
             Grade = dto.Grade,
             CreatedAt = now
         };
@@ -231,6 +236,29 @@ public class AiChatService(
     }
 
     // Helpers
+
+    /// <summary>
+    /// Upload ảnh đề bài (base64) lên storage, trả public URL.
+    /// </summary>
+    private async Task<string?> TryUploadImageAsync(string? base64, string userId)
+    {
+        if (string.IsNullOrWhiteSpace(base64)) return null;
+
+        try
+        {
+            // FE có thể gửi kèm prefix "data:image/png;base64," -> cắt bỏ.
+            var payload = base64.Contains(',') ? base64[(base64.IndexOf(',') + 1)..] : base64;
+            var bytes = Convert.FromBase64String(payload);
+
+            await storage.EnsureBucketExistsAsync(ImageBucket);
+            return await storage.UploadImageBytesAsync(ImageBucket, userId, bytes, $"{Guid.NewGuid()}.png");
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Upload ảnh đề bài thất bại.");
+            return null;
+        }
+    }
 
     private async Task<ChatSession> GetOwnedSessionAsync(string userId, Guid sessionId)
     {
