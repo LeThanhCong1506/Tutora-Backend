@@ -25,6 +25,7 @@ public interface IAppDbContext
     DbSet<ClassSession> ClassSessions { get; }
     DbSet<ClassSessionReport> ClassSessionReports { get; }
     DbSet<SessionEngagementSample> SessionEngagementSamples { get; }
+    DbSet<AgoraChannelEvent> AgoraChannelEvents { get; }
     DbSet<Notification> Notifications { get; }
     DbSet<QuestionBank> QuestionBanks { get; }
     DbSet<QuestionVote> QuestionVotes { get; }
