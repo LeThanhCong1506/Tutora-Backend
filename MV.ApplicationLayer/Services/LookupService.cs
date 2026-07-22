@@ -25,14 +25,21 @@ namespace MV.ApplicationLayer.Services
 
         public async Task<List<SubjectResponse>> GetSubjectsAsync()
         {
+            // display_order do admin đặt; cùng giá trị thì xếp theo tên cho ổn định.
             return await _context.Subjects
                 .Where(s => s.IsActive)
-                .OrderBy(s => s.Subjectid)
+                .OrderBy(s => s.DisplayOrder)
+                .ThenBy(s => s.Subjectname)
                 .Select(s => new SubjectResponse
                 {
                     SubjectId = s.Subjectid,
                     SubjectName = s.Subjectname,
-                    IsActive = s.IsActive
+                    Description = s.Description,
+                    IsActive = s.IsActive,
+                    Slug = s.Slug,
+                    IconUrl = s.IconUrl,
+                    IsHomeworkEnabled = s.IsHomeworkEnabled,
+                    DisplayOrder = s.DisplayOrder
                 })
                 .ToListAsync();
         }
@@ -56,12 +63,18 @@ namespace MV.ApplicationLayer.Services
         public async Task<List<SubjectResponse>> GetAllSubjectsAsync()
         {
             return await _context.Subjects
-                .OrderBy(s => s.Subjectid)
+                .OrderBy(s => s.DisplayOrder)
+                .ThenBy(s => s.Subjectname)
                 .Select(s => new SubjectResponse
                 {
                     SubjectId = s.Subjectid,
                     SubjectName = s.Subjectname,
-                    IsActive = s.IsActive
+                    Description = s.Description,
+                    IsActive = s.IsActive,
+                    Slug = s.Slug,
+                    IconUrl = s.IconUrl,
+                    IsHomeworkEnabled = s.IsHomeworkEnabled,
+                    DisplayOrder = s.DisplayOrder
                 })
                 .ToListAsync();
         }
@@ -76,6 +89,48 @@ namespace MV.ApplicationLayer.Services
                     GradeName = g.Gradename,
                     LevelOrder = g.Levelorder,
                     IsActive = g.IsActive
+                })
+                .ToListAsync();
+        }
+
+        // Admin: KHÔNG lọc IsActive.
+        // QuestionCount cho biết trước xoá có bị chặn 409 hay không.
+        public async Task<List<AdminChapterResponse>> GetAllChaptersAsync(int? subjectId, int? gradeLevelId)
+        {
+            var query = _context.Chapters.AsQueryable();
+            if (subjectId.HasValue) query = query.Where(c => c.SubjectId == subjectId.Value);
+            if (gradeLevelId.HasValue) query = query.Where(c => c.GradeLevelId == gradeLevelId.Value);
+
+            return await query
+                .OrderBy(c => c.DisplayOrder).ThenBy(c => c.Name)
+                .Select(c => new AdminChapterResponse
+                {
+                    Id = c.Id,
+                    SubjectId = c.SubjectId,
+                    GradeLevelId = c.GradeLevelId,
+                    Slug = c.Slug,
+                    Name = c.Name,
+                    DisplayOrder = c.DisplayOrder,
+                    SubjectName = c.Subject != null ? c.Subject.Subjectname : null,
+                    GradeName = c.Gradelevel != null ? c.Gradelevel.Gradename : null,
+                    IsActive = c.IsActive,
+                    QuestionCount = c.Questions.Count,
+                })
+                .ToListAsync();
+        }
+
+        public async Task<List<AdminQuestionTypeResponse>> GetAllQuestionTypesAsync()
+        {
+            return await _context.QuestionTypes
+                .OrderBy(t => t.DisplayOrder).ThenBy(t => t.Name)
+                .Select(t => new AdminQuestionTypeResponse
+                {
+                    Id = t.Id,
+                    Slug = t.Slug,
+                    Name = t.Name,
+                    DisplayOrder = t.DisplayOrder,
+                    IsActive = t.IsActive,
+                    QuestionCount = _context.QuestionBanks.Count(q => q.QuestionTypeId == t.Id),
                 })
                 .ToListAsync();
         }
@@ -131,6 +186,47 @@ namespace MV.ApplicationLayer.Services
                 .ToListAsync();
         }
 
+        // Reorder
+        public Task<bool> ReorderSubjectsAsync(ReorderRequest req)
+            => ReorderAsync(req, ids => _context.Subjects.Where(s => ids.Contains(s.Subjectid)),
+                s => s.Subjectid, (s, order) => s.DisplayOrder = order);
+
+        public Task<bool> ReorderGradeLevelsAsync(ReorderRequest req)
+            => ReorderAsync(req, ids => _context.Gradelevels.Where(g => ids.Contains(g.Gradelevelid)),
+                g => g.Gradelevelid, (g, order) => g.Levelorder = order);
+
+        public Task<bool> ReorderChaptersAsync(ReorderRequest req)
+            => ReorderAsync(req, ids => _context.Chapters.Where(c => ids.Contains(c.Id)),
+                c => c.Id, (c, order) => { c.DisplayOrder = order; c.UpdatedAt = DateTime.UtcNow; });
+
+        public Task<bool> ReorderQuestionTypesAsync(ReorderRequest req)
+            => ReorderAsync(req, ids => _context.QuestionTypes.Where(t => ids.Contains(t.Id)),
+                t => t.Id, (t, order) => { t.DisplayOrder = order; t.UpdatedAt = DateTime.UtcNow; });
+
+        /// <summary>
+        /// Nạp đúng các bản ghi theo id, gán thứ tự mới rồi lưu trong 1 transaction.
+        /// </summary>
+        private async Task<bool> ReorderAsync<TEntity>(
+            ReorderRequest req,
+            Func<List<int>, IQueryable<TEntity>> query,
+            Func<TEntity, int> idOf,
+            Action<TEntity, int> setOrder) where TEntity : class
+        {
+            var ids = req.Items.Select(i => i.Id).Distinct().ToList();
+            var entities = await query(ids).ToListAsync();
+            if (entities.Count != ids.Count) return false;
+
+            var orderById = req.Items.ToDictionary(i => i.Id, i => i.DisplayOrder);
+
+            await using var tx = await _context.Database.BeginTransactionAsync();
+            foreach (var entity in entities)
+                setOrder(entity, orderById[idOf(entity)]);
+
+            await _context.SaveChangesAsync();
+            await tx.CommitAsync();
+            return true;
+        }
+
         // Subject
         public async Task<SubjectResponse> CreateSubjectAsync(SubjectRequest req)
         {
@@ -139,6 +235,10 @@ namespace MV.ApplicationLayer.Services
                 Subjectname = req.SubjectName.Trim(),
                 Description = req.Description?.Trim(),
                 IsActive = req.IsActive,
+                Slug = NormalizeSlug(req.Slug, req.SubjectName),
+                IconUrl = req.IconUrl?.Trim(),
+                IsHomeworkEnabled = req.IsHomeworkEnabled,
+                DisplayOrder = req.DisplayOrder,
             };
             _context.Subjects.Add(entity);
             await _context.SaveChangesAsync();
@@ -152,6 +252,10 @@ namespace MV.ApplicationLayer.Services
             entity.Subjectname = req.SubjectName.Trim();
             entity.Description = req.Description?.Trim();
             entity.IsActive = req.IsActive;
+            entity.Slug = NormalizeSlug(req.Slug, req.SubjectName);
+            entity.IconUrl = req.IconUrl?.Trim();
+            entity.IsHomeworkEnabled = req.IsHomeworkEnabled;
+            entity.DisplayOrder = req.DisplayOrder;
             await _context.SaveChangesAsync();
             return ToSubjectResponse(entity);
         }
@@ -303,11 +407,42 @@ namespace MV.ApplicationLayer.Services
         }
 
         // Helpers
+        /// <summary>
+        /// Chuẩn hoá slug: bỏ dấu tiếng Việt, chữ thường, nối bằng "-" (vd: toan-hoc).
+        /// Bỏ trống thì tự sinh từ tên môn.
+        /// </summary>
+        private static string? NormalizeSlug(string? slug, string subjectName)
+        {
+            var source = string.IsNullOrWhiteSpace(slug) ? subjectName : slug;
+            if (string.IsNullOrWhiteSpace(source)) return null;
+
+            // đ/Đ không phải nguyên âm có dấu -> FormD không tách được, phải thay tay.
+            var normalized = source.Replace('đ', 'd').Replace('Đ', 'D')
+                .Normalize(NormalizationForm.FormD);
+
+            var builder = new StringBuilder(normalized.Length);
+            foreach (var c in normalized)
+            {
+                if (CharUnicodeInfo.GetUnicodeCategory(c) == UnicodeCategory.NonSpacingMark) continue;
+                builder.Append(char.IsLetterOrDigit(c) ? char.ToLowerInvariant(c) : '-');
+            }
+
+            // Gộp dấu "-" liên tiếp và cắt hai đầu.
+            var parts = builder.ToString().Split('-', StringSplitOptions.RemoveEmptyEntries);
+            var result = string.Join('-', parts);
+            return result.Length == 0 ? null : result;
+        }
+
         private static SubjectResponse ToSubjectResponse(Subject s) => new()
         {
             SubjectId = s.Subjectid,
             SubjectName = s.Subjectname,
+            Description = s.Description,
             IsActive = s.IsActive,
+            Slug = s.Slug,
+            IconUrl = s.IconUrl,
+            IsHomeworkEnabled = s.IsHomeworkEnabled,
+            DisplayOrder = s.DisplayOrder,
         };
 
         private static GradeLevelResponse ToGradeResponse(Gradelevel g) => new()

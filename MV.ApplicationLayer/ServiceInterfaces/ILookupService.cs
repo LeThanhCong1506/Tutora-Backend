@@ -23,6 +23,20 @@ namespace MV.ApplicationLayer.ServiceInterfaces
         Task<List<SubjectResponse>> GetAllSubjectsAsync();
         Task<List<GradeLevelResponse>> GetAllGradeLevelsAsync();
 
+        /// <summary>Chương cho CMS: gồm cả đã ngừng dùng, kèm tên môn/khối và số câu hỏi tham chiếu.</summary>
+        Task<List<AdminChapterResponse>> GetAllChaptersAsync(int? subjectId, int? gradeLevelId);
+
+        /// <summary>Loại câu hỏi cho CMS: gồm cả đã ngừng dùng, kèm số câu hỏi tham chiếu.</summary>
+        Task<List<AdminQuestionTypeResponse>> GetAllQuestionTypesAsync();
+
+        /// <summary>
+        /// Sắp xếp lại DisplayOrder
+        /// </summary>
+        Task<bool> ReorderSubjectsAsync(ReorderRequest req);
+        Task<bool> ReorderGradeLevelsAsync(ReorderRequest req);
+        Task<bool> ReorderChaptersAsync(ReorderRequest req);
+        Task<bool> ReorderQuestionTypesAsync(ReorderRequest req);
+
         // Subject
         Task<SubjectResponse> CreateSubjectAsync(SubjectRequest req);
         Task<SubjectResponse?> UpdateSubjectAsync(int id, SubjectRequest req);
