@@ -204,6 +204,11 @@ builder.Services.AddCors(options =>
                     "https://h5.zalo.me", "https://h5.zadn.vn", "https://h5.zdn.vn", "https://miniapp-cdn.zalo.me")
                   .AllowAnyHeader()
                   .AllowAnyMethod()
+                  // AllowAnyHeader chỉ áp dụng cho REQUEST header. Muốn JS đọc được
+                  // response header tuỳ biến thì phải khai báo Access-Control-Expose-Headers.
+                  // Thiếu dòng này, FE không đọc nổi X-Pagination → tổng số bản ghi rơi
+                  // về độ dài của trang hiện tại → thanh phân trang biến mất.
+                  .WithExposedHeaders("X-Pagination")
                   .AllowCredentials();
         });
 });
