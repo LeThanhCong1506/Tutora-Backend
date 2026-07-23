@@ -22,6 +22,8 @@ public class ClassSessionResponse
     public bool? IsTutorPresent { get; set; }
     public bool? IsStudentPresent { get; set; }
     public DateTime? CreatedAt { get; set; }
+    /// <summary>True nếu đã có video buổi học xem lại được (không phân biệt đang xử lý/đang ghi).</summary>
+    public bool HasRecording { get; set; }
     public StudentMiniResponse? Student { get; set; }
     public SubjectResponse? Subject { get; set; }
     public TutorMiniResponse? Tutor { get; set; }
