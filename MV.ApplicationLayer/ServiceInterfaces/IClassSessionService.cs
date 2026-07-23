@@ -115,7 +115,7 @@ public interface IClassSessionService
     /// <summary>
     /// Parent (or self-managed student) reports that the tutor did not show up for a scheduled classSession.
     /// </summary>
-    Task<ClassSessionDetailResponse> ReportTutorNoShowAsync(int classSessionId, string userId, string role);
+    Task<ClassSessionDetailResponse> ReportTutorNoShowAsync(int classSessionId, string userId, string role, ReportNoShowRequest? request = null);
 
     /// <summary>
     /// Parent (or self-managed student) selects a resolution action after a tutor no-show

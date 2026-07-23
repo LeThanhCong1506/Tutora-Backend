@@ -82,13 +82,13 @@ public class ClassSessionController(IClassSessionService classSessionService) : 
     /// </summary>
     [HttpPost("class-sessions/{id:int}/report-no-show")]
     [Authorize(Roles = UserRole.ParentOrStudent)]
-    public async Task<IActionResult> ReportNoShow([FromRoute] int id)
+    public async Task<IActionResult> ReportNoShow([FromRoute] int id, [FromBody] ReportNoShowRequest? request)
     {
         var userId = UserId ?? throw new UnauthorizedAccessException();
         var role = User.FindFirstValue(ClaimTypes.Role) ?? "";
         try
         {
-            var result = await classSessionService.ReportTutorNoShowAsync(id, userId, role);
+            var result = await classSessionService.ReportTutorNoShowAsync(id, userId, role, request);
             return Ok(MV.DomainLayer.DTO.APIResponse<ClassSessionDetailResponse>.Success(result, "Đã báo cáo gia sư vắng mặt thành công."));
         }
         catch (ClassSessionException ex)

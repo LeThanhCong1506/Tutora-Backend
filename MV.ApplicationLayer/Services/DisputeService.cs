@@ -132,7 +132,7 @@ public class DisputeService : IDisputeService
             RefundPercentage = dispute.Refundpercentage,
             TutorResponse = dispute.Tutorresponse,
             TutorRespondedAt = dispute.Tutorrespondedat,
-            TutorEvidence = dispute.DisputeEvidences?.Count > 0
+            AdditionalEvidence = dispute.DisputeEvidences?.Count > 0
                 ? dispute.DisputeEvidences.Select(e => new DisputeEvidenceItemResponse
                 {
                     DisputeEvidenceId = e.Disputeevidenceid,

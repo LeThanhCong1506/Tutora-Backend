@@ -15,7 +15,7 @@ public partial class ClassSessionService
 {
     // ── M3-T7: No-show Handling ───────────────────────────────────────────────
 
-    public async Task<ClassSessionDetailResponse> ReportTutorNoShowAsync(int classSessionId, string userId, string role)
+    public async Task<ClassSessionDetailResponse> ReportTutorNoShowAsync(int classSessionId, string userId, string role, ReportNoShowRequest? request = null)
     {
         var studentIds = role == UserRole.Parent
             ? await _context.Studentprofiles.Where(s => s.Parentid == userId).Select(s => s.Studentid).ToListAsync()
@@ -34,14 +34,20 @@ public partial class ClassSessionService
         }
 
         var now = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
-        if ((now - classSession.Scheduledstart).TotalMinutes < 15)
-            throw new ClassSessionException(ClassSessionErrorCodes.TooEarlyToReportNoShow, "Chỉ có thể báo cáo vắng mặt sau 15 phút kể từ giờ bắt đầu", 400);
 
         if (classSession.Status != Scheduled)
             throw new ClassSessionException(ClassSessionErrorCodes.InvalidClassSessionStatus, "Buổi học không ở trạng thái đã lên lịch", 400);
 
         classSession.Status = NoShow;
         classSession.Istutorpresent = false;
+
+        // Reported time is advisory context for admin only — not a gate (no more 15-minute
+        // requirement, per product decision to let the reporter flag no-show any time the
+        // session is still Scheduled).
+        var reportedAt = request?.ReportedAt ?? now;
+        var reasonText = !string.IsNullOrWhiteSpace(request?.Reason)
+            ? $"Tutor no-show lúc {reportedAt:dd/MM/yyyy HH:mm}: {request!.Reason}"
+            : $"Tutor no-show: Gia sư không có mặt lúc {reportedAt:dd/MM/yyyy HH:mm}";
 
         // Auto-create dispute record to track no-show
         var dispute = new Dispute
@@ -50,7 +56,7 @@ public partial class ClassSessionService
             Bookingid = classSession.Bookingid,
             Createdby = userId,
             Disputetype = DisputeTypes.NoShow,
-            Reason = "Tutor no-show: Gia sư không có mặt sau 15 phút",
+            Reason = reasonText,
             Status = DisputeStatus.Pending,
             Createdat = now
         };

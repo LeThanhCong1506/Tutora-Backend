@@ -25,7 +25,7 @@ public class DisputeDetailResponse
     // Tutor rebuttal
     public string? TutorResponse { get; set; }
     public DateTime? TutorRespondedAt { get; set; }
-    public List<DisputeEvidenceItemResponse>? TutorEvidence { get; set; }
+    public List<DisputeEvidenceItemResponse>? AdditionalEvidence { get; set; }
 
     // Created by info
     public DisputeUserResponse? CreatedBy { get; set; }
@@ -91,7 +91,7 @@ public class DisputeTutorResponse
     public decimal? AverageRating { get; set; }
 }
 
-/// <summary>Bằng chứng gia sư nộp thêm sau khi tranh chấp đã được tạo (bảng dispute_evidences).</summary>
+/// <summary>Bằng chứng nộp thêm sau khi tranh chấp đã được tạo — parent/student hoặc gia sư (bảng dispute_evidences).</summary>
 public class DisputeEvidenceItemResponse
 {
     public int DisputeEvidenceId { get; set; }

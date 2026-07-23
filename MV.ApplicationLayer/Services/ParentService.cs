@@ -459,6 +459,26 @@ public class ParentService : IParentService
         var folderPath = $"dispute-evidence-{classSessionId}";
         var fileUrl = await _storageService.UploadFileAsync(StorageBucket.ClassSessionAttachments, folderPath, file);
 
+        // If a dispute already exists for this classSession (e.g. no-show just reported), attach
+        // this evidence to it now. When called BEFORE dispute creation (CreateDisputeForm collects
+        // evidence URLs first, then submits them in CreateDisputeRequest.evidence), there's nothing
+        // to attach to yet — the URL is returned as-is and the caller includes it at creation time.
+        var activeDispute = await _context.Disputes
+            .Where(d => d.Classsessionid == classSessionId && d.Status != DisputeStatus.Resolved && d.Status != DisputeStatus.Closed)
+            .FirstOrDefaultAsync();
+        if (activeDispute != null)
+        {
+            _context.DisputeEvidences.Add(new DisputeEvidence
+            {
+                Disputeid = activeDispute.Disputeid,
+                Uploadedby = userId,
+                Fileurl = fileUrl,
+                Filetype = file.ContentType,
+                Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
+            });
+            await _context.SaveChangesAsync();
+        }
+
         return fileUrl;
     }
 }
