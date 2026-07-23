@@ -1,6 +1,8 @@
 ﻿using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using MV.ApplicationLayer.Hubs;
 using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO.RequestModel;
@@ -25,6 +27,7 @@ public class DisputeService : IDisputeService
     private readonly IWarningService _warningService;
     private readonly INotificationService _notificationService;
     private readonly IFileStorageService _storageService;
+    private readonly IHubContext<NotificationHub> _hubContext;
     private readonly ILogger<DisputeService> _logger;
 
     public DisputeService(
@@ -34,6 +37,7 @@ public class DisputeService : IDisputeService
         IWarningService warningService,
         INotificationService notificationService,
         IFileStorageService storageService,
+        IHubContext<NotificationHub> hubContext,
         ILogger<DisputeService> logger)
     {
         _disputeRepo = disputeRepo;
@@ -42,6 +46,7 @@ public class DisputeService : IDisputeService
         _warningService = warningService;
         _notificationService = notificationService;
         _storageService = storageService;
+        _hubContext = hubContext;
         _logger = logger;
     }
 
@@ -536,22 +541,41 @@ public class DisputeService : IDisputeService
         _context.DisputeMessages.Add(entity);
         await _context.SaveChangesAsync();
 
+        var response = (await MapDisputeMessagesAsync(new List<DisputeMessage> { entity })).First();
+
         var recipientId = threadType == DisputeThreadType.Tutor ? dispute.ClassSession?.Tutorid : dispute.Createdby;
         if (!string.IsNullOrEmpty(recipientId))
         {
-            try
-            {
-                await _notificationService.CreateNotificationAsync(new NotificationRequest
-                {
-                    Userid = recipientId,
-                    Title = "Admin nhắn tin về tranh chấp",
-                    Message = $"Admin đã gửi tin nhắn cho bạn về tranh chấp #{disputeId}."
-                });
-            }
-            catch (Exception ex) { _logger.LogWarning(ex, "Failed to notify {RecipientId} of admin dispute message for dispute {DisputeId}", recipientId, disputeId); }
+            await NotifyAndBroadcastDisputeMessageAsync(
+                recipientId, response, "Admin nhắn tin về tranh chấp", $"Admin đã gửi tin nhắn cho bạn về tranh chấp #{disputeId}.");
         }
 
-        return (await MapDisputeMessagesAsync(new List<DisputeMessage> { entity })).First();
+        return response;
+    }
+
+    /// <summary>Broadcasts a dispute chat message live to the recipient's SignalR group (so an
+    /// already-open thread can splice it in without refetching) and creates a DB notification
+    /// (badge + bell, and — via NotificationService — its own real-time push).</summary>
+    private async Task NotifyAndBroadcastDisputeMessageAsync(string recipientId, DisputeMessageResponse response, string title, string notificationMessage)
+    {
+        try
+        {
+            await _hubContext.Clients.Group($"user:{recipientId}").SendAsync("disputeMessageReceived", response);
+        }
+        catch (Exception ex) { _logger.LogWarning(ex, "Failed to broadcast dispute message to {RecipientId} for dispute {DisputeId}", recipientId, response.DisputeId); }
+
+        try
+        {
+            await _notificationService.CreateNotificationAsync(new NotificationRequest
+            {
+                Userid = recipientId,
+                Title = title,
+                Message = notificationMessage,
+                Type = NotificationType.DisputeMessage,
+                Referenceid = response.DisputeId.ToString()
+            });
+        }
+        catch (Exception ex) { _logger.LogWarning(ex, "Failed to notify {RecipientId} of dispute message for dispute {DisputeId}", recipientId, response.DisputeId); }
     }
 
     /// <summary>Tutor's own view of their thread for a classSession's dispute.</summary>
@@ -587,7 +611,25 @@ public class DisputeService : IDisputeService
         _context.DisputeMessages.Add(entity);
         await _context.SaveChangesAsync();
 
-        return (await MapDisputeMessagesAsync(new List<DisputeMessage> { entity })).First();
+        var response = (await MapDisputeMessagesAsync(new List<DisputeMessage> { entity })).First();
+        await NotifyAdminsOfDisputeMessageAsync(response);
+        return response;
+    }
+
+    /// <summary>Notify every admin of a new tutor/parent dispute message — there's no single
+    /// "assigned" admin per dispute, so all of them get the badge/real-time push.</summary>
+    private async Task NotifyAdminsOfDisputeMessageAsync(DisputeMessageResponse response)
+    {
+        var adminIds = await _context.Users
+            .Where(u => u.Primaryrole == UserRole.Admin)
+            .Select(u => u.Userid)
+            .ToListAsync();
+
+        foreach (var adminId in adminIds)
+        {
+            await NotifyAndBroadcastDisputeMessageAsync(
+                adminId, response, "Tin nhắn mới trong tranh chấp", $"Có tin nhắn mới trong tranh chấp #{response.DisputeId}.");
+        }
     }
 
     /// <summary>Parent/student's own view of their thread for a classSession's dispute.</summary>
@@ -631,7 +673,9 @@ public class DisputeService : IDisputeService
         _context.DisputeMessages.Add(entity);
         await _context.SaveChangesAsync();
 
-        return (await MapDisputeMessagesAsync(new List<DisputeMessage> { entity })).First();
+        var response = (await MapDisputeMessagesAsync(new List<DisputeMessage> { entity })).First();
+        await NotifyAdminsOfDisputeMessageAsync(response);
+        return response;
     }
 
     private static List<string>? DeserializeJsonList(string? value)

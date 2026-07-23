@@ -23,4 +23,5 @@ public static class NotificationType
     public const string LessonNoShow    = "lesson_no_show";
     public const string Message         = "message";
     public const string Warning         = "warning";
+    public const string DisputeMessage  = "dispute_message";
 }
