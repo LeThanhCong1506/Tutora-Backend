@@ -50,6 +50,7 @@ builder.Services.Configure<PaymentSettings>(builder.Configuration.GetSection(Pay
 builder.Services.Configure<GoogleSettings>(builder.Configuration.GetSection(GoogleSettings.SectionName));
 builder.Services.Configure<AgoraSettings>(builder.Configuration.GetSection(AgoraSettings.SectionName));
 builder.Services.Configure<AgoraRecordingSettings>(builder.Configuration.GetSection(AgoraRecordingSettings.SectionName));
+builder.Services.Configure<AgoraNotificationSettings>(builder.Configuration.GetSection(AgoraNotificationSettings.SectionName));
 builder.Services.Configure<GoogleDriveSettings>(builder.Configuration.GetSection(GoogleDriveSettings.SectionName));
 builder.Services.Configure<WhiteboardSettings>(builder.Configuration.GetSection(WhiteboardSettings.SectionName));
 builder.Services.Configure<VietQRSettings>(builder.Configuration.GetSection(VietQRSettings.SectionName));
@@ -336,6 +337,7 @@ builder.Services.AddSingleton<ISessionPresenceService, SessionPresenceService>()
 builder.Services.AddHttpClient<ICloudRecordingService, CloudRecordingService>();
 builder.Services.AddHttpClient<IWhiteboardService, WhiteboardService>();
 builder.Services.AddScoped<IGoogleDriveService, GoogleDriveService>();
+builder.Services.AddSingleton<IRecordingAccessTokenService, RecordingAccessTokenService>();
 builder.Services.AddScoped<IRecordingRelayService, RecordingRelayService>();
 builder.Services.AddHostedService<MV.PresentationLayer.BackgroundServices.RecordingRelayHostedService>();
 builder.Services.AddScoped<ITutorFinanceService, TutorFinanceService>();

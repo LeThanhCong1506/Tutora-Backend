@@ -1,17 +1,22 @@
 using MV.DomainLayer.Constants;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.DTO.RequestModel;
 using MV.DomainLayer.DTO.ResponseModel;
 using MV.DomainLayer.Exceptions;
 using System.Security.Claims;
+using System.Threading;
 
 namespace MV.PresentationLayer.Controllers;
 
 [ApiController]
 [Route("api")]
-public class ClassSessionController(IClassSessionService classSessionService) : ControllerBase
+public class ClassSessionController(
+    IClassSessionService classSessionService,
+    IGoogleDriveService driveService,
+    IRecordingAccessTokenService recordingAccessTokenService) : ControllerBase
 {
     private string? UserId => User.FindFirstValue(ClaimTypes.NameIdentifier);
 
@@ -43,6 +48,81 @@ public class ClassSessionController(IClassSessionService classSessionService) : 
             return NotFound(new { message = ApiMessages.ClassSessionNotFound });
 
         return Ok(MV.DomainLayer.DTO.APIResponse<ClassSessionResponse>.Success(result, ApiMessages.Success));
+    }
+
+    /// <summary>
+    /// GET /api/class-sessions/{id}/recording
+    /// Trạng thái + link xem lại bản ghi video buổi học — cho Tutor/Student/Parent xem qua app.
+    /// Không trả link Drive trực tiếp: StreamUrl trỏ tới endpoint proxy có token ngắn hạn riêng.
+    /// </summary>
+    [HttpGet("class-sessions/{id}/recording")]
+    [Authorize(Roles = UserRole.ParentOrStudentOrTutor)]
+    public async Task<IActionResult> GetClassSessionRecording([FromRoute] int id)
+    {
+        var userId = UserId ?? string.Empty;
+        var isParent = User.IsInRole(UserRole.Parent);
+        var result = await classSessionService.GetClassSessionRecordingAsync(id, userId, isParent);
+
+        if (result == null)
+            return NotFound(new { message = ApiMessages.ClassSessionNotFound });
+
+        return Ok(MV.DomainLayer.DTO.APIResponse<ClassSessionRecordingResponse>.Success(result, ApiMessages.Success));
+    }
+
+    /// <summary>
+    /// GET /api/class-sessions/{id}/recording/stream?token=...
+    /// Proxy phát video từ Google Drive (file luôn ở chế độ private trên Drive). Quyền xem do
+    /// chính token ngắn hạn (phát bởi GetClassSessionRecordingAsync / DisputeService) quyết định —
+    /// KHÔNG dùng [Authorize]/JWT vì thẻ &lt;video&gt; không gửi được Authorization header, giống
+    /// lý do SignalR hub phải nhận token qua query string. Hỗ trợ HTTP Range để tua video.
+    /// </summary>
+    [HttpGet("class-sessions/{id}/recording/stream")]
+    [AllowAnonymous]
+    public async Task GetClassSessionRecordingStream([FromRoute] int id, [FromQuery] string token, CancellationToken ct)
+    {
+        if (!recordingAccessTokenService.TryValidate(token, id, out _))
+        {
+            Response.StatusCode = StatusCodes.Status401Unauthorized;
+            return;
+        }
+
+        var fileId = await classSessionService.GetRecordingDriveFileIdAsync(id);
+        if (fileId == null)
+        {
+            Response.StatusCode = StatusCodes.Status404NotFound;
+            return;
+        }
+
+        var rangeHeader = Request.Headers["Range"].ToString();
+        DriveMediaResult media;
+        try
+        {
+            media = await driveService.GetMediaAsync(fileId, string.IsNullOrEmpty(rangeHeader) ? null : rangeHeader, ct);
+        }
+        catch (OperationCanceledException)
+        {
+            // Client hủy request (đóng tab, tua liên tục) — không phải lỗi, không cần log/response.
+            return;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            Response.StatusCode = StatusCodes.Status502BadGateway;
+            return;
+        }
+
+        using (media)
+        {
+            Response.StatusCode = media.StatusCode;
+            Response.ContentType = media.ContentType ?? "video/mp4";
+            if (media.ContentLength.HasValue)
+                Response.ContentLength = media.ContentLength;
+            if (media.AcceptRanges)
+                Response.Headers["Accept-Ranges"] = "bytes";
+            if (!string.IsNullOrEmpty(media.ContentRange))
+                Response.Headers["Content-Range"] = media.ContentRange;
+
+            await media.Content.CopyToAsync(Response.Body, ct);
+        }
     }
 
     /// <summary>
