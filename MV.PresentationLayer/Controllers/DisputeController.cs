@@ -89,10 +89,10 @@ public class DisputeController : ControllerBase
     /// </summary>
     [RequirePermission(Permissions.DisputeInvestigate)]
     [HttpPut("{id}/investigate")]
-    public async Task<ActionResult<APIResponse<DisputeDetailResponse>>> Investigate(int id)
+    public async Task<ActionResult<APIResponse<DisputeDetailResponse>>> Investigate(int id, [FromQuery] bool forceEarly = false)
     {
         var adminId = UserHelper.GetUserId(User);
-        var result = await _disputeService.InvestigateDisputeAsync(id, adminId);
+        var result = await _disputeService.InvestigateDisputeAsync(id, adminId, forceEarly);
         return Ok(APIResponse<DisputeDetailResponse>.Success(result, "Đã bắt đầu điều tra tranh chấp."));
     }
 
@@ -106,5 +106,28 @@ public class DisputeController : ControllerBase
         var adminId = UserHelper.GetUserId(User);
         var result = await _disputeService.ResolveDisputeAsync(id, adminId, request);
         return Ok(APIResponse<DisputeDetailResponse>.Success(result, "Giải quyết tranh chấp thành công."));
+    }
+
+    /// <summary>
+    /// Get one of the two private threads (tutor or parent/student) for a dispute.
+    /// </summary>
+    [RequirePermission(Permissions.DisputeView)]
+    [HttpGet("{id}/thread/{threadType}")]
+    public async Task<ActionResult<APIResponse<List<DisputeMessageResponse>>>> GetThread(int id, string threadType)
+    {
+        var result = await _disputeService.GetDisputeThreadAsync(id, threadType);
+        return Ok(APIResponse<List<DisputeMessageResponse>>.Success(result, "Lấy tin nhắn thành công."));
+    }
+
+    /// <summary>
+    /// Send a message into one of the two private threads for a dispute.
+    /// </summary>
+    [RequirePermission(Permissions.DisputeInvestigate)]
+    [HttpPost("{id}/thread/{threadType}/messages")]
+    public async Task<ActionResult<APIResponse<DisputeMessageResponse>>> SendThreadMessage(int id, string threadType, [FromBody] SendDisputeMessageRequest request)
+    {
+        var adminId = UserHelper.GetUserId(User);
+        var result = await _disputeService.SendAdminDisputeMessageAsync(id, adminId, threadType, request.Message);
+        return Ok(APIResponse<DisputeMessageResponse>.Success(result, "Gửi tin nhắn thành công."));
     }
 }

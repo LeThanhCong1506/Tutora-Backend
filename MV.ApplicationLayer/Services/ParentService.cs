@@ -452,6 +452,18 @@ public class ParentService : IParentService
         if (classSession.Issettled == true)
             throw new ClassSessionException(ClassSessionErrorCodes.ClassSessionAlreadyConfirmed, "Buổi học đã thanh toán, không thể tạo tranh chấp", 400);
 
+        // If a dispute already exists for this classSession (e.g. no-show just reported), evidence
+        // attaches to it directly and is only allowed while still Pending — once investigating starts,
+        // the formal record is locked (use the dispute chat channel to share more with admin instead).
+        // When called BEFORE dispute creation (CreateDisputeForm collects evidence URLs first, then
+        // submits them in CreateDisputeRequest.evidence), there's no dispute yet — nothing to check.
+        var activeDispute = await _context.Disputes
+            .Where(d => d.Classsessionid == classSessionId && d.Status != DisputeStatus.Resolved && d.Status != DisputeStatus.Closed)
+            .FirstOrDefaultAsync();
+        if (activeDispute != null && activeDispute.Status != DisputeStatus.Pending)
+            throw new ClassSessionException(ClassSessionErrorCodes.InvalidClassSessionStatus,
+                "Tranh chấp đã bước vào giai đoạn điều tra hoặc đã được giải quyết, không thể nộp thêm bằng chứng vào hồ sơ.", 400);
+
         // Ensure bucket exists
         await _storageService.EnsureBucketExistsAsync(StorageBucket.ClassSessionAttachments);
 
@@ -459,13 +471,6 @@ public class ParentService : IParentService
         var folderPath = $"dispute-evidence-{classSessionId}";
         var fileUrl = await _storageService.UploadFileAsync(StorageBucket.ClassSessionAttachments, folderPath, file);
 
-        // If a dispute already exists for this classSession (e.g. no-show just reported), attach
-        // this evidence to it now. When called BEFORE dispute creation (CreateDisputeForm collects
-        // evidence URLs first, then submits them in CreateDisputeRequest.evidence), there's nothing
-        // to attach to yet — the URL is returned as-is and the caller includes it at creation time.
-        var activeDispute = await _context.Disputes
-            .Where(d => d.Classsessionid == classSessionId && d.Status != DisputeStatus.Resolved && d.Status != DisputeStatus.Closed)
-            .FirstOrDefaultAsync();
         if (activeDispute != null)
         {
             _context.DisputeEvidences.Add(new DisputeEvidence

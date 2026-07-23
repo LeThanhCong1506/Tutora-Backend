@@ -30,9 +30,10 @@ public interface IDisputeService
     Task<List<ChatMessageResponse>> GetDisputeChatHistoryAsync(int disputeId);
 
     /// <summary>
-    /// Mark dispute as investigating
+    /// Marks a dispute as investigating. Blocked for the first 48h after creation (so the tutor has
+    /// a fair chance to respond first) unless <paramref name="forceEarly"/> is set.
     /// </summary>
-    Task<DisputeDetailResponse> InvestigateDisputeAsync(int disputeId, string adminId);
+    Task<DisputeDetailResponse> InvestigateDisputeAsync(int disputeId, string adminId, bool forceEarly = false);
 
     /// <summary>
     /// Resolve dispute with decision
@@ -73,4 +74,22 @@ public interface IDisputeService
     /// Tutor uploads supporting evidence for a dispute raised against them.
     /// </summary>
     Task<string> UploadTutorDisputeEvidenceAsync(int classSessionId, string tutorId, Microsoft.AspNetCore.Http.IFormFile file);
+
+    // ── Dispute chat threads — private per-party channels with admin ───────────
+
+    /// <summary>Admin view of either thread ("tutor" or "parent") for a dispute.</summary>
+    Task<List<DisputeMessageResponse>> GetDisputeThreadAsync(int disputeId, string threadType);
+
+    /// <summary>Admin sends a message into one of the two threads.</summary>
+    Task<DisputeMessageResponse> SendAdminDisputeMessageAsync(int disputeId, string adminId, string threadType, string message);
+
+    /// <summary>Tutor's own view of their thread for a classSession's dispute.</summary>
+    Task<List<DisputeMessageResponse>> GetTutorDisputeThreadAsync(int classSessionId, string tutorId);
+
+    Task<DisputeMessageResponse> SendTutorDisputeMessageAsync(int classSessionId, string tutorId, string message);
+
+    /// <summary>Parent/student's own view of their thread for a classSession's dispute.</summary>
+    Task<List<DisputeMessageResponse>> GetPartyDisputeThreadAsync(int classSessionId, string userId, string role);
+
+    Task<DisputeMessageResponse> SendPartyDisputeMessageAsync(int classSessionId, string userId, string role, string message);
 }

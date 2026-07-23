@@ -210,4 +210,37 @@ public class TutorClassSessionController : ControllerBase
         var result = await _disputeService.GetTutorDisputesAsync(tutorId, page, pageSize);
         return Ok(APIResponse<PagedList<DisputeListResponse>>.Success(result, "Lấy danh sách tranh chấp thành công."));
     }
+
+    /// <summary>
+    /// Get the tutor's private chat thread with admin for this classSession's dispute.
+    /// </summary>
+    [HttpGet("{id}/dispute/thread")]
+    public async Task<ActionResult<APIResponse<List<DisputeMessageResponse>>>> GetDisputeThread(int id)
+    {
+        var tutorId = UserHelper.GetUserId(User);
+        var result = await _disputeService.GetTutorDisputeThreadAsync(id, tutorId);
+        return Ok(APIResponse<List<DisputeMessageResponse>>.Success(result, "Lấy tin nhắn thành công."));
+    }
+
+    /// <summary>
+    /// Send a message in the tutor's private chat thread with admin for this classSession's dispute.
+    /// </summary>
+    [HttpPost("{id}/dispute/thread/messages")]
+    public async Task<ActionResult<APIResponse<DisputeMessageResponse>>> SendDisputeThreadMessage(int id, [FromBody] SendDisputeMessageRequest request)
+    {
+        var tutorId = UserHelper.GetUserId(User);
+        try
+        {
+            var result = await _disputeService.SendTutorDisputeMessageAsync(id, tutorId, request.Message);
+            return Ok(APIResponse<DisputeMessageResponse>.Success(result, "Gửi tin nhắn thành công."));
+        }
+        catch (ArgumentException ex)
+        {
+            return NotFound(APIResponse<DisputeMessageResponse>.Fail(ex.Message));
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(APIResponse<DisputeMessageResponse>.Fail(ex.Message));
+        }
+    }
 }

@@ -39,6 +39,8 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
 
     public virtual DbSet<DisputeEvidence> DisputeEvidences { get; set; }
 
+    public virtual DbSet<DisputeMessage> DisputeMessages { get; set; }
+
     public virtual DbSet<Feedback> Feedbacks { get; set; }
 
     public virtual DbSet<Handoversummary> Handoversummaries { get; set; }
@@ -787,6 +789,41 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
             entity.HasOne(d => d.UploadedbyNavigation).WithMany(p => p.DisputeEvidences)
                 .HasForeignKey(d => d.Uploadedby)
                 .HasConstraintName("dispute_evidences_uploadedby_fkey");
+        });
+
+        modelBuilder.Entity<DisputeMessage>(entity =>
+        {
+            entity.HasKey(e => e.Disputemessageid).HasName("dispute_messages_pkey");
+
+            entity.ToTable("dispute_messages");
+
+            entity.HasIndex(e => new { e.Disputeid, e.Threadtype }, "idx_dispute_messages_thread");
+
+            entity.Property(e => e.Disputemessageid).HasColumnName("dispute_message_id");
+            entity.Property(e => e.Disputeid).HasColumnName("dispute_id");
+            entity.Property(e => e.Threadtype)
+                .HasMaxLength(20)
+                .HasColumnName("thread_type");
+            entity.Property(e => e.Senderid)
+                .HasMaxLength(50)
+                .HasColumnName("sender_id");
+            entity.Property(e => e.Senderrole)
+                .HasMaxLength(20)
+                .HasColumnName("sender_role");
+            entity.Property(e => e.Message).HasColumnName("message");
+            entity.Property(e => e.Createdat)
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
+                .HasColumnType("timestamp without time zone")
+                .HasColumnName("created_at");
+
+            entity.HasOne(d => d.Dispute).WithMany(p => p.DisputeMessages)
+                .HasForeignKey(d => d.Disputeid)
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("dispute_messages_disputeid_fkey");
+
+            entity.HasOne(d => d.SenderidNavigation).WithMany()
+                .HasForeignKey(d => d.Senderid)
+                .HasConstraintName("dispute_messages_senderid_fkey");
         });
 
         modelBuilder.Entity<Feedback>(entity =>

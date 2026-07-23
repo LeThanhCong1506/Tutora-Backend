@@ -19,6 +19,7 @@ public interface IAppDbContext
     DbSet<Class> Classes { get; }
     DbSet<Dispute> Disputes { get; }
     DbSet<DisputeEvidence> DisputeEvidences { get; }
+    DbSet<DisputeMessage> DisputeMessages { get; }
     DbSet<Feedback> Feedbacks { get; }
     DbSet<Handoversummary> Handoversummaries { get; }
     DbSet<Learningmaterial> Learningmaterials { get; }

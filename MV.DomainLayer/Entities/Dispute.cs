@@ -48,4 +48,6 @@ public partial class Dispute
     public virtual User? ResolvedbyNavigation { get; set; }
 
     public virtual ICollection<DisputeEvidence> DisputeEvidences { get; set; } = new List<DisputeEvidence>();
+
+    public virtual ICollection<DisputeMessage> DisputeMessages { get; set; } = new List<DisputeMessage>();
 }

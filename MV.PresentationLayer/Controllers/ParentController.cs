@@ -170,6 +170,43 @@ public class ParentController : ControllerBase
     }
 
     /// <summary>
+    /// Get the parent/student's private chat thread with admin for this classSession's dispute.
+    /// </summary>
+    [HttpGet("class-sessions/{id}/dispute/thread")]
+    [Authorize(Roles = UserRole.ParentOrStudent)]
+    public async Task<ActionResult<APIResponse<List<DisputeMessageResponse>>>> GetDisputeThread(int id)
+    {
+        var userId = UserHelper.GetUserId(User);
+        var role = User.FindFirstValue(ClaimTypes.Role) ?? "";
+        var result = await _disputeService.GetPartyDisputeThreadAsync(id, userId, role);
+        return Ok(APIResponse<List<DisputeMessageResponse>>.Success(result, "Lấy tin nhắn thành công."));
+    }
+
+    /// <summary>
+    /// Send a message in the parent/student's private chat thread with admin for this classSession's dispute.
+    /// </summary>
+    [HttpPost("class-sessions/{id}/dispute/thread/messages")]
+    [Authorize(Roles = UserRole.ParentOrStudent)]
+    public async Task<ActionResult<APIResponse<DisputeMessageResponse>>> SendDisputeThreadMessage(int id, [FromBody] SendDisputeMessageRequest request)
+    {
+        var userId = UserHelper.GetUserId(User);
+        var role = User.FindFirstValue(ClaimTypes.Role) ?? "";
+        try
+        {
+            var result = await _disputeService.SendPartyDisputeMessageAsync(id, userId, role, request.Message);
+            return Ok(APIResponse<DisputeMessageResponse>.Success(result, "Gửi tin nhắn thành công."));
+        }
+        catch (ArgumentException ex)
+        {
+            return NotFound(APIResponse<DisputeMessageResponse>.Fail(ex.Message));
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(APIResponse<DisputeMessageResponse>.Fail(ex.Message));
+        }
+    }
+
+    /// <summary>
     /// Get parent's/student's dispute history
     /// </summary>
     [HttpGet("disputes")]

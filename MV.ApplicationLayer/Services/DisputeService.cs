@@ -232,7 +232,10 @@ public class DisputeService : IDisputeService
         }).ToList();
     }
 
-    public async Task<DisputeDetailResponse> InvestigateDisputeAsync(int disputeId, string adminId)
+    /// <summary>Tutor gets 48h from dispute creation to submit a rebuttal before admin can start investigating.</summary>
+    public const int TutorResponseGraceHours = 48;
+
+    public async Task<DisputeDetailResponse> InvestigateDisputeAsync(int disputeId, string adminId, bool forceEarly = false)
     {
         var dispute = await _disputeRepo.FindWithClassSessionAsync(disputeId)
             ?? throw new ArgumentException("Không tìm thấy tranh chấp");
@@ -240,10 +243,18 @@ public class DisputeService : IDisputeService
         if (dispute.Status != DisputeStatus.Pending)
             throw new InvalidOperationException("Tranh chấp chưa ở trạng thái chờ xử lý");
 
+        if (!forceEarly)
+        {
+            var elapsedHours = (MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow - (dispute.Createdat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow)).TotalHours;
+            if (elapsedHours < TutorResponseGraceHours)
+                throw new InvalidOperationException(
+                    $"Cần chờ đủ {TutorResponseGraceHours}h kể từ khi tạo tranh chấp để gia sư có thời gian phản hồi trước khi điều tra. Dùng forceEarly nếu cần bắt đầu sớm.");
+        }
+
         dispute.Status = DisputeStatus.Investigating;
         await _disputeRepo.SaveChangesAsync();
 
-        _logger.LogInformation("Actor {ActorId} started investigating dispute {DisputeId}", adminId, disputeId);
+        _logger.LogInformation("Actor {ActorId} started investigating dispute {DisputeId} (forceEarly={ForceEarly})", adminId, disputeId, forceEarly);
 
         return (await GetDisputeDetailAsync(disputeId))!;
     }
@@ -411,8 +422,8 @@ public class DisputeService : IDisputeService
             .FirstOrDefaultAsync(d => d.Classsessionid == classSessionId && d.ClassSession!.Tutorid == tutorId)
             ?? throw new ArgumentException("Không tìm thấy tranh chấp cho buổi học này");
 
-        if (dispute.Status == DisputeStatus.Resolved || dispute.Status == DisputeStatus.Closed)
-            throw new InvalidOperationException("Tranh chấp này đã được giải quyết, không thể phản hồi thêm");
+        if (dispute.Status != DisputeStatus.Pending)
+            throw new InvalidOperationException("Tranh chấp đã bước vào giai đoạn điều tra hoặc đã được giải quyết, không thể phản hồi thêm vào hồ sơ. Dùng kênh chat để trao đổi thêm với admin.");
 
         dispute.Tutorresponse = response;
         dispute.Tutorrespondedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
@@ -447,8 +458,8 @@ public class DisputeService : IDisputeService
             .FirstOrDefaultAsync(d => d.Classsessionid == classSessionId && d.ClassSession!.Tutorid == tutorId)
             ?? throw new ArgumentException("Không tìm thấy tranh chấp cho buổi học này");
 
-        if (dispute.Status == DisputeStatus.Resolved || dispute.Status == DisputeStatus.Closed)
-            throw new InvalidOperationException("Tranh chấp này đã được giải quyết, không thể nộp thêm bằng chứng");
+        if (dispute.Status != DisputeStatus.Pending)
+            throw new InvalidOperationException("Tranh chấp đã bước vào giai đoạn điều tra hoặc đã được giải quyết, không thể nộp thêm bằng chứng vào hồ sơ. Dùng kênh chat để trao đổi thêm với admin.");
 
         await _storageService.EnsureBucketExistsAsync(StorageBucket.ClassSessionAttachments);
         var folderPath = $"dispute-evidence-{classSessionId}";
@@ -465,6 +476,162 @@ public class DisputeService : IDisputeService
         await _context.SaveChangesAsync();
 
         return fileUrl;
+    }
+
+    // ── Dispute chat threads — private per-party channels with admin ───────────
+    // Two independent threads per dispute (tutor<->admin, parent/student<->admin); neither
+    // party sees the other's messages. Stays open through Investigating (that's the point —
+    // it's the release valve once the formal report/evidence gets locked at that stage) and
+    // closes once the dispute is Resolved/Closed.
+
+    private async Task<List<DisputeMessageResponse>> MapDisputeMessagesAsync(List<DisputeMessage> messages)
+    {
+        var senderIds = messages.Select(m => m.Senderid).Where(id => !string.IsNullOrEmpty(id)).Distinct().ToList();
+        var senderNames = await _context.Users
+            .Where(u => senderIds.Contains(u.Userid))
+            .ToDictionaryAsync(u => u.Userid, u => u.Fullname);
+
+        return messages
+            .OrderBy(m => m.Createdat)
+            .Select(m => new DisputeMessageResponse
+            {
+                DisputeMessageId = m.Disputemessageid,
+                DisputeId = m.Disputeid,
+                ThreadType = m.Threadtype,
+                SenderId = m.Senderid,
+                SenderName = !string.IsNullOrEmpty(m.Senderid) && senderNames.TryGetValue(m.Senderid, out var name) ? name : null,
+                SenderRole = m.Senderrole,
+                Message = m.Message,
+                CreatedAt = m.Createdat
+            })
+            .ToList();
+    }
+
+    /// <summary>Admin view of either thread for a dispute.</summary>
+    public async Task<List<DisputeMessageResponse>> GetDisputeThreadAsync(int disputeId, string threadType)
+    {
+        var messages = await _context.DisputeMessages
+            .Where(m => m.Disputeid == disputeId && m.Threadtype == threadType)
+            .ToListAsync();
+        return await MapDisputeMessagesAsync(messages);
+    }
+
+    public async Task<DisputeMessageResponse> SendAdminDisputeMessageAsync(int disputeId, string adminId, string threadType, string message)
+    {
+        var dispute = await _context.Disputes.Include(d => d.ClassSession).FirstOrDefaultAsync(d => d.Disputeid == disputeId)
+            ?? throw new ArgumentException("Không tìm thấy tranh chấp");
+
+        if (dispute.Status == DisputeStatus.Resolved || dispute.Status == DisputeStatus.Closed)
+            throw new InvalidOperationException("Tranh chấp đã được giải quyết, không thể nhắn thêm");
+
+        var entity = new DisputeMessage
+        {
+            Disputeid = disputeId,
+            Threadtype = threadType,
+            Senderid = adminId,
+            Senderrole = "admin",
+            Message = message,
+            Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
+        };
+        _context.DisputeMessages.Add(entity);
+        await _context.SaveChangesAsync();
+
+        var recipientId = threadType == DisputeThreadType.Tutor ? dispute.ClassSession?.Tutorid : dispute.Createdby;
+        if (!string.IsNullOrEmpty(recipientId))
+        {
+            try
+            {
+                await _notificationService.CreateNotificationAsync(new NotificationRequest
+                {
+                    Userid = recipientId,
+                    Title = "Admin nhắn tin về tranh chấp",
+                    Message = $"Admin đã gửi tin nhắn cho bạn về tranh chấp #{disputeId}."
+                });
+            }
+            catch (Exception ex) { _logger.LogWarning(ex, "Failed to notify {RecipientId} of admin dispute message for dispute {DisputeId}", recipientId, disputeId); }
+        }
+
+        return (await MapDisputeMessagesAsync(new List<DisputeMessage> { entity })).First();
+    }
+
+    /// <summary>Tutor's own view of their thread for a classSession's dispute.</summary>
+    public async Task<List<DisputeMessageResponse>> GetTutorDisputeThreadAsync(int classSessionId, string tutorId)
+    {
+        var disputeId = await _context.Disputes
+            .Where(d => d.Classsessionid == classSessionId && d.ClassSession!.Tutorid == tutorId)
+            .Select(d => (int?)d.Disputeid)
+            .FirstOrDefaultAsync();
+        if (!disputeId.HasValue) return new List<DisputeMessageResponse>();
+
+        return await GetDisputeThreadAsync(disputeId.Value, DisputeThreadType.Tutor);
+    }
+
+    public async Task<DisputeMessageResponse> SendTutorDisputeMessageAsync(int classSessionId, string tutorId, string message)
+    {
+        var dispute = await _context.Disputes
+            .FirstOrDefaultAsync(d => d.Classsessionid == classSessionId && d.ClassSession!.Tutorid == tutorId)
+            ?? throw new ArgumentException("Không tìm thấy tranh chấp cho buổi học này");
+
+        if (dispute.Status == DisputeStatus.Resolved || dispute.Status == DisputeStatus.Closed)
+            throw new InvalidOperationException("Tranh chấp đã được giải quyết, không thể nhắn thêm");
+
+        var entity = new DisputeMessage
+        {
+            Disputeid = dispute.Disputeid,
+            Threadtype = DisputeThreadType.Tutor,
+            Senderid = tutorId,
+            Senderrole = "tutor",
+            Message = message,
+            Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
+        };
+        _context.DisputeMessages.Add(entity);
+        await _context.SaveChangesAsync();
+
+        return (await MapDisputeMessagesAsync(new List<DisputeMessage> { entity })).First();
+    }
+
+    /// <summary>Parent/student's own view of their thread for a classSession's dispute.</summary>
+    public async Task<List<DisputeMessageResponse>> GetPartyDisputeThreadAsync(int classSessionId, string userId, string role)
+    {
+        var studentIds = role == UserRole.Parent
+            ? await _context.Studentprofiles.Where(s => s.Parentid == userId).Select(s => s.Studentid).ToListAsync()
+            : await _context.Studentprofiles.Where(s => s.Studentid == userId || s.Linkeduserid == userId).Select(s => s.Studentid).ToListAsync();
+
+        var disputeId = await _context.Disputes
+            .Where(d => d.Classsessionid == classSessionId && studentIds.Contains(d.ClassSession!.Studentid!))
+            .Select(d => (int?)d.Disputeid)
+            .FirstOrDefaultAsync();
+        if (!disputeId.HasValue) return new List<DisputeMessageResponse>();
+
+        return await GetDisputeThreadAsync(disputeId.Value, DisputeThreadType.Parent);
+    }
+
+    public async Task<DisputeMessageResponse> SendPartyDisputeMessageAsync(int classSessionId, string userId, string role, string message)
+    {
+        var studentIds = role == UserRole.Parent
+            ? await _context.Studentprofiles.Where(s => s.Parentid == userId).Select(s => s.Studentid).ToListAsync()
+            : await _context.Studentprofiles.Where(s => s.Studentid == userId || s.Linkeduserid == userId).Select(s => s.Studentid).ToListAsync();
+
+        var dispute = await _context.Disputes
+            .FirstOrDefaultAsync(d => d.Classsessionid == classSessionId && studentIds.Contains(d.ClassSession!.Studentid!))
+            ?? throw new ArgumentException("Không tìm thấy tranh chấp cho buổi học này");
+
+        if (dispute.Status == DisputeStatus.Resolved || dispute.Status == DisputeStatus.Closed)
+            throw new InvalidOperationException("Tranh chấp đã được giải quyết, không thể nhắn thêm");
+
+        var entity = new DisputeMessage
+        {
+            Disputeid = dispute.Disputeid,
+            Threadtype = DisputeThreadType.Parent,
+            Senderid = userId,
+            Senderrole = role,
+            Message = message,
+            Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
+        };
+        _context.DisputeMessages.Add(entity);
+        await _context.SaveChangesAsync();
+
+        return (await MapDisputeMessagesAsync(new List<DisputeMessage> { entity })).First();
     }
 
     private static List<string>? DeserializeJsonList(string? value)

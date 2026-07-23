@@ -51,6 +51,9 @@ public class DisputeDetailResponse
             return $"{(int)elapsed.TotalMinutes} phút trước";
         }
     }
+
+    /// <summary>Earliest time admin can call Investigate without forceEarly (Createdat + 48h).</summary>
+    public DateTime? TutorResponseDeadline => CreatedAt?.AddHours(48);
 }
 
 public class DisputeUserResponse
