@@ -157,6 +157,7 @@ public class AiChatService(
             image_base64 = dto.ImageBase64,
             grade = dto.Grade,
             chapter = dto.Chapter,
+            response_format = dto.ResponseFormat,
             chat_id = sessionId.ToString(),
             history
         };
@@ -170,6 +171,8 @@ public class AiChatService(
             req.Headers.Add("X-API-Key", apiKey);
 
         var assistant = new StringBuilder();
+        // Gom phần "suy nghĩ" (event `thinking`, tách khỏi delta)
+        var thinking = new StringBuilder();
         var ragUsed = false;
 
         try
@@ -188,11 +191,12 @@ public class AiChatService(
 
                 yield return line;
 
-                // Gom delta để lưu assistant message khi xong
+                // Gom delta (lời giải) + thinking (suy nghĩ) để lưu message khi xong
                 var json = line["data:".Length..].Trim();
                 if (json.Length == 0) continue;
-                var (delta, rag) = TryExtractDelta(json);
+                var (delta, think, rag) = TryExtractDelta(json);
                 if (!string.IsNullOrEmpty(delta)) assistant.Append(delta);
+                if (!string.IsNullOrEmpty(think)) thinking.Append(think);
                 if (rag) ragUsed = true;
             }
         }
@@ -202,12 +206,17 @@ public class AiChatService(
             if (assistant.Length > 0)
             {
                 var finishedAt = TimeZoneHelper.UtcNow;
+                // Lưu suy nghĩ vào Metadata (JSON)
+                string? metadata = thinking.Length > 0
+                    ? JsonSerializer.Serialize(new { thinking = thinking.ToString() })
+                    : null;
                 aiChatRepo.AddMessage(new ChatHistory
                 {
                     MessageId = Guid.NewGuid(),
                     SessionId = sessionId,
                     Role = ChatHistoryRole.Assistant,
                     Content = assistant.ToString(),
+                    Metadata = metadata,
                     Grade = dto.Grade,
                     RagUsed = ragUsed,
                     CreatedAt = finishedAt
@@ -219,19 +228,20 @@ public class AiChatService(
         }
     }
 
-    private (string? Delta, bool RagUsed) TryExtractDelta(string json)
+    private (string? Delta, string? Thinking, bool RagUsed) TryExtractDelta(string json)
     {
         try
         {
             using var doc = JsonDocument.Parse(json);
             var root = doc.RootElement;
             string? delta = root.TryGetProperty("delta", out var d) ? d.GetString() : null;
+            string? thinking = root.TryGetProperty("thinking", out var t) ? t.GetString() : null;
             bool rag = root.TryGetProperty("rag_used", out var r) && r.ValueKind == JsonValueKind.True;
-            return (delta, rag);
+            return (delta, thinking, rag);
         }
         catch (JsonException)
         {
-            return (null, false);
+            return (null, null, false);
         }
     }
 

@@ -19,4 +19,6 @@ public class AiSolveRequest
     public string? Grade { get; set; }
 
     public string? Chapter { get; set; }
+
+    public string? ResponseFormat { get; set; }
 }
