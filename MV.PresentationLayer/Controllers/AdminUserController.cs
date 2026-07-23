@@ -5,6 +5,7 @@ using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.DTO;
 using MV.DomainLayer.DTO.RequestModel;
 using MV.DomainLayer.DTO.ResponseModel;
+using MV.DomainLayer.DTO.ResponseModel.Admin;
 using MV.DomainLayer.Exceptions;
 using MV.PresentationLayer.Authorization;
 using System.Security.Claims;
@@ -93,8 +94,8 @@ public class AdminUserController : ControllerBase
             var guardResult = await GuardInternalTargetAsync(id, mutation: false);
             if (guardResult != null) return guardResult;
 
-            var user = await _userService.GetUserByIdAsync(id);
-            return Ok(APIResponse<UserResponse>.Success(user, "Lấy thông tin người dùng thành công."));
+            var user = await _userService.AdminGetUserDetailAsync(id);
+            return Ok(APIResponse<AdminUserDetailResponse>.Success(user, "Lấy thông tin người dùng thành công."));
         }
         catch (UserNotFoundException ex)
         {
