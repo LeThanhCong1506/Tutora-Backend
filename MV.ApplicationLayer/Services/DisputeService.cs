@@ -1,5 +1,6 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using MV.ApplicationLayer.Helpers;
 using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO.RequestModel;
@@ -17,11 +18,14 @@ namespace MV.ApplicationLayer.Services;
 /// </summary>
 public class DisputeService : IDisputeService
 {
+    private static readonly TimeSpan RecordingTokenLifetime = TimeSpan.FromMinutes(15);
+
     private readonly IDisputeRepository _disputeRepo;
     private readonly IAppDbContext _context; // retained for transaction management only
     private readonly ISettlementService _settlementService;
     private readonly IWarningService _warningService;
     private readonly INotificationService _notificationService;
+    private readonly IRecordingAccessTokenService _recordingAccessTokenService;
     private readonly ILogger<DisputeService> _logger;
 
     public DisputeService(
@@ -30,6 +34,7 @@ public class DisputeService : IDisputeService
         ISettlementService settlementService,
         IWarningService warningService,
         INotificationService notificationService,
+        IRecordingAccessTokenService recordingAccessTokenService,
         ILogger<DisputeService> logger)
     {
         _disputeRepo = disputeRepo;
@@ -37,6 +42,7 @@ public class DisputeService : IDisputeService
         _settlementService = settlementService;
         _warningService = warningService;
         _notificationService = notificationService;
+        _recordingAccessTokenService = recordingAccessTokenService;
         _logger = logger;
     }
 
@@ -101,15 +107,17 @@ public class DisputeService : IDisputeService
         return new PagedList<DisputeListResponse>(disputes, totalCount, query.Page, query.PageSize);
     }
 
-    public async Task<DisputeDetailResponse?> GetDisputeDetailAsync(int disputeId)
+    public async Task<DisputeDetailResponse?> GetDisputeDetailAsync(int disputeId, string actorId)
     {
         var dispute = await _disputeRepo.GetDetailAsync(disputeId);
         if (dispute == null) return null;
 
         var warningCount = await _disputeRepo.CountWarningsByTutorAsync(dispute.ClassSession!.Tutorid!);
 
-        var (recordingStatus, recordingUrl) = ResolveRecordingStatus(
-            dispute.ClassSession?.Recordingurl, dispute.ClassSession?.Recordings3key, dispute.ClassSession?.Recordingsid);
+        var (recordingStatus, recordingUrl) = RecordingStatusResolver.Resolve(
+            dispute.ClassSession?.Recordingurl, dispute.ClassSession?.Recordings3key, dispute.ClassSession?.Recordingsid,
+            dispute.ClassSession?.Checkouttime.HasValue ?? false);
+        var recordingStreamUrl = BuildRecordingStreamUrl(dispute.Classsessionid, actorId, recordingUrl);
 
         return new DisputeDetailResponse
         {
@@ -150,7 +158,7 @@ public class DisputeService : IDisputeService
                 IsTutorPresent = dispute.ClassSession.Istutorpresent,
                 IsStudentPresent = dispute.ClassSession.Isstudentpresent,
                 RecordingStatus = recordingStatus,
-                RecordingUrl = recordingUrl
+                RecordingUrl = recordingStreamUrl
             } : null,
             Tutor = dispute.ClassSession?.Tutor?.Tutor != null ? new DisputeTutorResponse
             {
@@ -164,34 +172,34 @@ public class DisputeService : IDisputeService
         };
     }
 
-    public async Task<DisputeRecordingResponse> GetDisputeRecordingAsync(int disputeId)
+    public async Task<DisputeRecordingResponse> GetDisputeRecordingAsync(int disputeId, string actorId)
     {
         var dispute = await _disputeRepo.FindWithClassSessionAsync(disputeId)
             ?? throw new ArgumentException("Không tìm thấy tranh chấp");
 
         var cs = dispute.ClassSession;
-        var (status, url) = ResolveRecordingStatus(cs?.Recordingurl, cs?.Recordings3key, cs?.Recordingsid);
+        var (status, url) = RecordingStatusResolver.Resolve(cs?.Recordingurl, cs?.Recordings3key, cs?.Recordingsid, cs?.Checkouttime.HasValue ?? false);
+        var streamUrl = BuildRecordingStreamUrl(dispute.Classsessionid, actorId, url);
 
         return new DisputeRecordingResponse
         {
             DisputeId = dispute.Disputeid,
             ClassSessionId = dispute.Classsessionid,
             Status = status,
-            RecordingUrl = url,
-            Available = url != null
+            RecordingUrl = streamUrl,
+            Available = streamUrl != null
         };
     }
 
     /// <summary>
-    /// Suy ra trạng thái + link recording từ các cột buổi học (không có cột status riêng):
-    /// có url → available; còn s3key → processing (đang relay lên Drive); còn sid → recording (đang ghi); còn lại none.
+    /// Phát hành token ngắn hạn + dựng link stream proxy cho actorId xem bản ghi của classSessionId.
+    /// Trả null nếu chưa có bản ghi (rawUrl null) — không có gì để phát token cho.
     /// </summary>
-    private static (string status, string? url) ResolveRecordingStatus(string? url, string? s3key, string? sid)
+    private string? BuildRecordingStreamUrl(int? classSessionId, string actorId, string? rawUrl)
     {
-        if (!string.IsNullOrEmpty(url)) return ("available", url);
-        if (!string.IsNullOrEmpty(s3key)) return ("processing", null);
-        if (!string.IsNullOrEmpty(sid)) return ("recording", null);
-        return ("none", null);
+        if (rawUrl == null || classSessionId == null) return null;
+        var token = _recordingAccessTokenService.Issue(classSessionId.Value, actorId, RecordingTokenLifetime);
+        return $"/api/class-sessions/{classSessionId.Value}/recording/stream?token={Uri.EscapeDataString(token)}";
     }
 
     public async Task<List<ChatMessageResponse>> GetDisputeChatHistoryAsync(int disputeId)
@@ -228,7 +236,7 @@ public class DisputeService : IDisputeService
 
         _logger.LogInformation("Actor {ActorId} started investigating dispute {DisputeId}", adminId, disputeId);
 
-        return (await GetDisputeDetailAsync(disputeId))!;
+        return (await GetDisputeDetailAsync(disputeId, adminId))!;
     }
 
     public async Task<DisputeDetailResponse> ResolveDisputeAsync(int disputeId, string adminId, ResolveDisputeRequest request)
@@ -304,7 +312,7 @@ public class DisputeService : IDisputeService
 
             await _notificationService.CreateNotificationsAsync(notifications);
 
-            return (await GetDisputeDetailAsync(disputeId))!;
+            return (await GetDisputeDetailAsync(disputeId, adminId))!;
         }
         catch
         {

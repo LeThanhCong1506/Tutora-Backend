@@ -14,15 +14,17 @@ public interface IDisputeService
     Task<PagedList<DisputeListResponse>> GetDisputesAsync(DisputeQueryRequest query);
 
     /// <summary>
-    /// Get dispute detail with full context
+    /// Get dispute detail with full context. <paramref name="actorId"/> = admin/staff hiện đang xem,
+    /// dùng để phát hành token stream cho bản ghi video (nếu có) gắn kèm trong ClassSession.RecordingUrl.
     /// </summary>
-    Task<DisputeDetailResponse?> GetDisputeDetailAsync(int disputeId);
+    Task<DisputeDetailResponse?> GetDisputeDetailAsync(int disputeId, string actorId);
 
     /// <summary>
-    /// Lấy thông tin bản ghi video (link Drive + trạng thái) của buổi học gắn với tranh chấp.
-    /// Dùng cho Admin/Staff khi xử lý tranh chấp.
+    /// Lấy thông tin bản ghi video (trạng thái + link stream tạm) của buổi học gắn với tranh chấp.
+    /// Dùng cho Admin/Staff khi xử lý tranh chấp. RecordingUrl trỏ tới endpoint proxy có token
+    /// ngắn hạn — KHÔNG phải link Drive trực tiếp (file trên Drive luôn ở chế độ private).
     /// </summary>
-    Task<DisputeRecordingResponse> GetDisputeRecordingAsync(int disputeId);
+    Task<DisputeRecordingResponse> GetDisputeRecordingAsync(int disputeId, string actorId);
 
     /// <summary>
     /// Get chat history for a booking (dispute context)
