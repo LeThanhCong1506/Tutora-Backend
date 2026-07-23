@@ -85,6 +85,14 @@ namespace MV.ApplicationLayer.ServiceInterfaces
         Task<PagedList<UserResponse>> AdminGetAllUsersAsync(AdminUserFilterParameters parameters, bool includeInternalAccounts = true);
 
         /// <summary>
+        /// Admin: create a customer account (Student / Parent / Tutor) with its
+        /// role side-entity. Internal roles (Admin/Staff) are rejected here — use
+        /// the dedicated staff-creation flow. Marked phone-verified so the account
+        /// can sign in immediately.
+        /// </summary>
+        Task<UserResponse> AdminCreateUserAsync(AdminCreateUserRequest request, string adminUserId);
+
+        /// <summary>
         /// Admin: update any user's fields (including role assignment).
         /// </summary>
         Task AdminUpdateUserAsync(string userId, AdminUpdateUserRequest request);

@@ -4,6 +4,26 @@ namespace MV.DomainLayer.DTO.RequestModel.Question;
 
 // Request DTOs cho CRUD danh mục (môn / khối lớp / chương / loại câu hỏi) — CMS admin.
 
+/// <summary>
+/// Sắp xếp lại thứ tự hiển thị, gửi nguyên mảng các mục
+/// bị đổi vị trí
+/// </summary>
+public class ReorderRequest
+{
+    [Required]
+    [MinLength(1, ErrorMessage = "Danh sách sắp xếp trống.")]
+    public List<ReorderItem> Items { get; set; } = new();
+}
+
+public class ReorderItem
+{
+    [Range(1, int.MaxValue)]
+    public int Id { get; set; }
+
+    [Range(0, int.MaxValue)]
+    public int DisplayOrder { get; set; }
+}
+
 // Subject
 public class SubjectRequest
 {
@@ -16,6 +36,16 @@ public class SubjectRequest
 
     /// <summary>true = còn dùng được, false = ngừng dùng. Dùng để khôi phục khi Update.</summary>
     public bool IsActive { get; set; } = true;
+
+    [StringLength(150)]
+    public string? Slug { get; set; }
+
+    [StringLength(500)]
+    public string? IconUrl { get; set; }
+
+    public bool IsHomeworkEnabled { get; set; }
+
+    public int DisplayOrder { get; set; }
 }
 
 // GradeLevel

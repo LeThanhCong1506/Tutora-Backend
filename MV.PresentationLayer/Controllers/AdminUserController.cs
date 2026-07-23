@@ -46,6 +46,44 @@ public class AdminUserController : ControllerBase
         return Ok(APIResponse<PagedList<UserResponse>>.Success(users, "Lấy danh sách người dùng thành công."));
     }
 
+    /// <summary>
+    /// POST /api/admin/users
+    /// Tạo tài khoản khách hàng mới (Student / Parent / Tutor). Tài khoản nội bộ
+    /// (Staff/Admin) không tạo qua đây — dùng POST /api/staffs.
+    /// </summary>
+    [RequirePermission(Permissions.UserUpdate)]
+    [HttpPost]
+    public async Task<IActionResult> CreateUser([FromBody] AdminCreateUserRequest request)
+    {
+        if (!ModelState.IsValid)
+            return BadRequest(APIResponse<object>.Fail(ApiMessages.InvalidInputData, 400));
+
+        var adminId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrEmpty(adminId))
+            return Unauthorized(APIResponse<object>.Fail(ApiMessages.Unauthorized, 401));
+
+        try
+        {
+            var created = await _userService.AdminCreateUserAsync(request, adminId);
+            return StatusCode(201, APIResponse<UserResponse>.Success(
+                created, "Tạo tài khoản người dùng thành công.", 201));
+        }
+        catch (InvalidOperationException ex)
+        {
+            // Preserve the specific validation message (invalid role) instead of
+            // the generic one the global handler would substitute.
+            return BadRequest(APIResponse<object>.Fail(ex.Message, 400));
+        }
+        catch (EmailAlreadyExistsException ex)
+        {
+            return BadRequest(APIResponse<object>.Fail(ex.Message, 400));
+        }
+        catch (PhoneAlreadyExistsException ex)
+        {
+            return BadRequest(APIResponse<object>.Fail(ex.Message, 400));
+        }
+    }
+
     [RequirePermission(Permissions.UserView)]
     [HttpGet("{id}")]
     public async Task<IActionResult> GetUserById(string id)

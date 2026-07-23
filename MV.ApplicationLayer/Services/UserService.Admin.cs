@@ -1,6 +1,8 @@
+using Microsoft.EntityFrameworkCore;
 using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO.RequestModel;
 using MV.DomainLayer.DTO.ResponseModel;
+using MV.DomainLayer.Entities;
 using MV.DomainLayer.Exceptions;
 using MV.DomainLayer.Helpers;
 using MV.ApplicationLayer.Interfaces;
@@ -14,21 +16,25 @@ namespace MV.ApplicationLayer.Services
 
         public async Task<PagedList<UserResponse>> AdminGetAllUsersAsync(AdminUserFilterParameters parameters, bool includeInternalAccounts = true)
         {
-            var users = await _unitOfWork.UserRepository.GetUsersAsync(parameters);
+            // Build the filtered query at the DB level so pagination AND the
+            // returned TotalCount stay correct. Previously the repository paged
+            // the entire users table first and these filters ran in-memory on
+            // that single page — which made TotalCount reflect all users (not the
+            // filtered set) and silently dropped matching rows the moment a role,
+            // status or search term was applied. That broke every filtered/paged
+            // view (and would break the new role-scoped views entirely).
+            var query = _context.Users.AsNoTracking().AsQueryable();
 
-            // Admin sees every account by default, including Admin and Staff.
-            // Optional query parameters below are applied only when explicitly provided.
-            var filtered = users.AsEnumerable();
-
+            // Admin sees every account, including internal (Admin/Staff).
+            // Delegated staff only ever see customer accounts.
             if (!includeInternalAccounts)
-                filtered = filtered.Where(u =>
-                    !string.Equals(u.Primaryrole, UserRole.Admin, StringComparison.OrdinalIgnoreCase) &&
-                    !string.Equals(u.Primaryrole, UserRole.Staff, StringComparison.OrdinalIgnoreCase));
+                query = query.Where(u =>
+                    u.Primaryrole != UserRole.Admin && u.Primaryrole != UserRole.Staff);
 
             if (!string.IsNullOrWhiteSpace(parameters.SearchTerm))
             {
-                var term = parameters.SearchTerm.ToLower();
-                filtered = filtered.Where(u =>
+                var term = parameters.SearchTerm.Trim().ToLower();
+                query = query.Where(u =>
                     (u.Fullname != null && u.Fullname.ToLower().Contains(term)) ||
                     (u.Email != null && u.Email.ToLower().Contains(term)) ||
                     (u.Phone != null && u.Phone.Contains(term)));
@@ -36,31 +42,47 @@ namespace MV.ApplicationLayer.Services
 
             if (!string.IsNullOrWhiteSpace(parameters.Role))
             {
-                filtered = filtered.Where(u =>
-                    u.Primaryrole != null && u.Primaryrole.Equals(parameters.Role, StringComparison.OrdinalIgnoreCase));
+                var role = parameters.Role.ToLower();
+                query = query.Where(u => u.Primaryrole != null && u.Primaryrole.ToLower() == role);
             }
 
             if (parameters.Status.HasValue)
-                filtered = filtered.Where(u => u.Status == parameters.Status.Value);
+                query = query.Where(u => u.Status == parameters.Status.Value);
 
             if (parameters.CreatedFrom.HasValue)
             {
                 var createdFromUtc = parameters.CreatedFrom.Value.Kind == DateTimeKind.Utc
                     ? parameters.CreatedFrom.Value
                     : DateTime.SpecifyKind(parameters.CreatedFrom.Value, DateTimeKind.Utc);
-                filtered = filtered.Where(u => u.Createdat >= createdFromUtc);
+                query = query.Where(u => u.Createdat >= createdFromUtc);
             }
             if (parameters.CreatedTo.HasValue)
             {
                 var createdToUtc = parameters.CreatedTo.Value.Kind == DateTimeKind.Utc
                     ? parameters.CreatedTo.Value
                     : DateTime.SpecifyKind(parameters.CreatedTo.Value, DateTimeKind.Utc);
-                filtered = filtered.Where(u => u.Createdat <= createdToUtc);
+                query = query.Where(u => u.Createdat <= createdToUtc);
             }
 
-            var filteredList = filtered.ToList();
+            query = parameters.OrderBy switch
+            {
+                UserListSortBy.FullName => query.OrderBy(u => u.Fullname),
+                UserListSortBy.FullNameDesc => query.OrderByDescending(u => u.Fullname),
+                UserListSortBy.Email => query.OrderBy(u => u.Email),
+                UserListSortBy.CreatedAt => query.OrderBy(u => u.Createdat),
+                _ => query.OrderByDescending(u => u.Createdat) // Default: newest first
+            };
 
-            var userResponses = filteredList.Select(u => new UserResponse
+            var pageNumber = parameters.PageNumber < 1 ? 1 : parameters.PageNumber;
+            var pageSize = parameters.PageSize; // already clamped to <= MaxPageSize by the setter
+
+            var totalCount = await query.CountAsync();
+            var pageUsers = await query
+                .Skip((pageNumber - 1) * pageSize)
+                .Take(pageSize)
+                .ToListAsync();
+
+            var userResponses = pageUsers.Select(u => new UserResponse
             {
                 Userid = u.Userid,
                 Username = u.Username,
@@ -79,9 +101,84 @@ namespace MV.ApplicationLayer.Services
 
             return new PagedList<UserResponse>(
                 userResponses,
-                users.TotalCount,
-                users.CurrentPage,
-                users.PageSize);
+                totalCount,
+                pageNumber,
+                pageSize);
+        }
+
+        public async Task<UserResponse> AdminCreateUserAsync(AdminCreateUserRequest request, string adminUserId)
+        {
+            // Only customer roles are created here. Internal accounts (Admin/Staff)
+            // have their own onboarding flow (POST /api/staffs) and must not be
+            // reachable through this endpoint.
+            var canonicalRole =
+                string.Equals(request.Role, UserRole.Student, StringComparison.OrdinalIgnoreCase) ? UserRole.Student :
+                string.Equals(request.Role, UserRole.Parent, StringComparison.OrdinalIgnoreCase) ? UserRole.Parent :
+                string.Equals(request.Role, UserRole.Tutor, StringComparison.OrdinalIgnoreCase) ? UserRole.Tutor :
+                throw new InvalidOperationException("Vai trò không hợp lệ. Chỉ được tạo tài khoản Student, Parent hoặc Tutor.");
+
+            var phone = request.Phone.Trim();
+            if (!await _unitOfWork.UserRepository.IsPhoneUniqueAsync(phone))
+                throw new PhoneAlreadyExistsException();
+
+            var email = string.IsNullOrWhiteSpace(request.Email) ? null : request.Email.Trim();
+            if (email != null && !await _unitOfWork.UserRepository.IsEmailUniqueAsync(email))
+                throw new EmailAlreadyExistsException();
+
+            var now = TimeZoneHelper.UtcNow;
+            var userId = Guid.NewGuid().ToString();
+            var fullname = request.Fullname.Trim();
+
+            var newUser = new User
+            {
+                Userid = userId,
+                Email = email,
+                Phone = phone,
+                Password = _passwordRepository.HashPassword(request.Password),
+                Fullname = fullname,
+                Status = 1,
+                Isemailverified = false,
+                // Admin-created → vouched. Skip the OTP gate so the account can
+                // sign in immediately (customer login requires a verified phone).
+                Isphoneverified = true,
+                Createdat = now,
+                Primaryrole = canonicalRole
+            };
+
+            // Each customer role owns a side-entity, mirroring self-registration.
+            if (canonicalRole == UserRole.Tutor)
+            {
+                newUser.Tutorprofile = new Tutorprofile
+                {
+                    Tutorid = userId,
+                    Createdat = now,
+                    Profilestatus = TutorProfileStatus.Draft
+                };
+            }
+            else if (canonicalRole == UserRole.Student)
+            {
+                newUser.StudentprofileLinkedusers.Add(new Studentprofile
+                {
+                    Studentid = userId,
+                    Parentid = null,
+                    Fullname = fullname,
+                    Createdat = now
+                });
+            }
+            else if (canonicalRole == UserRole.Parent)
+            {
+                newUser.Wallet = new Wallet
+                {
+                    Userid = userId,
+                    Balance = 0,
+                    Lastupdated = now
+                };
+            }
+
+            await _unitOfWork.UserRepository.CreateUserAsync(newUser);
+            await _unitOfWork.SaveChangesAsync();
+
+            return await GetUserByIdAsync(userId);
         }
 
         public async Task AdminUpdateUserAsync(string userId, AdminUpdateUserRequest request)
