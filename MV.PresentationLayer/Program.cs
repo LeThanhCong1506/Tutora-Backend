@@ -337,6 +337,7 @@ builder.Services.AddSingleton<ISessionPresenceService, SessionPresenceService>()
 builder.Services.AddHttpClient<ICloudRecordingService, CloudRecordingService>();
 builder.Services.AddHttpClient<IWhiteboardService, WhiteboardService>();
 builder.Services.AddScoped<IGoogleDriveService, GoogleDriveService>();
+builder.Services.AddSingleton<IRecordingAccessTokenService, RecordingAccessTokenService>();
 builder.Services.AddScoped<IRecordingRelayService, RecordingRelayService>();
 builder.Services.AddHostedService<MV.PresentationLayer.BackgroundServices.RecordingRelayHostedService>();
 builder.Services.AddScoped<ITutorFinanceService, TutorFinanceService>();

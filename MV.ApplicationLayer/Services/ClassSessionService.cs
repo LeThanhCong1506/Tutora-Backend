@@ -26,6 +26,7 @@ public partial class ClassSessionService : IClassSessionService
     private readonly IFileStorageService _storageService;
     private readonly ISessionPresenceService _presence;
     private readonly ICloudRecordingService _cloudRecording;
+    private readonly IRecordingAccessTokenService _recordingAccessTokenService;
     private readonly ILogger<ClassSessionService> _logger;
 
     // Retained for transaction management only (BeginTransactionAsync)
@@ -44,6 +45,7 @@ public partial class ClassSessionService : IClassSessionService
         IFileStorageService storageService,
         ISessionPresenceService presence,
         ICloudRecordingService cloudRecording,
+        IRecordingAccessTokenService recordingAccessTokenService,
         ILogger<ClassSessionService> logger)
     {
         _classSessionRepo = classSessionRepo;
@@ -56,6 +58,7 @@ public partial class ClassSessionService : IClassSessionService
         _storageService = storageService;
         _presence = presence;
         _cloudRecording = cloudRecording;
+        _recordingAccessTokenService = recordingAccessTokenService;
         _logger = logger;
     }
 
@@ -189,7 +192,13 @@ public partial class ClassSessionService : IClassSessionService
         }
         else
         {
-            if (classSession.Tutorid != userId && classSession.Studentid != userId)
+            // Tutorid trùng thẳng User.Userid (Tutorprofile dùng chung khóa với Users), nhưng
+            // Studentid là khóa chính riêng của Studentprofile — khác Linkeduserid/User.Userid,
+            // nên phải resolve qua profile trước khi so sánh (giống StudentClassSessionController).
+            var isTutorMatch = classSession.Tutorid == userId;
+            var studentProfile = isTutorMatch ? null : await _studentRepo.FindByStudentOrLinkedUserAsync(userId);
+            var isStudentMatch = studentProfile != null && classSession.Studentid == studentProfile.Studentid;
+            if (!isTutorMatch && !isStudentMatch)
                 return null;
         }
 
@@ -307,6 +316,7 @@ public partial class ClassSessionService : IClassSessionService
             IsTutorPresent = classSession.Istutorpresent,
             IsStudentPresent = classSession.Isstudentpresent,
             CreatedAt = classSession.Createdat.HasValue ? classSession.Createdat.Value : (DateTime?)null,
+            HasRecording = RecordingStatusResolver.Resolve(classSession.Recordingurl, classSession.Recordings3key, classSession.Recordingsid, classSession.Checkouttime.HasValue).Status == "available",
             Student = student != null ? new StudentMiniResponse
             {
                 StudentId = student.Studentid,

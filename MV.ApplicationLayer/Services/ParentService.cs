@@ -1,5 +1,6 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using MV.ApplicationLayer.Helpers;
 using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO.RequestModel;
@@ -383,7 +384,8 @@ public class ParentService : IParentService
                         SubjectName = l.Booking?.Subject?.Subjectname,
                         Status = l.Status,
                         MeetingLink = l.Meetinglink,
-                        CheckOutTime = l.Checkouttime
+                        CheckOutTime = l.Checkouttime,
+                        HasRecording = RecordingStatusResolver.Resolve(l.Recordingurl, l.Recordings3key, l.Recordingsid, l.Checkouttime.HasValue).Status == "available"
                     }).ToList()
                 })
                 .ToList();
