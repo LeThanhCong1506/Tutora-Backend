@@ -51,6 +51,8 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
 
     public virtual DbSet<SessionEngagementSample> SessionEngagementSamples { get; set; }
 
+    public virtual DbSet<AgoraChannelEvent> AgoraChannelEvents { get; set; }
+
     public virtual DbSet<Notification> Notifications { get; set; }
 
     public virtual DbSet<QuestionBank> QuestionBanks { get; set; }
@@ -255,6 +257,35 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
 
             entity.HasIndex(e => new { e.ClassSessionId, e.SampledAt })
                 .HasDatabaseName("idx_session_engagement_samples_session_time");
+        });
+
+        modelBuilder.Entity<AgoraChannelEvent>(entity =>
+        {
+            entity.HasKey(e => e.EventId).HasName("agora_channel_events_pkey");
+
+            entity.ToTable("agora_channel_events");
+
+            entity.Property(e => e.EventId)
+                .UseIdentityAlwaysColumn()
+                .HasColumnName("event_id");
+            entity.Property(e => e.NoticeId)
+                .HasMaxLength(64)
+                .HasColumnName("notice_id");
+            entity.Property(e => e.ClassSessionId).HasColumnName("class_session_id");
+            entity.Property(e => e.EventType).HasColumnName("event_type");
+            entity.Property(e => e.EventAt)
+                .HasColumnType("timestamp without time zone")
+                .HasColumnName("event_at");
+            entity.Property(e => e.ReceivedAt)
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
+                .HasColumnType("timestamp without time zone")
+                .HasColumnName("received_at");
+            entity.Property(e => e.Payload)
+                .HasColumnType("jsonb")
+                .HasColumnName("payload");
+
+            entity.HasIndex(e => e.NoticeId, "ux_agora_events_notice").IsUnique();
+            entity.HasIndex(e => new { e.ClassSessionId, e.EventAt }, "idx_agora_events_session");
         });
 
         modelBuilder.Entity<WithdrawalScore>(entity =>
