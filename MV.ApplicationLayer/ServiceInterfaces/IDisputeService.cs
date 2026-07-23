@@ -45,6 +45,12 @@ public interface IDisputeService
     /// </summary>
     Task<DisputeStatsResponse> GetDisputeStatsAsync();
 
+    /// <summary>
+    /// Preview parent refund / tutor payout amounts for a candidate percentage, before resolving
+    /// with it. Same clamped math ProcessRefundAsync will actually use — no side effects.
+    /// </summary>
+    Task<RefundPreviewResponse> GetRefundPreviewAsync(int disputeId, int percentage);
+
     // ── Parent/Student-facing ────────────────────────────────────────────────
 
     /// <summary>

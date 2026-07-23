@@ -97,6 +97,17 @@ public class DisputeController : ControllerBase
     }
 
     /// <summary>
+    /// Preview parent refund / tutor payout amounts for a candidate percentage before resolving.
+    /// </summary>
+    [RequirePermission(Permissions.DisputeResolve)]
+    [HttpGet("{id}/refund-preview")]
+    public async Task<ActionResult<APIResponse<RefundPreviewResponse>>> GetRefundPreview(int id, [FromQuery] int percentage)
+    {
+        var result = await _disputeService.GetRefundPreviewAsync(id, percentage);
+        return Ok(APIResponse<RefundPreviewResponse>.Success(result, "Tính toán xem trước thành công."));
+    }
+
+    /// <summary>
     /// Resolve a dispute
     /// </summary>
     [RequirePermission(Permissions.DisputeResolve)]

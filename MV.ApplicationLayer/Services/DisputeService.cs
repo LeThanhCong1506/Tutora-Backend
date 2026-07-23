@@ -269,6 +269,9 @@ public class DisputeService : IDisputeService
         if (!ResolutionTypes.All.Contains(request.ResolutionType))
             throw new ArgumentException("Loại kết quả xử lý không hợp lệ");
 
+        if (request.ResolutionType == ResolutionTypes.Custom && !request.CustomRefundPercentage.HasValue)
+            throw new ArgumentException("Cần nhập phần trăm hoàn tiền tùy chỉnh");
+
         var dispute = await _disputeRepo.FindWithClassSessionAsync(disputeId)
             ?? throw new ArgumentException("Không tìm thấy tranh chấp");
 
@@ -287,6 +290,7 @@ public class DisputeService : IDisputeService
                 ResolutionTypes.Release => 0,
                 ResolutionTypes.Refund50 => 50,
                 ResolutionTypes.Refund100 => 100,
+                ResolutionTypes.Custom => request.CustomRefundPercentage!.Value,
                 _ => 0
             };
 
@@ -344,6 +348,17 @@ public class DisputeService : IDisputeService
             await tx.RollbackAsync();
             throw;
         }
+    }
+
+    public async Task<RefundPreviewResponse> GetRefundPreviewAsync(int disputeId, int percentage)
+    {
+        var dispute = await _context.Disputes.AsNoTracking().FirstOrDefaultAsync(d => d.Disputeid == disputeId)
+            ?? throw new ArgumentException("Không tìm thấy tranh chấp");
+
+        if (!dispute.Classsessionid.HasValue)
+            throw new ArgumentException("Tranh chấp này không gắn với buổi học nào để tính hoàn tiền");
+
+        return await _settlementService.PreviewRefundAsync(dispute.Classsessionid.Value, percentage);
     }
 
     public async Task<DisputeStatsResponse> GetDisputeStatsAsync()
