@@ -62,14 +62,17 @@ namespace MV.ApplicationLayer.Services
 
                 var requestBody = new GroqRequest
                 {
-                    Model = "llama-3.3-70b-versatile",
+                    // llama-3.3-70b-versatile is deprecated on Groq (decommissioned 2026-08-16) — use its
+                    // documented replacement. See https://console.groq.com/docs/deprecations.
+                    Model = "openai/gpt-oss-120b",
                     Messages =
                     [
                         new GroqMessage { Role = AiChatRole.System, Content = "Bạn phân loại mức độ ưu tiên tranh chấp. Chỉ trả về JSON hợp lệ, không thêm văn bản khác." },
                         new GroqMessage { Role = AiChatRole.User, Content = prompt }
                     ],
                     Temperature = 0.0,
-                    MaxTokens = 200
+                    MaxTokens = 200,
+                    ResponseFormat = new GroqResponseFormat()
                 };
 
                 var jsonRequest = JsonSerializer.Serialize(requestBody, new JsonSerializerOptions
@@ -151,6 +154,13 @@ namespace MV.ApplicationLayer.Services
             public double Temperature { get; set; }
             [JsonPropertyName("max_tokens")]
             public int MaxTokens { get; set; }
+            [JsonPropertyName("response_format")]
+            public GroqResponseFormat? ResponseFormat { get; set; }
+        }
+
+        private class GroqResponseFormat
+        {
+            public string Type { get; set; } = "json_object";
         }
 
         private class GroqMessage

@@ -266,8 +266,15 @@ public class ParentService : IParentService
         await _context.SaveChangesAsync();
 
         // AI priority classification runs in the background — it has no value to the submitter (only
-        // admins see it) and must never add Groq latency to the dispute-creation request.
-        _backgroundJobClient.Enqueue<IDisputeService>(s => s.ClassifyDisputePriorityAsync(dispute.Disputeid));
+        // admins see it) and must never add Groq latency to, or break, the dispute-creation request.
+        try
+        {
+            _backgroundJobClient.Enqueue<IDisputeService>(s => s.ClassifyDisputePriorityAsync(dispute.Disputeid));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to enqueue priority classification job for dispute {DisputeId}", dispute.Disputeid);
+        }
 
         _logger.LogInformation("{Role} {UserId} created dispute {DisputeId} for classSession {ClassSessionId}",
             role, userId, dispute.Disputeid, classSessionId);
