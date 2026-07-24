@@ -264,6 +264,12 @@ builder.Services.AddHttpClient<IFptAiService, FptAiService>();
 // 2. Đăng ký HttpClient cho OcrSpaceService (OCR cho chứng chỉ/bằng cấp)
 builder.Services.AddHttpClient<IOcrService, OcrSpaceService>();
 
+// 3. Đăng ký HttpClient cho DisputeClassificationService (Groq AI phân loại ưu tiên tranh chấp)
+builder.Services.AddHttpClient<IDisputeClassificationService, DisputeClassificationService>(client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(10);
+});
+
 // Repo injection
 builder.Services.AddScoped<IAuthenticationRepository, AuthenticationRepository>();
 builder.Services.AddScoped<IPasswordRepository, PasswordRepository>();

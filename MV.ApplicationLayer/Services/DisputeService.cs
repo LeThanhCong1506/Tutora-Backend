@@ -28,6 +28,7 @@ public class DisputeService : IDisputeService
     private readonly INotificationService _notificationService;
     private readonly IFileStorageService _storageService;
     private readonly IHubContext<NotificationHub> _hubContext;
+    private readonly IDisputeClassificationService _classificationService;
     private readonly ILogger<DisputeService> _logger;
 
     public DisputeService(
@@ -38,6 +39,7 @@ public class DisputeService : IDisputeService
         INotificationService notificationService,
         IFileStorageService storageService,
         IHubContext<NotificationHub> hubContext,
+        IDisputeClassificationService classificationService,
         ILogger<DisputeService> logger)
     {
         _disputeRepo = disputeRepo;
@@ -47,6 +49,7 @@ public class DisputeService : IDisputeService
         _notificationService = notificationService;
         _storageService = storageService;
         _hubContext = hubContext;
+        _classificationService = classificationService;
         _logger = logger;
     }
 
@@ -87,6 +90,8 @@ public class DisputeService : IDisputeService
                 d.Disputetype,
                 d.Status,
                 d.Reason,
+                d.Priority,
+                d.Priorityreason,
                 CreatedByName = d.CreatedbyNavigation!.Fullname,
                 TutorName = d.ClassSession!.Tutor!.Tutor!.Fullname,
                 ClassSessionPrice = d.ClassSession.Lessonprice,
@@ -102,6 +107,8 @@ public class DisputeService : IDisputeService
             DisputeType = d.Disputetype,
             Status = d.Status,
             Reason = d.Reason,
+            Priority = d.Priority,
+            PriorityReason = d.Priorityreason,
             CreatedByName = d.CreatedByName,
             TutorName = d.TutorName,
             ClassSessionPrice = d.ClassSessionPrice,
@@ -144,6 +151,8 @@ public class DisputeService : IDisputeService
             DisputeType = dispute.Disputetype,
             Reason = dispute.Reason,
             Status = dispute.Status,
+            Priority = dispute.Priority,
+            PriorityReason = dispute.Priorityreason,
             Evidence = DeserializeJsonList(dispute.Evidence),
             CreatedAt = dispute.Createdat.HasValue ? dispute.Createdat.Value : (DateTime?)null,
             ResolvedAt = dispute.Resolvedat.HasValue ? dispute.Resolvedat.Value : (DateTime?)null,
@@ -218,6 +227,31 @@ public class DisputeService : IDisputeService
                 AverageRating = dispute.ClassSession.Tutor.Averagerating.HasValue ? (decimal?)dispute.ClassSession.Tutor.Averagerating.Value : null
             } : null
         };
+    }
+
+    /// <summary>
+    /// Runs AI (Groq) priority classification for a dispute and persists the result. Never throws on
+    /// classification failure — the dispute simply stays unclassified so it can be retried later.
+    /// </summary>
+    public async Task<DisputeDetailResponse?> ClassifyDisputePriorityAsync(int disputeId)
+    {
+        var dispute = await _disputeRepo.FindWithClassSessionAsync(disputeId);
+        if (dispute == null)
+        {
+            _logger.LogWarning("ClassifyDisputePriorityAsync: dispute {DisputeId} not found", disputeId);
+            return null;
+        }
+
+        var classification = await _classificationService.ClassifyAsync(dispute.Disputetype ?? "", dispute.Reason ?? "");
+        if (classification != null)
+        {
+            dispute.Priority = classification.Priority;
+            dispute.Priorityreason = classification.Reason;
+            await _disputeRepo.SaveChangesAsync();
+            _logger.LogInformation("Dispute {DisputeId} classified as priority {Priority}", disputeId, classification.Priority);
+        }
+
+        return await GetDisputeDetailAsync(disputeId);
     }
 
     public async Task<DisputeRecordingResponse> GetDisputeRecordingAsync(int disputeId)
@@ -605,6 +639,8 @@ public class DisputeService : IDisputeService
                 DisputeType = d.Disputetype,
                 Status = d.Status,
                 Reason = d.Reason,
+                Priority = d.Priority,
+                PriorityReason = d.Priorityreason,
                 ClassSessionPrice = d.ClassSession!.Lessonprice,
                 CreatedAt = d.Createdat
             })

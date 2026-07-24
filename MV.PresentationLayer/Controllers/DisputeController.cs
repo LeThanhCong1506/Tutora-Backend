@@ -97,6 +97,22 @@ public class DisputeController : ControllerBase
     }
 
     /// <summary>
+    /// (Re)run AI priority classification for a dispute. Used to backfill disputes created before this
+    /// feature existed, or to retry one whose automatic classification failed.
+    /// </summary>
+    [RequirePermission(Permissions.DisputeInvestigate)]
+    [HttpPut("{id}/classify")]
+    public async Task<ActionResult<APIResponse<DisputeDetailResponse>>> Classify(int id)
+    {
+        var result = await _disputeService.ClassifyDisputePriorityAsync(id);
+
+        if (result == null)
+            return NotFound(APIResponse<DisputeDetailResponse>.Fail("Không tìm thấy tranh chấp."));
+
+        return Ok(APIResponse<DisputeDetailResponse>.Success(result, "Đã phân loại tranh chấp."));
+    }
+
+    /// <summary>
     /// Confirm a tutor no-show after admin review. The parent/self-managed student can choose the
     /// financial remedy only after this gate succeeds.
     /// </summary>

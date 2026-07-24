@@ -43,6 +43,12 @@ public partial class Dispute
 
     public string? Noshowconfirmedby { get; set; }
 
+    /// <summary>AI-classified priority (low/medium/high) — see <see cref="Constants.DisputePriority"/>.</summary>
+    public string? Priority { get; set; }
+
+    /// <summary>Short justification from the AI classifier for <see cref="Priority"/>.</summary>
+    public string? Priorityreason { get; set; }
+
     public virtual Booking? Booking { get; set; }
 
     public virtual User? CreatedbyNavigation { get; set; }

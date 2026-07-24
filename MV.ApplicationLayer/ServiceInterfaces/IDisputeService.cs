@@ -47,6 +47,14 @@ public interface IDisputeService
     Task<DisputeDetailResponse> ResolveDisputeAsync(int disputeId, string adminId, ResolveDisputeRequest request);
 
     /// <summary>
+    /// Runs AI (Groq) priority classification for a dispute and persists the result. Used both as the
+    /// Hangfire job body enqueued right after dispute creation, and as a manual admin re-classify/backfill action.
+    /// Returns null if the dispute doesn't exist; leaves Priority/PriorityReason unset (not an error) if the
+    /// AI call itself fails or is unavailable.
+    /// </summary>
+    Task<DisputeDetailResponse?> ClassifyDisputePriorityAsync(int disputeId);
+
+    /// <summary>
     /// Get dispute statistics for admin dashboard
     /// </summary>
     Task<DisputeStatsResponse> GetDisputeStatsAsync();

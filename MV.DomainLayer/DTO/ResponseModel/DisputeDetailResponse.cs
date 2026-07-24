@@ -1,3 +1,5 @@
+using MV.DomainLayer.Constants;
+
 namespace MV.DomainLayer.DTO.ResponseModel;
 
 /// <summary>
@@ -13,6 +15,19 @@ public class DisputeDetailResponse
     public string? Reason { get; set; }
     public string? Status { get; set; }
     public List<string>? Evidence { get; set; }
+
+    /// <summary>AI-classified priority (low/medium/high) — null until the background classification job runs.</summary>
+    public string? Priority { get; set; }
+    /// <summary>Short AI justification for <see cref="Priority"/>.</summary>
+    public string? PriorityReason { get; set; }
+    /// <summary>Display priority with icon — "Chưa phân loại" while unclassified.</summary>
+    public string PriorityDisplay => Priority switch
+    {
+        DisputePriority.High => "🔴 Cao",
+        DisputePriority.Medium => "🟡 Trung bình",
+        DisputePriority.Low => "🟢 Thấp",
+        _ => "Chưa phân loại"
+    };
 
     public DateTime? CreatedAt { get; set; }
     public DateTime? ResolvedAt { get; set; }

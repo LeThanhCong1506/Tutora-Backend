@@ -748,6 +748,12 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
             entity.Property(e => e.Noshowconfirmedby)
                 .HasMaxLength(50)
                 .HasColumnName("no_show_confirmed_by");
+            entity.Property(e => e.Priority)
+                .HasMaxLength(20)
+                .HasColumnName("priority");
+            entity.Property(e => e.Priorityreason)
+                .HasMaxLength(500)
+                .HasColumnName("priority_reason");
 
             entity.HasOne(d => d.Booking).WithMany(p => p.Disputes)
                 .HasForeignKey(d => d.Bookingid)

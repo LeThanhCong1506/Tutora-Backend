@@ -20,7 +20,12 @@ public class DisputeListResponse
     
     public decimal? ClassSessionPrice { get; set; }
     public DateTime? CreatedAt { get; set; }
-    
+
+    /// <summary>AI-classified priority (low/medium/high) — null until the background classification job runs.</summary>
+    public string? Priority { get; set; }
+    /// <summary>Short AI justification for <see cref="Priority"/>.</summary>
+    public string? PriorityReason { get; set; }
+
     /// <summary>
     /// Display type with icon
     /// </summary>
@@ -54,5 +59,16 @@ public class DisputeListResponse
         DisputeStatus.Resolved => "#10B981",
         DisputeStatus.Closed => "#6B7280",
         _ => "#9CA3AF"
+    };
+
+    /// <summary>
+    /// Display priority with icon — "Chưa phân loại" while the background AI classification job hasn't run yet.
+    /// </summary>
+    public string PriorityDisplay => Priority switch
+    {
+        DisputePriority.High => "🔴 Cao",
+        DisputePriority.Medium => "🟡 Trung bình",
+        DisputePriority.Low => "🟢 Thấp",
+        _ => "Chưa phân loại"
     };
 }

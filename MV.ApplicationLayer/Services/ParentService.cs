@@ -1,3 +1,4 @@
+using Hangfire;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using MV.ApplicationLayer.ServiceInterfaces;
@@ -22,6 +23,7 @@ public class ParentService : IParentService
     private readonly ISettlementService _settlementService;
     private readonly INotificationService _notificationService;
     private readonly IFileStorageService _storageService;
+    private readonly IBackgroundJobClient _backgroundJobClient;
     private readonly ILogger<ParentService> _logger;
 
     public ParentService(
@@ -29,12 +31,14 @@ public class ParentService : IParentService
         ISettlementService settlementService,
         INotificationService notificationService,
         IFileStorageService storageService,
+        IBackgroundJobClient backgroundJobClient,
         ILogger<ParentService> logger)
     {
         _context = context;
         _settlementService = settlementService;
         _notificationService = notificationService;
         _storageService = storageService;
+        _backgroundJobClient = backgroundJobClient;
         _logger = logger;
     }
 
@@ -261,6 +265,10 @@ public class ParentService : IParentService
 
         await _context.SaveChangesAsync();
 
+        // AI priority classification runs in the background — it has no value to the submitter (only
+        // admins see it) and must never add Groq latency to the dispute-creation request.
+        _backgroundJobClient.Enqueue<IDisputeService>(s => s.ClassifyDisputePriorityAsync(dispute.Disputeid));
+
         _logger.LogInformation("{Role} {UserId} created dispute {DisputeId} for classSession {ClassSessionId}",
             role, userId, dispute.Disputeid, classSessionId);
 
@@ -300,6 +308,8 @@ public class ParentService : IParentService
             DisputeType = request.DisputeType,
             Reason = dispute.Reason,
             Status = dispute.Status,
+            Priority = dispute.Priority,
+            PriorityReason = dispute.Priorityreason,
             Evidence = request.Evidence,
             CreatedAt = dispute.Createdat.HasValue ? dispute.Createdat.Value : (DateTime?)null,
             CreatedBy = new DisputeUserResponse
@@ -335,6 +345,8 @@ public class ParentService : IParentService
                 d.Disputetype,
                 d.Status,
                 d.Reason,
+                d.Priority,
+                d.Priorityreason,
                 TutorName = d.ClassSession!.Tutor!.Tutor!.Fullname,
                 ClassSessionPrice = d.ClassSession.Lessonprice,
                 d.Createdat
@@ -349,6 +361,8 @@ public class ParentService : IParentService
             DisputeType = d.Disputetype,
             Status = d.Status,
             Reason = d.Reason,
+            Priority = d.Priority,
+            PriorityReason = d.Priorityreason,
             TutorName = d.TutorName,
             ClassSessionPrice = d.ClassSessionPrice,
             CreatedAt = d.Createdat.HasValue ? d.Createdat.Value : (DateTime?)null
