@@ -36,6 +36,12 @@ public interface IDisputeService
     Task<DisputeDetailResponse> InvestigateDisputeAsync(int disputeId, string adminId, bool forceEarly = false);
 
     /// <summary>
+    /// Verify that a no-show report is valid. This unlocks the payer-side remedy picker but does
+    /// not move money, settle the class session, warn the tutor, or close the dispute.
+    /// </summary>
+    Task<DisputeDetailResponse> ConfirmTutorNoShowAsync(int disputeId, string adminId);
+
+    /// <summary>
     /// Resolve dispute with decision
     /// </summary>
     Task<DisputeDetailResponse> ResolveDisputeAsync(int disputeId, string adminId, ResolveDisputeRequest request);

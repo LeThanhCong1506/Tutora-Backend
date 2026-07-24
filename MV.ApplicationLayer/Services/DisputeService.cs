@@ -1,4 +1,4 @@
-﻿using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -121,6 +121,21 @@ public class DisputeService : IDisputeService
         var (recordingStatus, recordingUrl) = ResolveRecordingStatus(
             dispute.ClassSession?.Recordingurl, dispute.ClassSession?.Recordings3key, dispute.ClassSession?.Recordingsid);
 
+        var scheduleChanges = dispute.Classsessionid.HasValue
+            ? await _context.ClassSessionScheduleChanges.AsNoTracking()
+                .Where(x => x.Classsessionid == dispute.Classsessionid.Value)
+                .OrderBy(x => x.Schedulechangeid)
+                .ToListAsync()
+            : new List<ClassSessionScheduleChange>();
+        var confirmerIds = scheduleChanges
+            .SelectMany(x => new[] { x.Tutorconfirmedby, x.Learnerconfirmedby })
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Cast<string>()
+            .Distinct()
+            .ToList();
+        var confirmerNames = await _context.Users.AsNoTracking()
+            .Where(x => confirmerIds.Contains(x.Userid))
+            .ToDictionaryAsync(x => x.Userid, x => x.Fullname ?? x.Username ?? x.Email);
         return new DisputeDetailResponse
         {
             DisputeId = dispute.Disputeid,
@@ -137,6 +152,8 @@ public class DisputeService : IDisputeService
             RefundPercentage = dispute.Refundpercentage,
             TutorResponse = dispute.Tutorresponse,
             TutorRespondedAt = dispute.Tutorrespondedat,
+            NoShowConfirmedAt = dispute.Noshowconfirmedat,
+            NoShowConfirmedBy = dispute.Noshowconfirmedby,
             AdditionalEvidence = dispute.DisputeEvidences?.Count > 0
                 ? dispute.DisputeEvidences.Select(e => new DisputeEvidenceItemResponse
                 {
@@ -171,6 +188,23 @@ public class DisputeService : IDisputeService
                 Homework = dispute.ClassSession.Homework,
                 IsTutorPresent = dispute.ClassSession.Istutorpresent,
                 IsStudentPresent = dispute.ClassSession.Isstudentpresent,
+                ScheduleChanges = scheduleChanges.Select(x => new DisputeScheduleChangeAuditResponse
+                {
+                    ScheduleChangeId = x.Schedulechangeid,
+                    Status = x.Status,
+                    OriginalScheduledStart = x.Originalscheduledstart,
+                    OriginalScheduledEnd = x.Originalscheduledend,
+                    AdjustedScheduledStart = x.Adjustedscheduledstart,
+                    AdjustedScheduledEnd = x.Adjustedscheduledend,
+                    LearnerApproverRole = x.Learnerapproverrole,
+                    TutorConfirmedByName = x.Tutorconfirmedby != null && confirmerNames.TryGetValue(x.Tutorconfirmedby, out var tutorName) ? tutorName : null,
+                    TutorConfirmedAt = x.Tutorconfirmedat,
+                    LearnerConfirmedByName = x.Learnerconfirmedby != null && confirmerNames.TryGetValue(x.Learnerconfirmedby, out var learnerName) ? learnerName : null,
+                    LearnerConfirmedAt = x.Learnerconfirmedat,
+                    RequestedAt = x.Requestedat,
+                    ApprovedAt = x.Approvedat,
+                    AppliedAt = x.Appliedat
+                }).ToList(),
                 RecordingStatus = recordingStatus,
                 RecordingUrl = recordingUrl
             } : null,
@@ -264,6 +298,111 @@ public class DisputeService : IDisputeService
         return (await GetDisputeDetailAsync(disputeId))!;
     }
 
+    public async Task<DisputeDetailResponse> ConfirmTutorNoShowAsync(int disputeId, string adminId)
+    {
+        var snapshot = await _context.Disputes
+            .AsNoTracking()
+            .Where(d => d.Disputeid == disputeId)
+            .Select(d => new { d.Bookingid, d.Createdby })
+            .FirstOrDefaultAsync()
+            ?? throw new ArgumentException("Không tìm thấy tranh chấp");
+
+        var newlyConfirmed = false;
+        int classSessionId;
+        string? tutorId;
+
+        await using (var tx = await _context.Database.BeginTransactionAsync())
+        {
+            try
+            {
+                // Keep a single lock order across admin confirmation, admin verdict and payer-side remedy:
+                // booking -> dispute -> class session -> wallets.
+                if (snapshot.Bookingid.HasValue)
+                {
+                    _ = await _context.Bookings
+                        .FromSqlRaw(SqlQueries.LockBookingById, snapshot.Bookingid.Value)
+                        .AsNoTracking()
+                        .SingleOrDefaultAsync()
+                        ?? throw new InvalidOperationException("Không tìm thấy booking của tranh chấp");
+                }
+
+                var dispute = await _context.Disputes
+                    .FromSqlRaw(SqlQueries.LockDisputeById, disputeId)
+                    .SingleOrDefaultAsync()
+                    ?? throw new ArgumentException("Không tìm thấy tranh chấp");
+
+                if (dispute.Status is DisputeStatus.Resolved or DisputeStatus.Closed)
+                    throw new InvalidOperationException("Tranh chấp này đã được giải quyết rồi");
+                if (dispute.Disputetype != DisputeTypes.NoShow)
+                    throw new InvalidOperationException("Chỉ tranh chấp vắng mặt mới có thể xác nhận theo luồng này");
+                if (!dispute.Classsessionid.HasValue)
+                    throw new InvalidOperationException("Tranh chấp không gắn với buổi học");
+
+                var classSession = await _context.ClassSessions
+                    .FromSqlRaw(SqlQueries.LockClassSessionById, dispute.Classsessionid.Value)
+                    .SingleOrDefaultAsync()
+                    ?? throw new InvalidOperationException("Không tìm thấy buổi học của tranh chấp");
+
+                classSessionId = classSession.Classsessionid;
+                tutorId = classSession.Tutorid;
+
+                if (dispute.Status != DisputeStatus.ConfirmedNoShow)
+                {
+                    if (dispute.Status is not (DisputeStatus.Pending or DisputeStatus.Investigating))
+                        throw new InvalidOperationException("Tranh chấp không ở trạng thái có thể xác nhận vắng mặt");
+                    if (classSession.Status != NoShow || classSession.Issettled == true)
+                        throw new InvalidOperationException("Buổi học không còn chờ xác nhận vắng mặt");
+
+                    dispute.Status = DisputeStatus.ConfirmedNoShow;
+                    dispute.Noshowconfirmedat = TimeZoneHelper.UtcNow;
+                    dispute.Noshowconfirmedby = adminId;
+                    newlyConfirmed = true;
+                    await _context.SaveChangesAsync();
+                }
+
+                await tx.CommitAsync();
+            }
+            catch
+            {
+                await tx.RollbackAsync();
+                throw;
+            }
+        }
+
+        if (newlyConfirmed)
+        {
+            _logger.LogInformation(
+                "Admin {AdminId} confirmed tutor no-show for dispute {DisputeId}, class session {ClassSessionId}",
+                adminId, disputeId, classSessionId);
+
+            try
+            {
+                var notifications = new List<NotificationRequest>();
+                if (!string.IsNullOrWhiteSpace(snapshot.Createdby))
+                    notifications.Add(new NotificationRequest
+                    {
+                        Userid = snapshot.Createdby,
+                        Title = "Báo cáo vắng mặt đã được xác nhận",
+                        Message = $"Admin đã xác nhận gia sư vắng mặt ở buổi học #{classSessionId}. Bạn có thể chọn phương án xử lý."
+                    });
+                if (!string.IsNullOrWhiteSpace(tutorId))
+                    notifications.Add(new NotificationRequest
+                    {
+                        Userid = tutorId,
+                        Title = "Xác nhận vắng mặt",
+                        Message = $"Admin đã xác nhận báo cáo vắng mặt cho buổi học #{classSessionId}."
+                    });
+                if (notifications.Count > 0)
+                    await _notificationService.CreateNotificationsAsync(notifications);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to send no-show confirmation notifications for dispute {DisputeId}", disputeId);
+            }
+        }
+
+        return (await GetDisputeDetailAsync(disputeId))!;
+    }
     public async Task<DisputeDetailResponse> ResolveDisputeAsync(int disputeId, string adminId, ResolveDisputeRequest request)
     {
         if (!ResolutionTypes.All.Contains(request.ResolutionType))
@@ -272,84 +411,127 @@ public class DisputeService : IDisputeService
         if (request.ResolutionType == ResolutionTypes.Custom && !request.CustomRefundPercentage.HasValue)
             throw new ArgumentException("Cần nhập phần trăm hoàn tiền tùy chỉnh");
 
-        var dispute = await _disputeRepo.FindWithClassSessionAsync(disputeId)
+        var snapshot = await _context.Disputes
+            .AsNoTracking()
+            .Where(d => d.Disputeid == disputeId)
+            .Select(d => new { d.Bookingid })
+            .FirstOrDefaultAsync()
             ?? throw new ArgumentException("Không tìm thấy tranh chấp");
 
-        if (dispute.Status == DisputeStatus.Resolved || dispute.Status == DisputeStatus.Closed)
-            throw new InvalidOperationException("Tranh chấp này đã được giải quyết rồi");
+        string? createdBy;
+        string? tutorId;
 
-        await using var tx = await _context.Database.BeginTransactionAsync();
+        await using (var tx = await _context.Database.BeginTransactionAsync())
+        {
+            try
+            {
+                // Serialize against payer-side no-show remedies using the same lock order.
+                if (snapshot.Bookingid.HasValue)
+                {
+                    _ = await _context.Bookings
+                        .FromSqlRaw(SqlQueries.LockBookingById, snapshot.Bookingid.Value)
+                        .AsNoTracking()
+                        .SingleOrDefaultAsync()
+                        ?? throw new InvalidOperationException("Không tìm thấy booking của tranh chấp");
+                }
+
+                var dispute = await _context.Disputes
+                    .FromSqlRaw(SqlQueries.LockDisputeById, disputeId)
+                    .SingleOrDefaultAsync()
+                    ?? throw new ArgumentException("Không tìm thấy tranh chấp");
+
+                if (dispute.Status is DisputeStatus.Resolved or DisputeStatus.Closed)
+                    throw new InvalidOperationException("Tranh chấp này đã được giải quyết rồi");
+
+                ClassSession? classSession = null;
+                if (dispute.Classsessionid.HasValue)
+                {
+                    classSession = await _context.ClassSessions
+                        .FromSqlRaw(SqlQueries.LockClassSessionById, dispute.Classsessionid.Value)
+                        .Include(l => l.Booking)
+                            .ThenInclude(b => b!.Student)
+                        .SingleOrDefaultAsync()
+                        ?? throw new InvalidOperationException("Không tìm thấy buổi học của tranh chấp");
+                }
+
+                var now = TimeZoneHelper.UtcNow;
+                var refundPercentage = request.ResolutionType switch
+                {
+                    ResolutionTypes.Release => 0,
+                    ResolutionTypes.Refund50 => 50,
+                    ResolutionTypes.Refund100 => 100,
+                    ResolutionTypes.Custom => request.CustomRefundPercentage!.Value,
+                    _ => 0
+                };
+
+                if (classSession != null)
+                {
+                    if (refundPercentage > 0)
+                        await _settlementService.ProcessRefundAsync(classSession.Classsessionid, refundPercentage, adminId);
+                    else
+                        await _settlementService.SettleDisputedClassSessionAsync(classSession.Classsessionid, adminId);
+                }
+
+                dispute.Status = DisputeStatus.Resolved;
+                dispute.Resolvedat = now;
+                dispute.Resolvedby = adminId;
+                dispute.Resolutionnote = request.ResolutionNote;
+                dispute.Refundpercentage = refundPercentage;
+
+                tutorId = classSession?.Tutorid;
+                createdBy = dispute.Createdby;
+
+                if (request.CreateTutorWarning && tutorId != null)
+                {
+                    var warningRequest = new CreateWarningRequest
+                    {
+                        WarningLevel = request.WarningLevel ?? 1,
+                        Reason = $"Dispute resolved against tutor: {request.ResolutionNote}",
+                        RelatedBookingId = dispute.Bookingid
+                    };
+                    await _warningService.CreateWarningAsync(tutorId, warningRequest, adminId);
+                }
+
+                if (classSession != null)
+                    classSession.Status = refundPercentage == 100 ? Cancelled : Completed;
+
+                await _context.SaveChangesAsync();
+                await tx.CommitAsync();
+            }
+            catch
+            {
+                await tx.RollbackAsync();
+                throw;
+            }
+        }
+
+        _logger.LogInformation("Actor {ActorId} resolved dispute {DisputeId} with {Resolution}",
+            adminId, disputeId, request.ResolutionType);
+
         try
         {
-            var now = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
-            var classSessionId = dispute.Classsessionid ?? 0;
-            var tutorId = dispute.ClassSession?.Tutorid;
-
-            var refundPercentage = request.ResolutionType switch
-            {
-                ResolutionTypes.Release => 0,
-                ResolutionTypes.Refund50 => 50,
-                ResolutionTypes.Refund100 => 100,
-                ResolutionTypes.Custom => request.CustomRefundPercentage!.Value,
-                _ => 0
-            };
-
-            if (classSessionId > 0)
-            {
-                if (refundPercentage > 0)
-                    await _settlementService.ProcessRefundAsync(classSessionId, refundPercentage, adminId);
-                else
-                    // Release (side with tutor): settle even though the classSession is Disputed/NoShow.
-                    await _settlementService.SettleDisputedClassSessionAsync(classSessionId, adminId);
-            }
-
-            dispute.Status = DisputeStatus.Resolved;
-            dispute.Resolvedat = now;
-            dispute.Resolvedby = adminId;
-            dispute.Resolutionnote = request.ResolutionNote;
-            dispute.Refundpercentage = refundPercentage;
-
-            if (request.CreateTutorWarning && tutorId != null)
-            {
-                var warningRequest = new CreateWarningRequest
+            var notifications = new List<NotificationRequest>();
+            if (!string.IsNullOrWhiteSpace(createdBy))
+                notifications.Add(new NotificationRequest
                 {
-                    WarningLevel = request.WarningLevel ?? 1,
-                    Reason = $"Dispute resolved against tutor: {request.ResolutionNote}",
-                    RelatedBookingId = dispute.Bookingid
-                };
-                await _warningService.CreateWarningAsync(tutorId, warningRequest, adminId);
-            }
-
-            if (dispute.ClassSession != null)
-                dispute.ClassSession.Status = refundPercentage == 100 ? Cancelled : Completed;
-
-            await _disputeRepo.SaveChangesAsync();
-            await tx.CommitAsync();
-
-            _logger.LogInformation("Actor {ActorId} resolved dispute {DisputeId} with {Resolution}",
-                adminId, disputeId, request.ResolutionType);
-
-            var notifications = new List<NotificationRequest>
-            {
-                new() { Userid = dispute.Createdby, Title = "Tranh chấp đã được giải quyết",
-                    Message = $"Tranh chấp #{disputeId} đã được giải quyết. Kết quả: {request.ResolutionType}. Ghi chú: {request.ResolutionNote}" }
-            };
+                    Userid = createdBy,
+                    Title = "Tranh chấp đã được giải quyết",
+                    Message = $"Tranh chấp #{disputeId} đã được giải quyết. Kết quả: {request.ResolutionType}. Ghi chú: {request.ResolutionNote}"
+                });
 
             if (tutorId != null)
-                notifications.Add(new() { Userid = tutorId, Title = "Thông báo giải quyết tranh chấp",
+                notifications.Add(new NotificationRequest { Userid = tutorId, Title = "Thông báo giải quyết tranh chấp",
                     Message = $"Tranh chấp #{disputeId} liên quan đến buổi học của bạn đã được giải quyết. Kết quả: {request.ResolutionType}." });
 
             await _notificationService.CreateNotificationsAsync(notifications);
-
-            return (await GetDisputeDetailAsync(disputeId))!;
         }
-        catch
+        catch (Exception ex)
         {
-            await tx.RollbackAsync();
-            throw;
+            _logger.LogWarning(ex, "Failed to send dispute resolution notifications for dispute {DisputeId}", disputeId);
         }
-    }
 
+        return (await GetDisputeDetailAsync(disputeId))!;
+    }
     public async Task<RefundPreviewResponse> GetRefundPreviewAsync(int disputeId, int percentage)
     {
         var dispute = await _context.Disputes.AsNoTracking().FirstOrDefaultAsync(d => d.Disputeid == disputeId)

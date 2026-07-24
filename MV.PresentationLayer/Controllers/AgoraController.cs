@@ -33,6 +33,7 @@ namespace MV.PresentationLayer.Controllers;
 public class AgoraController(
     IAgoraRTCService agoraService,
     IClassSessionService classSessionService,
+    IClassSessionScheduleChangeService scheduleChanges,
     ISessionPresenceService presence,
     ILiveSessionDeviceLeaseService deviceLeases,
     IWhiteboardService whiteboardService,
@@ -108,6 +109,23 @@ public class AgoraController(
             return RevokedLease();
         }
 
+        var heartbeatScheduleState = await scheduleChanges.GetOrCreateStateAsync(
+            classSessionId,
+            userId,
+            CurrentUserRole,
+            cancellationToken);
+        if (!heartbeatScheduleState.AdmissionAllowed)
+        {
+            presence.Leave(classSessionId, userId);
+            return Conflict(APIResponse<object>.Fail(
+                "Cần đủ xác nhận đổi giờ học trước khi vào phòng.",
+                409,
+                new
+                {
+                    code = LiveSessionScheduleChangeErrorCodes.ConfirmationRequired,
+                    scheduleChange = heartbeatScheduleState
+                }));
+        }
         presence.Heartbeat(classSessionId, userId);
 
         var status = await classSessionService.TryAutoCheckInAsync(classSessionId);
@@ -194,6 +212,18 @@ public class AgoraController(
         if (classSession.Status != ClassSessionStatus.Scheduled && classSession.Status != ClassSessionStatus.InProgress)
             return BadRequest(APIResponse<object>.Fail("Phòng học không khả dụng cho buổi này.", 400));
 
+        var whiteboardScheduleState = await scheduleChanges.GetOrCreateStateAsync(
+            classSessionId,
+            userId,
+            CurrentUserRole,
+            cancellationToken);
+        if (!whiteboardScheduleState.AdmissionAllowed)
+        {
+            return Conflict(APIResponse<object>.Fail(
+                "Cần đủ xác nhận đổi giờ học trước khi mở bảng trắng.",
+                409,
+                new { code = LiveSessionScheduleChangeErrorCodes.ConfirmationRequired }));
+        }
         var isTutor = classSession.Tutorid == userId;
         var room = await whiteboardService.GetOrCreateRoomAsync(classSessionId, isTutor);
 
@@ -470,6 +500,22 @@ public class AgoraController(
             return BadRequest(APIResponse<object>.Fail("Phòng học không khả dụng cho buổi này.", 400));
         }
 
+        var scheduleChangeState = await scheduleChanges.GetOrCreateStateAsync(
+            classSessionId,
+            userId,
+            CurrentUserRole,
+            cancellationToken);
+        if (!scheduleChangeState.AdmissionAllowed)
+        {
+            return Conflict(APIResponse<object>.Fail(
+                "Cần đủ xác nhận đổi giờ học trước khi vào phòng.",
+                409,
+                new
+                {
+                    code = LiveSessionScheduleChangeErrorCodes.ConfirmationRequired,
+                    scheduleChange = scheduleChangeState
+                }));
+        }
         LiveSessionDeviceLease lease;
         if (normalizedExpectedLeaseId == null)
         {

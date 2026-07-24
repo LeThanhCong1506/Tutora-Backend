@@ -1,4 +1,4 @@
-﻿namespace MV.DomainLayer.DTO.ResponseModel;
+namespace MV.DomainLayer.DTO.ResponseModel;
 
 /// <summary>
 /// Dispute detail for admin view
@@ -26,6 +26,10 @@ public class DisputeDetailResponse
     public string? TutorResponse { get; set; }
     public DateTime? TutorRespondedAt { get; set; }
     public List<DisputeEvidenceItemResponse>? AdditionalEvidence { get; set; }
+
+    // No-show verification (admin gate before the payer side may choose a remedy)
+    public DateTime? NoShowConfirmedAt { get; set; }
+    public string? NoShowConfirmedBy { get; set; }
 
     // Created by info
     public DisputeUserResponse? CreatedBy { get; set; }
@@ -76,6 +80,8 @@ public class DisputeClassSessionResponse
     public string? Homework { get; set; }
     public bool? IsTutorPresent { get; set; }
     public bool? IsStudentPresent { get; set; }
+
+    public List<DisputeScheduleChangeAuditResponse> ScheduleChanges { get; set; } = new();
 
     /// <summary>Trạng thái bản ghi video: available | processing | recording | none.</summary>
     public string? RecordingStatus { get; set; }

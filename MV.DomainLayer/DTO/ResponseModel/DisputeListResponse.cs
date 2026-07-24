@@ -40,6 +40,7 @@ public class DisputeListResponse
     {
         DisputeStatus.Pending => "Chờ xử lý",
         DisputeStatus.Investigating => "Đang điều tra",
+        DisputeStatus.ConfirmedNoShow => "Đã xác nhận vắng mặt",
         DisputeStatus.Resolved => "Đã giải quyết",
         DisputeStatus.Closed => "Đã đóng",
         _ => Status ?? "Không xác định"
@@ -49,6 +50,7 @@ public class DisputeListResponse
     {
         DisputeStatus.Pending => "#F59E0B",
         DisputeStatus.Investigating => "#3B82F6",
+        DisputeStatus.ConfirmedNoShow => "#10B981",
         DisputeStatus.Resolved => "#10B981",
         DisputeStatus.Closed => "#6B7280",
         _ => "#9CA3AF"

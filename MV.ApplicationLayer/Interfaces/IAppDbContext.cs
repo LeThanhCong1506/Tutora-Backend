@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using MV.DomainLayer.Entities;
 
@@ -25,6 +25,7 @@ public interface IAppDbContext
     DbSet<Learningmaterial> Learningmaterials { get; }
     DbSet<ClassSession> ClassSessions { get; }
     DbSet<ClassSessionReport> ClassSessionReports { get; }
+    DbSet<ClassSessionScheduleChange> ClassSessionScheduleChanges { get; }
     DbSet<SessionEngagementSample> SessionEngagementSamples { get; }
     DbSet<Notification> Notifications { get; }
     DbSet<QuestionBank> QuestionBanks { get; }

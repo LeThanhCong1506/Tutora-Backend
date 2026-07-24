@@ -81,12 +81,16 @@ public partial class ClassSessionService
 
     public async Task<NoShowActionResultResponse> ProcessNoShowActionAsync(int classSessionId, string userId, string role, NoShowActionRequest request)
     {
+        if (!NoShowActionTypes.All.Contains(request.ActionType))
+            throw new ClassSessionException(ClassSessionErrorCodes.InvalidNoShowAction, "Hành động xử lý vắng mặt không hợp lệ", 400);
+
         // Pre-tx: ownership + fast-fail status check (stale read OK here)
         var studentIds = role == UserRole.Parent
             ? await _context.Studentprofiles.Where(s => s.Parentid == userId).Select(s => s.Studentid).ToListAsync()
             : await _context.Studentprofiles.Where(s => s.Studentid == userId || s.Linkeduserid == userId).Select(s => s.Studentid).ToListAsync();
 
-        var classSession = await _context.ClassSessions
+        var ownedSession = await _context.ClassSessions
+            .AsNoTracking()
             .Include(l => l.Booking)
             .FirstOrDefaultAsync(l => l.Classsessionid == classSessionId && studentIds.Contains(l.Studentid!))
             ?? throw new ClassSessionException(ClassSessionErrorCodes.ClassSessionNotFound, "Không tìm thấy buổi học hoặc bạn không có quyền truy cập", 404);
@@ -98,7 +102,7 @@ public partial class ClassSessionService
                 throw new ClassSessionException(BookingErrorCodes.StudentManagedByParent, "Tài khoản học sinh do phụ huynh quản lý không thể tự xử lý vắng mặt", 403);
         }
 
-        if (classSession.Status != NoShow)
+        if (ownedSession.Status != NoShow)
             throw new ClassSessionException(ClassSessionErrorCodes.InvalidClassSessionStatus, "Buổi học không ở trạng thái vắng mặt", 400);
 
         var result = new NoShowActionResultResponse { ClassSessionId = classSessionId, ActionType = request.ActionType, Success = true };
@@ -106,24 +110,47 @@ public partial class ClassSessionService
         await using var tx = await _context.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable);
         try
         {
-            // Lock wallets FIRST to serialize concurrent calls (FOR UPDATE row lock)
-            var tutorWallet = await _context.Wallets
-                .FromSqlRaw(SqlQueries.LockWalletByUserId, classSession.Tutorid)
-                .FirstOrDefaultAsync();
-            var parentWallet = await _context.Wallets
-                .FromSqlRaw(SqlQueries.LockWalletByUserId, userId)
-                .FirstOrDefaultAsync();
+            if (!ownedSession.Bookingid.HasValue)
+                throw new InvalidOperationException($"Booking for classSession {classSessionId} not found");
 
-            // Fresh DB read inside tx — AsNoTracking bypasses EF identity map, picks up concurrent commits
-            var freshState = await _context.ClassSessions
+            // Same lock order as admin no-show confirmation: booking -> dispute -> class session -> wallets.
+            _ = await _context.Bookings
+                .FromSqlRaw(SqlQueries.LockBookingById, ownedSession.Bookingid.Value)
                 .AsNoTracking()
-                .Where(l => l.Classsessionid == classSessionId)
-                .Select(l => new { l.Issettled, l.Status })
-                .FirstOrDefaultAsync();
+                .SingleOrDefaultAsync()
+                ?? throw new InvalidOperationException($"Booking {ownedSession.Bookingid.Value} not found");
 
-            if (freshState?.Issettled == true)
+            var noShowDisputeId = await _context.Disputes
+                .AsNoTracking()
+                .Where(d => d.Classsessionid == classSessionId && d.Disputetype == DisputeTypes.NoShow)
+                .OrderByDescending(d => d.Disputeid)
+                .Select(d => (int?)d.Disputeid)
+                .FirstOrDefaultAsync()
+                ?? throw new ClassSessionException(ClassSessionErrorCodes.InvalidNoShowAction, "Không tìm thấy báo cáo vắng mặt để xử lý", 409);
+
+            var noShowDispute = await _context.Disputes
+                .FromSqlRaw(SqlQueries.LockDisputeById, noShowDisputeId)
+                .SingleOrDefaultAsync()
+                ?? throw new ClassSessionException(ClassSessionErrorCodes.InvalidNoShowAction, "Không tìm thấy báo cáo vắng mặt để xử lý", 409);
+
+            if (noShowDispute.Status != DisputeStatus.ConfirmedNoShow
+                || !noShowDispute.Noshowconfirmedat.HasValue
+                || string.IsNullOrWhiteSpace(noShowDispute.Noshowconfirmedby))
+                throw new ClassSessionException(
+                    ClassSessionErrorCodes.InvalidNoShowAction,
+                    "Báo cáo vắng mặt chưa được admin xác nhận. Vui lòng chờ kết quả kiểm tra.",
+                    409);
+
+            var classSession = await _context.ClassSessions
+                .FromSqlRaw(SqlQueries.LockClassSessionById, classSessionId)
+                .Include(l => l.Booking)
+                    .ThenInclude(b => b!.Student)
+                .SingleOrDefaultAsync()
+                ?? throw new ClassSessionException(ClassSessionErrorCodes.ClassSessionNotFound, "Không tìm thấy buổi học", 404);
+
+            if (classSession.Issettled == true)
                 throw new ClassSessionException(ClassSessionErrorCodes.ClassSessionAlreadyConfirmed, "Buổi học này đã được xử lý rồi", 400);
-            if (freshState?.Status != NoShow)
+            if (classSession.Status != NoShow)
                 throw new ClassSessionException(ClassSessionErrorCodes.InvalidClassSessionStatus, "Buổi học không còn ở trạng thái no-show", 400);
 
             var booking = classSession.Booking
@@ -132,6 +159,20 @@ public partial class ClassSessionService
             var parentRefundPerSession = LessonRefundCalculator.ParentRefundPerSession(booking);
             var tutorEscrowPerSession = LessonRefundCalculator.TutorEscrowPerSession(booking);
             var now = TimeZoneHelper.UtcNow;
+            var refundRecipientId = !string.IsNullOrWhiteSpace(booking.Parentid)
+                ? booking.Parentid
+                : (!string.IsNullOrWhiteSpace(booking.Student?.Linkeduserid)
+                    ? booking.Student.Linkeduserid
+                    : booking.Studentid);
+
+            var tutorWallet = !string.IsNullOrWhiteSpace(classSession.Tutorid)
+                ? await _context.Wallets
+                    .FromSqlRaw(SqlQueries.LockWalletByUserId, classSession.Tutorid)
+                    .FirstOrDefaultAsync()
+                : null;
+            var parentWallet = !string.IsNullOrWhiteSpace(refundRecipientId)
+                ? await WalletLockHelper.GetOrCreateForUpdateAsync(_context, refundRecipientId, now)
+                : null;
 
             classSession.Noshowaction = request.ActionType;
 
@@ -234,27 +275,18 @@ public partial class ClassSessionService
                     break;
             }
 
-            // Close out the auto-created no-show dispute so it doesn't sit "pending" forever in the
-            // admin queue after the parent has already resolved it themselves. Guarded against
-            // Resolved/Closed in case an admin somehow already acted on it concurrently.
-            var noShowDispute = await _context.Disputes
-                .FirstOrDefaultAsync(d => d.Classsessionid == classSessionId
-                    && d.Disputetype == DisputeTypes.NoShow
-                    && d.Status != DisputeStatus.Resolved
-                    && d.Status != DisputeStatus.Closed);
-            if (noShowDispute != null)
-            {
-                var disputeRefundPercentage = request.ActionType == NoShowActionTypes.Makeup ? 0 : 100;
-                noShowDispute.Status = DisputeStatus.Resolved;
-                noShowDispute.Resolvedat = now;
-                noShowDispute.Resolvedby = userId;
-                noShowDispute.Resolutionnote = $"Người dùng tự xử lý ({request.ActionType}): {result.Message}";
-                noShowDispute.Refundpercentage = disputeRefundPercentage;
-                noShowDispute.Refundamount = result.AmountRefunded;
-                noShowDispute.Refundissued = result.AmountRefunded > 0;
-            }
+            // Admin has already confirmed fault. The payer side now chooses the remedy and closes
+            // the verified dispute atomically with the corresponding financial/session changes.
+            var disputeRefundPercentage = request.ActionType == NoShowActionTypes.Makeup ? 0 : 100;
+            noShowDispute.Status = DisputeStatus.Resolved;
+            noShowDispute.Resolvedat = now;
+            noShowDispute.Resolvedby = userId;
+            noShowDispute.Resolutionnote = $"Người dùng tự xử lý ({request.ActionType}): {result.Message}";
+            noShowDispute.Refundpercentage = disputeRefundPercentage;
+            noShowDispute.Refundamount = result.AmountRefunded;
+            noShowDispute.Refundissued = result.AmountRefunded > 0;
 
-            // Makeup reschedules the session with the tutor's agreement — not a fault finding,
+            // Makeup preserves the original escrow for a replacement session; the other remedies record fault,
             // so no warning. FreeSession/ChangeTutor mean the tutor genuinely no-showed.
             if (request.ActionType != NoShowActionTypes.Makeup && !string.IsNullOrEmpty(classSession.Tutorid))
             {
@@ -282,11 +314,11 @@ public partial class ClassSessionService
         // Notify tutor after commit (best-effort)
         try
         {
-            if (!string.IsNullOrEmpty(classSession.Tutorid))
+            if (!string.IsNullOrEmpty(ownedSession.Tutorid))
             {
                 await _notificationService.CreateNotificationAsync(new NotificationRequest
                 {
-                    Userid = classSession.Tutorid,
+                    Userid = ownedSession.Tutorid,
                     Title = "Xử lý vắng mặt",
                     Message = $"'{request.ActionType}' đã được chọn cho buổi học #{classSessionId} bị vắng mặt."
                 });
@@ -308,10 +340,25 @@ public partial class ClassSessionService
 
         var duration = originalClassSession.Scheduledend - originalClassSession.Scheduledstart;
 
-        // Normalize timezone: nếu frontend gửi UTC thì convert sang UTC, nếu Unspecified thì coi như user time
+        // Frontend sends an ISO instant. Preserve UTC instants and treat an unspecified value as UTC
+        // for backward compatibility with existing clients.
         var scheduledStartUtc = newScheduledStart.Kind == DateTimeKind.Utc
             ? newScheduledStart
             : DateTime.SpecifyKind(newScheduledStart, DateTimeKind.Utc);
+        var scheduledEndUtc = scheduledStartUtc.Add(duration);
+
+        if (scheduledStartUtc <= TimeZoneHelper.UtcNow)
+            throw new ClassSessionException(ClassSessionErrorCodes.MakeupTimeRequired, "Thời gian học bù phải ở tương lai", 400);
+
+        var hasTutorConflict = await _context.ClassSessions.AnyAsync(l =>
+            l.Tutorid == tutorId
+            && l.Classsessionid != originalClassSessionId
+            && l.Status != Cancelled
+            && l.Status != CancelledNoshow
+            && l.Scheduledstart < scheduledEndUtc
+            && l.Scheduledend > scheduledStartUtc);
+        if (hasTutorConflict)
+            throw new ClassSessionException(ClassSessionErrorCodes.InvalidClassSessionStatus, "Gia sư đã có lịch trong khung giờ học bù", 409);
 
         var makeupClassSession = new ClassSession
         {
@@ -319,7 +366,7 @@ public partial class ClassSessionService
             Tutorid = tutorId,
             Studentid = originalClassSession.Studentid,
             Scheduledstart = scheduledStartUtc,
-            Scheduledend = scheduledStartUtc.Add(duration),
+            Scheduledend = scheduledEndUtc,
             Lessonprice = 0,
             Status = Scheduled,
             Ismakeup = true,

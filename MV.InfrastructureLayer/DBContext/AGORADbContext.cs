@@ -51,6 +51,8 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
 
     public virtual DbSet<ClassSessionReport> ClassSessionReports { get; set; }
 
+    public virtual DbSet<ClassSessionScheduleChange> ClassSessionScheduleChanges { get; set; }
+
     public virtual DbSet<SessionEngagementSample> SessionEngagementSamples { get; set; }
 
     public virtual DbSet<Notification> Notifications { get; set; }
@@ -740,6 +742,12 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
             entity.Property(e => e.Tutorrespondedat)
                 .HasColumnType("timestamp without time zone")
                 .HasColumnName("tutor_responded_at");
+            entity.Property(e => e.Noshowconfirmedat)
+                .HasColumnType("timestamp without time zone")
+                .HasColumnName("no_show_confirmed_at");
+            entity.Property(e => e.Noshowconfirmedby)
+                .HasMaxLength(50)
+                .HasColumnName("no_show_confirmed_by");
 
             entity.HasOne(d => d.Booking).WithMany(p => p.Disputes)
                 .HasForeignKey(d => d.Bookingid)
@@ -1151,6 +1159,42 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
                 .HasConstraintName("lessonreports_lessonid_fkey");
         });
 
+        modelBuilder.Entity<ClassSessionScheduleChange>(entity =>
+        {
+            entity.HasKey(e => e.Schedulechangeid).HasName("class_session_schedule_changes_pkey");
+            entity.ToTable("class_session_schedule_changes");
+            entity.HasIndex(e => e.Classsessionid, "idx_schedule_changes_session");
+            entity.HasIndex(e => new { e.Classsessionid, e.Status }, "idx_schedule_changes_active");
+
+            entity.Property(e => e.Schedulechangeid).HasColumnName("schedule_change_id");
+            entity.Property(e => e.Classsessionid).HasColumnName("class_session_id");
+            entity.Property(e => e.Originalscheduledstart).HasColumnType("timestamp without time zone").HasColumnName("original_scheduled_start");
+            entity.Property(e => e.Originalscheduledend).HasColumnType("timestamp without time zone").HasColumnName("original_scheduled_end");
+            entity.Property(e => e.Tutoruserid).HasMaxLength(50).HasColumnName("tutor_user_id");
+            entity.Property(e => e.Learnerapproveruserid).HasMaxLength(50).HasColumnName("learner_approver_user_id");
+            entity.Property(e => e.Learnerapproverrole).HasMaxLength(20).HasColumnName("learner_approver_role");
+            entity.Property(e => e.Tutorconfirmedat).HasColumnType("timestamp without time zone").HasColumnName("tutor_confirmed_at");
+            entity.Property(e => e.Tutorconfirmedby).HasMaxLength(50).HasColumnName("tutor_confirmed_by");
+            entity.Property(e => e.Learnerconfirmedat).HasColumnType("timestamp without time zone").HasColumnName("learner_confirmed_at");
+            entity.Property(e => e.Learnerconfirmedby).HasMaxLength(50).HasColumnName("learner_confirmed_by");
+            entity.Property(e => e.Rejectedat).HasColumnType("timestamp without time zone").HasColumnName("rejected_at");
+            entity.Property(e => e.Rejectedby).HasMaxLength(50).HasColumnName("rejected_by");
+            entity.Property(e => e.Requestedat).HasColumnType("timestamp without time zone").HasColumnName("requested_at");
+            entity.Property(e => e.Expiresat).HasColumnType("timestamp without time zone").HasColumnName("expires_at");
+            entity.Property(e => e.Approvedat).HasColumnType("timestamp without time zone").HasColumnName("approved_at");
+            entity.Property(e => e.Appliedat).HasColumnType("timestamp without time zone").HasColumnName("applied_at");
+            entity.Property(e => e.Adjustedscheduledstart).HasColumnType("timestamp without time zone").HasColumnName("adjusted_scheduled_start");
+            entity.Property(e => e.Adjustedscheduledend).HasColumnType("timestamp without time zone").HasColumnName("adjusted_scheduled_end");
+            entity.Property(e => e.Status).HasMaxLength(20).HasColumnName("status");
+            entity.Property(e => e.Createdat).HasColumnType("timestamp without time zone").HasColumnName("created_at");
+            entity.Property(e => e.Updatedat).HasColumnType("timestamp without time zone").HasColumnName("updated_at");
+
+            entity.HasOne(e => e.ClassSession)
+                .WithMany(e => e.ScheduleChanges)
+                .HasForeignKey(e => e.Classsessionid)
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("class_session_schedule_changes_session_fkey");
+        });
         modelBuilder.Entity<Notification>(entity =>
         {
             entity.HasKey(e => e.Notificationid).HasName("notifications_pkey");

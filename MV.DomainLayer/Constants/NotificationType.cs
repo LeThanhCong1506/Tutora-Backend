@@ -21,6 +21,7 @@ public static class NotificationType
     public const string LessonConfirmed = "lesson_confirmed";
     public const string LessonConfirmDeadline = "lesson_confirm_deadline";
     public const string LessonNoShow    = "lesson_no_show";
+    public const string LessonScheduleChange = "lesson_schedule_change";
     public const string Message         = "message";
     public const string Warning         = "warning";
     public const string DisputeMessage  = "dispute_message";
