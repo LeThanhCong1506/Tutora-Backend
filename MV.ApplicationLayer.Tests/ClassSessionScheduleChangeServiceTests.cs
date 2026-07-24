@@ -12,16 +12,18 @@ namespace MV.ApplicationLayer.Tests;
 public class ClassSessionScheduleChangeServiceTests
 {
     [Fact]
-    public async Task ExactlySixteen_RequiresStudentAndTutorConfirmation()
+    public async Task ExactlySixteenWithoutParent_RequiresStudentAndTutorConfirmation()
     {
         await using var db = CreateContext();
-        SeedSession(db, DateOnly.FromDateTime(TimeZoneHelper.UtcNow).AddYears(-16));
+        SeedSession(db, DateOnly.FromDateTime(TimeZoneHelper.UtcNow).AddYears(-16), managedByParent: false);
         await db.SaveChangesAsync();
         var service = CreateService(db);
 
         var tutorState = await service.GetOrCreateStateAsync(1, "tutor-1", UserRole.Tutor);
         Assert.True(tutorState.RequiresConfirmation);
         Assert.Equal(UserRole.Student, tutorState.RequiredLearnerRole);
+        Assert.Equal("tutor-1", tutorState.TutorUserId);
+        Assert.Equal("student-user-1", tutorState.LearnerApproverUserId);
 
         var afterTutor = await service.RespondAsync(1, "tutor-1", UserRole.Tutor, true);
         Assert.Equal(ScheduleChangeStatus.Pending, afterTutor.Status);
@@ -32,6 +34,23 @@ public class ClassSessionScheduleChangeServiceTests
         Assert.True(approved.AdmissionAllowed);
     }
 
+
+    [Fact]
+    public async Task ParentManagedStudent_RequiresParentEvenWhenStudentIsOverSixteen()
+    {
+        await using var db = CreateContext();
+        SeedSession(db, DateOnly.FromDateTime(TimeZoneHelper.UtcNow).AddYears(-17));
+        await db.SaveChangesAsync();
+        var service = CreateService(db);
+
+        var studentState = await service.GetOrCreateStateAsync(1, "student-user-1", UserRole.Student);
+
+        Assert.Equal(UserRole.Parent, studentState.RequiredLearnerRole);
+        Assert.Equal("parent-1", studentState.LearnerApproverUserId);
+        Assert.False(studentState.CanCurrentUserConfirm);
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(
+            () => service.RespondAsync(1, "student-user-1", UserRole.Student, true));
+    }
 
     [Fact]
     public async Task ExistingStudentConsentRequest_IsReplacedWhenStudentIsUnderSixteen()
@@ -88,6 +107,38 @@ public class ClassSessionScheduleChangeServiceTests
         Assert.Equal(ScheduleChangeStatus.Approved, approved.Status);
     }
 
+    [Fact]
+    public async Task ParentDetailRead_DoesNotCreateAnOffScheduleRequest()
+    {
+        await using var db = CreateContext();
+        SeedSession(db, DateOnly.FromDateTime(TimeZoneHelper.UtcNow).AddYears(-15));
+        await db.SaveChangesAsync();
+        var service = CreateService(db);
+
+        var state = await service.GetExistingStateAsync(1, "parent-1", UserRole.Parent);
+
+        Assert.False(state.RequiresConfirmation);
+        Assert.False(state.CanCurrentUserConfirm);
+        Assert.Empty(await db.ClassSessionScheduleChanges.ToListAsync());
+    }
+
+    [Fact]
+    public async Task ParentDetailRead_ReturnsRequestCreatedByTutor()
+    {
+        await using var db = CreateContext();
+        SeedSession(db, DateOnly.FromDateTime(TimeZoneHelper.UtcNow).AddYears(-15));
+        await db.SaveChangesAsync();
+        var service = CreateService(db);
+        await service.GetOrCreateStateAsync(1, "tutor-1", UserRole.Tutor);
+
+        var state = await service.GetExistingStateAsync(1, "parent-1", UserRole.Parent);
+
+        Assert.True(state.RequiresConfirmation);
+        Assert.True(state.CanCurrentUserConfirm);
+        Assert.Equal(UserRole.Parent, state.RequiredLearnerRole);
+        Assert.Equal("parent-1", state.LearnerApproverUserId);
+        Assert.Single(await db.ClassSessionScheduleChanges.ToListAsync());
+    }
     [Fact]
     public async Task AdminCanSupportWithoutCreatingOrConfirmingAChange()
     {

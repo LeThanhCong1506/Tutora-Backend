@@ -4,6 +4,12 @@ namespace MV.ApplicationLayer.ServiceInterfaces;
 
 public interface IClassSessionScheduleChangeService
 {
+    Task<SessionScheduleChangeResponse> GetExistingStateAsync(
+        int classSessionId,
+        string userId,
+        string? role,
+        CancellationToken cancellationToken = default);
+
     Task<SessionScheduleChangeResponse> GetOrCreateStateAsync(
         int classSessionId,
         string userId,

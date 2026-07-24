@@ -8,6 +8,8 @@ public class SessionScheduleChangeResponse
     public bool CurrentUserConfirmed { get; set; }
     public bool AdmissionAllowed { get; set; }
     public string? Status { get; set; }
+    public string? TutorUserId { get; set; }
+    public string? LearnerApproverUserId { get; set; }
     public string? RequiredLearnerRole { get; set; }
     public string? RequiredLearnerName { get; set; }
     public string? TutorName { get; set; }

@@ -18,6 +18,45 @@ public class ClassSessionScheduleChangeService(
     private const int EarlyJoinToleranceMinutes = 15;
     private const int ConfirmationLifetimeMinutes = 30;
 
+
+    public async Task<SessionScheduleChangeResponse> GetExistingStateAsync(
+        int classSessionId,
+        string userId,
+        string? role,
+        CancellationToken cancellationToken = default)
+    {
+        var session = await LoadSessionAsync(classSessionId, cancellationToken)
+            ?? throw new KeyNotFoundException("Không tìm thấy buổi học.");
+        EnsureAccess(session, userId, role);
+
+        var latest = await db.ClassSessionScheduleChanges
+            .Where(x => x.Classsessionid == classSessionId)
+            .OrderByDescending(x => x.Schedulechangeid)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (latest == null)
+            return Map(session, null, userId, false, session.Status == ClassSessionStatus.InProgress);
+
+        var now = TimeZoneHelper.UtcNow;
+        var isActive = (latest.Status == ScheduleChangeStatus.Pending
+                || latest.Status == ScheduleChangeStatus.Approved)
+            && latest.Expiresat > now;
+        var isRejectedDuringCooldown = latest.Status == ScheduleChangeStatus.Rejected
+            && latest.Rejectedat.HasValue
+            && latest.Rejectedat.Value.AddMinutes(ConfirmationLifetimeMinutes) > now;
+
+        // Reuse the authoritative path for an active request. Besides mapping the state,
+        // it repairs legacy requests whose learner signer is no longer the correct parent.
+        if (isActive || isRejectedDuringCooldown)
+            return await GetOrCreateStateAsync(classSessionId, userId, role, cancellationToken);
+
+        return Map(
+            session,
+            latest,
+            userId,
+            false,
+            latest.Status == ScheduleChangeStatus.Applied
+                || session.Status == ClassSessionStatus.InProgress);
+    }
     public async Task<SessionScheduleChangeResponse> GetOrCreateStateAsync(
         int classSessionId,
         string userId,
@@ -219,13 +258,15 @@ public class ClassSessionScheduleChangeService(
 
     private static (string UserId, string Role, string Name) ResolveLearnerApprover(SessionSnapshot session)
     {
+        // A student profile owned by a parent remains parent-managed. This mirrors the
+        // booking authorization rule: the linked student account cannot act for that booking.
+        if (!string.IsNullOrWhiteSpace(session.ParentId))
+            return (session.ParentId!, UserRole.Parent, session.ParentName ?? "Phụ huynh");
+
         var studentCanConfirm = AgeHelper.IsOldEnoughToSelfBook(session.StudentBirthdate)
             && !string.IsNullOrWhiteSpace(session.StudentUserId);
         if (studentCanConfirm)
             return (session.StudentUserId!, UserRole.Student, session.StudentName ?? "Học sinh");
-
-        if (!string.IsNullOrWhiteSpace(session.ParentId))
-            return (session.ParentId!, UserRole.Parent, session.ParentName ?? "Phụ huynh");
 
         // Invalid legacy data: an underage student without a parent must not be allowed
         // to self-consent merely because a linked login exists.
@@ -275,7 +316,10 @@ public class ClassSessionScheduleChangeService(
                 {
                     Userid = target,
                     Title = "Cần xác nhận đổi giờ học",
-                    Message = $"Buổi học của {session.StudentName ?? "học viên"} đang được mở ngoài lịch dự kiến. Vui lòng vào phòng chờ để xác nhận.",
+                    Message = target == change.Learnerapproveruserid
+                        && string.Equals(change.Learnerapproverrole, UserRole.Parent, StringComparison.OrdinalIgnoreCase)
+                        ? $"Buổi học của {session.StudentName ?? "học viên"} đang được mở ngoài lịch dự kiến. Vui lòng mở chi tiết buổi học để xác nhận."
+                        : $"Buổi học của {session.StudentName ?? "học viên"} đang được mở ngoài lịch dự kiến. Vui lòng vào phòng chờ để xác nhận.",
                     Type = NotificationType.LessonScheduleChange,
                     Referenceid = session.Classsessionid.ToString()
                 });
@@ -311,6 +355,8 @@ public class ClassSessionScheduleChangeService(
                     || (change.Learnerapproveruserid == userId && change.Learnerconfirmedat.HasValue)),
             AdmissionAllowed = admissionAllowed,
             Status = change?.Status,
+            TutorUserId = change?.Tutoruserid ?? session.Tutorid,
+            LearnerApproverUserId = change?.Learnerapproveruserid ?? approver.UserId,
             RequiredLearnerRole = requiredLearnerRole,
             RequiredLearnerName = requiredLearnerName,
             TutorName = session.TutorName ?? "Gia sư",

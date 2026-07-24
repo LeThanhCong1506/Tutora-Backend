@@ -24,6 +24,7 @@ public class ParentController : ControllerBase
     private readonly IStudentService _studentService;
     private readonly IClassSessionService _classSessionService;
     private readonly IDisputeService _disputeService;
+    private readonly IClassSessionScheduleChangeService _scheduleChangeService;
     private readonly ILogger<ParentController> _logger;
 
     public ParentController(
@@ -31,12 +32,14 @@ public class ParentController : ControllerBase
         IStudentService studentService,
         IClassSessionService classSessionService,
         IDisputeService disputeService,
+        IClassSessionScheduleChangeService scheduleChangeService,
         ILogger<ParentController> logger)
     {
         _parentService = parentService;
         _studentService = studentService;
         _classSessionService = classSessionService;
         _disputeService = disputeService;
+        _scheduleChangeService = scheduleChangeService;
         _logger = logger;
     }
 
@@ -86,6 +89,68 @@ public class ParentController : ControllerBase
         return Ok(APIResponse<ClassSessionDetailResponse>.Success(result, "Lấy chi tiết buổi học thành công."));
     }
 
+    /// <summary>
+    /// Parent reads an already-created off-schedule confirmation request from lesson detail.
+    /// Merely opening the detail page never creates a new request.
+    /// </summary>
+    [HttpGet("class-sessions/{id}/schedule-change")]
+    [Authorize(Roles = UserRole.Parent)]
+    public async Task<ActionResult<APIResponse<SessionScheduleChangeResponse>>> GetScheduleChange(int id)
+    {
+        var userId = UserHelper.GetUserId(User);
+        try
+        {
+            var result = await _scheduleChangeService.GetExistingStateAsync(id, userId, UserRole.Parent);
+            return Ok(APIResponse<SessionScheduleChangeResponse>.Success(result, "Lấy trạng thái xác nhận đổi lịch thành công."));
+        }
+        catch (KeyNotFoundException ex)
+        {
+            return NotFound(APIResponse<object>.Fail(ex.Message, 404));
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(403, APIResponse<object>.Fail(ex.Message, 403));
+        }
+    }
+
+    /// <summary>
+    /// Parent confirms or rejects an existing off-schedule request without entering the lobby.
+    /// </summary>
+    [HttpPost("class-sessions/{id}/schedule-change/respond")]
+    [Authorize(Roles = UserRole.Parent)]
+    public async Task<ActionResult<APIResponse<SessionScheduleChangeResponse>>> RespondToScheduleChange(
+        int id,
+        [FromBody] SessionScheduleChangeDecisionRequest request)
+    {
+        var userId = UserHelper.GetUserId(User);
+        try
+        {
+            var existing = await _scheduleChangeService.GetExistingStateAsync(id, userId, UserRole.Parent);
+            if (!existing.RequiresConfirmation || existing.Status != ScheduleChangeStatus.Pending)
+                return BadRequest(APIResponse<object>.Fail("Yêu cầu đổi lịch không còn chờ xác nhận.", 400));
+
+            var result = await _scheduleChangeService.RespondAsync(
+                id,
+                userId,
+                UserRole.Parent,
+                request.Confirmed);
+            return Ok(APIResponse<SessionScheduleChangeResponse>.Success(
+                result,
+                request.Confirmed ? "Đã xác nhận đổi lịch học." : "Đã từ chối đổi lịch học."));
+        }
+        catch (KeyNotFoundException ex)
+        {
+            return NotFound(APIResponse<object>.Fail(ex.Message, 404));
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(403, APIResponse<object>.Fail(ex.Message, 403));
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(APIResponse<object>.Fail(ex.Message, 400));
+        }
+    }
     /// <summary>
     /// Confirm a classSession as completed
     /// </summary>

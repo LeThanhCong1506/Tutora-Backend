@@ -15,8 +15,8 @@ namespace MV.ApplicationLayer.Hubs
     /// Hub lobby (phòng chờ) trước khi vào lớp học online.
     ///
     /// Luồng: người dùng bấm "Vào lớp" → FE connect hub này và invoke <see cref="JoinLobby"/>.
-    /// Người vào trước chờ trong lobby; khi cả hai phía (gia sư + học viên, hoặc phụ huynh thay
-    /// thế khi học viên chưa có tài khoản) cùng có mặt — trong lobby hoặc đã ở sẵn trong phòng
+    /// Người vào trước chờ trong lobby; khi cả hai phía (gia sư + học viên)
+    /// cùng có mặt — trong lobby hoặc đã ở sẵn trong phòng
     /// học — server phát <c>sessionReady</c> cho cả group để FE tự chuyển mọi người vào phòng
     /// Agora của buổi học. Check-in KHÔNG xảy ra ở lobby: vẫn do heartbeat trong phòng đảm nhiệm
     /// (xem AgoraController.Heartbeat), đúng nghĩa "cả 2 vào được lớp mới điểm danh".
@@ -55,8 +55,8 @@ namespace MV.ApplicationLayer.Hubs
         private static string LobbyGroup(int classSessionId) => $"lobby:{classSessionId}";
 
         /// <summary>
-        /// Vào phòng chờ của một buổi học. Validate quyền như AgoraController: chỉ gia sư,
-        /// phụ huynh hoặc học viên thuộc booking (hoặc Admin) mới được vào.
+        /// Vào phòng chờ của một buổi học. Chỉ gia sư, học viên thuộc booking
+        /// (hoặc Admin hỗ trợ) mới được vào; phụ huynh xác nhận ở trang chi tiết.
         /// </summary>
         public async Task JoinLobby(int classSessionId)
         {
@@ -253,20 +253,19 @@ namespace MV.ApplicationLayer.Hubs
                 .FirstOrDefaultAsync();
         }
 
-        /// <summary>Cùng quy tắc truy cập với AgoraController: Admin, gia sư, phụ huynh hoặc học viên của booking.</summary>
+        /// <summary>Cùng quy tắc truy cập với AgoraController: Admin, gia sư hoặc học viên của booking.</summary>
         private bool HasAccess(LobbySessionSnapshot session, string userId)
         {
             if (CurrentUserRole == UserRole.Admin) return true;
             if (session.TutorId == userId) return true;
-            if (session.ParentId == userId) return true;
             if (!string.IsNullOrEmpty(session.StudentUserId) && session.StudentUserId == userId) return true;
             return false;
         }
 
         /// <summary>
         /// "Có mặt" = đang chờ trong lobby HOẶC đã ở trong phòng học (presence heartbeat).
-        /// Phía học viên: tài khoản student (Linkeduserid); fallback dữ liệu cũ — phụ huynh
-        /// thay thế khi student chưa có tài khoản riêng (khớp TryAutoCheckInAsync).
+        /// Phía học viên chỉ tính tài khoản student (Linkeduserid). Phụ huynh không
+        /// được thay thế học viên trong lobby hoặc phòng gọi.
         /// </summary>
         private (bool TutorWaiting, bool StudentWaiting) ComputeState(int classSessionId, LobbySessionSnapshot session)
         {
@@ -281,8 +280,7 @@ namespace MV.ApplicationLayer.Hubs
             }
             else
             {
-                studentWaiting = !string.IsNullOrEmpty(session.ParentId)
-                    && (_presence.IsInLobby(classSessionId, session.ParentId) || _presence.IsPresent(classSessionId, session.ParentId));
+                studentWaiting = false;
             }
 
             return (tutorWaiting, studentWaiting);
