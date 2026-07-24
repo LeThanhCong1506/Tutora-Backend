@@ -13,11 +13,13 @@ using System.Net.Http.Json;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace MV.ApplicationLayer.Services;
 
 public class AiChatService(
     IAiChatRepository aiChatRepo,
+    IQuestionNoteRepository questionNoteRepo,
     IHttpClientFactory httpClientFactory,
     IConfiguration config,
     IFileStorageService storage,
@@ -67,6 +69,21 @@ public class AiChatService(
 
         var (items, total) = await aiChatRepo.GetMessagesPagedAsync(sessionId, page, pageSize);
         var dtos = items.Select(ToMessageResponse).ToList();
+
+        var savedTitles = (await questionNoteRepo.GetSavedTitlesBySessionAsync(userId, sessionId))
+            .ToHashSet();
+        if (savedTitles.Count > 0)
+        {
+            string? lastUserTitle = null;
+            foreach (var m in dtos)
+            {
+                if (m.Role == ChatHistoryRole.User)
+                    lastUserTitle = m.Content.Length > 255 ? m.Content[..255] : m.Content;
+                else if (m.Role == ChatHistoryRole.Assistant && lastUserTitle is not null)
+                    m.NoteSaved = savedTitles.Contains(lastUserTitle);
+            }
+        }
+
         return new PagedList<AiChatMessageResponse>(dtos, total, page, pageSize);
     }
 
@@ -141,11 +158,11 @@ public class AiChatService(
         aiChatRepo.UpdateSession(session);
         await aiChatRepo.SaveChangesAsync();
 
-        // 2. Dựng history từ DB (cửa sổ gần nhất) thay vì để FE tự gửi
+        // 2. Dựng history từ DB (cửa sổ gần nhất) thay vì để FE tự gửi.
         var (recent, _) = await aiChatRepo.GetMessagesPagedAsync(sessionId, 1, HistoryWindow);
         var history = recent
             .Where(m => m.MessageId != userMessage.MessageId)
-            .Select(m => new { role = m.Role, content = m.Content })
+            .Select(m => new { role = m.Role, content = BuildHistoryContent(m) })
             .ToList();
 
         // 3. Gọi tutora-ai /solve và stream pass-through, đồng thời gom assistant content
@@ -174,6 +191,8 @@ public class AiChatService(
         // Gom phần "suy nghĩ" (event `thinking`, tách khỏi delta)
         var thinking = new StringBuilder();
         var ragUsed = false;
+        // Danh sách bước cấu trúc cuối cùng (raw JSON array) để lưu Metadata -> canvas.
+        string? stepsFinalJson = null;
 
         try
         {
@@ -194,10 +213,11 @@ public class AiChatService(
                 // Gom delta (lời giải) + thinking (suy nghĩ) để lưu message khi xong
                 var json = line["data:".Length..].Trim();
                 if (json.Length == 0) continue;
-                var (delta, think, rag) = TryExtractDelta(json);
+                var (delta, think, rag, stepsFinal) = TryExtractDelta(json);
                 if (!string.IsNullOrEmpty(delta)) assistant.Append(delta);
                 if (!string.IsNullOrEmpty(think)) thinking.Append(think);
                 if (rag) ragUsed = true;
+                if (!string.IsNullOrEmpty(stepsFinal)) stepsFinalJson = stepsFinal;
             }
         }
         finally
@@ -206,10 +226,14 @@ public class AiChatService(
             if (assistant.Length > 0)
             {
                 var finishedAt = TimeZoneHelper.UtcNow;
-                // Lưu suy nghĩ vào Metadata (JSON)
-                string? metadata = thinking.Length > 0
-                    ? JsonSerializer.Serialize(new { thinking = thinking.ToString() })
-                    : null;
+                string? metadata = null;
+                if (thinking.Length > 0 || stepsFinalJson is not null)
+                {
+                    var meta = new JsonObject();
+                    if (thinking.Length > 0) meta["thinking"] = thinking.ToString();
+                    if (stepsFinalJson is not null) meta["steps"] = JsonNode.Parse(stepsFinalJson);
+                    metadata = meta.ToJsonString();
+                }
                 aiChatRepo.AddMessage(new ChatHistory
                 {
                     MessageId = Guid.NewGuid(),
@@ -228,7 +252,7 @@ public class AiChatService(
         }
     }
 
-    private (string? Delta, string? Thinking, bool RagUsed) TryExtractDelta(string json)
+    private (string? Delta, string? Thinking, bool RagUsed, string? StepsFinal) TryExtractDelta(string json)
     {
         try
         {
@@ -237,11 +261,69 @@ public class AiChatService(
             string? delta = root.TryGetProperty("delta", out var d) ? d.GetString() : null;
             string? thinking = root.TryGetProperty("thinking", out var t) ? t.GetString() : null;
             bool rag = root.TryGetProperty("rag_used", out var r) && r.ValueKind == JsonValueKind.True;
-            return (delta, thinking, rag);
+            string? stepsFinal = root.TryGetProperty("steps_final", out var sf) && sf.ValueKind == JsonValueKind.Array
+                ? sf.GetRawText()
+                : null;
+            return (delta, thinking, rag, stepsFinal);
         }
         catch (JsonException)
         {
-            return (null, null, false);
+            return (null, null, false, null);
+        }
+    }
+
+    private const string CanvasOpen = "【CANVAS】";
+    private const string CanvasClose = "【HẾT CANVAS】";
+
+    private static string BuildHistoryContent(ChatHistory m)
+    {
+        if (m.Role != ChatHistoryRole.Assistant || string.IsNullOrEmpty(m.Metadata))
+            return m.Content;
+
+        var canvas = RebuildCanvasMarkdown(m.Metadata);
+        if (string.IsNullOrEmpty(canvas)) return m.Content;
+
+        // Phần chat (Content) đứng trước, canvas hiện tại bọc marker theo sau.
+        return $"{m.Content}\n\n{CanvasOpen}\n{canvas}\n{CanvasClose}";
+    }
+
+    private static string RebuildCanvasMarkdown(string metadataJson)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(metadataJson);
+            if (!doc.RootElement.TryGetProperty("steps", out var steps)
+                || steps.ValueKind != JsonValueKind.Array)
+                return string.Empty;
+
+            var sb = new StringBuilder();
+            var stepNo = 0;
+            foreach (var step in steps.EnumerateArray())
+            {
+                var title = step.TryGetProperty("title", out var t) ? t.GetString() : null;
+                var explanation = step.TryGetProperty("explanation", out var e) ? e.GetString() : null;
+
+                // Tiêu đề: "Phân tích đề"/"Kết luận" giữ nguyên; các bước còn lại đánh số.
+                if (!string.IsNullOrWhiteSpace(title))
+                {
+                    if (title is "Phân tích đề" or "Kết luận" or "Lời giải")
+                        sb.Append("**").Append(title).Append("**\n");
+                    else
+                        sb.Append("**Bước ").Append(++stepNo).Append(": ").Append(title).Append("**\n");
+                }
+                if (!string.IsNullOrWhiteSpace(explanation))
+                    sb.Append(explanation).Append('\n');
+                if (step.TryGetProperty("formulas", out var fs) && fs.ValueKind == JsonValueKind.Array)
+                    foreach (var f in fs.EnumerateArray())
+                        if (f.GetString() is { Length: > 0 } formula)
+                            sb.Append("$$").Append(formula).Append("$$\n");
+                sb.Append('\n');
+            }
+            return sb.ToString().Trim();
+        }
+        catch (JsonException)
+        {
+            return string.Empty;
         }
     }
 
