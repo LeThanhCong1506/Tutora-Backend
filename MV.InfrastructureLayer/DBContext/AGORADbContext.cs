@@ -33,6 +33,8 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
 
     public virtual DbSet<ChatHistory> ChatHistories { get; set; }
 
+    public virtual DbSet<QuestionNote> QuestionNotes { get; set; }
+
     public virtual DbSet<Class> Classes { get; set; }
 
     public virtual DbSet<Dispute> Disputes { get; set; }
@@ -644,6 +646,60 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
                 .HasForeignKey(d => d.UserId)
                 .OnDelete(DeleteBehavior.Cascade)
                 .HasConstraintName("fk_chat_sessions_user");
+        });
+
+        modelBuilder.Entity<QuestionNote>(entity =>
+        {
+            entity.HasKey(e => e.NoteId).HasName("question_notes_pkey");
+
+            entity.ToTable("question_notes");
+
+            entity.Property(e => e.NoteId)
+                .HasDefaultValueSql("gen_random_uuid()")
+                .HasColumnName("note_id");
+            entity.Property(e => e.UserId)
+                .HasMaxLength(50)
+                .HasColumnName("user_id");
+            entity.Property(e => e.SourceSessionId)
+                .HasColumnName("source_session_id");
+            entity.Property(e => e.Title)
+                .HasMaxLength(255)
+                .HasColumnName("title");
+            entity.Property(e => e.ProblemText)
+                .HasColumnName("problem_text");
+            entity.Property(e => e.ProblemImageUrl)
+                .HasColumnName("problem_image_url");
+            entity.Property(e => e.SolutionSteps)
+                .HasColumnType("jsonb")
+                .HasDefaultValueSql("'[]'::jsonb")
+                .HasColumnName("solution_steps");
+            entity.Property(e => e.AnswerSummary)
+                .HasColumnName("answer_summary");
+            entity.Property(e => e.PersonalNote)
+                .HasColumnName("personal_note");
+            entity.Property(e => e.Subject)
+                .HasMaxLength(100)
+                .HasColumnName("subject");
+            entity.Property(e => e.GradeLevel)
+                .HasColumnName("grade_level");
+            entity.Property(e => e.Chapter)
+                .HasMaxLength(255)
+                .HasColumnName("chapter");
+            entity.Property(e => e.CreatedAt)
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
+                .HasColumnType("timestamp without time zone")
+                .HasColumnName("created_at");
+            entity.Property(e => e.UpdatedAt)
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
+                .HasColumnType("timestamp without time zone")
+                .HasColumnName("updated_at");
+
+            entity.HasIndex(e => new { e.UserId, e.CreatedAt }, "idx_question_notes_user_created");
+
+            entity.HasOne(d => d.User).WithMany()
+                .HasForeignKey(d => d.UserId)
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("question_notes_user_id_fkey");
         });
 
         modelBuilder.Entity<ChatHistory>(entity =>
