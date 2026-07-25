@@ -23,20 +23,33 @@ public class AdminFinancialMetricsResponse
 
 public class RevenueOverviewMetrics
 {
-    /// <summary>Total platform fee (Booking.Platformfee) collected all-time from completed/paid bookings</summary>
+    /// <summary>TỔNG doanh thu nền tảng all-time = platform fee booking + doanh thu bán gói AI credit.</summary>
     public decimal TotalPlatformRevenue { get; set; }
-    /// <summary>Total gross transaction value (Booking.Finalprice) all-time</summary>
+    /// <summary>Total gross transaction value (Booking.Finalprice) all-time — chỉ booking.</summary>
     public decimal TotalGrossVolume { get; set; }
-    /// <summary>Platform fee this month (Vietnam time)</summary>
+    /// <summary>Tổng doanh thu tháng này = booking platform fee + AI credit tháng này.</summary>
     public decimal CurrentMonthRevenue { get; set; }
-    /// <summary>Platform fee last month</summary>
+    /// <summary>Tổng doanh thu tháng trước.</summary>
     public decimal PreviousMonthRevenue { get; set; }
     /// <summary>Month-over-month growth % (null if previous month = 0)</summary>
     public decimal? MonthOverMonthGrowthPercent { get; set; }
-    /// <summary>Platform fee this year (Vietnam time)</summary>
+    /// <summary>Tổng doanh thu năm nay.</summary>
     public decimal CurrentYearRevenue { get; set; }
     /// <summary>Total amount currently in escrow (frozen wallet balances)</summary>
     public decimal TotalEscrowed { get; set; }
+
+    /// <summary>Bóc tách doanh thu theo nguồn (booking vs AI credit) để CEO quan sát dòng tiền / lọc.</summary>
+    public RevenueBySource BySource { get; set; } = new();
+}
+
+/// <summary>Doanh thu tách theo nguồn. Tổng của các nguồn = TotalPlatformRevenue.</summary>
+public class RevenueBySource
+{
+    /// <summary>Doanh thu từ phí nền tảng của booking (all-time).</summary>
+    public decimal Booking { get; set; }
+    /// <summary>Doanh thu từ bán gói AI credit (Homework Helper), payment_transactions
+    /// purpose=AiCreditPurchase, status=Succeeded (all-time).</summary>
+    public decimal AiCredit { get; set; }
 }
 
 // ─── Bookings ────────────────────────────────────────────────────────────────

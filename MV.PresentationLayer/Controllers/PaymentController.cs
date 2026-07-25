@@ -19,6 +19,7 @@ namespace MV.PresentationLayer.Controllers;
 public class PaymentController(
     IPaymentService paymentService,
     IWalletService walletService,
+    IAiCreditService aiCreditService,
     ILogger<PaymentController> logger) : ControllerBase
 {
     private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNameCaseInsensitive = true };
@@ -220,6 +221,11 @@ public class PaymentController(
                     request,
                     rawPayload,
                     HttpContext.RequestAborted);
+            }
+            else if (OrderCodeHelper.IsAiCreditOrderCode(orderCode))
+            {
+                logger.LogInformation("Processing AI credit purchase webhook for orderCode: {OrderCode}", orderCode);
+                await aiCreditService.CompletePurchaseAsync(request, rawPayload, HttpContext.RequestAborted);
             }
             else if (OrderCodeHelper.IsTopupOrderCode(orderCode))
             {

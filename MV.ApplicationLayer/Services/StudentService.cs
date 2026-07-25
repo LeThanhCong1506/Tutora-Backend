@@ -21,6 +21,7 @@ namespace MV.ApplicationLayer.Services
         private readonly IPasswordRepository _passwordRepository;
         private readonly IStudentIdentityService _identity;
         private readonly IWalletRepository _walletRepository;
+        private readonly IAiCreditService _aiCreditService;
         private readonly Microsoft.Extensions.Logging.ILogger<StudentService> _logger;
         private const int MaxStudentsPerParent = 5;
         private const string AvatarBucket = StorageBucket.Avatars;
@@ -36,6 +37,7 @@ namespace MV.ApplicationLayer.Services
             IPasswordRepository passwordRepository,
             IStudentIdentityService identity,
             IWalletRepository walletRepository,
+            IAiCreditService aiCreditService,
             Microsoft.Extensions.Logging.ILogger<StudentService> logger)
         {
             _unitOfWork = unitOfWork ?? throw new ArgumentNullException(nameof(unitOfWork));
@@ -44,6 +46,7 @@ namespace MV.ApplicationLayer.Services
             _passwordRepository = passwordRepository ?? throw new ArgumentNullException(nameof(passwordRepository));
             _identity = identity ?? throw new ArgumentNullException(nameof(identity));
             _walletRepository = walletRepository ?? throw new ArgumentNullException(nameof(walletRepository));
+            _aiCreditService = aiCreditService ?? throw new ArgumentNullException(nameof(aiCreditService));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         }
 
@@ -127,6 +130,17 @@ namespace MV.ApplicationLayer.Services
             await _unitOfWork.UserRepository.CreateUserAsync(childUser);
             await _unitOfWork.StudentRepository.CreateAsync(student);
             await _unitOfWork.SaveChangesAsync();
+
+            // 4b. Tặng gói Free cho TÀI KHOẢN của học sinh (credit gắn với user_id).
+            try
+            {
+                await _aiCreditService.GrantFreePackageAsync(childUserId);
+            }
+            catch (Exception ex)
+            {
+                Microsoft.Extensions.Logging.LoggerExtensions.LogError(
+                    _logger, ex, "Failed to grant Free AI credit to new student {StudentId}", student.Studentid);
+            }
 
             // 5. Trả credentials cho parent (password chỉ hiển thị 1 lần)
             return new StudentCredentialsResponse
