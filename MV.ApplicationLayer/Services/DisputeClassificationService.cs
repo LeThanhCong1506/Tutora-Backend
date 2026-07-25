@@ -43,6 +43,8 @@ namespace MV.ApplicationLayer.Services
                 return null;
             }
 
+            _logger.LogInformation("Classifying dispute priority via Groq — disputeType={DisputeType}, model={Model}", disputeType, "openai/gpt-oss-120b");
+
             try
             {
                 var prompt = $$"""
@@ -88,6 +90,8 @@ namespace MV.ApplicationLayer.Services
                 var response = await _httpClient.SendAsync(request);
                 var responseString = await response.Content.ReadAsStringAsync();
 
+                _logger.LogInformation("Groq HTTP status for dispute classification: {StatusCode}", response.StatusCode);
+
                 if (!response.IsSuccessStatusCode)
                 {
                     _logger.LogError("Groq API error during dispute classification: {StatusCode} - {Response}", response.StatusCode, responseString);
@@ -97,10 +101,16 @@ namespace MV.ApplicationLayer.Services
                 var groqResponse = JsonSerializer.Deserialize<GroqResponse>(responseString,
                     new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
 
-                var jsonResponse = CleanJsonResponse(groqResponse?.Choices?.FirstOrDefault()?.Message?.Content?.Trim() ?? "");
+                var rawContent = groqResponse?.Choices?.FirstOrDefault()?.Message?.Content?.Trim() ?? "";
+                _logger.LogInformation("Groq raw response content for dispute classification: {Content}", rawContent);
+
+                var jsonResponse = CleanJsonResponse(rawContent);
 
                 if (string.IsNullOrEmpty(jsonResponse))
+                {
+                    _logger.LogWarning("Groq returned an empty/unparseable response for dispute classification");
                     return null;
+                }
 
                 var parsed = JsonSerializer.Deserialize<ClassificationAiResponse>(jsonResponse,
                     new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
@@ -111,6 +121,8 @@ namespace MV.ApplicationLayer.Services
                     _logger.LogWarning("Groq returned an invalid priority value for dispute classification: '{Priority}'", parsed?.Priority);
                     return null;
                 }
+
+                _logger.LogInformation("Dispute classification succeeded — priority={Priority}, reason={Reason}", priority, parsed?.Reason);
 
                 return new DisputeClassificationResult
                 {

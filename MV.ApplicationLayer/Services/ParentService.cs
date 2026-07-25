@@ -269,7 +269,8 @@ public class ParentService : IParentService
         // admins see it) and must never add Groq latency to, or break, the dispute-creation request.
         try
         {
-            _backgroundJobClient.Enqueue<IDisputeService>(s => s.ClassifyDisputePriorityAsync(dispute.Disputeid));
+            var jobId = _backgroundJobClient.Enqueue<IDisputeService>(s => s.ClassifyDisputePriorityAsync(dispute.Disputeid));
+            _logger.LogInformation("Enqueued Hangfire job {JobId} to classify priority for dispute {DisputeId}", jobId, dispute.Disputeid);
         }
         catch (Exception ex)
         {
