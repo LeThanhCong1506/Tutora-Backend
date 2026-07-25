@@ -136,7 +136,8 @@ public class AgoraController(
             studentPresent   = status.StudentPresent,
             isCheckedIn      = status.IsCheckedIn,
             roomClosed       = status.RoomClosed,
-            blockedByPayment = status.BlockedByPayment
+            blockedByPayment = status.BlockedByPayment,
+            isRecording      = status.IsRecording
         }, "OK"));
     }
 

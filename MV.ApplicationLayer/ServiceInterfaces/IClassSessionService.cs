@@ -52,6 +52,19 @@ public interface IClassSessionService
     /// </summary>
     Task<ClassSessionResponse?> GetClassSessionByIdAsync(int classSessionId, string userId, bool isParent);
 
+    /// <summary>
+    /// Thông tin bản ghi video của buổi học (trạng thái + link stream tạm) cho Tutor/Student/Parent
+    /// xem lại qua app — ownership-checked giống GetClassSessionByIdAsync. Trả null nếu không sở
+    /// hữu/không tìm thấy buổi học (để tránh lộ sự tồn tại của buổi học không thuộc về mình).
+    /// </summary>
+    Task<ClassSessionRecordingResponse?> GetClassSessionRecordingAsync(int classSessionId, string userId, bool isParent);
+
+    /// <summary>
+    /// Trích fileId Google Drive từ Recordingurl của buổi học — dùng nội bộ cho endpoint stream
+    /// (đã được xác thực bằng token riêng, không cần kiểm tra ownership lại ở đây).
+    /// </summary>
+    Task<string?> GetRecordingDriveFileIdAsync(int classSessionId);
+
     // ── Calendar & Dashboard ───────────────────────────────────────────────
 
     /// <summary>

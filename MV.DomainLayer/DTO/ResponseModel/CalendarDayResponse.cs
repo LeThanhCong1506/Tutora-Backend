@@ -46,6 +46,9 @@ public class CalendarClassSessionResponse
     /// </summary>
     public DateTime? CheckOutTime { get; set; }
 
+    /// <summary>True nếu buổi học đã có video xem lại (đã upload xong lên Drive).</summary>
+    public bool HasRecording { get; set; }
+
     /// <summary>
     /// Color code based on status for UI rendering
     /// </summary>

@@ -14,15 +14,17 @@ public interface IDisputeService
     Task<PagedList<DisputeListResponse>> GetDisputesAsync(DisputeQueryRequest query);
 
     /// <summary>
-    /// Get dispute detail with full context
+    /// Get dispute detail with full context. <paramref name="actorId"/> = admin/staff hiện đang xem,
+    /// dùng để phát hành token stream cho bản ghi video (nếu có) gắn kèm trong ClassSession.RecordingUrl.
     /// </summary>
-    Task<DisputeDetailResponse?> GetDisputeDetailAsync(int disputeId);
+    Task<DisputeDetailResponse?> GetDisputeDetailAsync(int disputeId, string actorId);
 
     /// <summary>
-    /// Lấy thông tin bản ghi video (link Drive + trạng thái) của buổi học gắn với tranh chấp.
-    /// Dùng cho Admin/Staff khi xử lý tranh chấp.
+    /// Lấy thông tin bản ghi video (trạng thái + link stream tạm) của buổi học gắn với tranh chấp.
+    /// Dùng cho Admin/Staff khi xử lý tranh chấp. RecordingUrl trỏ tới endpoint proxy có token
+    /// ngắn hạn — KHÔNG phải link Drive trực tiếp (file trên Drive luôn ở chế độ private).
     /// </summary>
-    Task<DisputeRecordingResponse> GetDisputeRecordingAsync(int disputeId);
+    Task<DisputeRecordingResponse> GetDisputeRecordingAsync(int disputeId, string actorId);
 
     /// <summary>
     /// Get chat history for a booking (dispute context)
@@ -50,9 +52,10 @@ public interface IDisputeService
     /// Runs AI (Groq) priority classification for a dispute and persists the result. Used both as the
     /// Hangfire job body enqueued right after dispute creation, and as a manual admin re-classify/backfill action.
     /// Returns null if the dispute doesn't exist; leaves Priority/PriorityReason unset (not an error) if the
-    /// AI call itself fails or is unavailable.
+    /// AI call itself fails or is unavailable. <paramref name="actorId"/> scopes the returned response's
+    /// recording stream token — pass "system" from the background trigger, where the response is discarded.
     /// </summary>
-    Task<DisputeDetailResponse?> ClassifyDisputePriorityAsync(int disputeId);
+    Task<DisputeDetailResponse?> ClassifyDisputePriorityAsync(int disputeId, string actorId);
 
     /// <summary>
     /// Get dispute statistics for admin dashboard

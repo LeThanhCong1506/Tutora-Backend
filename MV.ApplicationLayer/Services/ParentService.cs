@@ -1,6 +1,7 @@
 using Hangfire;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using MV.ApplicationLayer.Helpers;
 using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO.RequestModel;
@@ -269,7 +270,7 @@ public class ParentService : IParentService
         // admins see it) and must never add Groq latency to, or break, the dispute-creation request.
         try
         {
-            var jobId = _backgroundJobClient.Enqueue<IDisputeService>(s => s.ClassifyDisputePriorityAsync(dispute.Disputeid));
+            var jobId = _backgroundJobClient.Enqueue<IDisputeService>(s => s.ClassifyDisputePriorityAsync(dispute.Disputeid, "system"));
             _logger.LogInformation("Enqueued Hangfire job {JobId} to classify priority for dispute {DisputeId}", jobId, dispute.Disputeid);
         }
         catch (Exception ex)
@@ -431,7 +432,8 @@ public class ParentService : IParentService
                         SubjectName = l.Booking?.Subject?.Subjectname,
                         Status = l.Status,
                         MeetingLink = l.Meetinglink,
-                        CheckOutTime = l.Checkouttime
+                        CheckOutTime = l.Checkouttime,
+                        HasRecording = RecordingStatusResolver.Resolve(l.Recordingurl, l.Recordings3key, l.Recordingsid, l.Checkouttime.HasValue).Status == "available"
                     }).ToList()
                 })
                 .ToList();

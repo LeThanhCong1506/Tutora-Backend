@@ -54,7 +54,8 @@ public class DisputeController : ControllerBase
     [HttpGet("{id}")]
     public async Task<ActionResult<APIResponse<DisputeDetailResponse>>> GetDisputeDetail(int id)
     {
-        var result = await _disputeService.GetDisputeDetailAsync(id);
+        var actorId = UserHelper.GetUserId(User);
+        var result = await _disputeService.GetDisputeDetailAsync(id, actorId);
 
         if (result == null)
             return NotFound(APIResponse<DisputeDetailResponse>.Fail("Không tìm thấy tranh chấp."));
@@ -63,13 +64,14 @@ public class DisputeController : ControllerBase
     }
 
     /// <summary>
-    /// Lấy bản ghi video (link Drive + trạng thái) của buổi học gắn với tranh chấp — phục vụ xử lý tranh chấp.
+    /// Lấy bản ghi video (trạng thái + link stream tạm) của buổi học gắn với tranh chấp — phục vụ xử lý tranh chấp.
     /// </summary>
     [RequirePermission(Permissions.DisputeView)]
     [HttpGet("{id}/recording")]
     public async Task<ActionResult<APIResponse<DisputeRecordingResponse>>> GetRecording(int id)
     {
-        var result = await _disputeService.GetDisputeRecordingAsync(id);
+        var actorId = UserHelper.GetUserId(User);
+        var result = await _disputeService.GetDisputeRecordingAsync(id, actorId);
         return Ok(APIResponse<DisputeRecordingResponse>.Success(result, "Lấy video buổi học thành công."));
     }
 
@@ -104,7 +106,8 @@ public class DisputeController : ControllerBase
     [HttpPut("{id}/classify")]
     public async Task<ActionResult<APIResponse<DisputeDetailResponse>>> Classify(int id)
     {
-        var result = await _disputeService.ClassifyDisputePriorityAsync(id);
+        var adminId = UserHelper.GetUserId(User);
+        var result = await _disputeService.ClassifyDisputePriorityAsync(id, adminId);
 
         if (result == null)
             return NotFound(APIResponse<DisputeDetailResponse>.Fail("Không tìm thấy tranh chấp."));

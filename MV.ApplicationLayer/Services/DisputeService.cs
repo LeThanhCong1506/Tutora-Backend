@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using MV.ApplicationLayer.Hubs;
+using MV.ApplicationLayer.Helpers;
 using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO.RequestModel;
@@ -21,6 +22,8 @@ namespace MV.ApplicationLayer.Services;
 /// </summary>
 public class DisputeService : IDisputeService
 {
+    private static readonly TimeSpan RecordingTokenLifetime = TimeSpan.FromMinutes(15);
+
     private readonly IDisputeRepository _disputeRepo;
     private readonly IAppDbContext _context; // retained for transaction management only
     private readonly ISettlementService _settlementService;
@@ -29,6 +32,7 @@ public class DisputeService : IDisputeService
     private readonly IFileStorageService _storageService;
     private readonly IHubContext<NotificationHub> _hubContext;
     private readonly IDisputeClassificationService _classificationService;
+    private readonly IRecordingAccessTokenService _recordingAccessTokenService;
     private readonly ILogger<DisputeService> _logger;
 
     public DisputeService(
@@ -40,6 +44,7 @@ public class DisputeService : IDisputeService
         IFileStorageService storageService,
         IHubContext<NotificationHub> hubContext,
         IDisputeClassificationService classificationService,
+        IRecordingAccessTokenService recordingAccessTokenService,
         ILogger<DisputeService> logger)
     {
         _disputeRepo = disputeRepo;
@@ -50,6 +55,7 @@ public class DisputeService : IDisputeService
         _storageService = storageService;
         _hubContext = hubContext;
         _classificationService = classificationService;
+        _recordingAccessTokenService = recordingAccessTokenService;
         _logger = logger;
     }
 
@@ -118,15 +124,17 @@ public class DisputeService : IDisputeService
         return new PagedList<DisputeListResponse>(disputes, totalCount, query.Page, query.PageSize);
     }
 
-    public async Task<DisputeDetailResponse?> GetDisputeDetailAsync(int disputeId)
+    public async Task<DisputeDetailResponse?> GetDisputeDetailAsync(int disputeId, string actorId)
     {
         var dispute = await _disputeRepo.GetDetailAsync(disputeId);
         if (dispute == null) return null;
 
         var warningCount = await _disputeRepo.CountWarningsByTutorAsync(dispute.ClassSession!.Tutorid!);
 
-        var (recordingStatus, recordingUrl) = ResolveRecordingStatus(
-            dispute.ClassSession?.Recordingurl, dispute.ClassSession?.Recordings3key, dispute.ClassSession?.Recordingsid);
+        var (recordingStatus, recordingUrl) = RecordingStatusResolver.Resolve(
+            dispute.ClassSession?.Recordingurl, dispute.ClassSession?.Recordings3key, dispute.ClassSession?.Recordingsid,
+            dispute.ClassSession?.Checkouttime.HasValue ?? false);
+        var recordingStreamUrl = BuildRecordingStreamUrl(dispute.Classsessionid, actorId, recordingUrl);
 
         var scheduleChanges = dispute.Classsessionid.HasValue
             ? await _context.ClassSessionScheduleChanges.AsNoTracking()
@@ -215,7 +223,7 @@ public class DisputeService : IDisputeService
                     AppliedAt = x.Appliedat
                 }).ToList(),
                 RecordingStatus = recordingStatus,
-                RecordingUrl = recordingUrl
+                RecordingUrl = recordingStreamUrl
             } : null,
             Tutor = dispute.ClassSession?.Tutor?.Tutor != null ? new DisputeTutorResponse
             {
@@ -232,8 +240,10 @@ public class DisputeService : IDisputeService
     /// <summary>
     /// Runs AI (Groq) priority classification for a dispute and persists the result. Never throws on
     /// classification failure — the dispute simply stays unclassified so it can be retried later.
+    /// actorId scopes the returned DisputeDetailResponse's recording stream token; pass "system" for
+    /// the background (Hangfire) trigger, where the response is discarded anyway.
     /// </summary>
-    public async Task<DisputeDetailResponse?> ClassifyDisputePriorityAsync(int disputeId)
+    public async Task<DisputeDetailResponse?> ClassifyDisputePriorityAsync(int disputeId, string actorId)
     {
         var dispute = await _disputeRepo.FindWithClassSessionAsync(disputeId);
         if (dispute == null)
@@ -257,37 +267,37 @@ public class DisputeService : IDisputeService
             _logger.LogWarning("Dispute {DisputeId} left unclassified — AI classification returned no result (see DisputeClassificationService logs above for the reason)", disputeId);
         }
 
-        return await GetDisputeDetailAsync(disputeId);
+        return await GetDisputeDetailAsync(disputeId, actorId);
     }
 
-    public async Task<DisputeRecordingResponse> GetDisputeRecordingAsync(int disputeId)
+    public async Task<DisputeRecordingResponse> GetDisputeRecordingAsync(int disputeId, string actorId)
     {
         var dispute = await _disputeRepo.FindWithClassSessionAsync(disputeId)
             ?? throw new ArgumentException("Không tìm thấy tranh chấp");
 
         var cs = dispute.ClassSession;
-        var (status, url) = ResolveRecordingStatus(cs?.Recordingurl, cs?.Recordings3key, cs?.Recordingsid);
+        var (status, url) = RecordingStatusResolver.Resolve(cs?.Recordingurl, cs?.Recordings3key, cs?.Recordingsid, cs?.Checkouttime.HasValue ?? false);
+        var streamUrl = BuildRecordingStreamUrl(dispute.Classsessionid, actorId, url);
 
         return new DisputeRecordingResponse
         {
             DisputeId = dispute.Disputeid,
             ClassSessionId = dispute.Classsessionid,
             Status = status,
-            RecordingUrl = url,
-            Available = url != null
+            RecordingUrl = streamUrl,
+            Available = streamUrl != null
         };
     }
 
     /// <summary>
-    /// Suy ra trạng thái + link recording từ các cột buổi học (không có cột status riêng):
-    /// có url → available; còn s3key → processing (đang relay lên Drive); còn sid → recording (đang ghi); còn lại none.
+    /// Phát hành token ngắn hạn + dựng link stream proxy cho actorId xem bản ghi của classSessionId.
+    /// Trả null nếu chưa có bản ghi (rawUrl null) — không có gì để phát token cho.
     /// </summary>
-    private static (string status, string? url) ResolveRecordingStatus(string? url, string? s3key, string? sid)
+    private string? BuildRecordingStreamUrl(int? classSessionId, string actorId, string? rawUrl)
     {
-        if (!string.IsNullOrEmpty(url)) return ("available", url);
-        if (!string.IsNullOrEmpty(s3key)) return ("processing", null);
-        if (!string.IsNullOrEmpty(sid)) return ("recording", null);
-        return ("none", null);
+        if (rawUrl == null || classSessionId == null) return null;
+        var token = _recordingAccessTokenService.Issue(classSessionId.Value, actorId, RecordingTokenLifetime);
+        return $"/api/class-sessions/{classSessionId.Value}/recording/stream?token={Uri.EscapeDataString(token)}";
     }
 
     public async Task<List<ChatMessageResponse>> GetDisputeChatHistoryAsync(int disputeId)
@@ -335,7 +345,7 @@ public class DisputeService : IDisputeService
 
         _logger.LogInformation("Actor {ActorId} started investigating dispute {DisputeId} (forceEarly={ForceEarly})", adminId, disputeId, forceEarly);
 
-        return (await GetDisputeDetailAsync(disputeId))!;
+        return (await GetDisputeDetailAsync(disputeId, adminId))!;
     }
 
     public async Task<DisputeDetailResponse> ConfirmTutorNoShowAsync(int disputeId, string adminId)
@@ -441,7 +451,7 @@ public class DisputeService : IDisputeService
             }
         }
 
-        return (await GetDisputeDetailAsync(disputeId))!;
+        return (await GetDisputeDetailAsync(disputeId, adminId))!;
     }
     public async Task<DisputeDetailResponse> ResolveDisputeAsync(int disputeId, string adminId, ResolveDisputeRequest request)
     {
@@ -564,13 +574,15 @@ public class DisputeService : IDisputeService
                     Message = $"Tranh chấp #{disputeId} liên quan đến buổi học của bạn đã được giải quyết. Kết quả: {request.ResolutionType}." });
 
             await _notificationService.CreateNotificationsAsync(notifications);
+
+            return (await GetDisputeDetailAsync(disputeId, adminId))!;
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to send dispute resolution notifications for dispute {DisputeId}", disputeId);
         }
 
-        return (await GetDisputeDetailAsync(disputeId))!;
+        return (await GetDisputeDetailAsync(disputeId, adminId))!;
     }
     public async Task<RefundPreviewResponse> GetRefundPreviewAsync(int disputeId, int percentage)
     {
@@ -610,7 +622,7 @@ public class DisputeService : IDisputeService
             .Select(d => (int?)d.Disputeid)
             .FirstOrDefaultAsync();
 
-        return disputeId.HasValue ? await GetDisputeDetailAsync(disputeId.Value) : null;
+        return disputeId.HasValue ? await GetDisputeDetailAsync(disputeId.Value, userId) : null;
     }
 
     // ── Tutor-facing (rebuttal channel) ─────────────────────────────────────
@@ -622,7 +634,7 @@ public class DisputeService : IDisputeService
             .Select(d => (int?)d.Disputeid)
             .FirstOrDefaultAsync();
 
-        return disputeId.HasValue ? await GetDisputeDetailAsync(disputeId.Value) : null;
+        return disputeId.HasValue ? await GetDisputeDetailAsync(disputeId.Value, tutorId) : null;
     }
 
     public async Task<PagedList<DisputeListResponse>> GetTutorDisputesAsync(string tutorId, int page, int pageSize)
@@ -693,7 +705,7 @@ public class DisputeService : IDisputeService
             }
         }
 
-        return (await GetDisputeDetailAsync(dispute.Disputeid))!;
+        return (await GetDisputeDetailAsync(dispute.Disputeid, tutorId))!;
     }
 
     public async Task<string> UploadTutorDisputeEvidenceAsync(int classSessionId, string tutorId, IFormFile file)

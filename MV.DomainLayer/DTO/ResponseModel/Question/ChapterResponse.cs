@@ -17,3 +17,23 @@ public class QuestionTypeResponse
     public string Name { get; set; } = null!;
     public int DisplayOrder { get; set; }
 }
+
+/// <summary>
+/// Chương kèm thông tin quản trị cho CMS.
+/// </summary>
+public class AdminChapterResponse : ChapterResponse
+{
+    public string? SubjectName { get; set; }
+    public string? GradeName { get; set; }
+    public bool IsActive { get; set; }
+    public int QuestionCount { get; set; }
+}
+
+/// <summary>
+/// Loại câu hỏi kèm thông tin quản trị cho CMS
+/// </summary>
+public class AdminQuestionTypeResponse : QuestionTypeResponse
+{
+    public bool IsActive { get; set; }
+    public int QuestionCount { get; set; }
+}
