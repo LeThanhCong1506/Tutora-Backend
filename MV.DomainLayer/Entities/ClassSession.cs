@@ -88,6 +88,8 @@ public partial class ClassSession
 
     public virtual ICollection<Feedback> Feedbacks { get; set; } = new List<Feedback>();
 
+    public virtual ICollection<ClassSessionScheduleChange> ScheduleChanges { get; set; } = new List<ClassSessionScheduleChange>();
+
     public virtual ICollection<ClassSession> InverseOriginalsession { get; set; } = new List<ClassSession>();
 
     public virtual ClassSessionReport? ClassSessionReport { get; set; }

@@ -8,10 +8,17 @@ namespace MV.DomainLayer.DTO.RequestModel;
 public class ResolveDisputeRequest
 {
     /// <summary>
-    /// Resolution type: release, refund_50, refund_100
+    /// Resolution type: release, refund_50, refund_100, custom
     /// </summary>
     [Required(ErrorMessage = "Loại quyết định là bắt buộc")]
     public string ResolutionType { get; set; } = null!;
+
+    /// <summary>
+    /// Refund percentage to parent when ResolutionType = "custom" (0-100). Ignored otherwise —
+    /// release/refund_50/refund_100 keep their fixed 0/50/100 mapping.
+    /// </summary>
+    [Range(0, 100, ErrorMessage = "Phần trăm hoàn tiền phải từ 0 đến 100")]
+    public int? CustomRefundPercentage { get; set; }
 
     /// <summary>
     /// Note explaining the resolution decision
@@ -52,5 +59,10 @@ public static class ResolutionTypes
     /// </summary>
     public const string Refund100 = "refund_100";
 
-    public static readonly string[] All = { Release, Refund50, Refund100 };
+    /// <summary>
+    /// Admin-entered arbitrary refund percentage — see <see cref="ResolveDisputeRequest.CustomRefundPercentage"/>.
+    /// </summary>
+    public const string Custom = "custom";
+
+    public static readonly string[] All = { Release, Refund50, Refund100, Custom };
 }

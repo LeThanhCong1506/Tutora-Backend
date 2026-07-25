@@ -163,7 +163,13 @@ public class WarningService : IWarningService
         var user = await _userRepo.GetUserByIdAsync(userId)
             ?? throw new ArgumentException("Không tìm thấy người dùng");
 
-        await using var tx = await _context.Database.BeginTransactionAsync();
+        // Reuse an ambient transaction if the caller already opened one (e.g. no-show action,
+        // dispute resolution with "create warning" checked), otherwise own a fresh one.
+        // Prevents "a transaction is already in progress" crashing the outer refund/settlement.
+        var ownsTx = _context.Database.CurrentTransaction is null;
+        await using var tx = ownsTx
+            ? await _context.Database.BeginTransactionAsync()
+            : null;
         try
         {
             var existingSuspensions = await _context.Profilesuspensions
@@ -196,22 +202,28 @@ public class WarningService : IWarningService
             if (tutorProfile != null) tutorProfile.Ispublic = false;
 
             await _warningRepo.SaveChangesAsync();
-            await tx.CommitAsync();
+            if (tx is not null) await tx.CommitAsync();
 
             _logger.LogInformation("Applied {SuspensionType} suspension to user {UserId} until {EndDate}",
                 suspensionType, userId, endDate?.ToString() ?? SuspensionType.Permanent);
 
-            var suspensionMessage = suspensionType == SuspensionType.Temporary
-                ? $"Tài khoản của bạn đã bị tạm ẩn đến {endDate:dd/MM/yyyy HH:mm}. Lý do: {reason}"
-                : $"Tài khoản của bạn đã bị khóa vĩnh viễn. Lý do: {reason}";
-
-            await _notificationService.CreateNotificationAsync(new NotificationRequest
+            // Notification only when this method owns the transaction — when called from within
+            // an ambient transaction (no-show action, dispute resolution), the outer caller hasn't
+            // committed yet, so notifying here could announce a suspension that later rolls back.
+            if (ownsTx)
             {
-                Userid = userId,
-                Title = suspensionType == SuspensionType.Temporary ? "Tài khoản bị tạm ẩn" : "Tài khoản bị khóa",
-                Message = suspensionMessage,
-                Type = NotificationType.Warning
-            });
+                var suspensionMessage = suspensionType == SuspensionType.Temporary
+                    ? $"Tài khoản của bạn đã bị tạm ẩn đến {endDate:dd/MM/yyyy HH:mm}. Lý do: {reason}"
+                    : $"Tài khoản của bạn đã bị khóa vĩnh viễn. Lý do: {reason}";
+
+                await _notificationService.CreateNotificationAsync(new NotificationRequest
+                {
+                    Userid = userId,
+                    Title = suspensionType == SuspensionType.Temporary ? "Tài khoản bị tạm ẩn" : "Tài khoản bị khóa",
+                    Message = suspensionMessage,
+                    Type = NotificationType.Warning
+                });
+            }
 
             var creatorName = createdBy == SystemActors.SystemUpper
                 ? SystemActors.DisplayName

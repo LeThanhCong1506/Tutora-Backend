@@ -161,13 +161,14 @@ public class ClassSessionController(
     /// Parent báo cáo gia sư vắng mặt sau 15 phút kể từ giờ bắt đầu.
     /// </summary>
     [HttpPost("class-sessions/{id:int}/report-no-show")]
-    [Authorize(Roles = UserRole.Parent)]
-    public async Task<IActionResult> ReportNoShow([FromRoute] int id)
+    [Authorize(Roles = UserRole.ParentOrStudent)]
+    public async Task<IActionResult> ReportNoShow([FromRoute] int id, [FromBody] ReportNoShowRequest? request)
     {
-        var parentId = UserId ?? throw new UnauthorizedAccessException();
+        var userId = UserId ?? throw new UnauthorizedAccessException();
+        var role = User.FindFirstValue(ClaimTypes.Role) ?? "";
         try
         {
-            var result = await classSessionService.ReportTutorNoShowAsync(id, parentId);
+            var result = await classSessionService.ReportTutorNoShowAsync(id, userId, role, request);
             return Ok(MV.DomainLayer.DTO.APIResponse<ClassSessionDetailResponse>.Success(result, "Đã báo cáo gia sư vắng mặt thành công."));
         }
         catch (ClassSessionException ex)
@@ -178,17 +179,18 @@ public class ClassSessionController(
 
     /// <summary>
     /// POST /api/class-sessions/{id}/no-show-action
-    /// Parent chọn hướng xử lý sau khi gia sư bị xác nhận vắng mặt.
+    /// Parent (hoặc học sinh tự quản) chọn hướng xử lý sau khi gia sư bị xác nhận vắng mặt.
     /// ActionType: free_session | makeup | change_tutor
     /// </summary>
     [HttpPost("class-sessions/{id:int}/no-show-action")]
-    [Authorize(Roles = UserRole.Parent)]
+    [Authorize(Roles = UserRole.ParentOrStudent)]
     public async Task<IActionResult> ProcessNoShowAction([FromRoute] int id, [FromBody] NoShowActionRequest request)
     {
-        var parentId = UserId ?? throw new UnauthorizedAccessException();
+        var userId = UserId ?? throw new UnauthorizedAccessException();
+        var role = User.FindFirstValue(ClaimTypes.Role) ?? "";
         try
         {
-            var result = await classSessionService.ProcessNoShowActionAsync(id, parentId, request);
+            var result = await classSessionService.ProcessNoShowActionAsync(id, userId, role, request);
             return Ok(MV.DomainLayer.DTO.APIResponse<NoShowActionResultResponse>.Success(result, "Xử lý no-show thành công."));
         }
         catch (ClassSessionException ex)

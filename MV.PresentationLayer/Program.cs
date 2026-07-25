@@ -272,6 +272,12 @@ builder.Services.AddHttpClient<IFptAiService, FptAiService>();
 // 2. Đăng ký HttpClient cho OcrSpaceService (OCR cho chứng chỉ/bằng cấp)
 builder.Services.AddHttpClient<IOcrService, OcrSpaceService>();
 
+// 3. Đăng ký HttpClient cho DisputeClassificationService (Groq AI phân loại ưu tiên tranh chấp)
+builder.Services.AddHttpClient<IDisputeClassificationService, DisputeClassificationService>(client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(10);
+});
+
 // Repo injection
 builder.Services.AddScoped<IAuthenticationRepository, AuthenticationRepository>();
 builder.Services.AddScoped<IPasswordRepository, PasswordRepository>();
@@ -329,6 +335,7 @@ builder.Services.AddScoped<IAiChatService, AiChatService>();
 builder.Services.AddScoped<IPaymentService, PaymentService>();
 builder.Services.AddScoped<IWalletService, WalletService>();
 builder.Services.AddScoped<IClassSessionService, ClassSessionService>();
+builder.Services.AddScoped<IClassSessionScheduleChangeService, ClassSessionScheduleChangeService>();
 builder.Services.AddScoped<IAgoraRTCService, AgoraRTCService>();
 builder.Services.AddSingleton<ILiveSessionDeviceLeaseService, LiveSessionDeviceLeaseService>();
 // Presence in-memory (Singleton): theo dõi ai đang trong phòng học để auto check-in khi đủ cả 2.

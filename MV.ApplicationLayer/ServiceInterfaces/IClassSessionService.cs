@@ -126,15 +126,15 @@ public interface IClassSessionService
     // ── No-show handling ───────────────────────────────────────────────────
 
     /// <summary>
-    /// Parent reports that the tutor did not show up for a scheduled classSession.
+    /// Parent (or self-managed student) reports that the tutor did not show up for a scheduled classSession.
     /// </summary>
-    Task<ClassSessionDetailResponse> ReportTutorNoShowAsync(int classSessionId, string parentId);
+    Task<ClassSessionDetailResponse> ReportTutorNoShowAsync(int classSessionId, string userId, string role, ReportNoShowRequest? request = null);
 
     /// <summary>
-    /// Parent selects a resolution action after a tutor no-show
+    /// Parent (or self-managed student) selects a resolution action after a tutor no-show
     /// (free session, makeup classSession, or change tutor).
     /// </summary>
-    Task<NoShowActionResultResponse> ProcessNoShowActionAsync(int classSessionId, string parentId, NoShowActionRequest request);
+    Task<NoShowActionResultResponse> ProcessNoShowActionAsync(int classSessionId, string userId, string role, NoShowActionRequest request);
 
     /// <summary>
     /// Tutor creates a makeup classSession to compensate for a previously missed session.

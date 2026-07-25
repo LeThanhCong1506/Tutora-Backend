@@ -26,6 +26,8 @@ public partial class ClassSessionService : IClassSessionService
     private readonly IFileStorageService _storageService;
     private readonly ISessionPresenceService _presence;
     private readonly ICloudRecordingService _cloudRecording;
+    private readonly ISettlementService _settlementService;
+    private readonly IWarningService _warningService;
     private readonly IRecordingAccessTokenService _recordingAccessTokenService;
     private readonly ILogger<ClassSessionService> _logger;
 
@@ -45,6 +47,8 @@ public partial class ClassSessionService : IClassSessionService
         IFileStorageService storageService,
         ISessionPresenceService presence,
         ICloudRecordingService cloudRecording,
+        ISettlementService settlementService,
+        IWarningService warningService,
         IRecordingAccessTokenService recordingAccessTokenService,
         ILogger<ClassSessionService> logger)
     {
@@ -58,6 +62,8 @@ public partial class ClassSessionService : IClassSessionService
         _storageService = storageService;
         _presence = presence;
         _cloudRecording = cloudRecording;
+        _settlementService = settlementService;
+        _warningService = warningService;
         _recordingAccessTokenService = recordingAccessTokenService;
         _logger = logger;
     }

@@ -1,6 +1,7 @@
 using MV.DomainLayer.Constants;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Http;
 using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.DTO;
 using MV.DomainLayer.DTO.RequestModel;
@@ -22,17 +23,23 @@ public class ParentController : ControllerBase
     private readonly IParentService _parentService;
     private readonly IStudentService _studentService;
     private readonly IClassSessionService _classSessionService;
+    private readonly IDisputeService _disputeService;
+    private readonly IClassSessionScheduleChangeService _scheduleChangeService;
     private readonly ILogger<ParentController> _logger;
 
     public ParentController(
         IParentService parentService,
         IStudentService studentService,
         IClassSessionService classSessionService,
+        IDisputeService disputeService,
+        IClassSessionScheduleChangeService scheduleChangeService,
         ILogger<ParentController> logger)
     {
         _parentService = parentService;
         _studentService = studentService;
         _classSessionService = classSessionService;
+        _disputeService = disputeService;
+        _scheduleChangeService = scheduleChangeService;
         _logger = logger;
     }
 
@@ -83,6 +90,68 @@ public class ParentController : ControllerBase
     }
 
     /// <summary>
+    /// Parent reads an already-created off-schedule confirmation request from lesson detail.
+    /// Merely opening the detail page never creates a new request.
+    /// </summary>
+    [HttpGet("class-sessions/{id}/schedule-change")]
+    [Authorize(Roles = UserRole.Parent)]
+    public async Task<ActionResult<APIResponse<SessionScheduleChangeResponse>>> GetScheduleChange(int id)
+    {
+        var userId = UserHelper.GetUserId(User);
+        try
+        {
+            var result = await _scheduleChangeService.GetExistingStateAsync(id, userId, UserRole.Parent);
+            return Ok(APIResponse<SessionScheduleChangeResponse>.Success(result, "Lấy trạng thái xác nhận đổi lịch thành công."));
+        }
+        catch (KeyNotFoundException ex)
+        {
+            return NotFound(APIResponse<object>.Fail(ex.Message, 404));
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(403, APIResponse<object>.Fail(ex.Message, 403));
+        }
+    }
+
+    /// <summary>
+    /// Parent confirms or rejects an existing off-schedule request without entering the lobby.
+    /// </summary>
+    [HttpPost("class-sessions/{id}/schedule-change/respond")]
+    [Authorize(Roles = UserRole.Parent)]
+    public async Task<ActionResult<APIResponse<SessionScheduleChangeResponse>>> RespondToScheduleChange(
+        int id,
+        [FromBody] SessionScheduleChangeDecisionRequest request)
+    {
+        var userId = UserHelper.GetUserId(User);
+        try
+        {
+            var existing = await _scheduleChangeService.GetExistingStateAsync(id, userId, UserRole.Parent);
+            if (!existing.RequiresConfirmation || existing.Status != ScheduleChangeStatus.Pending)
+                return BadRequest(APIResponse<object>.Fail("Yêu cầu đổi lịch không còn chờ xác nhận.", 400));
+
+            var result = await _scheduleChangeService.RespondAsync(
+                id,
+                userId,
+                UserRole.Parent,
+                request.Confirmed);
+            return Ok(APIResponse<SessionScheduleChangeResponse>.Success(
+                result,
+                request.Confirmed ? "Đã xác nhận đổi lịch học." : "Đã từ chối đổi lịch học."));
+        }
+        catch (KeyNotFoundException ex)
+        {
+            return NotFound(APIResponse<object>.Fail(ex.Message, 404));
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(403, APIResponse<object>.Fail(ex.Message, 403));
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(APIResponse<object>.Fail(ex.Message, 400));
+        }
+    }
+    /// <summary>
     /// Confirm a classSession as completed
     /// </summary>
     [HttpPut("class-sessions/{id}/confirm")]
@@ -117,6 +186,110 @@ public class ParentController : ControllerBase
         catch (ArgumentException ex)
         {
             return BadRequest(APIResponse<object>.Fail(ex.Message, 400));
+        }
+    }
+
+    /// <summary>
+    /// Get the dispute already created for this classSession (status, evidence, tutor response
+    /// once resolved) — the create endpoint above only returns a one-time creation snapshot.
+    /// </summary>
+    [HttpGet("class-sessions/{id}/dispute")]
+    [Authorize(Roles = UserRole.ParentOrStudent)]
+    public async Task<ActionResult<APIResponse<DisputeDetailResponse>>> GetDispute(int id)
+    {
+        var userId = UserHelper.GetUserId(User);
+        var role = User.FindFirstValue(ClaimTypes.Role) ?? "";
+        var result = await _disputeService.GetDisputeByClassSessionForUserAsync(id, userId, role);
+
+        if (result == null)
+            return NotFound(APIResponse<DisputeDetailResponse>.Fail("Buổi học này không có tranh chấp."));
+
+        return Ok(APIResponse<DisputeDetailResponse>.Success(result, "Lấy thông tin tranh chấp thành công."));
+    }
+
+    /// <summary>
+    /// Upload dispute evidence for a classSession (images/PDF).
+    /// </summary>
+    [HttpPost("class-sessions/{id}/dispute/evidence")]
+    [Authorize(Roles = UserRole.ParentOrStudent)]
+    public async Task<ActionResult<APIResponse<string>>> UploadDisputeEvidence(int id, IFormFile file)
+    {
+        if (file == null || file.Length == 0)
+            return BadRequest(APIResponse<string>.Fail("Tệp bằng chứng là bắt buộc."));
+
+        var userId = UserHelper.GetUserId(User);
+        var role = User.FindFirstValue(ClaimTypes.Role) ?? "";
+        try
+        {
+            var fileUrl = await _parentService.UploadDisputeEvidenceAsync(id, userId, role, file);
+            return Ok(APIResponse<string>.Success(fileUrl, "Tải tệp bằng chứng thành công."));
+        }
+        catch (ClassSessionException ex)
+        {
+            return StatusCode(ex.HttpStatus, APIResponse<object>.Fail(ex.Message, ex.HttpStatus));
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(500, APIResponse<object>.Fail($"Lỗi hệ thống: {ex.Message}", 500));
+        }
+    }
+
+    /// <summary>
+    /// Get the parent/student's private chat thread with admin for this classSession's dispute.
+    /// </summary>
+    [HttpGet("class-sessions/{id}/dispute/thread")]
+    [Authorize(Roles = UserRole.ParentOrStudent)]
+    public async Task<ActionResult<APIResponse<List<DisputeMessageResponse>>>> GetDisputeThread(int id)
+    {
+        var userId = UserHelper.GetUserId(User);
+        var role = User.FindFirstValue(ClaimTypes.Role) ?? "";
+        var result = await _disputeService.GetPartyDisputeThreadAsync(id, userId, role);
+        return Ok(APIResponse<List<DisputeMessageResponse>>.Success(result, "Lấy tin nhắn thành công."));
+    }
+
+    /// <summary>
+    /// Send a message in the parent/student's private chat thread with admin for this classSession's dispute.
+    /// </summary>
+    [HttpPost("class-sessions/{id}/dispute/thread/messages")]
+    [Authorize(Roles = UserRole.ParentOrStudent)]
+    public async Task<ActionResult<APIResponse<DisputeMessageResponse>>> SendDisputeThreadMessage(int id, [FromBody] SendDisputeMessageRequest request)
+    {
+        var userId = UserHelper.GetUserId(User);
+        var role = User.FindFirstValue(ClaimTypes.Role) ?? "";
+        try
+        {
+            var result = await _disputeService.SendPartyDisputeMessageAsync(id, userId, role, request.Message);
+            return Ok(APIResponse<DisputeMessageResponse>.Success(result, "Gửi tin nhắn thành công."));
+        }
+        catch (ArgumentException ex)
+        {
+            return NotFound(APIResponse<DisputeMessageResponse>.Fail(ex.Message));
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(APIResponse<DisputeMessageResponse>.Fail(ex.Message));
+        }
+    }
+
+    /// <summary>
+    /// Get parent's/student's dispute history
+    /// </summary>
+    [HttpGet("disputes")]
+    [Authorize(Roles = UserRole.ParentOrStudent)]
+    public async Task<ActionResult<APIResponse<PagedList<DisputeListResponse>>>> GetDisputes(
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 10)
+    {
+        var userId = UserHelper.GetUserId(User);
+        var role = User.FindFirstValue(ClaimTypes.Role) ?? "";
+        try
+        {
+            var result = await _parentService.GetParentDisputesAsync(userId, role, page, pageSize);
+            return Ok(APIResponse<PagedList<DisputeListResponse>>.Success(result, "Lấy danh sách khiếu nại thành công."));
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(500, APIResponse<PagedList<DisputeListResponse>>.Fail($"Lỗi hệ thống: {ex.Message}", 500));
         }
     }
 

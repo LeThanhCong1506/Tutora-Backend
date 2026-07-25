@@ -35,6 +35,20 @@ public partial class Dispute
 
     public DateTime? Resolvedat { get; set; }
 
+    public string? Tutorresponse { get; set; }
+
+    public DateTime? Tutorrespondedat { get; set; }
+
+    public DateTime? Noshowconfirmedat { get; set; }
+
+    public string? Noshowconfirmedby { get; set; }
+
+    /// <summary>AI-classified priority (low/medium/high) — see <see cref="Constants.DisputePriority"/>.</summary>
+    public string? Priority { get; set; }
+
+    /// <summary>Short justification from the AI classifier for <see cref="Priority"/>.</summary>
+    public string? Priorityreason { get; set; }
+
     public virtual Booking? Booking { get; set; }
 
     public virtual User? CreatedbyNavigation { get; set; }
@@ -44,4 +58,6 @@ public partial class Dispute
     public virtual User? ResolvedbyNavigation { get; set; }
 
     public virtual ICollection<DisputeEvidence> DisputeEvidences { get; set; } = new List<DisputeEvidence>();
+
+    public virtual ICollection<DisputeMessage> DisputeMessages { get; set; } = new List<DisputeMessage>();
 }

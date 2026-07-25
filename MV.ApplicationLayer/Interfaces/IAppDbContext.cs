@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using MV.DomainLayer.Entities;
 
@@ -19,11 +19,13 @@ public interface IAppDbContext
     DbSet<Class> Classes { get; }
     DbSet<Dispute> Disputes { get; }
     DbSet<DisputeEvidence> DisputeEvidences { get; }
+    DbSet<DisputeMessage> DisputeMessages { get; }
     DbSet<Feedback> Feedbacks { get; }
     DbSet<Handoversummary> Handoversummaries { get; }
     DbSet<Learningmaterial> Learningmaterials { get; }
     DbSet<ClassSession> ClassSessions { get; }
     DbSet<ClassSessionReport> ClassSessionReports { get; }
+    DbSet<ClassSessionScheduleChange> ClassSessionScheduleChanges { get; }
     DbSet<SessionEngagementSample> SessionEngagementSamples { get; }
     DbSet<AgoraChannelEvent> AgoraChannelEvents { get; }
     DbSet<Notification> Notifications { get; }
