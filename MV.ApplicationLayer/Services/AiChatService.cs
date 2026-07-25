@@ -23,8 +23,12 @@ public class AiChatService(
     IHttpClientFactory httpClientFactory,
     IConfiguration config,
     IFileStorageService storage,
+    IAiCreditService aiCreditService,
     ILogger<AiChatService> logger) : IAiChatService
 {
+    /// <summary>Mỗi lần hỏi bài trừ đúng 1 credit.</summary>
+    private const int SolveCreditCost = 1;
+
     private static readonly string[] AllowedRoles =
         { ChatHistoryRole.User, ChatHistoryRole.Assistant, ChatHistoryRole.System };
 
@@ -135,6 +139,13 @@ public class AiChatService(
     {
         var session = await GetOwnedSessionAsync(userId, sessionId);
 
+        //    Chỉ trừ 1 lượt sau khi giải thành công (ở finally) — lỗi giữa chừng không mất lượt.
+        var balance = (await aiCreditService.GetBalanceAsync(userId, ct)).Balance;
+        if (balance < SolveCreditCost)
+            throw new BookingException(
+                AiCreditErrorCodes.InsufficientCredits,
+                "Bạn đã hết lượt hỏi AI. Vui lòng nâng cấp để tiếp tục.", 402);
+
         // 1. Lưu user message ngay (không mất kể cả nếu AI lỗi sau đó).
         // Ảnh base64 -> upload lấy URL để mở lại phiên cũ vẫn thấy đề bài.
         var imageUrl = dto.ImageUrl ?? await TryUploadImageAsync(dto.ImageBase64, userId);
@@ -222,7 +233,6 @@ public class AiChatService(
         }
         finally
         {
-            // 4. Lưu assistant message.
             if (assistant.Length > 0)
             {
                 var finishedAt = TimeZoneHelper.UtcNow;
@@ -248,6 +258,20 @@ public class AiChatService(
                 session.UpdatedAt = finishedAt;
                 aiChatRepo.UpdateSession(session);
                 await aiChatRepo.SaveChangesAsync();
+
+                // Trừ 1 credit ngay tại đây.
+                try
+                {
+                    await aiCreditService.SpendAsync(
+                        userId, SolveCreditCost,
+                        referenceId: null,
+                        description: null,
+                        ct: CancellationToken.None);
+                }
+                catch (Exception ex)
+                {
+                    logger.LogError(ex, "Không trừ được AI credit cho session {SessionId} user {UserId}", sessionId, userId);
+                }
             }
         }
     }
