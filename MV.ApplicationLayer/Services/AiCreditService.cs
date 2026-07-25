@@ -252,7 +252,8 @@ public class AiCreditService(
             QrCode = link.QrCode,
             PaymentLinkId = link.PaymentLinkId,
             Amount = package.Price,
-            PackageId = package.Packageid
+            PackageId = package.Packageid,
+            ExpiresAt = paymentRequest.Expiresat
         };
     }
 
@@ -263,19 +264,81 @@ public class AiCreditService(
         var orderCode = webhook.Data.OrderCode;
 
         var pr = await context.PaymentRequests
-            .FirstOrDefaultAsync(r =>
-                r.Ordercode == orderCode &&
-                r.Phase == PaymentRequestPhase.AiCredit, ct);
+            .FirstOrDefaultAsync(r => r.Ordercode == orderCode && r.Phase == PaymentRequestPhase.AiCredit, ct);
         if (pr is null)
         {
             logger.LogWarning("AI credit purchase webhook for unknown order {OrderCode}", orderCode);
             return;
         }
 
-        // Idempotent: đã ghi credit rồi thì thôi (chống webhook lặp).
-        var alreadyCredited = await context.AiCreditTransactions
-            .AnyAsync(t => t.Source == AiCreditSource.Purchase && t.Referenceid == orderCode.ToString(), ct);
-        if (alreadyCredited)
+        // Webhook đã báo success → capture từ webhook (đầy đủ nhất), cộng credit.
+        var capture = PaymentTransactionCapture.FromPayOSWebhook(webhook, rawPayload);
+        await FinalizePurchaseAsync(pr, capture, ct);
+    }
+
+    public async Task<AiCreditPurchaseStatusResponse> GetPurchaseStatusAsync(
+        string userId, long orderCode, CancellationToken ct = default)
+    {
+        var pr = await context.PaymentRequests
+            .FirstOrDefaultAsync(r => r.Ordercode == orderCode && r.Phase == PaymentRequestPhase.AiCredit, ct)
+            ?? throw new BookingException(AiCreditErrorCodes.PackageNotFound, "Không tìm thấy đơn mua.", 404);
+
+        // Chỉ chủ đơn (người trả) hoặc người nhận credit mới xem được trạng thái.
+        if (pr.Userid != userId && pr.AiCreditUserid != userId)
+            throw new BookingException(AiCreditErrorCodes.UserNotFound, "Không có quyền xem đơn này.", 403);
+
+        // Đã ghi credit rồi → trả PAID luôn, không cần gọi PayOS.
+        if (await AlreadyCreditedAsync(orderCode, ct))
+            return await BuildStatusAsync(PaymentRequestStatus.Paid, pr.AiCreditUserid, ct);
+
+        // CHỦ ĐỘNG hỏi PayOS trạng thái đơn (không phụ thuộc webhook).
+        string providerStatus;
+        try
+        {
+            var link = !string.IsNullOrWhiteSpace(pr.Paymentlinkid)
+                ? await payOS.PaymentRequests.GetAsync(pr.Paymentlinkid)
+                : await payOS.PaymentRequests.GetAsync(orderCode);
+            providerStatus = NormalizeStatus(link.Status.ToString());
+
+            if (providerStatus == PaymentRequestStatus.Paid)
+            {
+                // PayOS xác nhận đã trả → cộng credit ngay (self-healing).
+                var captures = PaymentTransactionCapture.FromPayOSPaymentLink(link);
+                await FinalizePurchaseAsync(pr, captures.Count > 0 ? captures[0] : null, ct);
+                return await BuildStatusAsync(PaymentRequestStatus.Paid, pr.AiCreditUserid, ct);
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Không hỏi được PayOS trạng thái đơn AI credit {OrderCode}", orderCode);
+            providerStatus = pr.Status; // giữ trạng thái cục bộ nếu PayOS lỗi
+        }
+
+        // Chưa trả: cập nhật trạng thái + kiểm tra hết hạn.
+        var isExpired = providerStatus is PaymentRequestStatus.Expired or PaymentRequestStatus.Cancelled
+            || (pr.Expiresat.HasValue && pr.Expiresat.Value < TimeZoneHelper.UtcNow);
+        if (isExpired && PaymentRequestStatus.IsActive(pr.Status))
+        {
+            pr.Status = PaymentRequestStatus.Expired;
+            pr.Updatedat = TimeZoneHelper.UtcNow;
+            await context.SaveChangesAsync(ct);
+        }
+
+        return new AiCreditPurchaseStatusResponse
+        {
+            Status = isExpired ? PaymentRequestStatus.Expired : providerStatus,
+            IsPaid = false,
+            IsExpired = isExpired,
+            Balance = null
+        };
+    }
+
+    /// <summary>Ghi payment_transactions (nếu có capture) + đổi status PAID + cộng credit. Idempotent theo orderCode.</summary>
+    private async Task FinalizePurchaseAsync(PaymentRequest pr, PaymentTransactionCapture? capture, CancellationToken ct)
+    {
+        var orderCode = pr.Ordercode ?? 0;
+
+        if (await AlreadyCreditedAsync(orderCode, ct))
         {
             logger.LogInformation("AI credit order {OrderCode} already credited; skipping.", orderCode);
             return;
@@ -295,22 +358,23 @@ public class AiCreditService(
             return;
         }
 
-        var beneficiaryUserId = pr.AiCreditUserid;
+        var beneficiaryUserId = pr.AiCreditUserid!;
 
-        // Ghi sổ cái giao dịch thành công qua factory chuẩn (giống luồng booking) —
-        // capture đầy đủ provider tx id, paid-at, tài khoản nguồn, payload để đối soát.
-        var capture = PaymentTransactionCapture.FromPayOSWebhook(webhook, rawPayload);
-        var pt = capture.Create(
-            purpose: PaymentTransactionPurpose.AiCreditPurchase,
-            direction: PaymentTransactionDirection.Inbound,
-            amount: pr.Amount ?? package.Price,
-            userId: pr.Userid,
-            orderCode: orderCode,
-            description: $"Goi AI {package.Name}",
-            paymentRequestId: pr.Paymentrequestid,
-            aiCreditPackageId: package.Packageid,
-            aiCreditUserId: beneficiaryUserId);
-        context.PaymentTransactions.Add(pt);
+        // Ghi sổ cái giao dịch thành công (capture từ webhook hoặc từ PayOS lookup).
+        if (capture is not null)
+        {
+            var pt = capture.Create(
+                purpose: PaymentTransactionPurpose.AiCreditPurchase,
+                direction: PaymentTransactionDirection.Inbound,
+                amount: pr.Amount ?? package.Price,
+                userId: pr.Userid,
+                orderCode: orderCode,
+                description: $"Goi AI {package.Name}",
+                paymentRequestId: pr.Paymentrequestid,
+                aiCreditPackageId: package.Packageid,
+                aiCreditUserId: beneficiaryUserId);
+            context.PaymentTransactions.Add(pt);
+        }
 
         pr.Status = PaymentRequestStatus.Paid;
         pr.Updatedat = TimeZoneHelper.UtcNow;
@@ -324,6 +388,36 @@ public class AiCreditService(
             "Completed AI credit purchase order {OrderCode}: +{Amount} credits to user {UserId}.",
             orderCode, package.Creditamount, beneficiaryUserId);
     }
+
+    private Task<bool> AlreadyCreditedAsync(long orderCode, CancellationToken ct)
+        => context.AiCreditTransactions
+            .AnyAsync(t => t.Source == AiCreditSource.Purchase && t.Referenceid == orderCode.ToString(), ct);
+
+    private async Task<AiCreditPurchaseStatusResponse> BuildStatusAsync(string status, string? beneficiaryUserId, CancellationToken ct)
+    {
+        int? balance = null;
+        if (!string.IsNullOrWhiteSpace(beneficiaryUserId))
+            balance = await context.Users.AsNoTracking()
+                .Where(u => u.Userid == beneficiaryUserId).Select(u => (int?)u.AiCreditsBalance).FirstOrDefaultAsync(ct);
+        return new AiCreditPurchaseStatusResponse
+        {
+            Status = status,
+            IsPaid = status == PaymentRequestStatus.Paid,
+            IsExpired = status is PaymentRequestStatus.Expired or PaymentRequestStatus.Cancelled,
+            Balance = balance
+        };
+    }
+
+    private static string NormalizeStatus(string? status)
+        => (status?.Trim().ToUpperInvariant()) switch
+        {
+            PayOSLinkStatus.Pending => PaymentRequestStatus.Pending,
+            PayOSLinkStatus.Processing => PaymentRequestStatus.Processing,
+            PayOSLinkStatus.Paid => PaymentRequestStatus.Paid,
+            PayOSLinkStatus.Cancelled => PaymentRequestStatus.Cancelled,
+            PayOSLinkStatus.Expired => PaymentRequestStatus.Expired,
+            _ => PaymentRequestStatus.RequiresReview
+        };
 
     private async Task<long> GenerateUniqueOrderCodeAsync(CancellationToken ct)
     {

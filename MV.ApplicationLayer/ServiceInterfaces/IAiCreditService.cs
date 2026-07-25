@@ -35,6 +35,9 @@ public interface IAiCreditService
     /// <summary>Hoàn tất mua gói khi PayOS báo thành công (gọi từ webhook).</summary>
     Task CompletePurchaseAsync(PaymentWebhookRequest webhook, string? rawPayload, CancellationToken ct = default);
 
+    /// <summary>FE poll trạng thái đơn, tự cộng credit nếu PAID.</summary>
+    Task<AiCreditPurchaseStatusResponse> GetPurchaseStatusAsync(string userId, long orderCode, CancellationToken ct = default);
+
     // Admin CRUD gói + config
     Task<IReadOnlyList<AiCreditPackageResponse>> AdminGetPackagesAsync(CancellationToken ct = default);
     Task<AiCreditPackageResponse> AdminCreatePackageAsync(AiCreditPackageCreateRequest request, CancellationToken ct = default);

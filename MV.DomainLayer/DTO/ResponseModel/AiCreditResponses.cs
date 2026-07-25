@@ -47,4 +47,16 @@ public class AiCreditPurchaseResponse
     public string? PaymentLinkId { get; set; }
     public decimal Amount { get; set; }
     public int PackageId { get; set; }
+    public DateTime? ExpiresAt { get; set; }
+}
+
+/// <summary>
+/// Trạng thái đơn mua gói — FE poll để biết đã thanh toán chưa..
+/// </summary>
+public class AiCreditPurchaseStatusResponse
+{
+    public string Status { get; set; } = null!;
+    public bool IsPaid { get; set; }
+    public bool IsExpired { get; set; }
+    public int? Balance { get; set; }
 }

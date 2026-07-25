@@ -81,4 +81,28 @@ public class AiCreditController(
             return StatusCode(500, new { errorCode = ApiErrorCodes.InternalError, message = "Lỗi hệ thống khi tạo liên kết mua gói." });
         }
     }
+
+    /// <summary>FE poll trạng thái đơn — BE chủ động hỏi PayOS.</summary>
+    [HttpGet("purchase/status/{orderCode:long}")]
+    [Authorize]
+    public async Task<IActionResult> PurchaseStatus([FromRoute] long orderCode, CancellationToken ct)
+    {
+        var userId = UserId;
+        if (string.IsNullOrWhiteSpace(userId))
+            return Unauthorized(new { errorCode = "UNAUTHORIZED", message = "Không xác định được người dùng." });
+
+        try
+        {
+            return Ok(await aiCreditService.GetPurchaseStatusAsync(userId, orderCode, ct));
+        }
+        catch (BookingException ex)
+        {
+            return StatusCode(ex.HttpStatus, new { errorCode = ex.ErrorCode, message = ex.Message });
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Lỗi khi kiểm tra trạng thái đơn mua AI credit {OrderCode}", orderCode);
+            return StatusCode(500, new { errorCode = ApiErrorCodes.InternalError, message = "Lỗi hệ thống khi kiểm tra thanh toán." });
+        }
+    }
 }
