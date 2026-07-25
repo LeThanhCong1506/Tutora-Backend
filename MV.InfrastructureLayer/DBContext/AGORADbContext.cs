@@ -73,6 +73,8 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
 
     public virtual DbSet<AiCreditTransaction> AiCreditTransactions { get; set; }
 
+    public virtual DbSet<AiCreditPackage> AiCreditPackages { get; set; }
+
     public virtual DbSet<Profilesuspension> Profilesuspensions { get; set; }
 
     public virtual DbSet<Promotion> Promotions { get; set; }
@@ -2321,6 +2323,50 @@ entity.HasOne(d => d.Tutor).WithOne(p => p.Tutorprofile)
                 .HasConstraintName("ai_credit_transactions_userid_fkey");
         });
 
+        modelBuilder.Entity<AiCreditPackage>(entity =>
+        {
+            entity.HasKey(e => e.Packageid).HasName("ai_credit_packages_pkey");
+
+            entity.ToTable("ai_credit_packages");
+
+            entity.Property(e => e.Packageid).HasColumnName("package_id");
+            entity.Property(e => e.Code)
+                .HasMaxLength(30)
+                .HasColumnName("code");
+            entity.Property(e => e.Name)
+                .HasMaxLength(100)
+                .HasColumnName("name");
+            entity.Property(e => e.Creditamount).HasColumnName("credit_amount");
+            entity.Property(e => e.Price)
+                .HasColumnType("numeric(12,2)")
+                .HasColumnName("price");
+            entity.Property(e => e.Currency)
+                .HasMaxLength(10)
+                .HasDefaultValue("VND")
+                .HasColumnName("currency");
+            entity.Property(e => e.Ispurchasable)
+                .HasDefaultValue(true)
+                .HasColumnName("is_purchasable");
+            entity.Property(e => e.Isactive)
+                .HasDefaultValue(true)
+                .HasColumnName("is_active");
+            entity.Property(e => e.Sortorder)
+                .HasDefaultValue(0)
+                .HasColumnName("sort_order");
+            entity.Property(e => e.Description).HasColumnName("description");
+            entity.Property(e => e.Iconurl)
+                .HasMaxLength(1000)
+                .HasColumnName("icon_url");
+            entity.Property(e => e.Createdat)
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
+                .HasColumnType("timestamp without time zone")
+                .HasColumnName("created_at");
+            entity.Property(e => e.Updatedat)
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
+                .HasColumnType("timestamp without time zone")
+                .HasColumnName("updated_at");
+        });
+
         modelBuilder.Entity<Userwarning>(entity =>
         {
             entity.HasKey(e => e.Warningid).HasName("userwarnings_pkey");
@@ -2434,6 +2480,8 @@ entity.HasOne(d => d.Tutor).WithOne(p => p.Tutorprofile)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnType("timestamp without time zone")
                 .HasColumnName("updated_at");
+            entity.Property(e => e.AiCreditPackageid).HasColumnName("ai_credit_package_id");
+            entity.Property(e => e.AiCreditUserid).HasMaxLength(50).HasColumnName("ai_credit_user_id");
 
             entity.HasOne(d => d.Booking).WithMany(p => p.Paymentrequests)
                 .HasForeignKey(d => d.Bookingid)
@@ -2500,6 +2548,10 @@ entity.HasOne(d => d.Tutor).WithOne(p => p.Tutorprofile)
             entity.Property(e => e.Paymentrequestid).HasColumnName("payment_request_id");
             entity.Property(e => e.Bookingid).HasColumnName("booking_id");
             entity.Property(e => e.Withdrawalid).HasColumnName("withdrawal_id");
+            entity.Property(e => e.AiCreditPackageid).HasColumnName("ai_credit_package_id");
+            entity.Property(e => e.AiCreditUserid)
+                .HasMaxLength(50)
+                .HasColumnName("ai_credit_user_id");
             entity.Property(e => e.Description).HasColumnName("description");
             entity.Property(e => e.Paidat)
                 .HasColumnType("timestamp without time zone")

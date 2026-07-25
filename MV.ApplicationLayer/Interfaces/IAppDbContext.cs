@@ -42,6 +42,7 @@ public interface IAppDbContext
     DbSet<Chapter> Chapters { get; }
     DbSet<QuestionType> QuestionTypes { get; }
     DbSet<Systemconfig> Systemconfigs { get; }
+    DbSet<AiCreditPackage> AiCreditPackages { get; }
     DbSet<Topuprequest> Topuprequests { get; }
     DbSet<Tutoravailability> Tutoravailabilities { get; }
     DbSet<Tutorcertificate> Tutorcertificates { get; }

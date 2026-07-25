@@ -21,9 +21,13 @@ public static class PaymentTransactionPurpose
     public const string WalletTopup = "WalletTopup";
     public const string Withdrawal = "Withdrawal";
     public const string UnmatchedPayOS = "UnmatchedPayOS";
+
+    /// <summary>Mua gói AI credit (Homework Helper). Được tính vào doanh thu nền tảng.</summary>
+    public const string AiCreditPurchase = "AiCreditPurchase";
 }
 
 public static class PaymentTransactionStatus
 {
+    public const string Pending = "Pending";
     public const string Succeeded = "Succeeded";
 }

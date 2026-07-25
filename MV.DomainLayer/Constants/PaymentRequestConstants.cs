@@ -25,6 +25,9 @@ public static class PaymentRequestPhase
     public const string Deposit = PaymentPhase.Deposit;
     public const string Remaining = PaymentPhase.Remaining;
     public const string LegacyUnknown = "legacy_unknown";
+
+    /// <summary>Thanh toán mua gói AI credit (không thuộc booking nào).</summary>
+    public const string AiCredit = "ai_credit";
 }
 
 public static class PaymentCaptureSource

@@ -32,6 +32,12 @@ public partial class PaymentTransaction
 
     public int? Withdrawalid { get; set; }
 
+    /// <summary>Gói AI credit được mua; null cho giao dịch khác.</summary>
+    public int? AiCreditPackageid { get; set; }
+
+    /// <summary>Tài khoản được cộng credit khi mua gói; null cho giao dịch khác.
+    public string? AiCreditUserid { get; set; }
+
     public string? Description { get; set; }
 
     public DateTime? Paidat { get; set; }
