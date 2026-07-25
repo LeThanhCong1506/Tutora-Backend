@@ -112,6 +112,22 @@ public class ParentService : IParentService
 
         if (classSession == null) return null;
 
+        // Lịch sử dời lịch (nếu có) — mirror của DisputeService.GetDisputeDetailAsync.
+        var scheduleChanges = await _context.ClassSessionScheduleChanges
+            .AsNoTracking()
+            .Where(x => x.Classsessionid == classSessionId)
+            .OrderBy(x => x.Schedulechangeid)
+            .ToListAsync();
+        var scheduleChangeConfirmerIds = scheduleChanges
+            .SelectMany(x => new[] { x.Tutorconfirmedby, x.Learnerconfirmedby })
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Cast<string>()
+            .Distinct()
+            .ToList();
+        var scheduleChangeConfirmerNames = await _context.Users.AsNoTracking()
+            .Where(x => scheduleChangeConfirmerIds.Contains(x.Userid))
+            .ToDictionaryAsync(x => x.Userid, x => x.Fullname ?? x.Username ?? x.Email);
+
         // Buổi tiếp theo bị khóa nếu chưa thanh toán đợt 2 (các buổi còn lại).
         var requiresRemainingPayment = classSession.Booking != null
             && (classSession.Booking.Status == BookingStatus.DepositPaid
@@ -174,7 +190,24 @@ public class ParentService : IParentService
                 StudentPerformanceRating = classSession.ClassSessionReport.Studentperformancerating,
                 Attachments = DeserializeJsonList(classSession.ClassSessionReport.Attachments),
                 CreatedAt = classSession.ClassSessionReport.Createdat.HasValue ? classSession.ClassSessionReport.Createdat.Value : (DateTime?)null
-            } : null
+            } : null,
+            ScheduleChanges = scheduleChanges.Select(x => new DisputeScheduleChangeAuditResponse
+            {
+                ScheduleChangeId = x.Schedulechangeid,
+                Status = x.Status,
+                OriginalScheduledStart = x.Originalscheduledstart,
+                OriginalScheduledEnd = x.Originalscheduledend,
+                AdjustedScheduledStart = x.Adjustedscheduledstart,
+                AdjustedScheduledEnd = x.Adjustedscheduledend,
+                LearnerApproverRole = x.Learnerapproverrole,
+                TutorConfirmedByName = x.Tutorconfirmedby != null && scheduleChangeConfirmerNames.TryGetValue(x.Tutorconfirmedby, out var tutorName) ? tutorName : null,
+                TutorConfirmedAt = x.Tutorconfirmedat,
+                LearnerConfirmedByName = x.Learnerconfirmedby != null && scheduleChangeConfirmerNames.TryGetValue(x.Learnerconfirmedby, out var learnerName) ? learnerName : null,
+                LearnerConfirmedAt = x.Learnerconfirmedat,
+                RequestedAt = x.Requestedat,
+                ApprovedAt = x.Approvedat,
+                AppliedAt = x.Appliedat
+            }).ToList()
         };
     }
 
