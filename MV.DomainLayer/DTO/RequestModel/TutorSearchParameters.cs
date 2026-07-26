@@ -1,4 +1,5 @@
 using MV.DomainLayer.Constants;
+using MV.DomainLayer.Enums;
 
 namespace MV.DomainLayer.DTO.RequestModel
 {
@@ -101,6 +102,11 @@ namespace MV.DomainLayer.DTO.RequestModel
         /// Options: "online", "offline", "hybrid"
         /// </summary>
         public string? TeachingMode { get; set; }
+
+        /// <summary>
+        /// Filter by tutor gender (Male = 1, Female = 2).
+        /// </summary>
+        public Gender? Gender { get; set; }
 
         /// <summary>
         /// Filter by verification status (e.g., "verified", "pending")

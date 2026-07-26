@@ -363,6 +363,7 @@ builder.Services.AddScoped<IWarningService, WarningService>();
 builder.Services.AddScoped<IFeedbackService, FeedbackService>();
 builder.Services.AddScoped<IQuestionService, QuestionService>();
 builder.Services.AddScoped<ISourceDocumentService, SourceDocumentService>();
+builder.Services.AddScoped<IKnowledgeBaseService, KnowledgeBaseService>();
 
 builder.Services.AddScoped<IBankListService, BankListService>();
 builder.Services.AddScoped<PayOSWebhookService>();
@@ -443,8 +444,9 @@ builder.Services.AddHostedService<AutoUnsuspendJob>();
 builder.Services.AddHostedService<ClassSessionReminderJob>();
 builder.Services.AddHostedService<RemainingPaymentTriggerJob>();
 builder.Services.AddHostedService<GhostUserCleanupJob>();
-// Chủ động refresh Zalo OA token trước khi hết hạn.
 builder.Services.AddHostedService<ZaloTokenRefreshJob>();
+builder.Services.AddSingleton<ITutorEmbedQueue, TutorEmbedQueue>();
+builder.Services.AddHostedService<TutorEmbedWorker>();
 
 // Cấu hình Authentication (JWT mặc định, Google/Facebook song song)
 builder.Services.AddAuthentication(options =>

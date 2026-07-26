@@ -136,7 +136,8 @@ namespace MV.ApplicationLayer.Services
                 TeachingAreaDistrict = request.District,
                 MinHourlyRate = request.MinRate,
                 MaxHourlyRate = request.MaxRate,
-                SortBy = TutorSearchSortBy.Default   
+                Gender = request.Gender,
+                SortBy = TutorSearchSortBy.Default
             };
         }
 
