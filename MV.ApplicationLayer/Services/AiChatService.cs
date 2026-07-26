@@ -276,6 +276,209 @@ public class AiChatService(
         }
     }
 
+    public async Task<AssistantRespondResponse> RespondAsync(
+        string? userId, AssistantRespondRequest dto, CancellationToken ct = default)
+    {
+        var isAuthed = !string.IsNullOrEmpty(userId);
+        ChatSession? session = null;
+
+        // 1. History: authed dựng từ DB (nguồn sự thật); anonymous dùng history FE gửi.
+        List<object> history;
+        if (isAuthed)
+        {
+            session = await GetOrCreateMatchingSessionAsync(userId!, dto.SessionId, ct);
+            var (recent, _) = await aiChatRepo.GetMessagesPagedAsync(session.SessionId, 1, HistoryWindow);
+            history = recent
+                .Select(m => (object)new { role = m.Role, content = m.Content })
+                .ToList();
+
+            // Lưu user message NGAY (không mất kể cả nếu AI lỗi sau đó).
+            var nowUser = TimeZoneHelper.UtcNow;
+            aiChatRepo.AddMessage(new ChatHistory
+            {
+                MessageId = Guid.NewGuid(),
+                SessionId = session.SessionId,
+                Role = ChatHistoryRole.User,
+                Content = dto.Message,
+                CreatedAt = nowUser
+            });
+            if (string.IsNullOrWhiteSpace(session.Title))
+                session.Title = dto.Message.Length > 100 ? dto.Message[..100] : dto.Message;
+            session.UpdatedAt = nowUser;
+            aiChatRepo.UpdateSession(session);
+            await aiChatRepo.SaveChangesAsync();
+        }
+        else
+        {
+            history = dto.History
+                .Select(h => (object)new { role = h.Role, content = h.Content })
+                .ToList();
+        }
+
+        // 2. Forward tutora-ai /api/v1/assistant/respond (payload snake_case).
+        var client = httpClientFactory.CreateClient(ServiceKeys.HttpClients.TutorAi);
+        var payload = new
+        {
+            history,
+            message = dto.Message,
+            context = dto.Context is null ? null : new
+            {
+                subject_id = dto.Context.SubjectId,
+                grade_level_id = dto.Context.GradeLevelId,
+                teaching_mode = dto.Context.TeachingMode,
+                city = dto.Context.City,
+                min_rate = dto.Context.MinRate,
+                max_rate = dto.Context.MaxRate,
+                tutor_gender = dto.Context.TutorGender
+            },
+            current_filters = dto.CurrentFilters is null ? null : new
+            {
+                min_rate = dto.CurrentFilters.MinRate,
+                max_rate = dto.CurrentFilters.MaxRate,
+                tutor_gender = dto.CurrentFilters.TutorGender,
+                subject_id = dto.CurrentFilters.SubjectId,
+                desired_count = dto.CurrentFilters.DesiredCount
+            }
+        };
+
+        using var req = new HttpRequestMessage(HttpMethod.Post, "/api/v1/assistant/respond")
+        {
+            Content = JsonContent.Create(payload)
+        };
+        var apiKey = config[$"{TutorAiSettings.SectionName}:ApiKey"];
+        if (!string.IsNullOrEmpty(apiKey))
+            req.Headers.Add("X-API-Key", apiKey);
+
+        using var resp = await client.SendAsync(req, ct);
+        resp.EnsureSuccessStatusCode();
+        var raw = await resp.Content.ReadAsStringAsync(ct);
+        var result = ParseAssistantResponse(raw);
+
+        // 3. Authed: lưu assistant reply (kèm cards vào Metadata để mở lại phiên thấy card).
+        if (isAuthed && session is not null)
+        {
+            var nowAsst = TimeZoneHelper.UtcNow;
+            string? metadata = null;
+            if (result.Cards.Count > 0 || result.Suggestions.Count > 0)
+            {
+                var meta = new JsonObject
+                {
+                    ["intent"] = result.Intent,
+                    ["cards"] = JsonNode.Parse(JsonSerializer.Serialize(result.Cards)),
+                    ["suggestions"] = JsonNode.Parse(JsonSerializer.Serialize(result.Suggestions))
+                };
+                metadata = meta.ToJsonString();
+            }
+            aiChatRepo.AddMessage(new ChatHistory
+            {
+                MessageId = Guid.NewGuid(),
+                SessionId = session.SessionId,
+                Role = ChatHistoryRole.Assistant,
+                Content = result.Reply,
+                Metadata = metadata,
+                CreatedAt = nowAsst
+            });
+            session.UpdatedAt = nowAsst;
+            aiChatRepo.UpdateSession(session);
+            await aiChatRepo.SaveChangesAsync();
+
+            result.SessionId = session.SessionId.ToString();
+        }
+
+        return result;
+    }
+
+    /// <summary>Phiên tutor_matching cho user: lấy theo SessionId (kiểm chủ quyền) hoặc tạo mới.</summary>
+    private async Task<ChatSession> GetOrCreateMatchingSessionAsync(string userId, Guid? sessionId, CancellationToken ct)
+    {
+        if (sessionId is { } sid)
+            return await GetOwnedSessionAsync(userId, sid);
+
+        var now = TimeZoneHelper.UtcNow;
+        var session = new ChatSession
+        {
+            SessionId = Guid.NewGuid(),
+            UserId = userId,
+            SessionType = ChatSessionType.TutorMatching,
+            IsActive = true,
+            CreatedAt = now,
+            UpdatedAt = now
+        };
+        aiChatRepo.AddSession(session);
+        await aiChatRepo.SaveChangesAsync();
+        return session;
+    }
+
+    /// <summary>Parse response snake_case của tutora-ai (WebChatResponse) → DTO camelCase.</summary>
+    private AssistantRespondResponse ParseAssistantResponse(string json)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+
+            var res = new AssistantRespondResponse
+            {
+                Reply = root.TryGetProperty("reply", out var r) ? r.GetString() ?? "" : "",
+                Intent = root.TryGetProperty("intent", out var i) ? i.GetString() ?? "tutor" : "tutor",
+                AiRanked = root.TryGetProperty("ai_ranked", out var ar) && ar.ValueKind == JsonValueKind.True
+            };
+
+            if (root.TryGetProperty("cards", out var cards) && cards.ValueKind == JsonValueKind.Array)
+                foreach (var c in cards.EnumerateArray())
+                    res.Cards.Add(new AssistantCardDto
+                    {
+                        TutorId = GetStr(c, "tutor_id") ?? "",
+                        Name = GetStr(c, "name") ?? "Gia sư",
+                        AvatarUrl = GetStr(c, "avatar_url"),
+                        IsBestMatch = c.TryGetProperty("is_best_match", out var bm) && bm.ValueKind == JsonValueKind.True,
+                        PricePerHour = GetNum(c, "price_per_hour"),
+                        Rating = GetNum(c, "rating"),
+                        TotalReviews = GetInt(c, "total_reviews"),
+                        Highlights = GetStrList(c, "highlights"),
+                        ProfileUrl = GetStr(c, "profile_url") ?? "",
+                        CtaLabel = GetStr(c, "cta_label") ?? "Xem chi tiết"
+                    });
+
+            if (root.TryGetProperty("filters", out var f) && f.ValueKind == JsonValueKind.Object)
+                res.Filters = new AssistantFiltersOut
+                {
+                    MinRate = GetNum(f, "min_rate"),
+                    MaxRate = GetNum(f, "max_rate"),
+                    TutorGender = GetStr(f, "tutor_gender"),
+                    SubjectId = GetInt(f, "subject_id"),
+                    DesiredCount = GetInt(f, "desired_count")
+                };
+
+            res.Suggestions = GetStrList(root, "suggestions");
+            return res;
+        }
+        catch (JsonException ex)
+        {
+            logger.LogError(ex, "Không parse được response trợ lý AI: {Json}", json);
+            return new AssistantRespondResponse { Reply = "Xin lỗi, mình đang gặp trục trặc. Bạn thử lại sau nhé!" };
+        }
+    }
+
+    private static string? GetStr(JsonElement e, string key)
+        => e.TryGetProperty(key, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
+
+    private static double? GetNum(JsonElement e, string key)
+        => e.TryGetProperty(key, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetDouble() : null;
+
+    private static int? GetInt(JsonElement e, string key)
+        => e.TryGetProperty(key, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetInt32() : null;
+
+    private static List<string> GetStrList(JsonElement e, string key)
+    {
+        var list = new List<string>();
+        if (e.TryGetProperty(key, out var arr) && arr.ValueKind == JsonValueKind.Array)
+            foreach (var x in arr.EnumerateArray())
+                if (x.ValueKind == JsonValueKind.String && x.GetString() is { } s)
+                    list.Add(s);
+        return list;
+    }
+
     private (string? Delta, string? Thinking, bool RagUsed, string? StepsFinal) TryExtractDelta(string json)
     {
         try
