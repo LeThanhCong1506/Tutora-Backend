@@ -63,6 +63,10 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
 
     public virtual DbSet<QuestionBank> QuestionBanks { get; set; }
 
+    public virtual DbSet<TutoraKbDocument> TutoraKbDocuments { get; set; }
+
+    public virtual DbSet<TutoraKbChunk> TutoraKbChunks { get; set; }
+
     public virtual DbSet<QuestionVote> QuestionVotes { get; set; }
 
     public virtual DbSet<SourceDocument> SourceDocuments { get; set; }
@@ -1871,6 +1875,50 @@ entity.HasOne(d => d.Tutor).WithOne(p => p.Tutorprofile)
             entity.HasOne(d => d.QuestionType).WithMany(p => p.Questions)
                 .HasForeignKey(d => d.QuestionTypeId)
                 .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        // Knowledge Base Tutora — cùng DB, .NET đọc thẳng cho list/delete (upload vẫn qua
+        // tutora-ai để extract/chunk/embed). Chunk chỉ khai báo để cascade khi xoá document.
+        modelBuilder.Entity<TutoraKbDocument>(entity =>
+        {
+            entity.HasKey(e => e.Id).HasName("tutora_kb_documents_pkey");
+            entity.ToTable("tutora_kb_documents");
+
+            entity.Property(e => e.Id)
+                .HasDefaultValueSql("gen_random_uuid()")
+                .HasColumnName("id");
+            entity.Property(e => e.FileName).HasColumnName("file_name");
+            entity.Property(e => e.SourceType).HasColumnName("source_type");
+            entity.Property(e => e.ChunkCount).HasColumnName("chunk_count");
+            entity.Property(e => e.Status).HasColumnName("status");
+            entity.Property(e => e.UploadedBy).HasColumnName("uploaded_by");
+            entity.Property(e => e.CreatedAt)
+                .HasColumnType("timestamp with time zone")
+                .HasColumnName("created_at");
+        });
+
+        modelBuilder.Entity<TutoraKbChunk>(entity =>
+        {
+            entity.HasKey(e => e.Id).HasName("tutora_kb_chunks_pkey");
+            entity.ToTable("tutora_kb_chunks");
+
+            entity.Property(e => e.Id)
+                .HasDefaultValueSql("gen_random_uuid()")
+                .HasColumnName("id");
+            entity.Property(e => e.DocumentId).HasColumnName("document_id");
+            entity.Property(e => e.Title).HasColumnName("title");
+            entity.Property(e => e.Content).HasColumnName("content");
+            entity.Property(e => e.ChunkIndex).HasColumnName("chunk_index");
+            entity.Property(e => e.Embedding)
+                .HasColumnType("vector(768)")
+                .HasColumnName("embedding");
+            entity.Property(e => e.CreatedAt)
+                .HasColumnType("timestamp with time zone")
+                .HasColumnName("created_at");
+
+            entity.HasOne(d => d.Document).WithMany(p => p.Chunks)
+                .HasForeignKey(d => d.DocumentId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<QuestionVote>(entity =>

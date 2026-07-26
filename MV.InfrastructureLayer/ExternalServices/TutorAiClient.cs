@@ -272,62 +272,39 @@ public class TutorAiClient : ITutorAiClient
         }
     }
 
-    public async Task<List<KbDocument>?> KbListDocumentsAsync(CancellationToken cancellationToken = default)
-    {
-        try
-        {
-            var client = _httpClientFactory.CreateClient(ServiceKeys.HttpClients.TutorAi);
-
-            using var request = new HttpRequestMessage(HttpMethod.Get, "/api/v1/kb/documents");
-            if (!string.IsNullOrWhiteSpace(_apiKey))
-                request.Headers.Add("X-API-Key", _apiKey);
-
-            using var response = await client.SendAsync(request, cancellationToken);
-            if (!response.IsSuccessStatusCode)
-            {
-                _logger.LogWarning("TutorAI kb/documents trả status {StatusCode}.", (int)response.StatusCode);
-                return null;
-            }
-
-            var content = await response.Content.ReadAsStringAsync(cancellationToken);
-            var result = JsonSerializer.Deserialize<KbListResponse>(content, _jsonOptions);
-            if (result?.Documents == null)
-                return new List<KbDocument>();
-
-            return result.Documents
-                .Select(d => new KbDocument(d.Id, d.FileName, d.SourceType, d.ChunkCount, d.Status, d.CreatedAt))
-                .ToList();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Lỗi gọi TutorAI kb/documents.");
-            return null;
-        }
-    }
-
-    public async Task<bool> KbDeleteDocumentAsync(string documentId, CancellationToken cancellationToken = default)
+    public async Task<int?> KbUpdateContentAsync(string documentId, string content, CancellationToken cancellationToken = default)
     {
         try
         {
             var client = _httpClientFactory.CreateClient(ServiceKeys.HttpClients.TutorAi);
 
             using var request = new HttpRequestMessage(
-                HttpMethod.Delete, $"/api/v1/kb/documents/{Uri.EscapeDataString(documentId)}");
+                HttpMethod.Put, $"/api/v1/kb/documents/{Uri.EscapeDataString(documentId)}/content")
+            {
+                Content = JsonContent.Create(new { content }),
+            };
             if (!string.IsNullOrWhiteSpace(_apiKey))
                 request.Headers.Add("X-API-Key", _apiKey);
 
-            using var response = await client.SendAsync(request, cancellationToken);
+            // Chunk lại + re-embed -> có thể lâu; timeout rộng như upload.
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            cts.CancelAfter(TimeSpan.FromSeconds(180));
+
+            using var response = await client.SendAsync(request, cts.Token);
             if (!response.IsSuccessStatusCode)
             {
-                _logger.LogWarning("TutorAI kb delete trả status {StatusCode}.", (int)response.StatusCode);
-                return false;
+                _logger.LogWarning("TutorAI kb update-content trả status {StatusCode}.", (int)response.StatusCode);
+                return null;
             }
-            return true;
+
+            var body = await response.Content.ReadAsStringAsync(cts.Token);
+            var result = JsonSerializer.Deserialize<KbUploadResponse>(body, _jsonOptions);
+            return result?.ChunkCount;
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Lỗi gọi TutorAI kb delete.");
-            return false;
+            _logger.LogWarning(ex, "Lỗi gọi TutorAI kb update-content.");
+            return null;
         }
     }
 
@@ -355,33 +332,6 @@ public class TutorAiClient : ITutorAiClient
 
         [JsonPropertyName("file_name")]
         public string? FileName { get; set; }
-    }
-
-    private sealed class KbListResponse
-    {
-        [JsonPropertyName("documents")]
-        public List<KbDocumentItem>? Documents { get; set; }
-    }
-
-    private sealed class KbDocumentItem
-    {
-        [JsonPropertyName("id")]
-        public string Id { get; set; } = "";
-
-        [JsonPropertyName("file_name")]
-        public string FileName { get; set; } = "";
-
-        [JsonPropertyName("source_type")]
-        public string SourceType { get; set; } = "";
-
-        [JsonPropertyName("chunk_count")]
-        public int ChunkCount { get; set; }
-
-        [JsonPropertyName("status")]
-        public string Status { get; set; } = "";
-
-        [JsonPropertyName("created_at")]
-        public DateTime? CreatedAt { get; set; }
     }
 
     private sealed class ExtractPdfResponse

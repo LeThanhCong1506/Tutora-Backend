@@ -14,6 +14,12 @@ public interface IKnowledgeBaseService
     /// <summary>Danh sách tài liệu KB đã nạp (mới nhất trước).</summary>
     Task<List<KbDocumentResponse>> ListDocumentsAsync(CancellationToken ct = default);
 
+    /// <summary>Chi tiết 1 tài liệu + nội dung text (ghép chunk) để xem trong modal.</summary>
+    Task<KbDocumentDetailResponse?> GetDocumentDetailAsync(string documentId, CancellationToken ct = default);
+
+    /// <summary>Sửa nội dung tài liệu → chunk lại + re-embed (qua tutora-ai). Trả chi tiết mới.</summary>
+    Task<KbDocumentDetailResponse> UpdateContentAsync(string documentId, string content, CancellationToken ct = default);
+
     /// <summary>Xoá 1 tài liệu KB + toàn bộ chunk của nó.</summary>
     Task DeleteDocumentAsync(string documentId, CancellationToken ct = default);
 }

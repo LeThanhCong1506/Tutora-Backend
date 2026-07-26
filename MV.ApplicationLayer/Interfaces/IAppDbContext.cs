@@ -30,6 +30,8 @@ public interface IAppDbContext
     DbSet<AgoraChannelEvent> AgoraChannelEvents { get; }
     DbSet<Notification> Notifications { get; }
     DbSet<QuestionBank> QuestionBanks { get; }
+    DbSet<TutoraKbDocument> TutoraKbDocuments { get; }
+    DbSet<TutoraKbChunk> TutoraKbChunks { get; }
     DbSet<QuestionVote> QuestionVotes { get; }
     DbSet<AiCreditTransaction> AiCreditTransactions { get; }
     DbSet<Profilesuspension> Profilesuspensions { get; }

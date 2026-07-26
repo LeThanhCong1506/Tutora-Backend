@@ -68,6 +68,45 @@ public class KnowledgeBaseController : ControllerBase
         }
     }
 
+    /// <summary>Chi tiết 1 tài liệu + nội dung text (để xem trong modal CMS).</summary>
+    [HttpGet("documents/{documentId}")]
+    [RequirePermission(Permissions.KnowledgeBaseView)]
+    public async Task<ActionResult<APIResponse<KbDocumentDetailResponse>>> GetDocumentDetail(string documentId, CancellationToken ct)
+    {
+        try
+        {
+            var detail = await _service.GetDocumentDetailAsync(documentId, ct);
+            return detail == null
+                ? NotFound(APIResponse.Fail("Không tìm thấy tài liệu.", 404))
+                : Ok(APIResponse<KbDocumentDetailResponse>.Success(detail, "Lấy nội dung tài liệu thành công."));
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(APIResponse.Fail(ex.Message, 400));
+        }
+    }
+
+    /// <summary>Sửa nội dung tài liệu → chunk lại + re-embed.</summary>
+    [HttpPut("documents/{documentId}/content")]
+    [RequirePermission(Permissions.KnowledgeBaseUpload)]
+    public async Task<ActionResult<APIResponse<KbDocumentDetailResponse>>> UpdateContent(
+        string documentId, [FromBody] KbUpdateContentRequest body, CancellationToken ct)
+    {
+        try
+        {
+            var result = await _service.UpdateContentAsync(documentId, body.Content, ct);
+            return Ok(APIResponse<KbDocumentDetailResponse>.Success(result, "Đã cập nhật nội dung tài liệu."));
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(APIResponse.Fail(ex.Message, 400));
+        }
+        catch (ExternalApiException ex)
+        {
+            return StatusCode(502, APIResponse.Fail(ex.Message, 502));
+        }
+    }
+
     /// <summary>Xoá 1 tài liệu KB + toàn bộ chunk của nó.</summary>
     [HttpDelete("documents/{documentId}")]
     [RequirePermission(Permissions.KnowledgeBaseDelete)]

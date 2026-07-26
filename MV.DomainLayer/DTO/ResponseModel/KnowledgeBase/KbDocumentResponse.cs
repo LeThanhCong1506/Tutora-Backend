@@ -12,10 +12,21 @@ public class KbDocumentResponse
     public DateTime? CreatedAt { get; set; }
 }
 
+public class KbDocumentDetailResponse : KbDocumentResponse
+{
+    public string Content { get; set; } = "";
+}
+
 /// <summary>Kết quả nạp 1 tài liệu KB.</summary>
 public class KbUploadResponse
 {
     public string DocumentId { get; set; } = null!;
     public string FileName { get; set; } = null!;
     public int ChunkCount { get; set; }
+}
+
+/// <summary>Body sửa nội dung tài liệu KB.</summary>
+public class KbUpdateContentRequest
+{
+    public string Content { get; set; } = "";
 }
