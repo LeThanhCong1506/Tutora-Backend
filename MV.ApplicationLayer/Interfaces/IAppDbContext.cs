@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using MV.DomainLayer.Entities;
 
@@ -19,11 +19,13 @@ public interface IAppDbContext
     DbSet<Class> Classes { get; }
     DbSet<Dispute> Disputes { get; }
     DbSet<DisputeEvidence> DisputeEvidences { get; }
+    DbSet<DisputeMessage> DisputeMessages { get; }
     DbSet<Feedback> Feedbacks { get; }
     DbSet<Handoversummary> Handoversummaries { get; }
     DbSet<Learningmaterial> Learningmaterials { get; }
     DbSet<ClassSession> ClassSessions { get; }
     DbSet<ClassSessionReport> ClassSessionReports { get; }
+    DbSet<ClassSessionScheduleChange> ClassSessionScheduleChanges { get; }
     DbSet<SessionEngagementSample> SessionEngagementSamples { get; }
     DbSet<AgoraChannelEvent> AgoraChannelEvents { get; }
     DbSet<SessionParticipant> SessionParticipants { get; }
@@ -32,6 +34,8 @@ public interface IAppDbContext
     DbSet<SessionLobbyVisit> SessionLobbyVisits { get; }
     DbSet<Notification> Notifications { get; }
     DbSet<QuestionBank> QuestionBanks { get; }
+    DbSet<TutoraKbDocument> TutoraKbDocuments { get; }
+    DbSet<TutoraKbChunk> TutoraKbChunks { get; }
     DbSet<QuestionVote> QuestionVotes { get; }
     DbSet<AiCreditTransaction> AiCreditTransactions { get; }
     DbSet<Profilesuspension> Profilesuspensions { get; }
@@ -44,6 +48,7 @@ public interface IAppDbContext
     DbSet<Chapter> Chapters { get; }
     DbSet<QuestionType> QuestionTypes { get; }
     DbSet<Systemconfig> Systemconfigs { get; }
+    DbSet<AiCreditPackage> AiCreditPackages { get; }
     DbSet<Topuprequest> Topuprequests { get; }
     DbSet<Tutoravailability> Tutoravailabilities { get; }
     DbSet<Tutorcertificate> Tutorcertificates { get; }

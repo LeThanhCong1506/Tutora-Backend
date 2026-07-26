@@ -58,18 +58,55 @@ public partial class ClassSessionService
             else
             {
                 var now = TimeZoneHelper.UtcNow;
-                // Cập nhật có điều kiện (atomic UPDATE ... WHERE status='scheduled'): khi hai
-                // heartbeat của gia sư và học viên tới gần như đồng thời, chỉ một request thắng
-                // → tránh double check-in mà không cần khoá hàng (điểm yếu của luồng cũ).
-                var affected = await _context.ClassSessions
-                    .Where(l => l.Classsessionid == classSessionId && l.Status == Scheduled)
-                    .ExecuteUpdateAsync(s => s
-                        .SetProperty(l => l.Status, InProgress)
-                        .SetProperty(l => l.Checkintime, now)
-                        .SetProperty(l => l.Realstart, now)
-                        .SetProperty(l => l.Istutorpresent, true)
-                        .SetProperty(l => l.Isstudentpresent, true)
-                        .SetProperty(l => l.Meetinglink, l => l.Meetinglink ?? classSessionId.ToString()));
+                var approvedChange = await _context.ClassSessionScheduleChanges
+                    .Where(x => x.Classsessionid == classSessionId
+                        && x.Status == ScheduleChangeStatus.Approved
+                        && x.Expiresat > now)
+                    .OrderByDescending(x => x.Schedulechangeid)
+                    .FirstOrDefaultAsync();
+
+                int affected;
+                if (approvedChange != null)
+                {
+                    var adjustedEnd = now.Add(
+                        approvedChange.Originalscheduledend - approvedChange.Originalscheduledstart);
+                    affected = await _context.ClassSessions
+                        .Where(l => l.Classsessionid == classSessionId && l.Status == Scheduled)
+                        .ExecuteUpdateAsync(s => s
+                            .SetProperty(l => l.Status, InProgress)
+                            .SetProperty(l => l.Checkintime, now)
+                            .SetProperty(l => l.Realstart, now)
+                            .SetProperty(l => l.Scheduledstart, now)
+                            .SetProperty(l => l.Scheduledend, adjustedEnd)
+                            .SetProperty(l => l.Istutorpresent, true)
+                            .SetProperty(l => l.Isstudentpresent, true)
+                            .SetProperty(l => l.Meetinglink, l => l.Meetinglink ?? classSessionId.ToString()));
+
+                    if (affected == 1)
+                    {
+                        approvedChange.Status = ScheduleChangeStatus.Applied;
+                        approvedChange.Appliedat = now;
+                        approvedChange.Adjustedscheduledstart = now;
+                        approvedChange.Adjustedscheduledend = adjustedEnd;
+                        approvedChange.Updatedat = now;
+                        await _context.SaveChangesAsync();
+                        classSession.Scheduledstart = now;
+                        classSession.Scheduledend = adjustedEnd;
+                    }
+                }
+                else
+                {
+                    // Atomic status transition keeps concurrent tutor/student heartbeats idempotent.
+                    affected = await _context.ClassSessions
+                        .Where(l => l.Classsessionid == classSessionId && l.Status == Scheduled)
+                        .ExecuteUpdateAsync(s => s
+                            .SetProperty(l => l.Status, InProgress)
+                            .SetProperty(l => l.Checkintime, now)
+                            .SetProperty(l => l.Realstart, now)
+                            .SetProperty(l => l.Istutorpresent, true)
+                            .SetProperty(l => l.Isstudentpresent, true)
+                            .SetProperty(l => l.Meetinglink, l => l.Meetinglink ?? classSessionId.ToString()));
+                }
 
                 if (affected == 1)
                 {

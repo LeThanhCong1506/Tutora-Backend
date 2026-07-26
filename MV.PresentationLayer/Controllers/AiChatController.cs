@@ -28,6 +28,21 @@ public class AiChatController : ControllerBase
 
     private string? UserId => User.FindFirstValue(ClaimTypes.NameIdentifier);
 
+    /// <summary>
+    /// POST /api/ai-chat/assistant/respond
+    /// </summary>
+    [HttpPost("assistant/respond")]
+    [AllowAnonymous]
+    public async Task<IActionResult> AssistantRespond([FromBody] AssistantRespondRequest dto, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(dto.Message))
+            return BadRequest(APIResponse.Fail("Tin nhắn không được để trống.", 400));
+
+        // UserId = null nếu anonymous (không có/không hợp lệ token) → không lưu DB.
+        var result = await _aiChatService.RespondAsync(UserId, dto, ct);
+        return Ok(APIResponse<AssistantRespondResponse>.Success(result, "Phản hồi trợ lý AI thành công."));
+    }
+
     [HttpGet("sessions")]
     public async Task<IActionResult> GetMySessions([FromQuery] string? chatType = null)
     {

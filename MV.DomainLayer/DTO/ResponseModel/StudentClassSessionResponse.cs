@@ -37,6 +37,9 @@ public class StudentClassSessionDetailResponse : StudentClassSessionSummaryRespo
     /// FE dùng để khóa link vào lớp.
     /// </summary>
     public bool RequiresRemainingPayment { get; set; }
+
+    /// <summary>Lịch sử dời lịch (nếu có) — bao gồm cả yêu cầu đã áp dụng, đang chờ, hoặc bị từ chối.</summary>
+    public List<DisputeScheduleChangeAuditResponse> ScheduleChanges { get; set; } = new();
 }
 
 public class StudentClassSessionReportResponse
@@ -44,4 +47,6 @@ public class StudentClassSessionReportResponse
     public string? TopicsCovered { get; set; }
     public string? HomeworkAssigned { get; set; }
     public string? TutorNotes { get; set; }
+    public int? StudentPerformanceRating { get; set; }
+    public List<string>? Attachments { get; set; }
 }

@@ -173,6 +173,8 @@ namespace MV.ApplicationLayer.Services
             await _unitOfWork.UserRepository.UpdateTutorProfileAsync(profile);
             await _unitOfWork.SaveChangesAsync();
 
+            _embedQueue.Enqueue(tutorId);
+
             // Send notification
             try
             {

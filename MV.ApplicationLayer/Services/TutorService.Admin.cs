@@ -206,6 +206,10 @@ namespace MV.ApplicationLayer.Services
 
                 await _unitOfWork.SaveChangesAsync();
 
+                // Staged edit của gia sư active vừa land vào Postgres → re-embed nền (bio/môn/
+                // giá đổi). 
+                _embedQueue.Enqueue(tutorId);
+
                 // Compare-and-delete: chỉ xoá key Redis nếu nội dung vẫn giống hệt lúc đọc ở
                 // trên (rawJson). Nếu Tutor vừa nộp thêm thay đổi mới trong lúc ta đang áp dụng
                 // `pending` vào Postgres, key hiện tại đã khác → KHÔNG xoá, để bản mới nhất đó

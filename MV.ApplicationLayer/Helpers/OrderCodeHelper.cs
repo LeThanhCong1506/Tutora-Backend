@@ -4,6 +4,7 @@ public static class OrderCodeHelper
 {
     private const long BookingPrefix = 1;
     private const long RemainingPrefix = 2;
+    private const long AiCreditPrefix = 3;
     private const long TopupPrefix = 9;
     private const long MinValidOrderCode = 1000000000;
 
@@ -43,6 +44,20 @@ public static class OrderCodeHelper
     {
         if (orderCode < MinValidOrderCode) return false;
         return orderCode / 10000000000L == TopupPrefix;
+    }
+
+    /// <summary>Mã đơn mua gói AI credit: prefix 3 + timestamp(ms tail) + random.</summary>
+    public static long GenerateAiCreditOrderCode()
+    {
+        var timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() % 100000000L;
+        var random = Random.Shared.Next(1000, 9999);
+        return AiCreditPrefix * 100000000000L + timestamp * 1000L + random;
+    }
+
+    public static bool IsAiCreditOrderCode(long orderCode)
+    {
+        if (orderCode < MinValidOrderCode) return false;
+        return orderCode / 100000000000L == AiCreditPrefix;
     }
 
     public static int ExtractBookingId(long orderCode)

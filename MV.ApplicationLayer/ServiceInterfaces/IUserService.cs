@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Http;
 using MV.DomainLayer.DTO.RequestModel;
 using MV.DomainLayer.DTO.ResponseModel;
+using MV.DomainLayer.DTO.ResponseModel.Admin;
 
 namespace MV.ApplicationLayer.ServiceInterfaces
 {
@@ -83,6 +84,12 @@ namespace MV.ApplicationLayer.ServiceInterfaces
         /// Admin: paged user list with extended filter parameters.
         /// </summary>
         Task<PagedList<UserResponse>> AdminGetAllUsersAsync(AdminUserFilterParameters parameters, bool includeInternalAccounts = true);
+
+        /// <summary>
+        /// Admin: get user information together with Parent/Student links.
+        /// Family relationships are returned only by the admin contract.
+        /// </summary>
+        Task<AdminUserDetailResponse> AdminGetUserDetailAsync(string userId);
 
         /// <summary>
         /// Admin: create a customer account (Student / Parent / Tutor) with its

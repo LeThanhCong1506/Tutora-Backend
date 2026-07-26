@@ -22,7 +22,7 @@ namespace MV.PresentationLayer.Controllers;
 /// Agora RTC Controller — cung cấp token + channel để client join video call.
 ///
 /// Flow hoạt động:
-///   1. Client (Tutor/Student/Parent) POST /api/agora/room/{classSessionId}/join với danh tính
+///   1. Client (Tutor/Student) POST /api/agora/room/{classSessionId}/join với danh tính
 ///      thiết bị. Chỉ thiết bị giữ lease hiện hành mới nhận token + channel + appId.
 ///   2. Client join channel bằng Agora SDK: appId + channel + token + uid (= userId).
 ///   3. Trong lúc ở trong phòng, client heartbeat định kỳ (POST .../heartbeat) → khi cả gia sư
@@ -35,6 +35,7 @@ namespace MV.PresentationLayer.Controllers;
 public class AgoraController(
     IAgoraRTCService agoraService,
     IClassSessionService classSessionService,
+    IClassSessionScheduleChangeService scheduleChanges,
     ISessionPresenceService presence,
     ILiveSessionDeviceLeaseService deviceLeases,
     IWhiteboardService whiteboardService,
@@ -113,6 +114,23 @@ public class AgoraController(
             return RevokedLease();
         }
 
+        var heartbeatScheduleState = await scheduleChanges.GetOrCreateStateAsync(
+            classSessionId,
+            userId,
+            CurrentUserRole,
+            cancellationToken);
+        if (!heartbeatScheduleState.AdmissionAllowed)
+        {
+            presence.Leave(classSessionId, userId);
+            return Conflict(APIResponse<object>.Fail(
+                "Cần đủ xác nhận đổi giờ học trước khi vào phòng.",
+                409,
+                new
+                {
+                    code = LiveSessionScheduleChangeErrorCodes.ConfirmationRequired,
+                    scheduleChange = heartbeatScheduleState
+                }));
+        }
         presence.Heartbeat(classSessionId, userId);
 
         // In-memory presence answers "is this lesson checkable in right now" and is gone on restart.
@@ -215,6 +233,18 @@ public class AgoraController(
         if (classSession.Status != ClassSessionStatus.Scheduled && classSession.Status != ClassSessionStatus.InProgress)
             return BadRequest(APIResponse<object>.Fail("Phòng học không khả dụng cho buổi này.", 400));
 
+        var whiteboardScheduleState = await scheduleChanges.GetOrCreateStateAsync(
+            classSessionId,
+            userId,
+            CurrentUserRole,
+            cancellationToken);
+        if (!whiteboardScheduleState.AdmissionAllowed)
+        {
+            return Conflict(APIResponse<object>.Fail(
+                "Cần đủ xác nhận đổi giờ học trước khi mở bảng trắng.",
+                409,
+                new { code = LiveSessionScheduleChangeErrorCodes.ConfirmationRequired }));
+        }
         var isTutor = classSession.Tutorid == userId;
         var room = await whiteboardService.GetOrCreateRoomAsync(classSessionId, isTutor);
 
@@ -491,6 +521,22 @@ public class AgoraController(
             return BadRequest(APIResponse<object>.Fail("Phòng học không khả dụng cho buổi này.", 400));
         }
 
+        var scheduleChangeState = await scheduleChanges.GetOrCreateStateAsync(
+            classSessionId,
+            userId,
+            CurrentUserRole,
+            cancellationToken);
+        if (!scheduleChangeState.AdmissionAllowed)
+        {
+            return Conflict(APIResponse<object>.Fail(
+                "Cần đủ xác nhận đổi giờ học trước khi vào phòng.",
+                409,
+                new
+                {
+                    code = LiveSessionScheduleChangeErrorCodes.ConfirmationRequired,
+                    scheduleChange = scheduleChangeState
+                }));
+        }
         LiveSessionDeviceLease lease;
         if (normalizedExpectedLeaseId == null)
         {
@@ -553,7 +599,6 @@ public class AgoraController(
         var tutorName = classSession.Tutor?.Tutor?.Fullname ?? "Gia sư";
         var studentName = classSession.Booking?.Student?.Fullname ?? "Học sinh";
         var tutorUserId = classSession.Tutorid;
-        var parentUserId = classSession.Booking?.Parentid;
         var studentUserId = classSession.Booking?.Student?.Linkeduserid;
         var participantNames = new Dictionary<string, string>();
 
@@ -575,8 +620,6 @@ public class AgoraController(
 
         if (classSession.Tutor?.Tutor != null && !string.IsNullOrEmpty(tutorUserId))
             participantNames[tutorUserId] = tutorName;
-        if (classSession.Booking?.Parent != null && !string.IsNullOrEmpty(parentUserId))
-            participantNames[parentUserId] = classSession.Booking.Parent.Fullname ?? "Phụ huynh";
         if (!string.IsNullOrEmpty(studentUserId))
             participantNames[studentUserId] = studentName;
 
@@ -694,10 +737,6 @@ public class AgoraController(
 
         // Tutor của buổi học
         if (classSession.Tutorid == userId)
-            return true;
-
-        // Parent của booking
-        if (classSession.Booking?.Parentid == userId)
             return true;
 
         // Student có tài khoản riêng (linkedUserId)

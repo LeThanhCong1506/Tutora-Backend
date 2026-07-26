@@ -5,6 +5,7 @@ using MV.DomainLayer.Helpers;
 using MV.InfrastructureLayer.DBContext;
 using MV.ApplicationLayer.RepositoryInterfaces;
 using MV.DomainLayer.Constants;
+using System.Text.Json;
 using static MV.DomainLayer.Constants.ClassSessionStatus;
 namespace MV.InfrastructureLayer.Repositories;
 
@@ -251,6 +252,21 @@ public class ClassSessionRepository(AgoraDbContext context) : IClassSessionRepos
 
         if (classSession == null) return null;
 
+        var scheduleChanges = await context.ClassSessionScheduleChanges
+            .AsNoTracking()
+            .Where(x => x.Classsessionid == classSessionId)
+            .OrderBy(x => x.Schedulechangeid)
+            .ToListAsync();
+        var scheduleChangeConfirmerIds = scheduleChanges
+            .SelectMany(x => new[] { x.Tutorconfirmedby, x.Learnerconfirmedby })
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Cast<string>()
+            .Distinct()
+            .ToList();
+        var scheduleChangeConfirmerNames = await context.Users.AsNoTracking()
+            .Where(x => scheduleChangeConfirmerIds.Contains(x.Userid))
+            .ToDictionaryAsync(x => x.Userid, x => x.Fullname ?? x.Username ?? x.Email);
+
         return new StudentClassSessionDetailResponse
         {
             ClassSessionId        = classSession.Classsessionid,
@@ -270,9 +286,42 @@ public class ClassSessionRepository(AgoraDbContext context) : IClassSessionRepos
             {
                 TopicsCovered    = classSession.ClassSessionReport.Contentcovered,
                 HomeworkAssigned = classSession.ClassSessionReport.Homeworkassigned,
-                TutorNotes       = classSession.ClassSessionReport.Studentperformancerating.ToString()
-            }
+                TutorNotes       = classSession.Tutornotes,
+                StudentPerformanceRating = classSession.ClassSessionReport.Studentperformancerating,
+                Attachments      = DeserializeJsonList(classSession.ClassSessionReport.Attachments)
+            },
+            ScheduleChanges = scheduleChanges.Select(x => new DisputeScheduleChangeAuditResponse
+            {
+                ScheduleChangeId = x.Schedulechangeid,
+                Status = x.Status,
+                OriginalScheduledStart = x.Originalscheduledstart,
+                OriginalScheduledEnd = x.Originalscheduledend,
+                AdjustedScheduledStart = x.Adjustedscheduledstart,
+                AdjustedScheduledEnd = x.Adjustedscheduledend,
+                LearnerApproverRole = x.Learnerapproverrole,
+                TutorConfirmedByName = x.Tutorconfirmedby != null && scheduleChangeConfirmerNames.TryGetValue(x.Tutorconfirmedby, out var tutorName) ? tutorName : null,
+                TutorConfirmedAt = x.Tutorconfirmedat,
+                LearnerConfirmedByName = x.Learnerconfirmedby != null && scheduleChangeConfirmerNames.TryGetValue(x.Learnerconfirmedby, out var learnerName) ? learnerName : null,
+                LearnerConfirmedAt = x.Learnerconfirmedat,
+                RequestedAt = x.Requestedat,
+                ApprovedAt = x.Approvedat,
+                AppliedAt = x.Appliedat
+            }).ToList()
         };
+    }
+
+    /// <summary>Deserialize JSON array or legacy comma-separated string.</summary>
+    private static List<string>? DeserializeJsonList(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return null;
+
+        if (value.TrimStart().StartsWith('['))
+        {
+            try { return JsonSerializer.Deserialize<List<string>>(value); }
+            catch { /* fall through to comma-split */ }
+        }
+
+        return value.Split(',', StringSplitOptions.RemoveEmptyEntries).ToList();
     }
 
     public async Task<IReadOnlyList<StudentClassSessionSummaryResponse>> GetStudentPendingClassSessionsAsync(string studentId)

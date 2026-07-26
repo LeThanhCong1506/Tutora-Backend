@@ -164,6 +164,12 @@ namespace MV.InfrastructureLayer.Repositories
                 query = query.Where(u => u.Tutorprofile!.Teachingareadistrict == district);
             }
 
+            // 10. Filter by Gender (Male = 1, Female = 2)
+            if (parameters.Gender.HasValue)
+            {
+                query = query.Where(u => u.Gender == parameters.Gender.Value);
+            }
+
             // 14. Filter by Grade Level - Search in JSONB gradelevels column
             if (!string.IsNullOrWhiteSpace(parameters.GradeLevel))
             {

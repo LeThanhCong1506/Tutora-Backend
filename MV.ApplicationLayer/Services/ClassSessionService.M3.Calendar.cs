@@ -1,4 +1,5 @@
 ﻿using Microsoft.EntityFrameworkCore;
+using MV.ApplicationLayer.Helpers;
 using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO.ResponseModel;
 using MV.DomainLayer.Helpers;
@@ -46,7 +47,8 @@ public partial class ClassSessionService
                     SubjectName = l.Booking?.Subject?.Subjectname,
                     Status = l.Status,
                     MeetingLink = l.Meetinglink,
-                    CheckOutTime = l.Checkouttime
+                    CheckOutTime = l.Checkouttime,
+                    HasRecording = RecordingStatusResolver.Resolve(l.Recordingurl, l.Recordings3key, l.Recordingsid, l.Checkouttime.HasValue).Status == "available"
                 }).ToList()
             })
             .ToList();
@@ -101,7 +103,8 @@ public partial class ClassSessionService
                     SubjectName = l.Booking?.Subject?.Subjectname,
                     Status = l.Status,
                     MeetingLink = l.Meetinglink,
-                    CheckOutTime = l.Checkouttime
+                    CheckOutTime = l.Checkouttime,
+                    HasRecording = RecordingStatusResolver.Resolve(l.Recordingurl, l.Recordings3key, l.Recordingsid, l.Checkouttime.HasValue).Status == "available"
                 }).ToList()
             })
             .ToList();

@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO.RequestModel;
 using MV.DomainLayer.DTO.ResponseModel;
+using MV.DomainLayer.DTO.ResponseModel.Admin;
 using MV.DomainLayer.Entities;
 using MV.DomainLayer.Exceptions;
 using MV.DomainLayer.Helpers;
@@ -104,6 +105,70 @@ namespace MV.ApplicationLayer.Services
                 totalCount,
                 pageNumber,
                 pageSize);
+        }
+
+        public async Task<AdminUserDetailResponse> AdminGetUserDetailAsync(string userId)
+        {
+            var user = await _context.Users
+                .AsNoTracking()
+                .FirstOrDefaultAsync(candidate => candidate.Userid == userId)
+                ?? throw new UserNotFoundException();
+
+            var relationships = new AdminUserRelationshipsResponse();
+
+            if (string.Equals(user.Primaryrole, UserRole.Parent, StringComparison.OrdinalIgnoreCase))
+            {
+                relationships.Students = await (
+                    from profile in _context.Studentprofiles.AsNoTracking()
+                    join linkedUser in _context.Users.AsNoTracking()
+                        on profile.Linkeduserid equals linkedUser.Userid into linkedUsers
+                    from linkedUser in linkedUsers.DefaultIfEmpty()
+                    where profile.Parentid == userId
+                    orderby profile.Fullname
+                    select new AdminLinkedUserResponse
+                    {
+                        UserId = linkedUser == null ? null : linkedUser.Userid,
+                        FullName = linkedUser != null && !string.IsNullOrEmpty(linkedUser.Fullname)
+                            ? linkedUser.Fullname
+                            : profile.Fullname ?? "Học sinh chưa đặt tên",
+                        Email = linkedUser == null ? null : linkedUser.Email,
+                        Phone = linkedUser == null ? null : linkedUser.Phone,
+                        AvatarUrl = linkedUser != null && linkedUser.Avatarurl != null
+                            ? linkedUser.Avatarurl
+                            : profile.Avatarurl,
+                        Role = UserRole.Student,
+                        StudentProfileId = profile.Studentid,
+                        HasAccount = linkedUser != null
+                    })
+                    .ToListAsync();
+            }
+            else if (string.Equals(user.Primaryrole, UserRole.Student, StringComparison.OrdinalIgnoreCase))
+            {
+                relationships.Parent = await (
+                    from profile in _context.Studentprofiles.AsNoTracking()
+                    join parent in _context.Users.AsNoTracking()
+                        on profile.Parentid equals parent.Userid
+                    where profile.Linkeduserid == userId || profile.Studentid == userId
+                    orderby profile.Createdat, profile.Studentid
+                    select new AdminLinkedUserResponse
+                    {
+                        UserId = parent.Userid,
+                        FullName = parent.Fullname ?? parent.Username ?? "Phụ huynh chưa đặt tên",
+                        Email = parent.Email,
+                        Phone = parent.Phone,
+                        AvatarUrl = parent.Avatarurl,
+                        Role = UserRole.Parent,
+                        StudentProfileId = profile.Studentid,
+                        HasAccount = true
+                    })
+                    .FirstOrDefaultAsync();
+            }
+
+            return new AdminUserDetailResponse
+            {
+                User = MapToUserResponse(user),
+                Relationships = relationships
+            };
         }
 
         public async Task<UserResponse> AdminCreateUserAsync(AdminCreateUserRequest request, string adminUserId)

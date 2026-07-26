@@ -1,4 +1,6 @@
-﻿namespace MV.DomainLayer.DTO.ResponseModel;
+using MV.DomainLayer.Constants;
+
+namespace MV.DomainLayer.DTO.ResponseModel;
 
 /// <summary>
 /// Dispute detail for admin view
@@ -14,6 +16,19 @@ public class DisputeDetailResponse
     public string? Status { get; set; }
     public List<string>? Evidence { get; set; }
 
+    /// <summary>AI-classified priority (low/medium/high) — null until the background classification job runs.</summary>
+    public string? Priority { get; set; }
+    /// <summary>Short AI justification for <see cref="Priority"/>.</summary>
+    public string? PriorityReason { get; set; }
+    /// <summary>Display priority with icon — "Chưa phân loại" while unclassified.</summary>
+    public string PriorityDisplay => Priority switch
+    {
+        DisputePriority.High => "🔴 Cao",
+        DisputePriority.Medium => "🟡 Trung bình",
+        DisputePriority.Low => "🟢 Thấp",
+        _ => "Chưa phân loại"
+    };
+
     public DateTime? CreatedAt { get; set; }
     public DateTime? ResolvedAt { get; set; }
 
@@ -21,6 +36,15 @@ public class DisputeDetailResponse
     public string? ResolutionNote { get; set; }
     public decimal? RefundAmount { get; set; }
     public int? RefundPercentage { get; set; }
+
+    // Tutor rebuttal
+    public string? TutorResponse { get; set; }
+    public DateTime? TutorRespondedAt { get; set; }
+    public List<DisputeEvidenceItemResponse>? AdditionalEvidence { get; set; }
+
+    // No-show verification (admin gate before the payer side may choose a remedy)
+    public DateTime? NoShowConfirmedAt { get; set; }
+    public string? NoShowConfirmedBy { get; set; }
 
     // Created by info
     public DisputeUserResponse? CreatedBy { get; set; }
@@ -46,6 +70,9 @@ public class DisputeDetailResponse
             return $"{(int)elapsed.TotalMinutes} phút trước";
         }
     }
+
+    /// <summary>Earliest time admin can call Investigate without forceEarly (Createdat + 48h).</summary>
+    public DateTime? TutorResponseDeadline => CreatedAt?.AddHours(48);
 }
 
 public class DisputeUserResponse
@@ -69,6 +96,8 @@ public class DisputeClassSessionResponse
     public bool? IsTutorPresent { get; set; }
     public bool? IsStudentPresent { get; set; }
 
+    public List<DisputeScheduleChangeAuditResponse> ScheduleChanges { get; set; } = new();
+
     /// <summary>Trạng thái bản ghi video: available | processing | recording | none.</summary>
     public string? RecordingStatus { get; set; }
 
@@ -84,6 +113,16 @@ public class DisputeTutorResponse
     public string? Phone { get; set; }
     public int WarningCount { get; set; }
     public decimal? AverageRating { get; set; }
+}
+
+/// <summary>Bằng chứng nộp thêm sau khi tranh chấp đã được tạo — parent/student hoặc gia sư (bảng dispute_evidences).</summary>
+public class DisputeEvidenceItemResponse
+{
+    public int DisputeEvidenceId { get; set; }
+    public string? FileUrl { get; set; }
+    public string? FileType { get; set; }
+    public string? Description { get; set; }
+    public DateTime? CreatedAt { get; set; }
 }
 
 /// <summary>

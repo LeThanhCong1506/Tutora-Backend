@@ -273,6 +273,12 @@ builder.Services.AddHttpClient<IFptAiService, FptAiService>();
 // 2. Đăng ký HttpClient cho OcrSpaceService (OCR cho chứng chỉ/bằng cấp)
 builder.Services.AddHttpClient<IOcrService, OcrSpaceService>();
 
+// 3. Đăng ký HttpClient cho DisputeClassificationService (Groq AI phân loại ưu tiên tranh chấp)
+builder.Services.AddHttpClient<IDisputeClassificationService, DisputeClassificationService>(client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(10);
+});
+
 // Repo injection
 builder.Services.AddScoped<IAuthenticationRepository, AuthenticationRepository>();
 builder.Services.AddScoped<IPasswordRepository, PasswordRepository>();
@@ -283,6 +289,7 @@ builder.Services.AddScoped<IDisputeRepository, DisputeRepository>();
 builder.Services.AddScoped<IWarningRepository, WarningRepository>();
 builder.Services.AddScoped<IChatRepository, ChatRepository>();
 builder.Services.AddScoped<IAiChatRepository, AiChatRepository>();
+builder.Services.AddScoped<IQuestionNoteRepository, QuestionNoteRepository>();
 builder.Services.AddScoped<IClassSessionRepository, ClassSessionRepository>();
 builder.Services.AddScoped<IWalletRepository, WalletRepository>();
 builder.Services.AddScoped<IWithdrawalRepository, WithdrawalRepository>();
@@ -327,10 +334,13 @@ builder.Services.AddScoped<IChatService, ChatService>();
 builder.Services.AddScoped<IPresenceService, PresenceService>();
 builder.Services.AddHostedService<PresenceLeaseCleanupService>();
 builder.Services.AddScoped<IAiChatService, AiChatService>();
+builder.Services.AddScoped<IQuestionNoteService, QuestionNoteService>();
 builder.Services.AddScoped<IPaymentService, PaymentService>();
 builder.Services.AddScoped<IWalletService, WalletService>();
+builder.Services.AddScoped<IAiCreditService, AiCreditService>();
 builder.Services.AddScoped<IClassSessionService, ClassSessionService>();
 builder.Services.AddScoped<ISessionLogService, SessionLogService>();
+builder.Services.AddScoped<IClassSessionScheduleChangeService, ClassSessionScheduleChangeService>();
 builder.Services.AddScoped<IAgoraRTCService, AgoraRTCService>();
 builder.Services.AddSingleton<ILiveSessionDeviceLeaseService, LiveSessionDeviceLeaseService>();
 // Presence in-memory (Singleton): theo dõi ai đang trong phòng học để auto check-in khi đủ cả 2.
@@ -339,6 +349,7 @@ builder.Services.AddSingleton<ISessionPresenceService, SessionPresenceService>()
 builder.Services.AddHttpClient<ICloudRecordingService, CloudRecordingService>();
 builder.Services.AddHttpClient<IWhiteboardService, WhiteboardService>();
 builder.Services.AddScoped<IGoogleDriveService, GoogleDriveService>();
+builder.Services.AddSingleton<IRecordingAccessTokenService, RecordingAccessTokenService>();
 builder.Services.AddScoped<IRecordingRelayService, RecordingRelayService>();
 builder.Services.AddHostedService<MV.PresentationLayer.BackgroundServices.RecordingRelayHostedService>();
 builder.Services.AddScoped<ITutorFinanceService, TutorFinanceService>();
@@ -354,6 +365,7 @@ builder.Services.AddScoped<IWarningService, WarningService>();
 builder.Services.AddScoped<IFeedbackService, FeedbackService>();
 builder.Services.AddScoped<IQuestionService, QuestionService>();
 builder.Services.AddScoped<ISourceDocumentService, SourceDocumentService>();
+builder.Services.AddScoped<IKnowledgeBaseService, KnowledgeBaseService>();
 
 builder.Services.AddScoped<IBankListService, BankListService>();
 builder.Services.AddScoped<PayOSWebhookService>();
@@ -434,8 +446,9 @@ builder.Services.AddHostedService<AutoUnsuspendJob>();
 builder.Services.AddHostedService<ClassSessionReminderJob>();
 builder.Services.AddHostedService<RemainingPaymentTriggerJob>();
 builder.Services.AddHostedService<GhostUserCleanupJob>();
-// Chủ động refresh Zalo OA token trước khi hết hạn.
 builder.Services.AddHostedService<ZaloTokenRefreshJob>();
+builder.Services.AddSingleton<ITutorEmbedQueue, TutorEmbedQueue>();
+builder.Services.AddHostedService<TutorEmbedWorker>();
 
 // Cấu hình Authentication (JWT mặc định, Google/Facebook song song)
 builder.Services.AddAuthentication(options =>

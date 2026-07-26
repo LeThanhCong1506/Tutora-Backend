@@ -18,10 +18,12 @@ namespace MV.PresentationLayer.Controllers;
 public class TutorClassSessionController : ControllerBase
 {
     private readonly IClassSessionService _classSessionService;
+    private readonly IDisputeService _disputeService;
 
-    public TutorClassSessionController(IClassSessionService classSessionService)
+    public TutorClassSessionController(IClassSessionService classSessionService, IDisputeService disputeService)
     {
         _classSessionService = classSessionService;
+        _disputeService = disputeService;
     }
 
     /// <summary>
@@ -132,5 +134,113 @@ public class TutorClassSessionController : ControllerBase
         var tutorId = UserHelper.GetUserId(User);
         var result = await _classSessionService.UploadAttachmentAsync(id, tutorId, file);
         return Ok(APIResponse<string>.Success(result, "Tải tệp đính kèm thành công."));
+    }
+
+    /// <summary>
+    /// Get the dispute tied to this classSession, if any (tutor's own rebuttal view).
+    /// </summary>
+    [HttpGet("{id}/dispute")]
+    public async Task<ActionResult<APIResponse<DisputeDetailResponse>>> GetDispute(int id)
+    {
+        var tutorId = UserHelper.GetUserId(User);
+        var result = await _disputeService.GetTutorDisputeByClassSessionAsync(id, tutorId);
+
+        if (result == null)
+            return NotFound(APIResponse<DisputeDetailResponse>.Fail("Buổi học này không có tranh chấp."));
+
+        return Ok(APIResponse<DisputeDetailResponse>.Success(result, "Lấy thông tin tranh chấp thành công."));
+    }
+
+    /// <summary>
+    /// Submit a written rebuttal to a dispute raised against the tutor for this classSession.
+    /// </summary>
+    [HttpPost("{id}/dispute/response")]
+    public async Task<ActionResult<APIResponse<DisputeDetailResponse>>> SubmitDisputeResponse(int id, [FromBody] SubmitTutorResponseRequest request)
+    {
+        var tutorId = UserHelper.GetUserId(User);
+        try
+        {
+            var result = await _disputeService.SubmitTutorResponseAsync(id, tutorId, request.Response);
+            return Ok(APIResponse<DisputeDetailResponse>.Success(result, "Gửi phản hồi thành công."));
+        }
+        catch (ArgumentException ex)
+        {
+            return NotFound(APIResponse<DisputeDetailResponse>.Fail(ex.Message));
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(APIResponse<DisputeDetailResponse>.Fail(ex.Message));
+        }
+    }
+
+    /// <summary>
+    /// Upload supporting evidence for a dispute raised against the tutor for this classSession.
+    /// </summary>
+    [HttpPost("{id}/dispute/evidence")]
+    public async Task<ActionResult<APIResponse<string>>> UploadDisputeEvidence(int id, IFormFile file)
+    {
+        if (file == null || file.Length == 0)
+            return BadRequest(APIResponse<string>.Fail("Tệp bằng chứng là bắt buộc."));
+
+        var tutorId = UserHelper.GetUserId(User);
+        try
+        {
+            var result = await _disputeService.UploadTutorDisputeEvidenceAsync(id, tutorId, file);
+            return Ok(APIResponse<string>.Success(result, "Tải tệp bằng chứng thành công."));
+        }
+        catch (ArgumentException ex)
+        {
+            return NotFound(APIResponse<string>.Fail(ex.Message));
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(APIResponse<string>.Fail(ex.Message));
+        }
+    }
+
+    /// <summary>
+    /// Get all disputes across the tutor's own classSessions.
+    /// </summary>
+    [HttpGet("/api/tutor/disputes")]
+    public async Task<ActionResult<APIResponse<PagedList<DisputeListResponse>>>> GetDisputes(
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 10)
+    {
+        var tutorId = UserHelper.GetUserId(User);
+        var result = await _disputeService.GetTutorDisputesAsync(tutorId, page, pageSize);
+        return Ok(APIResponse<PagedList<DisputeListResponse>>.Success(result, "Lấy danh sách tranh chấp thành công."));
+    }
+
+    /// <summary>
+    /// Get the tutor's private chat thread with admin for this classSession's dispute.
+    /// </summary>
+    [HttpGet("{id}/dispute/thread")]
+    public async Task<ActionResult<APIResponse<List<DisputeMessageResponse>>>> GetDisputeThread(int id)
+    {
+        var tutorId = UserHelper.GetUserId(User);
+        var result = await _disputeService.GetTutorDisputeThreadAsync(id, tutorId);
+        return Ok(APIResponse<List<DisputeMessageResponse>>.Success(result, "Lấy tin nhắn thành công."));
+    }
+
+    /// <summary>
+    /// Send a message in the tutor's private chat thread with admin for this classSession's dispute.
+    /// </summary>
+    [HttpPost("{id}/dispute/thread/messages")]
+    public async Task<ActionResult<APIResponse<DisputeMessageResponse>>> SendDisputeThreadMessage(int id, [FromBody] SendDisputeMessageRequest request)
+    {
+        var tutorId = UserHelper.GetUserId(User);
+        try
+        {
+            var result = await _disputeService.SendTutorDisputeMessageAsync(id, tutorId, request.Message);
+            return Ok(APIResponse<DisputeMessageResponse>.Success(result, "Gửi tin nhắn thành công."));
+        }
+        catch (ArgumentException ex)
+        {
+            return NotFound(APIResponse<DisputeMessageResponse>.Fail(ex.Message));
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(APIResponse<DisputeMessageResponse>.Fail(ex.Message));
+        }
     }
 }

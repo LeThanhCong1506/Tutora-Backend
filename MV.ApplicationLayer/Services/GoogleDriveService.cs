@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using Google.Apis.Auth.OAuth2;
@@ -19,9 +20,17 @@ namespace MV.ApplicationLayer.Services;
 /// <summary>
 /// Upload file lên Google Drive cá nhân bằng OAuth 2.0 + refresh token.
 /// Docs: https://developers.google.com/drive/api/guides/manage-uploads
+///
+/// File KHÔNG được cấp quyền public: chỉ tài khoản Drive kết nối mới mở trực tiếp được.
+/// Mọi lượt xem của Tutor/Student/Parent (và Admin xử lý tranh chấp) đi qua endpoint proxy
+/// của app (xem GetMediaAsync + ClassSessionController.GetClassSessionRecordingStream) — quyền
+/// truy cập do app tự kiểm tra, không giao cho ACL của Drive.
 /// </summary>
 public class GoogleDriveService : IGoogleDriveService
 {
+    private const string DriveMediaBaseUrl = "https://www.googleapis.com/drive/v3/files";
+    private const string FolderMimeType = "application/vnd.google-apps.folder";
+
     private readonly GoogleDriveSettings _settings;
     private readonly ILogger<GoogleDriveService> _logger;
 
@@ -33,17 +42,18 @@ public class GoogleDriveService : IGoogleDriveService
 
     public bool Enabled => _settings.Enabled;
 
-    public async Task<string> UploadAsync(Stream content, string fileName, string mimeType, CancellationToken ct = default)
+    public async Task<string> UploadAsync(Stream content, string fileName, string mimeType, string? folderId = null, CancellationToken ct = default)
     {
         var drive = CreateService();
 
+        var targetFolderId = folderId ?? _settings.FolderId;
         var meta = new DriveData.File { Name = fileName };
-        if (!string.IsNullOrWhiteSpace(_settings.FolderId))
-            meta.Parents = new[] { _settings.FolderId };
+        if (!string.IsNullOrWhiteSpace(targetFolderId))
+            meta.Parents = new[] { targetFolderId };
 
         // Resumable upload — chịu được file lớn (2-4h), stream thẳng từ S3
         var request = drive.Files.Create(meta, content, mimeType);
-        request.Fields = "id, webViewLink";
+        request.Fields = "id";
 
         var progress = await request.UploadAsync(ct);
         if (progress.Status != UploadStatus.Completed)
@@ -52,19 +62,94 @@ public class GoogleDriveService : IGoogleDriveService
 
         var fileId = request.ResponseBody.Id;
 
-        // Cho phép ai có link đều xem được (để phát lại trong app)
+        _logger.LogInformation("Uploaded to Google Drive: fileId={FileId} name={Name} folderId={FolderId}", fileId, fileName, targetFolderId);
+        return fileId;
+    }
+
+    public async Task<string?> FindFileIdByNameAsync(string fileName, CancellationToken ct = default)
+    {
+        var drive = CreateService();
+
+        // Escape dấu ' để tránh vỡ cú pháp query (tên chuẩn "session-{id}.mp4" vốn không có, nhưng phòng xa).
+        // KHÔNG lọc theo thư mục cha: file có thể nằm trong bất kỳ thư mục con Tutor/Student nào;
+        // scope OAuth "drive.file" đã tự đảm bảo chỉ thấy file do app này tạo.
+        var safeName = fileName.Replace("\\", "\\\\").Replace("'", "\\'");
+
+        var list = drive.Files.List();
+        list.Q = $"name = '{safeName}' and trashed = false";
+        list.Spaces = "drive";
+        list.Fields = "files(id)";
+        list.PageSize = 1;
+
+        var result = await list.ExecuteAsync(ct);
+        return result.Files != null && result.Files.Count > 0 ? result.Files[0].Id : null;
+    }
+
+    public async Task<string> GetRecordingFolderAsync(string tutorFolderName, string studentFolderName, CancellationToken ct = default)
+    {
+        var drive = CreateService();
+        var tutorFolderId = await GetOrCreateFolderAsync(drive, _settings.FolderId, tutorFolderName, ct);
+        return await GetOrCreateFolderAsync(drive, tutorFolderId, studentFolderName, ct);
+    }
+
+    public async Task<DriveMediaResult> GetMediaAsync(string fileId, string? rangeHeader, CancellationToken ct = default)
+    {
+        var drive = CreateService();
+
+        var request = new HttpRequestMessage(HttpMethod.Get, $"{DriveMediaBaseUrl}/{Uri.EscapeDataString(fileId)}?alt=media");
+        if (!string.IsNullOrWhiteSpace(rangeHeader))
+            request.Headers.TryAddWithoutValidation("Range", rangeHeader);
+
+        // ResponseHeadersRead: không buffer toàn bộ video vào RAM trước khi bắt đầu trả về client
+        var response = await drive.HttpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
         try
         {
-            await drive.Permissions.Create(
-                new DriveData.Permission { Type = "anyone", Role = "reader" }, fileId).ExecuteAsync(ct);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Không set được quyền public cho file Drive {FileId}", fileId);
-        }
+            var stream = await response.Content.ReadAsStreamAsync(ct);
 
-        _logger.LogInformation("Uploaded to Google Drive: fileId={FileId} name={Name}", fileId, fileName);
-        return fileId;
+            return new DriveMediaResult(
+                underlyingResponse: response,
+                content: stream,
+                statusCode: (int)response.StatusCode,
+                contentType: response.Content.Headers.ContentType?.ToString(),
+                contentLength: response.Content.Headers.ContentLength,
+                contentRange: response.Content.Headers.ContentRange?.ToString(),
+                acceptRanges: response.Headers.AcceptRanges.Contains("bytes"));
+        }
+        catch
+        {
+            // ReadAsStreamAsync lỗi giữa chừng (mạng gián đoạn) → DriveMediaResult chưa kịp tạo
+            // để tự dispose response qua "using" ở caller — phải tự giải phóng ở đây.
+            response.Dispose();
+            throw;
+        }
+    }
+
+    /// <summary>Tìm (hoặc tạo) 1 thư mục con tên <paramref name="name"/> bên trong <paramref name="parentId"/> (null = My Drive gốc).</summary>
+    private static async Task<string> GetOrCreateFolderAsync(DriveService drive, string? parentId, string name, CancellationToken ct)
+    {
+        var safeName = name.Replace("\\", "\\\\").Replace("'", "\\'");
+        var q = $"mimeType = '{FolderMimeType}' and name = '{safeName}' and trashed = false";
+        if (!string.IsNullOrWhiteSpace(parentId))
+            q += $" and '{parentId}' in parents";
+
+        var list = drive.Files.List();
+        list.Q = q;
+        list.Spaces = "drive";
+        list.Fields = "files(id)";
+        list.PageSize = 1;
+
+        var existing = await list.ExecuteAsync(ct);
+        if (existing.Files is { Count: > 0 })
+            return existing.Files[0].Id;
+
+        var meta = new DriveData.File { Name = name, MimeType = FolderMimeType };
+        if (!string.IsNullOrWhiteSpace(parentId))
+            meta.Parents = new[] { parentId };
+
+        var createRequest = drive.Files.Create(meta);
+        createRequest.Fields = "id";
+        var created = await createRequest.ExecuteAsync(ct);
+        return created.Id;
     }
 
     private DriveService CreateService()

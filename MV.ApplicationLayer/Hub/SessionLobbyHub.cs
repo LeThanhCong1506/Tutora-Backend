@@ -15,8 +15,8 @@ namespace MV.ApplicationLayer.Hubs
     /// Hub lobby (phòng chờ) trước khi vào lớp học online.
     ///
     /// Luồng: người dùng bấm "Vào lớp" → FE connect hub này và invoke <see cref="JoinLobby"/>.
-    /// Người vào trước chờ trong lobby; khi cả hai phía (gia sư + học viên, hoặc phụ huynh thay
-    /// thế khi học viên chưa có tài khoản) cùng có mặt — trong lobby hoặc đã ở sẵn trong phòng
+    /// Người vào trước chờ trong lobby; khi cả hai phía (gia sư + học viên)
+    /// cùng có mặt — trong lobby hoặc đã ở sẵn trong phòng
     /// học — server phát <c>sessionReady</c> cho cả group để FE tự chuyển mọi người vào phòng
     /// Agora của buổi học. Check-in KHÔNG xảy ra ở lobby: vẫn do heartbeat trong phòng đảm nhiệm
     /// (xem AgoraController.Heartbeat), đúng nghĩa "cả 2 vào được lớp mới điểm danh".
@@ -34,15 +34,18 @@ namespace MV.ApplicationLayer.Hubs
         private readonly ILogger<SessionLobbyHub> _logger;
         private readonly IServiceProvider _serviceProvider;
         private readonly ISessionPresenceService _presence;
+        private readonly IClassSessionScheduleChangeService _scheduleChanges;
 
         public SessionLobbyHub(
             ILogger<SessionLobbyHub> logger,
             IServiceProvider serviceProvider,
-            ISessionPresenceService presence) : base(logger, serviceProvider)
+            ISessionPresenceService presence,
+            IClassSessionScheduleChangeService scheduleChanges) : base(logger, serviceProvider)
         {
             _logger = logger;
             _serviceProvider = serviceProvider;
             _presence = presence;
+            _scheduleChanges = scheduleChanges;
         }
 
         private string? CurrentUserRole =>
@@ -52,8 +55,8 @@ namespace MV.ApplicationLayer.Hubs
         private static string LobbyGroup(int classSessionId) => $"lobby:{classSessionId}";
 
         /// <summary>
-        /// Vào phòng chờ của một buổi học. Validate quyền như AgoraController: chỉ gia sư,
-        /// phụ huynh hoặc học viên thuộc booking (hoặc Admin) mới được vào.
+        /// Vào phòng chờ của một buổi học. Chỉ gia sư, học viên thuộc booking
+        /// (hoặc Admin hỗ trợ) mới được vào; phụ huynh xác nhận ở trang chi tiết.
         /// </summary>
         public async Task JoinLobby(int classSessionId)
         {
@@ -127,7 +130,7 @@ namespace MV.ApplicationLayer.Hubs
                 scheduledEnd = session.ScheduledEnd
             });
 
-            await BroadcastLobbyStateAsync(classSessionId, session);
+            await BroadcastLobbyStateAsync(classSessionId, session, userId);
         }
 
         /// <summary>Rời phòng chờ chủ động (FE gọi khi unmount trang lobby).</summary>
@@ -189,9 +192,45 @@ namespace MV.ApplicationLayer.Hubs
                 return;
             }
 
-            await BroadcastLobbyStateAsync(classSessionId, session);
+            await BroadcastLobbyStateAsync(classSessionId, session, userId);
         }
 
+        /// <summary>Gia sư hoặc phía người học xác nhận/từ chối học ngoài lịch dự kiến.</summary>
+        public async Task RespondToScheduleChange(int classSessionId, bool confirmed)
+        {
+            var userId = CurrentUserId;
+            if (string.IsNullOrEmpty(userId))
+                throw new HubException("User not authenticated");
+
+            var entry = _presence.GetLobbyEntry(Context.ConnectionId);
+            if (entry == null || entry.Value.ClassSessionId != classSessionId)
+                throw new HubException("Bạn cần ở trong phòng chờ để xác nhận đổi lịch.");
+
+            try
+            {
+                var state = await _scheduleChanges.RespondAsync(
+                    classSessionId,
+                    userId,
+                    CurrentUserRole,
+                    confirmed,
+                    Context.ConnectionAborted);
+                await Clients.Group(LobbyGroup(classSessionId)).SendAsync("scheduleChangeState", state);
+
+                using var scope = _serviceProvider.CreateScope();
+                var db = scope.ServiceProvider.GetRequiredService<IAppDbContext>();
+                var session = await LoadSessionAsync(db, classSessionId);
+                if (session != null)
+                    await BroadcastLobbyStateAsync(classSessionId, session, userId);
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                throw new HubException(ex.Message);
+            }
+            catch (InvalidOperationException ex)
+            {
+                throw new HubException(ex.Message);
+            }
+        }
         public override async Task OnDisconnectedAsync(Exception? exception)
         {
             var entry = _presence.RemoveLobbyConnection(Context.ConnectionId);
@@ -241,12 +280,11 @@ namespace MV.ApplicationLayer.Hubs
                 .FirstOrDefaultAsync();
         }
 
-        /// <summary>Cùng quy tắc truy cập với AgoraController: Admin, gia sư, phụ huynh hoặc học viên của booking.</summary>
+        /// <summary>Cùng quy tắc truy cập với AgoraController: Admin, gia sư hoặc học viên của booking.</summary>
         private bool HasAccess(LobbySessionSnapshot session, string userId)
         {
             if (CurrentUserRole == UserRole.Admin) return true;
             if (session.TutorId == userId) return true;
-            if (session.ParentId == userId) return true;
             if (!string.IsNullOrEmpty(session.StudentUserId) && session.StudentUserId == userId) return true;
             return false;
         }
@@ -261,8 +299,8 @@ namespace MV.ApplicationLayer.Hubs
 
         /// <summary>
         /// "Có mặt" = đang chờ trong lobby HOẶC đã ở trong phòng học (presence heartbeat).
-        /// Phía học viên: tài khoản student (Linkeduserid); fallback dữ liệu cũ — phụ huynh
-        /// thay thế khi student chưa có tài khoản riêng (khớp TryAutoCheckInAsync).
+        /// Phía học viên chỉ tính tài khoản student (Linkeduserid). Phụ huynh không
+        /// được thay thế học viên trong lobby hoặc phòng gọi.
         /// </summary>
         private (bool TutorWaiting, bool StudentWaiting) ComputeState(int classSessionId, LobbySessionSnapshot session)
         {
@@ -277,17 +315,29 @@ namespace MV.ApplicationLayer.Hubs
             }
             else
             {
-                studentWaiting = !string.IsNullOrEmpty(session.ParentId)
-                    && (_presence.IsInLobby(classSessionId, session.ParentId) || _presence.IsPresent(classSessionId, session.ParentId));
+                studentWaiting = false;
             }
 
             return (tutorWaiting, studentWaiting);
         }
 
-        private async Task BroadcastLobbyStateAsync(int classSessionId, LobbySessionSnapshot session)
+        private async Task BroadcastLobbyStateAsync(
+            int classSessionId,
+            LobbySessionSnapshot session,
+            string actorUserId)
         {
             var (tutorWaiting, studentWaiting) = ComputeState(classSessionId, session);
+            // Read the shared gate from the tutor perspective. Admin may bypass admission for
+            // support, but an admin opening the lobby must never unlock it for participants.
+            var stateActorId = session.TutorId ?? actorUserId;
+            var stateActorRole = session.TutorId != null ? UserRole.Tutor : CurrentUserRole;
+            var scheduleChange = await _scheduleChanges.GetOrCreateStateAsync(
+                classSessionId,
+                stateActorId,
+                stateActorRole,
+                Context.ConnectionAborted);
 
+            await Clients.Group(LobbyGroup(classSessionId)).SendAsync("scheduleChangeState", scheduleChange);
             await Clients.Group(LobbyGroup(classSessionId)).SendAsync("lobbyState", new
             {
                 classSessionId,
@@ -295,13 +345,14 @@ namespace MV.ApplicationLayer.Hubs
                 studentWaiting
             });
 
-            if (tutorWaiting && studentWaiting)
+            if (tutorWaiting && studentWaiting && scheduleChange.AdmissionAllowed)
             {
-                _logger.LogInformation("Lobby of classSession {ClassSessionId} ready — cả hai phía đã có mặt, chuyển vào lớp", classSessionId);
+                _logger.LogInformation(
+                    "Lobby of classSession {ClassSessionId} ready — presence and schedule confirmations are complete",
+                    classSessionId);
                 await Clients.Group(LobbyGroup(classSessionId)).SendAsync("sessionReady", new { classSessionId });
             }
         }
-
         /// <summary>Sau khi một người rời lobby: cập nhật trạng thái chờ cho những người còn lại.</summary>
         private async Task NotifyLobbyAfterExitAsync(int classSessionId, string userId)
         {
@@ -313,7 +364,7 @@ namespace MV.ApplicationLayer.Hubs
                 if (session == null) return;
 
                 _logger.LogInformation("User {UserId} left lobby of classSession {ClassSessionId}", userId, classSessionId);
-                await BroadcastLobbyStateAsync(classSessionId, session);
+                await BroadcastLobbyStateAsync(classSessionId, session, userId);
             }
             catch (Exception ex)
             {

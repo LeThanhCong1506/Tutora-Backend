@@ -22,6 +22,7 @@ namespace MV.ApplicationLayer.Services
         private readonly ITutorProfileUpdateStagingService _updateStaging;
         private readonly IAppDbContext _context;
         private readonly IEkycService _ekyc;
+        private readonly ITutorEmbedQueue _embedQueue;
 
         // Storage buckets
         private const string CertificateBucket = StorageBucket.CertificateFiles;
@@ -42,7 +43,8 @@ namespace MV.ApplicationLayer.Services
             IEncryptionService encryption,
             ITutorProfileUpdateStagingService updateStaging,
             IAppDbContext context,
-            IEkycService ekyc)
+            IEkycService ekyc,
+            ITutorEmbedQueue embedQueue)
         {
             _unitOfWork = unitOfWork;
             _storageService = storageService;
@@ -53,6 +55,7 @@ namespace MV.ApplicationLayer.Services
             _updateStaging = updateStaging;
             _context = context;
             _ekyc = ekyc;
+            _embedQueue = embedQueue;
         }
 
         /// <summary>
@@ -179,6 +182,7 @@ namespace MV.ApplicationLayer.Services
 
             await _unitOfWork.SaveChangesAsync();
             await AutoSubmitIfCompleteAsync(userId);
+            _embedQueue.Enqueue(userId);   // bio/education/experience đổi → re-embed nền
             return true;
         }
 
@@ -197,6 +201,7 @@ namespace MV.ApplicationLayer.Services
 
             await _unitOfWork.SaveChangesAsync();
             await AutoSubmitIfCompleteAsync(userId);
+            _embedQueue.Enqueue(userId);   // môn/giá đổi → refresh metadata vector nền
             return true;
         }
 
@@ -242,6 +247,7 @@ namespace MV.ApplicationLayer.Services
 
             await _unitOfWork.SaveChangesAsync();
             await AutoSubmitIfCompleteAsync(tutorId);
+            _embedQueue.Enqueue(tutorId);   // giá đổi → refresh metadata vector nền
             return true;
         }
 

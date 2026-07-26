@@ -245,7 +245,9 @@ public sealed class PaymentTransactionCapture
         string? note = null,
         int? paymentRequestId = null,
         string reconciliationStatus = PaymentReconciliationStatus.Matched,
-        string? destinationBankBin = null)
+        string? destinationBankBin = null,
+        int? aiCreditPackageId = null,
+        string? aiCreditUserId = null)
     {
         var providerTransactionId = GetProviderTransactionId(providerTransactionIdFallback);
         var effectiveAmount = ObservedAmount ?? amount;
@@ -269,6 +271,8 @@ public sealed class PaymentTransactionCapture
             Paymentrequestid = paymentRequestId,
             Bookingid = bookingId,
             Withdrawalid = withdrawalId,
+            AiCreditPackageid = aiCreditPackageId,
+            AiCreditUserid = aiCreditUserId,
             Description = Description ?? NormalizeString(description),
             Paidat = effectivePaidAt,
             Createdat = TimeZoneHelper.UtcNow,
