@@ -111,6 +111,7 @@ public class DisputeTutorResponse
     public string? FullName { get; set; }
     public string? Email { get; set; }
     public string? Phone { get; set; }
+    public string? AvatarUrl { get; set; }
     public int WarningCount { get; set; }
     public decimal? AverageRating { get; set; }
 }
@@ -123,6 +124,9 @@ public class DisputeEvidenceItemResponse
     public string? FileType { get; set; }
     public string? Description { get; set; }
     public DateTime? CreatedAt { get; set; }
+    /// <summary>Source party used by the admin UI to keep learner and tutor evidence separate.</summary>
+    public string Source { get; set; } = "unknown";
+    public string? UploadedByName { get; set; }
 }
 
 /// <summary>

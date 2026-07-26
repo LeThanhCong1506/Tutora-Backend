@@ -178,7 +178,13 @@ public class DisputeService : IDisputeService
                     FileUrl = e.Fileurl,
                     FileType = e.Filetype,
                     Description = e.Description,
-                    CreatedAt = e.Createdat
+                    CreatedAt = e.Createdat,
+                    Source = string.IsNullOrWhiteSpace(e.Uploadedby)
+                        ? "unknown"
+                        : e.Uploadedby == dispute.ClassSession?.Tutorid ? "tutor" : "learner",
+                    UploadedByName = e.UploadedbyNavigation?.Fullname
+                        ?? e.UploadedbyNavigation?.Username
+                        ?? e.UploadedbyNavigation?.Email
                 }).OrderBy(e => e.CreatedAt).ToList()
                 : null,
             CreatedBy = dispute.CreatedbyNavigation != null ? new DisputeUserResponse
@@ -186,13 +192,15 @@ public class DisputeService : IDisputeService
                 UserId = dispute.Createdby,
                 FullName = dispute.CreatedbyNavigation.Fullname,
                 Email = dispute.CreatedbyNavigation.Email,
-                Phone = dispute.CreatedbyNavigation.Phone
+                Phone = dispute.CreatedbyNavigation.Phone,
+                AvatarUrl = dispute.CreatedbyNavigation.Avatarurl
             } : null,
             ResolvedBy = dispute.ResolvedbyNavigation != null ? new DisputeUserResponse
             {
                 UserId = dispute.Resolvedby,
                 FullName = dispute.ResolvedbyNavigation.Fullname,
-                Email = dispute.ResolvedbyNavigation.Email
+                Email = dispute.ResolvedbyNavigation.Email,
+                AvatarUrl = dispute.ResolvedbyNavigation.Avatarurl
             } : null,
             ClassSession = dispute.ClassSession != null ? new DisputeClassSessionResponse
             {
@@ -231,6 +239,7 @@ public class DisputeService : IDisputeService
                 FullName = dispute.ClassSession.Tutor.Tutor.Fullname,
                 Email = dispute.ClassSession.Tutor.Tutor.Email,
                 Phone = dispute.ClassSession.Tutor.Tutor.Phone,
+                AvatarUrl = dispute.ClassSession.Tutor.Tutor.Avatarurl,
                 WarningCount = warningCount,
                 AverageRating = dispute.ClassSession.Tutor.Averagerating.HasValue ? (decimal?)dispute.ClassSession.Tutor.Averagerating.Value : null
             } : null
