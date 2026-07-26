@@ -27,11 +27,31 @@ namespace MV.ApplicationLayer.ServiceInterfaces
         Task<float[]?> EmbedAsync(string id, string text, CancellationToken cancellationToken = default);
 
         /// <summary>
+        /// Vector hoá 1 gia sư — gọi tutora-ai POST /api/v1/tutors/{id}/embed khi hồ sơ/giá
+        /// đổi hoặc được duyệt.
+        /// </summary>
+        Task EmbedTutorAsync(string tutorId, CancellationToken cancellationToken = default);
+
+        /// <summary>
         /// Gửi PDF cho tutora-ai (/api/v1/extract-pdf) -> AI đọc, tách list câu hỏi.
-        /// Trả về danh sách câu (đề+lời giải+chương+trang), hoặc null nếu lỗi.
         /// </summary>
         Task<List<AiExtractedQuestion>?> ExtractPdfAsync(
             byte[] pdfBytes, string fileName, CancellationToken cancellationToken = default);
+
+        // Knowledge Base (nội dung/chính sách Tutora — CEO upload từ CMS)
+        Task<KbUploadResult?> KbUploadAsync(
+            byte[] fileBytes, string fileName, string? uploadedBy,
+            CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Lấy danh sách tài liệu KB đã nạp (/api/v1/kb/documents).
+        /// </summary>
+        Task<List<KbDocument>?> KbListDocumentsAsync(CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Xoá 1 tài liệu KB + toàn bộ chunk (/api/v1/kb/documents/{id}).
+        /// </summary>
+        Task<bool> KbDeleteDocumentAsync(string documentId, CancellationToken cancellationToken = default);
     }
 
     public record AiRankedTutor(string TutorId, float Similarity);
@@ -43,4 +63,14 @@ namespace MV.ApplicationLayer.ServiceInterfaces
         string? Chapter,
         int? Page,
         List<string> Images);
+
+    public record KbUploadResult(string DocumentId, int ChunkCount, string FileName);
+
+    public record KbDocument(
+        string Id,
+        string FileName,
+        string SourceType,
+        int ChunkCount,
+        string Status,
+        DateTime? CreatedAt);
 }
