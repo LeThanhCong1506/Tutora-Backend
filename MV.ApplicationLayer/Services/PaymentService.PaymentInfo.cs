@@ -329,7 +329,7 @@ public partial class PaymentService
                 else
                 {
                     await MarkPaymentRequestForReviewAsync(
-                        request.Bookingid,
+                        request.Bookingid!.Value,
                         request,
                         CancellationToken.None);
                     throw new BookingException(
@@ -623,7 +623,7 @@ public partial class PaymentService
             ct))
         {
             booking = await bookingRepo.FindWithRelationsForUpdateAsync(
-                    request.Bookingid,
+                    request.Bookingid!.Value,
                     ct)
                 ?? throw new BookingException(
                     BookingErrorCodes.BookingNotFound,
@@ -980,7 +980,7 @@ public partial class PaymentService
             && string.IsNullOrWhiteSpace(request.Paymentlinkid))
         {
             await MarkPaymentRequestForReviewAsync(
-                request.Bookingid,
+                request.Bookingid!.Value,
                 request,
                 ct);
             return;
@@ -1009,7 +1009,7 @@ public partial class PaymentService
                 ct))
             {
                 var booking = await bookingRepo.FindWithRelationsForUpdateAsync(
-                    request.Bookingid,
+                    request.Bookingid!.Value,
                     ct);
                 await context.PaymentRequests.Entry(request).ReloadAsync(ct);
 
@@ -1062,7 +1062,7 @@ public partial class PaymentService
                 "Could not reconcile PayOS payment request {PaymentRequestId}.",
                 request.Paymentrequestid);
             await MarkPaymentRequestForReviewAsync(
-                request.Bookingid,
+                request.Bookingid!.Value,
                 request,
                 ct);
         }
@@ -1092,7 +1092,7 @@ public partial class PaymentService
                 System.Data.IsolationLevel.Serializable,
                 ct);
             _ = await bookingRepo.FindWithRelationsForUpdateAsync(
-                request.Bookingid,
+                request.Bookingid!.Value,
                 ct);
             await context.PaymentRequests.Entry(request).ReloadAsync(ct);
             if (request.Status != PaymentRequestStatus.Paid)
@@ -1111,7 +1111,7 @@ public partial class PaymentService
                 "Failed cancelling incomplete PayOS request {PaymentRequestId}.",
                 request.Paymentrequestid);
             await MarkPaymentRequestForReviewAsync(
-                request.Bookingid,
+                request.Bookingid!.Value,
                 request,
                 ct);
             throw new BookingException(
@@ -1344,7 +1344,7 @@ public partial class PaymentService
                                 {
                                     paymentRequestId =
                                         request.Paymentrequestid,
-                                    request.Bookingid,
+                                    request.Bookingid!.Value,
                                     request.Ordercode,
                                     request.Paymentlinkid,
                                     cancellationFailed =

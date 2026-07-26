@@ -134,9 +134,17 @@ public class AdminFinancialService(
             .Select(s => new { s.Subjectid, s.Subjectname })
             .ToListAsync(ct);
 
+        // Doanh thu bán gói AI credit: payment_transactions Succeeded, purpose=AiCreditPurchase.
+        var aiCreditTxRawTask = context.PaymentTransactions
+            .AsNoTracking()
+            .Where(t => t.Purpose == PaymentTransactionPurpose.AiCreditPurchase
+                        && t.Status == PaymentTransactionStatus.Succeeded)
+            .Select(t => new { t.Amount, t.Paidat, t.Createdat })
+            .ToListAsync(ct);
+
         await Task.WhenAll(
             bookingsRawTask, classSessionsRawTask, usersRawTask,
-            tutorProfilesRawTask, withdrawalsRawTask, walletTxRawTask, subjectsTask);
+            tutorProfilesRawTask, withdrawalsRawTask, walletTxRawTask, subjectsTask, aiCreditTxRawTask);
 
         var allBookings = await bookingsRawTask;
         var allClassSessions = await classSessionsRawTask;
@@ -146,24 +154,43 @@ public class AdminFinancialService(
         var totalFrozen = await walletFrozenTask;
         var walletTx = await walletTxRawTask;
         var subjects = await subjectsTask;
+        // Dùng thời điểm thu tiền thật (Paidat) để quy về kỳ; fallback Createdat.
+        var aiCreditTx = (await aiCreditTxRawTask)
+            .Select(t => new { t.Amount, When = t.Paidat ?? t.Createdat })
+            .ToList();
 
         // ─── Revenue Overview ────────────────────────────────────────────────
         var revenueBookings = allBookings
             .Where(b => RevenueBookingStatuses.Contains(b.Status ?? ""))
             .ToList();
 
-        var totalPlatformRevenue = revenueBookings.Sum(b => b.Platformfee ?? 0);
+        var bookingPlatformRevenue = revenueBookings.Sum(b => b.Platformfee ?? 0);
         var totalGrossVolume = revenueBookings.Sum(b => b.Finalprice ?? 0);
+
+        // AI credit revenue (bán gói Homework Helper)
+        var aiCreditRevenue = aiCreditTx.Sum(t => t.Amount);
+        var aiCreditCurrentMonth = aiCreditTx
+            .Where(t => t.When >= currentMonthStartUtc && t.When < currentMonthStartUtc.AddMonths(1))
+            .Sum(t => t.Amount);
+        var aiCreditPreviousMonth = aiCreditTx
+            .Where(t => t.When >= previousMonthStartUtc && t.When < currentMonthStartUtc)
+            .Sum(t => t.Amount);
+        var aiCreditCurrentYear = aiCreditTx
+            .Where(t => t.When >= currentYearStartUtc)
+            .Sum(t => t.Amount);
+
+        // TỔNG doanh thu = booking platform fee + AI credit (cộng vào tổng, theo yêu cầu).
+        var totalPlatformRevenue = bookingPlatformRevenue + aiCreditRevenue;
 
         var currentMonthRevenue = revenueBookings
             .Where(b => b.Createdat >= currentMonthStartUtc &&
                         b.Createdat < currentMonthStartUtc.AddMonths(1))
-            .Sum(b => b.Platformfee ?? 0);
+            .Sum(b => b.Platformfee ?? 0) + aiCreditCurrentMonth;
 
         var previousMonthRevenue = revenueBookings
             .Where(b => b.Createdat >= previousMonthStartUtc &&
                         b.Createdat < currentMonthStartUtc)
-            .Sum(b => b.Platformfee ?? 0);
+            .Sum(b => b.Platformfee ?? 0) + aiCreditPreviousMonth;
 
         decimal? momGrowth = previousMonthRevenue == 0
             ? null
@@ -171,7 +198,7 @@ public class AdminFinancialService(
 
         var currentYearRevenue = revenueBookings
             .Where(b => b.Createdat >= currentYearStartUtc)
-            .Sum(b => b.Platformfee ?? 0);
+            .Sum(b => b.Platformfee ?? 0) + aiCreditCurrentYear;
 
         // ─── Booking Metrics ─────────────────────────────────────────────────
         var byStatus = allBookings
@@ -306,7 +333,12 @@ public class AdminFinancialService(
                 PreviousMonthRevenue = previousMonthRevenue,
                 MonthOverMonthGrowthPercent = momGrowth,
                 CurrentYearRevenue = currentYearRevenue,
-                TotalEscrowed = totalFrozen
+                TotalEscrowed = totalFrozen,
+                BySource = new RevenueBySource
+                {
+                    Booking = bookingPlatformRevenue,
+                    AiCredit = aiCreditRevenue
+                }
             },
 
             Bookings = new BookingMetrics

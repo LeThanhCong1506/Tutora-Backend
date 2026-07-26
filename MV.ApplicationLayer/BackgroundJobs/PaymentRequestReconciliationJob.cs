@@ -78,6 +78,9 @@ public sealed class PaymentRequestReconciliationJob(
                 MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow.AddMinutes(-2);
             var requestIds = await context.PaymentRequests
                 .AsNoTracking()
+                // Đơn mua gói AI credit không thuộc booking — job đối soát này giả định
+                // mọi đơn đều là booking (gọi FindBooking). Bỏ qua để tránh xử lý nhầm.
+                .Where(r => r.Phase != PaymentRequestPhase.AiCredit)
                 .Where(PaymentRequestReconciliationPolicy
                     .BuildCandidatePredicate(creationGraceCutoff))
                 .OrderBy(r => r.Updatedat)
@@ -122,7 +125,7 @@ public sealed class PaymentRequestReconciliationJob(
                         {
                             _ = await bookingRepository
                                 .FindWithRelationsForUpdateAsync(
-                                    failedRequest.Bookingid,
+                                    failedRequest.Bookingid!.Value,
                                     ct);
                             await itemContext.PaymentRequests
                                 .Entry(failedRequest)
