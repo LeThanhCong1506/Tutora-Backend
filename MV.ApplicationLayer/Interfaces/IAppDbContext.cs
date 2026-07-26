@@ -28,6 +28,10 @@ public interface IAppDbContext
     DbSet<ClassSessionScheduleChange> ClassSessionScheduleChanges { get; }
     DbSet<SessionEngagementSample> SessionEngagementSamples { get; }
     DbSet<AgoraChannelEvent> AgoraChannelEvents { get; }
+    DbSet<SessionParticipant> SessionParticipants { get; }
+    DbSet<SessionParticipantDevice> SessionParticipantDevices { get; }
+    DbSet<SessionPresenceInterval> SessionPresenceIntervals { get; }
+    DbSet<SessionLobbyVisit> SessionLobbyVisits { get; }
     DbSet<Notification> Notifications { get; }
     DbSet<QuestionBank> QuestionBanks { get; }
     DbSet<TutoraKbDocument> TutoraKbDocuments { get; }

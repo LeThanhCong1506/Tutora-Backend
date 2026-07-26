@@ -2,10 +2,12 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using MV.ApplicationLayer.Helpers;
 using MV.ApplicationLayer.Hubs;
 using MV.ApplicationLayer.Interfaces;
 using MV.ApplicationLayer.ServiceInterfaces;
+using MV.DomainLayer.Configuration;
 using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO;
 using MV.DomainLayer.DTO.RequestModel;
@@ -37,9 +39,11 @@ public class AgoraController(
     ISessionPresenceService presence,
     ILiveSessionDeviceLeaseService deviceLeases,
     IWhiteboardService whiteboardService,
+    ISessionLogService sessionLogService,
     IAppDbContext context,
     IHubContext<LiveSessionHub> liveSessionHub,
     IHubContext<NotificationHub> notificationHub,
+    IOptions<SessionEvidenceSettings> evidenceSettings,
     ILogger<AgoraController> logger) : ControllerBase
 {
     private string UserId => User.FindFirstValue(ClaimTypes.NameIdentifier)
@@ -95,6 +99,7 @@ public class AgoraController(
 
         var classSession = await context.ClassSessions
             .Include(l => l.Booking)
+                .ThenInclude(b => b!.Student)
             .FirstOrDefaultAsync(l => l.Classsessionid == classSessionId);
 
         if (classSession == null)
@@ -128,6 +133,16 @@ public class AgoraController(
         }
         presence.Heartbeat(classSessionId, userId);
 
+        // In-memory presence answers "is this lesson checkable in right now" and is gone on restart.
+        // The same beat is also appended to the durable chain, which is what a dispute weeks later
+        // is settled with. Best-effort inside the service: it must never break the beat.
+        await sessionLogService.RecordHeartbeatAsync(
+            classSessionId,
+            userId,
+            ResolveParticipantRole(classSession, userId),
+            request.Activity,
+            cancellationToken);
+
         var status = await classSessionService.TryAutoCheckInAsync(classSessionId);
 
         return Ok(APIResponse<object>.Success(new
@@ -158,7 +173,12 @@ public class AgoraController(
         var released = await deviceLeases.ReleaseAsync(
             classSessionId, UserId, participationId, leaseId, cancellationToken);
         if (released)
+        {
             presence.Leave(classSessionId, UserId);
+            // Marks the beat run as an intentional exit, so leaving on purpose stays
+            // distinguishable from a client that simply stopped reporting.
+            await sessionLogService.CloseHeartbeatAsync(classSessionId, UserId, cancellationToken);
+        }
 
         return Ok(APIResponse<object>.Success(new { released }, "OK"));
     }
@@ -582,6 +602,22 @@ public class AgoraController(
         var studentUserId = classSession.Booking?.Student?.Linkeduserid;
         var participantNames = new Dictionary<string, string>();
 
+        // Agora's channel notifications identify users by a uid that carries no application
+        // meaning, so the session log needs to know who was admitted and when. The network and
+        // device come along for the ride: two of them for one account in one lesson is the signal
+        // behind account sharing. Recording it is best-effort inside the service — it must never
+        // stand between a user and their lesson.
+        await sessionLogService.RecordAdmissionAsync(
+            classSessionId,
+            userId,
+            ResolveParticipantRole(classSession, userId),
+            new SessionAdmissionContext(
+                ResolveClientIpAddress(),
+                deviceId,
+                deviceLabel,
+                Request.Headers.UserAgent.ToString()),
+            cancellationToken);
+
         if (classSession.Tutor?.Tutor != null && !string.IsNullOrEmpty(tutorUserId))
             participantNames[tutorUserId] = tutorName;
         if (!string.IsNullOrEmpty(studentUserId))
@@ -657,6 +693,40 @@ public class AgoraController(
         leaseId = string.Empty;
         return LiveSessionDeviceInputValidator.TryNormalizeGuid(request.ParticipationId, out participationId)
             && LiveSessionDeviceInputValidator.TryNormalizeGuid(request.LeaseId, out leaseId);
+    }
+
+    /// <summary>
+    /// Which side of the lesson a user is on, for the attendance record. Requires the booking's
+    /// student to be loaded; an unloaded one yields <c>unknown</c>, which the session log then
+    /// resolves from the booking itself rather than guessing.
+    /// </summary>
+    private static string ResolveParticipantRole(ClassSession classSession, string userId)
+    {
+        if (userId == classSession.Tutorid) return SessionParticipantRole.Tutor;
+        if (userId == classSession.Booking?.Student?.Linkeduserid) return SessionParticipantRole.Student;
+        if (userId == classSession.Booking?.Parentid) return SessionParticipantRole.Parent;
+        return SessionParticipantRole.Unknown;
+    }
+
+    /// <summary>
+    /// The client address to store with an admission.
+    ///
+    /// <c>X-Forwarded-For</c> is only read when the deployment says a trusted proxy overwrites it:
+    /// the header is otherwise attacker-controlled, and an address a user chose for themselves would
+    /// be worse in the fraud record than no address at all. Returns null when nothing is resolvable.
+    /// </summary>
+    private string? ResolveClientIpAddress()
+    {
+        if (evidenceSettings.Value.TrustForwardedFor)
+        {
+            var forwarded = Request.Headers["X-Forwarded-For"].FirstOrDefault();
+            // Proxies append, so the original client is the leftmost entry.
+            var firstHop = forwarded?.Split(',').FirstOrDefault()?.Trim();
+            if (!string.IsNullOrWhiteSpace(firstHop))
+                return firstHop;
+        }
+
+        return HttpContext.Connection.RemoteIpAddress?.ToString();
     }
 
     private async Task<bool> CheckClassSessionAccessAsync(ClassSession classSession, string userId)

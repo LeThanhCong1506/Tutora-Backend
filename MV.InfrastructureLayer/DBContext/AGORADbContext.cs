@@ -59,6 +59,14 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
 
     public virtual DbSet<AgoraChannelEvent> AgoraChannelEvents { get; set; }
 
+    public virtual DbSet<SessionParticipant> SessionParticipants { get; set; }
+
+    public virtual DbSet<SessionParticipantDevice> SessionParticipantDevices { get; set; }
+
+    public virtual DbSet<SessionPresenceInterval> SessionPresenceIntervals { get; set; }
+
+    public virtual DbSet<SessionLobbyVisit> SessionLobbyVisits { get; set; }
+
     public virtual DbSet<Notification> Notifications { get; set; }
 
     public virtual DbSet<QuestionBank> QuestionBanks { get; set; }
@@ -298,6 +306,163 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
 
             entity.HasIndex(e => e.NoticeId, "ux_agora_events_notice").IsUnique();
             entity.HasIndex(e => new { e.ClassSessionId, e.EventAt }, "idx_agora_events_session");
+        });
+
+        modelBuilder.Entity<SessionParticipant>(entity =>
+        {
+            entity.HasKey(e => new { e.ClassSessionId, e.AppUserId }).HasName("session_participants_pkey");
+
+            entity.ToTable("session_participants");
+
+            entity.Property(e => e.ClassSessionId).HasColumnName("class_session_id");
+            entity.Property(e => e.AppUserId)
+                .HasMaxLength(50)
+                .HasColumnName("app_user_id");
+            entity.Property(e => e.Role)
+                .HasMaxLength(20)
+                .HasColumnName("role");
+            entity.Property(e => e.FirstAdmittedAt)
+                .HasColumnType("timestamp without time zone")
+                .HasColumnName("first_admitted_at");
+            entity.Property(e => e.LastAdmittedAt)
+                .HasColumnType("timestamp without time zone")
+                .HasColumnName("last_admitted_at");
+            entity.Property(e => e.AdmissionCount)
+                .HasDefaultValue(1)
+                .HasColumnName("admission_count");
+
+            entity.HasIndex(e => new { e.ClassSessionId, e.FirstAdmittedAt }, "idx_session_participants_session");
+        });
+
+        modelBuilder.Entity<SessionParticipantDevice>(entity =>
+        {
+            entity.HasKey(e => e.DeviceRowId).HasName("session_participant_devices_pkey");
+
+            entity.ToTable("session_participant_devices");
+
+            entity.Property(e => e.DeviceRowId).HasColumnName("device_row_id");
+            entity.Property(e => e.ClassSessionId).HasColumnName("class_session_id");
+            entity.Property(e => e.AppUserId)
+                .HasMaxLength(50)
+                .HasColumnName("app_user_id");
+            entity.Property(e => e.Role)
+                .HasMaxLength(20)
+                .HasColumnName("role");
+            entity.Property(e => e.IpAddress)
+                .HasMaxLength(45)
+                .HasDefaultValue("")
+                .HasColumnName("ip_address");
+            entity.Property(e => e.DeviceId)
+                .HasMaxLength(100)
+                .HasDefaultValue("")
+                .HasColumnName("device_id");
+            entity.Property(e => e.DeviceLabel)
+                .HasMaxLength(120)
+                .HasDefaultValue("")
+                .HasColumnName("device_label");
+            entity.Property(e => e.UserAgent)
+                .HasMaxLength(400)
+                .HasDefaultValue("")
+                .HasColumnName("user_agent");
+            entity.Property(e => e.FirstSeenAt)
+                .HasColumnType("timestamp without time zone")
+                .HasColumnName("first_seen_at");
+            entity.Property(e => e.LastSeenAt)
+                .HasColumnType("timestamp without time zone")
+                .HasColumnName("last_seen_at");
+            entity.Property(e => e.AdmissionCount)
+                .HasDefaultValue(1)
+                .HasColumnName("admission_count");
+
+            entity.HasIndex(
+                e => new { e.ClassSessionId, e.AppUserId, e.IpAddress, e.DeviceId },
+                "ux_participant_devices_identity").IsUnique();
+            entity.HasIndex(e => new { e.IpAddress, e.LastSeenAt }, "idx_participant_devices_ip");
+        });
+
+        modelBuilder.Entity<SessionPresenceInterval>(entity =>
+        {
+            entity.HasKey(e => e.IntervalId).HasName("session_presence_intervals_pkey");
+
+            entity.ToTable("session_presence_intervals");
+
+            entity.Property(e => e.IntervalId).HasColumnName("interval_id");
+            entity.Property(e => e.ClassSessionId).HasColumnName("class_session_id");
+            entity.Property(e => e.AppUserId)
+                .HasMaxLength(50)
+                .HasColumnName("app_user_id");
+            entity.Property(e => e.Role)
+                .HasMaxLength(20)
+                .HasColumnName("role");
+            entity.Property(e => e.StartedAt)
+                .HasColumnType("timestamp without time zone")
+                .HasColumnName("started_at");
+            entity.Property(e => e.LastBeatAt)
+                .HasColumnType("timestamp without time zone")
+                .HasColumnName("last_beat_at");
+            entity.Property(e => e.BeatCount)
+                .HasDefaultValue(1)
+                .HasColumnName("beat_count");
+            entity.Property(e => e.ReportedBeats)
+                .HasDefaultValue(0)
+                .HasColumnName("reported_beats");
+            entity.Property(e => e.MicOnBeats)
+                .HasDefaultValue(0)
+                .HasColumnName("mic_on_beats");
+            entity.Property(e => e.CameraOnBeats)
+                .HasDefaultValue(0)
+                .HasColumnName("camera_on_beats");
+            entity.Property(e => e.IdleBeats)
+                .HasDefaultValue(0)
+                .HasColumnName("idle_beats");
+            entity.Property(e => e.ClosedReason)
+                .HasMaxLength(20)
+                .HasColumnName("closed_reason");
+
+            entity.HasIndex(
+                e => new { e.ClassSessionId, e.AppUserId, e.StartedAt },
+                "idx_presence_intervals_session");
+        });
+
+        modelBuilder.Entity<SessionLobbyVisit>(entity =>
+        {
+            entity.HasKey(e => e.LobbyVisitId).HasName("session_lobby_visits_pkey");
+
+            entity.ToTable("session_lobby_visits");
+
+            entity.Property(e => e.LobbyVisitId).HasColumnName("lobby_visit_id");
+            entity.Property(e => e.ClassSessionId).HasColumnName("class_session_id");
+            entity.Property(e => e.AppUserId)
+                .HasMaxLength(50)
+                .HasColumnName("app_user_id");
+            entity.Property(e => e.Role)
+                .HasMaxLength(20)
+                .HasColumnName("role");
+            entity.Property(e => e.ConnectionId)
+                .HasMaxLength(128)
+                .HasColumnName("connection_id");
+            entity.Property(e => e.EnteredAt)
+                .HasColumnType("timestamp without time zone")
+                .HasColumnName("entered_at");
+            entity.Property(e => e.LastSeenAt)
+                .HasColumnType("timestamp without time zone")
+                .HasColumnName("last_seen_at");
+            entity.Property(e => e.BeatCount)
+                .HasDefaultValue(1)
+                .HasColumnName("beat_count");
+            entity.Property(e => e.LeftAt)
+                .HasColumnType("timestamp without time zone")
+                .HasColumnName("left_at");
+            entity.Property(e => e.ClosedReason)
+                .HasMaxLength(20)
+                .HasColumnName("closed_reason");
+
+            entity.HasIndex(
+                e => new { e.ClassSessionId, e.ConnectionId },
+                "ux_session_lobby_visits_connection").IsUnique();
+            entity.HasIndex(
+                e => new { e.ClassSessionId, e.AppUserId, e.EnteredAt },
+                "idx_session_lobby_visits_session");
         });
 
         modelBuilder.Entity<WithdrawalScore>(entity =>

@@ -122,7 +122,7 @@ public class AdminUserRelationshipTests
     }
 
     private static UserService CreateService(AgoraDbContext context) =>
-        new(null!, null!, null!, null!, null!, null!, context);
+        new(null!, null!, null!, null!, null!, null!, context, null!);
 
     private static User CreateUser(string id, string fullName, string role) => new()
     {

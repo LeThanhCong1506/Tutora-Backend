@@ -51,6 +51,7 @@ builder.Services.Configure<GoogleSettings>(builder.Configuration.GetSection(Goog
 builder.Services.Configure<AgoraSettings>(builder.Configuration.GetSection(AgoraSettings.SectionName));
 builder.Services.Configure<AgoraRecordingSettings>(builder.Configuration.GetSection(AgoraRecordingSettings.SectionName));
 builder.Services.Configure<AgoraNotificationSettings>(builder.Configuration.GetSection(AgoraNotificationSettings.SectionName));
+builder.Services.Configure<SessionEvidenceSettings>(builder.Configuration.GetSection(SessionEvidenceSettings.SectionName));
 builder.Services.Configure<GoogleDriveSettings>(builder.Configuration.GetSection(GoogleDriveSettings.SectionName));
 builder.Services.Configure<WhiteboardSettings>(builder.Configuration.GetSection(WhiteboardSettings.SectionName));
 builder.Services.Configure<VietQRSettings>(builder.Configuration.GetSection(VietQRSettings.SectionName));
@@ -338,6 +339,7 @@ builder.Services.AddScoped<IPaymentService, PaymentService>();
 builder.Services.AddScoped<IWalletService, WalletService>();
 builder.Services.AddScoped<IAiCreditService, AiCreditService>();
 builder.Services.AddScoped<IClassSessionService, ClassSessionService>();
+builder.Services.AddScoped<ISessionLogService, SessionLogService>();
 builder.Services.AddScoped<IClassSessionScheduleChangeService, ClassSessionScheduleChangeService>();
 builder.Services.AddScoped<IAgoraRTCService, AgoraRTCService>();
 builder.Services.AddSingleton<ILiveSessionDeviceLeaseService, LiveSessionDeviceLeaseService>();
@@ -561,6 +563,21 @@ if (args.Any(arg => string.Equals(arg, "--run-managed-migrations", StringCompari
 }
 
 var app = builder.Build();
+
+// Development applies managed migrations on boot so a new table never needs to be pasted into a
+// SQL console by hand. Other environments keep the explicit --run-managed-migrations gate, where
+// schema changes belong to the deployment step rather than to whoever starts the process first.
+// The runner takes an advisory lock and journals checksums, so repeated starts are a no-op.
+if (app.Environment.IsDevelopment())
+{
+    var migrationLogger = app.Services.GetRequiredService<ILoggerFactory>()
+        .CreateLogger("ManagedMigrationRunner");
+    // Session admission and the admin evidence endpoint both depend on the managed schema.
+    // Starting with a failed/checksum-mismatched migration would only defer the error into a
+    // lesson or dispute, so development fails fast just like the explicit deployment command.
+    await ManagedMigrationRunner.RunAsync(app.Configuration);
+    migrationLogger.LogInformation("Managed migrations are up to date.");
+}
 
 await using (var schemaScope = app.Services.CreateAsyncScope())
 {
