@@ -1,3 +1,5 @@
+using Microsoft.AspNetCore.Http;
+
 namespace MV.DomainLayer.DTO.RequestModel;
 
 /// <summary>
@@ -10,4 +12,7 @@ public class ReportNoShowRequest
     public DateTime? ReportedAt { get; set; }
 
     public string? Reason { get; set; }
+
+    /// <summary>Evidence files submitted together with the no-show report.</summary>
+    public List<IFormFile>? Files { get; set; }
 }

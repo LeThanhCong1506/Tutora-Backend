@@ -161,8 +161,9 @@ public class ClassSessionController(
     /// Parent báo cáo gia sư vắng mặt sau 15 phút kể từ giờ bắt đầu.
     /// </summary>
     [HttpPost("class-sessions/{id:int}/report-no-show")]
+    [Consumes("multipart/form-data")]
     [Authorize(Roles = UserRole.ParentOrStudent)]
-    public async Task<IActionResult> ReportNoShow([FromRoute] int id, [FromBody] ReportNoShowRequest? request)
+    public async Task<IActionResult> ReportNoShow([FromRoute] int id, [FromForm] ReportNoShowRequest? request)
     {
         var userId = UserId ?? throw new UnauthorizedAccessException();
         var role = User.FindFirstValue(ClaimTypes.Role) ?? "";

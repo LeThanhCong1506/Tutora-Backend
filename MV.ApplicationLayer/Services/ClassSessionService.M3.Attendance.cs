@@ -1,6 +1,7 @@
-﻿using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using MV.ApplicationLayer.Helpers;
 using MV.ApplicationLayer.Services.Agora;
 using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO.RequestModel;
@@ -47,6 +48,7 @@ public partial class ClassSessionService
         var roomClosed = classSession.Checkouttime.HasValue;
         var isCheckedIn = classSession.Checkintime.HasValue;
         var blockedByPayment = false;
+        SessionScheduleConflictResponse? scheduleConflict = null;
 
         if (classSession.Status == Scheduled && tutorPresent && studentPresent && !roomClosed)
         {
@@ -70,29 +72,53 @@ public partial class ClassSessionService
                 {
                     var adjustedEnd = now.Add(
                         approvedChange.Originalscheduledend - approvedChange.Originalscheduledstart);
-                    affected = await _context.ClassSessions
-                        .Where(l => l.Classsessionid == classSessionId && l.Status == Scheduled)
-                        .ExecuteUpdateAsync(s => s
-                            .SetProperty(l => l.Status, InProgress)
-                            .SetProperty(l => l.Checkintime, now)
-                            .SetProperty(l => l.Realstart, now)
-                            .SetProperty(l => l.Scheduledstart, now)
-                            .SetProperty(l => l.Scheduledend, adjustedEnd)
-                            .SetProperty(l => l.Istutorpresent, true)
-                            .SetProperty(l => l.Isstudentpresent, true)
-                            .SetProperty(l => l.Meetinglink, l => l.Meetinglink ?? classSessionId.ToString()));
+                    await using var scheduleTransaction = _context.Database.IsRelational()
+                        ? await _context.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable)
+                        : null;
 
-                    if (affected == 1)
+                    scheduleConflict = await ClassSessionScheduleConflictGuard.FindAsync(
+                        _context,
+                        classSessionId,
+                        classSession.Tutorid,
+                        classSession.Studentid,
+                        now,
+                        adjustedEnd,
+                        currentApprovedAt: approvedChange.Approvedat,
+                        currentScheduleChangeId: approvedChange.Schedulechangeid);
+
+                    if (scheduleConflict != null)
                     {
-                        approvedChange.Status = ScheduleChangeStatus.Applied;
-                        approvedChange.Appliedat = now;
-                        approvedChange.Adjustedscheduledstart = now;
-                        approvedChange.Adjustedscheduledend = adjustedEnd;
-                        approvedChange.Updatedat = now;
-                        await _context.SaveChangesAsync();
-                        classSession.Scheduledstart = now;
-                        classSession.Scheduledend = adjustedEnd;
+                        affected = 0;
                     }
+                    else
+                    {
+                        affected = await _context.ClassSessions
+                            .Where(l => l.Classsessionid == classSessionId && l.Status == Scheduled)
+                            .ExecuteUpdateAsync(s => s
+                                .SetProperty(l => l.Status, InProgress)
+                                .SetProperty(l => l.Checkintime, now)
+                                .SetProperty(l => l.Realstart, now)
+                                .SetProperty(l => l.Scheduledstart, now)
+                                .SetProperty(l => l.Scheduledend, adjustedEnd)
+                                .SetProperty(l => l.Istutorpresent, true)
+                                .SetProperty(l => l.Isstudentpresent, true)
+                                .SetProperty(l => l.Meetinglink, l => l.Meetinglink ?? classSessionId.ToString()));
+
+                        if (affected == 1)
+                        {
+                            approvedChange.Status = ScheduleChangeStatus.Applied;
+                            approvedChange.Appliedat = now;
+                            approvedChange.Adjustedscheduledstart = now;
+                            approvedChange.Adjustedscheduledend = adjustedEnd;
+                            approvedChange.Updatedat = now;
+                            await _context.SaveChangesAsync();
+                            classSession.Scheduledstart = now;
+                            classSession.Scheduledend = adjustedEnd;
+                        }
+                    }
+
+                    if (scheduleTransaction != null)
+                        await scheduleTransaction.CommitAsync();
                 }
                 else
                 {
@@ -135,7 +161,8 @@ public partial class ClassSessionService
             IsCheckedIn: isCheckedIn,
             RoomClosed: roomClosed,
             BlockedByPayment: blockedByPayment,
-            IsRecording: isRecording);
+            IsRecording: isRecording,
+            ScheduleConflict: scheduleConflict);
     }
 
     /// <summary>

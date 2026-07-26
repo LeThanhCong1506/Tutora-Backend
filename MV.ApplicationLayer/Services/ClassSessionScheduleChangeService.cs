@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using MV.ApplicationLayer.Helpers;
 using MV.ApplicationLayer.Interfaces;
 using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.Constants;
@@ -114,7 +115,13 @@ public class ClassSessionScheduleChangeService(
         }
 
         if (latest?.Status == ScheduleChangeStatus.Approved && latest.Expiresat > now)
-            return Map(session, latest, userId, true, true);
+        {
+            var response = Map(session, latest, userId, true, true);
+            var conflict = await FindCurrentConflictAsync(classSessionId, now, cancellationToken);
+            response.ScheduleConflict = conflict;
+            response.AdmissionAllowed = conflict == null;
+            return response;
+        }
         if (latest?.Status == ScheduleChangeStatus.Pending && latest.Expiresat > now)
             return Map(session, latest, userId, true, false);
         if (latest?.Status == ScheduleChangeStatus.Rejected
@@ -193,6 +200,9 @@ public class ClassSessionScheduleChangeService(
             return Map(session, change, userId, true, true);
 
         var now = TimeZoneHelper.UtcNow;
+        await using var decisionTransaction = db.Database.IsRelational()
+            ? await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, cancellationToken)
+            : null;
         if (!confirmed)
         {
             change.Status = ScheduleChangeStatus.Rejected;
@@ -200,6 +210,8 @@ public class ClassSessionScheduleChangeService(
             change.Rejectedby = userId;
             change.Updatedat = now;
             await db.SaveChangesAsync(cancellationToken);
+            if (decisionTransaction != null)
+                await decisionTransaction.CommitAsync(cancellationToken);
             return Map(session, change, userId, true, false);
         }
 
@@ -216,13 +228,23 @@ public class ClassSessionScheduleChangeService(
 
         if (change.Tutorconfirmedat.HasValue && change.Learnerconfirmedat.HasValue)
         {
-            await EnsureNoScheduleConflictAsync(session, change, now, cancellationToken);
             change.Status = ScheduleChangeStatus.Approved;
             change.Approvedat = now;
         }
         change.Updatedat = now;
         await db.SaveChangesAsync(cancellationToken);
-        return Map(session, change, userId, true, change.Status == ScheduleChangeStatus.Approved);
+
+        SessionScheduleConflictResponse? approvalConflict = null;
+        if (change.Status == ScheduleChangeStatus.Approved)
+            approvalConflict = await FindCurrentConflictAsync(classSessionId, now, cancellationToken);
+
+        if (decisionTransaction != null)
+            await decisionTransaction.CommitAsync(cancellationToken);
+
+        var response = Map(session, change, userId, true, change.Status == ScheduleChangeStatus.Approved);
+        response.ScheduleConflict = approvalConflict;
+        response.AdmissionAllowed = response.AdmissionAllowed && approvalConflict == null;
+        return response;
     }
 
     private Task<SessionSnapshot?> LoadSessionAsync(int classSessionId, CancellationToken cancellationToken)
@@ -283,23 +305,36 @@ public class ClassSessionScheduleChangeService(
         throw new UnauthorizedAccessException("Bạn không có quyền truy cập buổi học này.");
     }
 
-    private async Task EnsureNoScheduleConflictAsync(
-        SessionSnapshot session,
-        ClassSessionScheduleChange change,
+    public async Task<SessionScheduleConflictResponse?> FindCurrentConflictAsync(
+        int classSessionId,
         DateTime candidateStart,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken = default)
     {
-        var candidateEnd = candidateStart.Add(change.Originalscheduledend - change.Originalscheduledstart);
-        var conflict = await db.ClassSessions.AsNoTracking().AnyAsync(
-            x => x.Classsessionid != session.Classsessionid
-                && x.Checkouttime == null
-                && (x.Status == ClassSessionStatus.Scheduled || x.Status == ClassSessionStatus.InProgress)
-                && (x.Tutorid == session.Tutorid || x.Studentid == session.Studentid)
-                && x.Scheduledstart < candidateEnd
-                && x.Scheduledend > candidateStart,
-            cancellationToken);
-        if (conflict)
-            throw new InvalidOperationException("Thời gian học mới bị trùng với một buổi học khác của gia sư hoặc học viên.");
+        var session = await LoadSessionAsync(classSessionId, cancellationToken)
+            ?? throw new KeyNotFoundException("Không tìm thấy buổi học.");
+        var approvedChange = await db.ClassSessionScheduleChanges
+            .AsNoTracking()
+            .Where(x => x.Classsessionid == classSessionId
+                && x.Status == ScheduleChangeStatus.Approved
+                && x.Expiresat > candidateStart)
+            .OrderByDescending(x => x.Schedulechangeid)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (approvedChange == null)
+            return null;
+
+        var candidateEnd = candidateStart.Add(
+            approvedChange.Originalscheduledend - approvedChange.Originalscheduledstart);
+        return await ClassSessionScheduleConflictGuard.FindAsync(
+            db,
+            session.Classsessionid,
+            session.Tutorid,
+            session.Studentid,
+            candidateStart,
+            candidateEnd,
+            cancellationToken,
+            approvedChange.Approvedat,
+            approvedChange.Schedulechangeid);
     }
 
     private async Task NotifyApproversAsync(

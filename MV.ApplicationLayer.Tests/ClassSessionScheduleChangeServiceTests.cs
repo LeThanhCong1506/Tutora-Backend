@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
+using MV.ApplicationLayer.Helpers;
 using MV.ApplicationLayer.Services;
 using MV.DomainLayer.Constants;
 using MV.DomainLayer.Entities;
@@ -154,6 +155,131 @@ public class ClassSessionScheduleChangeServiceTests
         Assert.Empty(await db.ClassSessionScheduleChanges.ToListAsync());
     }
 
+    [Fact]
+    public async Task TutorConflict_KeepsBothConfirmationsButBlocksAdmission()
+    {
+        await using var db = CreateContext();
+        SeedSession(db, DateOnly.FromDateTime(TimeZoneHelper.UtcNow).AddYears(-16), managedByParent: false);
+        AddConflictSession(db, 2, "tutor-1", "another-student", TimeZoneHelper.UtcNow.AddMinutes(10), TimeZoneHelper.UtcNow.AddMinutes(40));
+        await db.SaveChangesAsync();
+        var service = CreateService(db);
+
+        await service.RespondAsync(1, "tutor-1", UserRole.Tutor, true);
+        var approved = await service.RespondAsync(1, "student-user-1", UserRole.Student, true);
+
+        Assert.Equal(ScheduleChangeStatus.Approved, approved.Status);
+        Assert.False(approved.AdmissionAllowed);
+        Assert.NotNull(approved.ScheduleConflict);
+        Assert.Equal("tutor", approved.ScheduleConflict.ConflictingParty);
+        db.ChangeTracker.Clear();
+        var change = await db.ClassSessionScheduleChanges.SingleAsync();
+        Assert.NotNull(change.Tutorconfirmedat);
+        Assert.NotNull(change.Learnerconfirmedat);
+        Assert.Equal(ScheduleChangeStatus.Approved, change.Status);
+    }
+
+    [Fact]
+    public async Task StudentConflict_KeepsBothConfirmationsButBlocksAdmission()
+    {
+        await using var db = CreateContext();
+        SeedSession(db, DateOnly.FromDateTime(TimeZoneHelper.UtcNow).AddYears(-16), managedByParent: false);
+        AddConflictSession(db, 2, "another-tutor", "student-profile-1", TimeZoneHelper.UtcNow.AddMinutes(10), TimeZoneHelper.UtcNow.AddMinutes(40));
+        await db.SaveChangesAsync();
+        var service = CreateService(db);
+
+        await service.RespondAsync(1, "tutor-1", UserRole.Tutor, true);
+        var approved = await service.RespondAsync(1, "student-user-1", UserRole.Student, true);
+
+        Assert.Equal(ScheduleChangeStatus.Approved, approved.Status);
+        Assert.False(approved.AdmissionAllowed);
+        Assert.NotNull(approved.ScheduleConflict);
+        Assert.Equal("student", approved.ScheduleConflict.ConflictingParty);
+    }
+
+    [Fact]
+    public async Task BoundaryTouchingSession_IsAllowed()
+    {
+        await using var db = CreateContext();
+        SeedSession(db, DateOnly.FromDateTime(TimeZoneHelper.UtcNow).AddYears(-16), managedByParent: false);
+        var candidateStart = TimeZoneHelper.UtcNow.AddHours(2);
+        AddConflictSession(db, 2, "tutor-1", "another-student", candidateStart.AddHours(-1), candidateStart);
+        await db.SaveChangesAsync();
+
+        var conflict = await ClassSessionScheduleConflictGuard.FindAsync(
+            db,
+            1,
+            "tutor-1",
+            "student-profile-1",
+            candidateStart,
+            candidateStart.AddHours(1));
+
+        Assert.Null(conflict);
+    }
+
+    [Fact]
+    public async Task ApprovedChange_ReservesTutorIntervalUntilAppliedOrExpired()
+    {
+        await using var db = CreateContext();
+        SeedSession(db, DateOnly.FromDateTime(TimeZoneHelper.UtcNow).AddYears(-16), managedByParent: false);
+        var candidateStart = TimeZoneHelper.UtcNow.AddHours(2);
+        var reservedSession = AddConflictSession(
+            db,
+            2,
+            "tutor-1",
+            "another-student",
+            TimeZoneHelper.UtcNow.AddDays(-1),
+            TimeZoneHelper.UtcNow.AddDays(-1).AddHours(1));
+        db.ClassSessionScheduleChanges.Add(new ClassSessionScheduleChange
+        {
+            Classsessionid = 2,
+            ClassSession = reservedSession,
+            Originalscheduledstart = reservedSession.Scheduledstart,
+            Originalscheduledend = reservedSession.Scheduledend,
+            Tutoruserid = "tutor-1",
+            Learnerapproveruserid = "another-student-user",
+            Learnerapproverrole = UserRole.Student,
+            Requestedat = candidateStart.AddMinutes(-1),
+            Approvedat = candidateStart,
+            Expiresat = candidateStart.AddMinutes(30),
+            Status = ScheduleChangeStatus.Approved,
+            Createdat = candidateStart.AddMinutes(-1),
+            Updatedat = candidateStart
+        });
+        await db.SaveChangesAsync();
+
+        var conflict = await ClassSessionScheduleConflictGuard.FindAsync(
+            db,
+            1,
+            "tutor-1",
+            "student-profile-1",
+            candidateStart.AddMinutes(10),
+            candidateStart.AddMinutes(40));
+
+        Assert.NotNull(conflict);
+        Assert.Equal(2, conflict.ClassSessionId);
+        Assert.Equal("tutor", conflict.ConflictingParty);
+    }
+
+    private static ClassSession AddConflictSession(
+        AgoraDbContext db,
+        int id,
+        string tutorId,
+        string studentId,
+        DateTime start,
+        DateTime end)
+    {
+        var session = new ClassSession
+        {
+            Classsessionid = id,
+            Tutorid = tutorId,
+            Studentid = studentId,
+            Scheduledstart = start,
+            Scheduledend = end,
+            Status = ClassSessionStatus.Scheduled
+        };
+        db.ClassSessions.Add(session);
+        return session;
+    }
     private static ClassSessionScheduleChangeService CreateService(AgoraDbContext db)
         => new(db, null!, NullLogger<ClassSessionScheduleChangeService>.Instance);
 
@@ -220,6 +346,7 @@ public class ClassSessionScheduleChangeServiceTests
         {
             base.OnModelCreating(modelBuilder);
             modelBuilder.Entity<QuestionBank>().Ignore(x => x.Embedding);
+            modelBuilder.Entity<TutoraKbChunk>().Ignore(x => x.Embedding);
         }
     }
 

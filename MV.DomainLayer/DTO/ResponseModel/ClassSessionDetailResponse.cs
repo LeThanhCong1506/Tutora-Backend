@@ -34,6 +34,7 @@ public class ClassSessionDetailResponse
 
     // Status
     public string? Status { get; set; }
+    public string? BookingStatus { get; set; }
     public DateTime? SubmittedAt { get; set; }
     public DateTime? ConfirmDeadline { get; set; }
     public DateTime? ParentAckAt { get; set; }
