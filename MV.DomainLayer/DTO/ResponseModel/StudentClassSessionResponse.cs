@@ -11,6 +11,8 @@ public class StudentClassSessionSummaryResponse
 {
     public int ClassSessionId { get; set; }
     public string? Status { get; set; }
+    public string? BookingStatus { get; set; }
+    public bool? IsSettled { get; set; }
     public DateTime? ScheduledStart { get; set; }
     public DateTime? ScheduledEnd { get; set; }
     public DateTime? ConfirmDeadline { get; set; }

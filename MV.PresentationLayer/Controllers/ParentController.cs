@@ -1,7 +1,6 @@
 using MV.DomainLayer.Constants;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.Http;
 using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.DTO;
 using MV.DomainLayer.DTO.RequestModel;
@@ -169,8 +168,9 @@ public class ParentController : ControllerBase
     /// ClassSession must be PendingConfirmation or Completed, and not already disputed.
     /// </summary>
     [HttpPost("class-sessions/{id}/dispute")]
+    [Consumes("multipart/form-data")]
     [Authorize(Roles = UserRole.ParentOrStudent)]
-    public async Task<ActionResult<APIResponse<DisputeDetailResponse>>> CreateDispute(int id, [FromBody] CreateDisputeRequest request)
+    public async Task<ActionResult<APIResponse<DisputeDetailResponse>>> CreateDispute(int id, [FromForm] CreateDisputeRequest request)
     {
         var userId = UserHelper.GetUserId(User);
         var role = User.FindFirstValue(ClaimTypes.Role) ?? "";
@@ -205,33 +205,6 @@ public class ParentController : ControllerBase
             return NotFound(APIResponse<DisputeDetailResponse>.Fail("Buổi học này không có tranh chấp."));
 
         return Ok(APIResponse<DisputeDetailResponse>.Success(result, "Lấy thông tin tranh chấp thành công."));
-    }
-
-    /// <summary>
-    /// Upload dispute evidence for a classSession (images/PDF).
-    /// </summary>
-    [HttpPost("class-sessions/{id}/dispute/evidence")]
-    [Authorize(Roles = UserRole.ParentOrStudent)]
-    public async Task<ActionResult<APIResponse<string>>> UploadDisputeEvidence(int id, IFormFile file)
-    {
-        if (file == null || file.Length == 0)
-            return BadRequest(APIResponse<string>.Fail("Tệp bằng chứng là bắt buộc."));
-
-        var userId = UserHelper.GetUserId(User);
-        var role = User.FindFirstValue(ClaimTypes.Role) ?? "";
-        try
-        {
-            var fileUrl = await _parentService.UploadDisputeEvidenceAsync(id, userId, role, file);
-            return Ok(APIResponse<string>.Success(fileUrl, "Tải tệp bằng chứng thành công."));
-        }
-        catch (ClassSessionException ex)
-        {
-            return StatusCode(ex.HttpStatus, APIResponse<object>.Fail(ex.Message, ex.HttpStatus));
-        }
-        catch (Exception ex)
-        {
-            return StatusCode(500, APIResponse<object>.Fail($"Lỗi hệ thống: {ex.Message}", 500));
-        }
     }
 
     /// <summary>

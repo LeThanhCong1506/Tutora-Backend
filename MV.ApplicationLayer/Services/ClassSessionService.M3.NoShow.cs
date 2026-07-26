@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using System.Text.Json;
 using MV.ApplicationLayer.Helpers;
 using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO.RequestModel;
@@ -37,6 +38,8 @@ public partial class ClassSessionService
 
         if (classSession.Status != Scheduled)
             throw new ClassSessionException(ClassSessionErrorCodes.InvalidClassSessionStatus, "Buổi học không ở trạng thái đã lên lịch", 400);
+        if (DisputeSettlementPolicy.IsTerminalBooking(classSession.Booking?.Status))
+            throw new ClassSessionException(ClassSessionErrorCodes.InvalidClassSessionStatus, "Booking đã kết thúc, không thể tạo báo cáo mới", 400);
 
         classSession.Status = NoShow;
         classSession.Istutorpresent = false;
@@ -49,30 +52,83 @@ public partial class ClassSessionService
             ? $"Tutor no-show lúc {reportedAt:dd/MM/yyyy HH:mm}: {request!.Reason}"
             : $"Tutor no-show: Gia sư không có mặt lúc {reportedAt:dd/MM/yyyy HH:mm}";
 
-        // Auto-create dispute record to track no-show
-        var dispute = new Dispute
-        {
-            Classsessionid = classSessionId,
-            Bookingid = classSession.Bookingid,
-            Createdby = userId,
-            Disputetype = DisputeTypes.NoShow,
-            Reason = reasonText,
-            Status = DisputeStatus.Pending,
-            Createdat = now
-        };
-        _context.Disputes.Add(dispute);
+        var uploadedEvidence = new List<string>();
+        var evidenceFolder = $"dispute-evidence-{classSessionId}";
+        Dispute dispute;
 
-        await _context.SaveChangesAsync();
+        try
+        {
+            if (request?.Files?.Count > 0)
+            {
+                await _storageService.EnsureBucketExistsAsync(ClassSessionAttachmentBucket);
+                foreach (var file in request.Files.Where(file => file is { Length: > 0 }))
+                {
+                    uploadedEvidence.Add(await _storageService.UploadFileAsync(
+                        ClassSessionAttachmentBucket,
+                        evidenceFolder,
+                        file));
+                }
+            }
+
+            // Auto-create dispute record to track no-show, including evidence in the same request.
+            dispute = new Dispute
+            {
+                Classsessionid = classSessionId,
+                Bookingid = classSession.Bookingid,
+                Createdby = userId,
+                Disputetype = DisputeTypes.NoShow,
+                Reason = reasonText,
+                Status = DisputeStatus.Pending,
+                Evidence = uploadedEvidence.Count > 0 ? JsonSerializer.Serialize(uploadedEvidence) : null,
+                Createdat = now
+            };
+            _context.Disputes.Add(dispute);
+
+            await _context.SaveChangesAsync();
+        }
+        catch
+        {
+            foreach (var fileUrl in uploadedEvidence)
+            {
+                try
+                {
+                    await _storageService.DeleteFileAsync(
+                        ClassSessionAttachmentBucket,
+                        evidenceFolder,
+                        fileUrl);
+                }
+                catch (Exception cleanupError)
+                {
+                    _logger.LogWarning(
+                        cleanupError,
+                        "Failed to clean orphan no-show evidence {FileUrl} for classSession {ClassSessionId}",
+                        fileUrl,
+                        classSessionId);
+                }
+            }
+
+            throw;
+        }
 
         // Notify tutor about the no-show report
         if (!string.IsNullOrEmpty(classSession.Tutorid))
         {
-            await _notificationService.CreateNotificationAsync(new NotificationRequest
+            try
             {
-                Userid = classSession.Tutorid,
-                Title = "Báo cáo vắng mặt",
-                Message = $"Bạn đã bị báo cáo vắng mặt cho buổi học #{classSessionId}."
-            });
+                await _notificationService.CreateNotificationAsync(new NotificationRequest
+                {
+                    Userid = classSession.Tutorid,
+                    Title = "Báo cáo vắng mặt",
+                    Message = $"Bạn đã bị báo cáo vắng mặt cho buổi học #{classSessionId}."
+                });
+            }
+            catch (Exception notificationError)
+            {
+                _logger.LogWarning(
+                    notificationError,
+                    "No-show dispute {DisputeId} was created but tutor notification failed",
+                    dispute.Disputeid);
+            }
         }
 
         _logger.LogInformation("User {UserId} ({Role}) reported tutor no-show for classSession {ClassSessionId}, dispute {DisputeId} created", userId, role, classSessionId, dispute.Disputeid);

@@ -37,6 +37,7 @@ public class CalendarClassSessionResponse
     public string? TutorName { get; set; }
     public string? SubjectName { get; set; }
     public string? Status { get; set; }
+    public string? BookingStatus { get; set; }
     public string? MeetingLink { get; set; }
 
     /// <summary>

@@ -1,4 +1,3 @@
-using Microsoft.AspNetCore.Http;
 using MV.DomainLayer.DTO.RequestModel;
 using MV.DomainLayer.DTO.ResponseModel;
 
@@ -39,9 +38,5 @@ public interface IParentService
     /// </summary>
     Task<List<CalendarDayResponse>> GetParentCalendarAsync(string userId, string role, DateTime startDate, DateTime endDate);
 
-    /// <summary>
-    /// Upload dispute evidence for a classSession
-    /// </summary>
-    Task<string> UploadDisputeEvidenceAsync(int classSessionId, string userId, string role, IFormFile file);
 }
 
