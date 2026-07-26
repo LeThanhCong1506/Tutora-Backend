@@ -24,11 +24,12 @@ namespace MV.ApplicationLayer.Services;
 /// time correlation against <c>session_participants</c>. Every participant carries the confidence
 /// of its binding so staff never mistake a guess for a fact.
 ///
-/// Three independent sources are combined, and reported separately rather than merged:
+/// Four independent sources are combined, and reported separately rather than merged:
 /// Agora's server-side channel events (strongest), the heartbeat chain from our own classroom
-/// client (the only source that can tell a room left open apart from a lesson being taught), and
-/// the network/device each admission came from (the account-sharing signal). When two sources
-/// disagree, that disagreement is the finding, so neither is allowed to overwrite the other.
+/// client (the only source that can tell a room left open apart from a lesson being taught), lobby
+/// visits captured before room admission, and the network/device each admission came from (the
+/// account-sharing signal). When two sources disagree, that disagreement is the finding, so
+/// neither is allowed to overwrite the other.
 /// </summary>
 public class SessionLogService(
     IAppDbContext context,
@@ -56,6 +57,144 @@ public class SessionLogService(
 
     /// <summary>Clock skew allowance for an Agora join timestamped just before our admission row.</summary>
     private static readonly TimeSpan CorrelationSkew = TimeSpan.FromSeconds(30);
+
+    /// <inheritdoc/>
+    public async Task RecordLobbyJoinAsync(
+        int classSessionId,
+        string appUserId,
+        string role,
+        string connectionId,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(appUserId) || string.IsNullOrWhiteSpace(connectionId))
+            return;
+
+        try
+        {
+            var now = TimeZoneHelper.UtcNow;
+            var normalizedConnectionId = Clip(connectionId, 128);
+            var existing = await context.SessionLobbyVisits
+                .FirstOrDefaultAsync(
+                    visit => visit.ClassSessionId == classSessionId
+                             && visit.ConnectionId == normalizedConnectionId,
+                    cancellationToken);
+
+            if (existing == null)
+            {
+                context.SessionLobbyVisits.Add(new SessionLobbyVisit
+                {
+                    ClassSessionId = classSessionId,
+                    AppUserId = appUserId,
+                    Role = role,
+                    ConnectionId = normalizedConnectionId,
+                    EnteredAt = now,
+                    LastSeenAt = now,
+                    BeatCount = 1
+                });
+            }
+            else
+            {
+                // JoinLobby can be invoked again on the same still-connected transport after a
+                // client retry. Keep one visit for that connection and reopen it if necessary.
+                existing.LastSeenAt = now;
+                existing.BeatCount += 1;
+                existing.LeftAt = null;
+                existing.ClosedReason = null;
+                if (existing.Role == SessionParticipantRole.Unknown && role != SessionParticipantRole.Unknown)
+                    existing.Role = role;
+            }
+
+            await context.SaveChangesAsync(cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(
+                ex,
+                "Could not record lobby join for user {UserId} in class session {ClassSessionId}.",
+                appUserId,
+                classSessionId);
+        }
+    }
+
+    /// <inheritdoc/>
+    public async Task RecordLobbyHeartbeatAsync(
+        int classSessionId,
+        string appUserId,
+        string connectionId,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(appUserId) || string.IsNullOrWhiteSpace(connectionId))
+            return;
+
+        try
+        {
+            var normalizedConnectionId = Clip(connectionId, 128);
+            var visit = await context.SessionLobbyVisits
+                .FirstOrDefaultAsync(
+                    row => row.ClassSessionId == classSessionId
+                           && row.AppUserId == appUserId
+                           && row.ConnectionId == normalizedConnectionId
+                           && row.ClosedReason == null,
+                    cancellationToken);
+
+            if (visit == null)
+                return;
+
+            visit.LastSeenAt = TimeZoneHelper.UtcNow;
+            visit.BeatCount += 1;
+            await context.SaveChangesAsync(cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(
+                ex,
+                "Could not record lobby heartbeat for user {UserId} in class session {ClassSessionId}.",
+                appUserId,
+                classSessionId);
+        }
+    }
+
+    /// <inheritdoc/>
+    public async Task CloseLobbyVisitAsync(
+        int classSessionId,
+        string appUserId,
+        string connectionId,
+        string closedReason,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(appUserId) || string.IsNullOrWhiteSpace(connectionId))
+            return;
+
+        try
+        {
+            var normalizedConnectionId = Clip(connectionId, 128);
+            var visit = await context.SessionLobbyVisits
+                .FirstOrDefaultAsync(
+                    row => row.ClassSessionId == classSessionId
+                           && row.AppUserId == appUserId
+                           && row.ConnectionId == normalizedConnectionId
+                           && row.ClosedReason == null,
+                    cancellationToken);
+
+            if (visit == null)
+                return;
+
+            var now = TimeZoneHelper.UtcNow;
+            if (now > visit.LastSeenAt)
+                visit.LastSeenAt = now;
+            visit.LeftAt = now;
+            visit.ClosedReason = Clip(closedReason, 20);
+            await context.SaveChangesAsync(cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(
+                ex,
+                "Could not close lobby visit for user {UserId} in class session {ClassSessionId}.",
+                appUserId,
+                classSessionId);
+        }
+    }
 
     /// <inheritdoc/>
     public async Task RecordAdmissionAsync(
@@ -349,7 +488,14 @@ public class SessionLogService(
             .OrderBy(d => d.FirstSeenAt)
             .ToListAsync(cancellationToken);
 
-        return BuildLog(classSession, events, registry, runs, devices);
+        var lobbyVisits = await context.SessionLobbyVisits
+            .AsNoTracking()
+            .Where(visit => visit.ClassSessionId == classSessionId)
+            .OrderBy(visit => visit.EnteredAt)
+            .ThenBy(visit => visit.LobbyVisitId)
+            .ToListAsync(cancellationToken);
+
+        return BuildLog(classSession, events, registry, runs, devices, lobbyVisits);
     }
 
     /// <summary>
@@ -363,7 +509,8 @@ public class SessionLogService(
         List<AgoraChannelEvent> events,
         List<SessionParticipant> registry,
         List<SessionPresenceInterval> runs,
-        List<SessionParticipantDevice> devices)
+        List<SessionParticipantDevice> devices,
+        List<SessionLobbyVisit> lobbyVisits)
     {
         var classSessionId = classSession.Classsessionid;
         var flags = new HashSet<string>();
@@ -387,6 +534,13 @@ public class SessionLogService(
             flags);
         var heartbeats = BuildHeartbeats(runs, known, snapshotAt, isOngoing, flags);
         var deviceUses = BuildDeviceUses(devices, known, flags);
+        var lobby = BuildLobbyEvidence(
+            classSession,
+            lobbyVisits,
+            registry,
+            known,
+            snapshotAt,
+            isOngoing);
         var summary = BuildSummary(
             classSession,
             parsed,
@@ -408,6 +562,7 @@ public class SessionLogService(
             Timeline = timeline,
             Heartbeats = heartbeats,
             Devices = deviceUses,
+            Lobby = lobby,
             Flags = [.. flags]
         };
     }
@@ -504,7 +659,8 @@ public class SessionLogService(
                 eventsBySession.GetValueOrDefault(id, []),
                 registryBySession.GetValueOrDefault(id, []),
                 runsBySession.GetValueOrDefault(id, []),
-                devicesBySession.GetValueOrDefault(id, []));
+                devicesBySession.GetValueOrDefault(id, []),
+                []);
 
             var summary = log.Summary;
             var isNoShow = summary.IsEvidenceConclusive && log.Flags.Contains(SessionLogFlag.TutorNeverJoined);
@@ -619,7 +775,8 @@ public class SessionLogService(
 
         foreach (var group in runs.GroupBy(r => r.AppUserId, StringComparer.Ordinal))
         {
-            var ordered = group.OrderBy(r => r.StartedAt).ThenBy(r => r.IntervalId).ToList();
+            var ordered = CoalesceOverlappingRuns(
+                [.. group.OrderBy(r => r.StartedAt).ThenBy(r => r.IntervalId)]);
             byUser.TryGetValue(group.Key, out var person);
 
             var reportedBeats = ordered.Sum(r => r.ReportedBeats);
@@ -677,6 +834,165 @@ public class SessionLogService(
         }
 
         return [.. result.OrderBy(h => RoleOrder(h.Role)).ThenBy(h => h.FirstBeatAt ?? DateTime.MaxValue)];
+    }
+
+    /// <summary>
+    /// Folds runs that overlap in time back into one.
+    ///
+    /// Two heartbeats racing at room entry can each open a run before either insert is visible to
+    /// the other, leaving a stray one-beat twin beside the real run. That stray is a recording
+    /// artifact, not a second presence, and reporting it as a separate run would overstate how
+    /// often the connection broke. The tolerance is deliberately tiny: a real leave followed by a
+    /// rejoin arrives tens of seconds apart and must remain two runs, because "left and came back"
+    /// is exactly the story the chain exists to tell.
+    /// </summary>
+    private static List<SessionPresenceInterval> CoalesceOverlappingRuns(List<SessionPresenceInterval> ordered)
+    {
+        if (ordered.Count < 2)
+            return ordered;
+
+        var tolerance = TimeSpan.FromSeconds(2);
+        var result = new List<SessionPresenceInterval> { CopyRun(ordered[0]) };
+
+        foreach (var run in ordered.Skip(1))
+        {
+            var current = result[^1];
+            if (run.StartedAt > current.LastBeatAt + tolerance)
+            {
+                result.Add(CopyRun(run));
+                continue;
+            }
+
+            current.BeatCount += run.BeatCount;
+            current.ReportedBeats += run.ReportedBeats;
+            current.MicOnBeats += run.MicOnBeats;
+            current.CameraOnBeats += run.CameraOnBeats;
+            current.IdleBeats += run.IdleBeats;
+
+            // Whichever twin kept beating longer holds the truth about how the run ended.
+            if (run.LastBeatAt >= current.LastBeatAt)
+            {
+                current.LastBeatAt = run.LastBeatAt;
+                current.ClosedReason = run.ClosedReason;
+            }
+        }
+
+        return result;
+    }
+
+    /// <summary>Rows come from a no-tracking query, but the merge must still never edit its input.</summary>
+    private static SessionPresenceInterval CopyRun(SessionPresenceInterval run) => new()
+    {
+        IntervalId = run.IntervalId,
+        ClassSessionId = run.ClassSessionId,
+        AppUserId = run.AppUserId,
+        Role = run.Role,
+        StartedAt = run.StartedAt,
+        LastBeatAt = run.LastBeatAt,
+        BeatCount = run.BeatCount,
+        ReportedBeats = run.ReportedBeats,
+        MicOnBeats = run.MicOnBeats,
+        CameraOnBeats = run.CameraOnBeats,
+        IdleBeats = run.IdleBeats,
+        ClosedReason = run.ClosedReason
+    };
+
+    // ── Lobby evidence ────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Reduces one row per SignalR connection into one lobby account per user. The duration is the
+    /// union of server-observed windows, so two tabs cannot double the claimed waiting time.
+    /// </summary>
+    private SessionLogLobbyEvidence BuildLobbyEvidence(
+        ClassSession classSession,
+        List<SessionLobbyVisit> visits,
+        List<SessionParticipant> registry,
+        List<KnownParticipant> known,
+        DateTime snapshotAt,
+        bool isOngoing)
+    {
+        if (visits.Count == 0)
+            return new SessionLogLobbyEvidence();
+
+        var byUser = known.ToDictionary(k => k.AppUserId, k => k, StringComparer.Ordinal);
+        var admittedUsers = registry
+            .Select(row => row.AppUserId)
+            .ToHashSet(StringComparer.Ordinal);
+        var freshness = TimeSpan.FromSeconds(Math.Max(1, evidence.LobbyHeartbeatGapSeconds));
+        var participants = new List<SessionLogLobbyParticipant>();
+
+        foreach (var group in visits.GroupBy(visit => visit.AppUserId, StringComparer.Ordinal))
+        {
+            var ordered = group
+                .OrderBy(visit => visit.EnteredAt)
+                .ThenBy(visit => visit.LobbyVisitId)
+                .ToList();
+            byUser.TryGetValue(group.Key, out var person);
+
+            var windows = ordered
+                .Select(visit =>
+                {
+                    var end = visit.LeftAt ?? visit.LastSeenAt;
+                    return new Interval(visit.EnteredAt, end < visit.EnteredAt ? visit.EnteredAt : end);
+                })
+                .ToList();
+
+            var mostRecentSeenAt = ordered.Max(visit => visit.LastSeenAt);
+            var hasFreshOpenVisit = ordered.Any(visit =>
+                visit.ClosedReason == null
+                && snapshotAt - visit.LastSeenAt <= freshness);
+
+            participants.Add(new SessionLogLobbyParticipant
+            {
+                AppUserId = group.Key,
+                Role = person?.Role ?? ordered[0].Role,
+                DisplayName = person?.DisplayName,
+                FirstEnteredAt = ordered[0].EnteredAt,
+                LastSeenAt = mostRecentSeenAt,
+                LastLeftAt = ordered
+                    .Where(visit => visit.LeftAt.HasValue)
+                    .Select(visit => visit.LeftAt)
+                    .Max(),
+                TotalSeconds = TotalSeconds(Merge(windows)),
+                VisitCount = ordered.Count,
+                BeatCount = ordered.Sum(visit => visit.BeatCount),
+                DisconnectCount = ordered.Count(visit =>
+                    visit.ClosedReason == SessionLobbyVisitCloseReason.Disconnect),
+                IsCurrentlyWaiting = isOngoing && hasFreshOpenVisit,
+                WasAdmittedToRoom = admittedUsers.Contains(group.Key),
+                Visits =
+                [
+                    .. ordered.Select(visit => new SessionLogLobbyVisit
+                    {
+                        EnteredAt = visit.EnteredAt,
+                        LastSeenAt = visit.LastSeenAt,
+                        LeftAt = visit.LeftAt,
+                        BeatCount = visit.BeatCount,
+                        ClosedReason = visit.ClosedReason,
+                        ClosedReasonLabel = SessionLobbyVisitCloseReasonLabels.Label(visit.ClosedReason)
+                    })
+                ]
+            });
+        }
+
+        var orderedParticipants = participants
+            .OrderBy(participant => RoleOrder(participant.Role))
+            .ThenBy(participant => participant.FirstEnteredAt)
+            .ToList();
+        var tutorRecorded = orderedParticipants.Any(participant =>
+            participant.Role == SessionParticipantRole.Tutor);
+        var studentHasOwnAccount = !string.IsNullOrEmpty(classSession.Booking?.Student?.Linkeduserid);
+        var studentSideRecorded = orderedParticipants.Any(participant =>
+            participant.Role == SessionParticipantRole.Student
+            || (!studentHasOwnAccount && participant.Role == SessionParticipantRole.Parent));
+
+        return new SessionLogLobbyEvidence
+        {
+            HasAnyRecord = true,
+            TutorRecorded = tutorRecorded,
+            StudentSideRecorded = studentSideRecorded,
+            Participants = orderedParticipants
+        };
     }
 
     // ── Networks and devices ──────────────────────────────────────────────────

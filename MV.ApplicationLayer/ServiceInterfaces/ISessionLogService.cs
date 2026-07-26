@@ -6,9 +6,39 @@ namespace MV.ApplicationLayer.ServiceInterfaces;
 public interface ISessionLogService
 {
     /// <summary>
+    /// Records that an authenticated participant reached the waiting lobby through one SignalR
+    /// connection. Best-effort: evidence capture must never block access to the lesson.
+    /// </summary>
+    Task RecordLobbyJoinAsync(
+        int classSessionId,
+        string appUserId,
+        string role,
+        string connectionId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Extends the matching lobby visit when the client performs its periodic state refresh.
+    /// </summary>
+    Task RecordLobbyHeartbeatAsync(
+        int classSessionId,
+        string appUserId,
+        string connectionId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Closes one lobby visit as a deliberate leave or a SignalR disconnect. Best-effort.
+    /// </summary>
+    Task CloseLobbyVisitAsync(
+        int classSessionId,
+        string appUserId,
+        string connectionId,
+        string closedReason,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Rebuilds the attendance timeline of a lesson from captured Agora channel events, the
-    /// heartbeat chain our own classroom client sent, and the networks each participant came from.
-    /// Returns null when the class session does not exist.
+    /// heartbeat chain our own classroom client sent, authenticated lobby visits, and the networks
+    /// each participant came from. Returns null when the class session does not exist.
     /// </summary>
     Task<SessionLogResponse?> GetSessionLogAsync(int classSessionId, CancellationToken cancellationToken = default);
 

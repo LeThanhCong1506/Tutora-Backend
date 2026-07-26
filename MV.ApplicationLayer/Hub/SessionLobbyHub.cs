@@ -105,6 +105,17 @@ namespace MV.ApplicationLayer.Hubs
             _presence.JoinLobby(classSessionId, userId, Context.ConnectionId);
             await Groups.AddToGroupAsync(Context.ConnectionId, LobbyGroup(classSessionId));
 
+            var participantRole = ResolveParticipantRole(session, userId);
+            if (participantRole != SessionParticipantRole.Unknown)
+            {
+                var sessionLogService = scope.ServiceProvider.GetRequiredService<ISessionLogService>();
+                await sessionLogService.RecordLobbyJoinAsync(
+                    classSessionId,
+                    userId,
+                    participantRole,
+                    Context.ConnectionId);
+            }
+
             _logger.LogInformation("User {UserId} joined lobby of classSession {ClassSessionId}", userId, classSessionId);
 
             await Clients.Caller.SendAsync("lobbyInfo", new
@@ -126,6 +137,11 @@ namespace MV.ApplicationLayer.Hubs
             if (entry == null) return;
 
             await Groups.RemoveFromGroupAsync(Context.ConnectionId, LobbyGroup(entry.Value.ClassSessionId));
+            await CloseLobbyEvidenceAsync(
+                entry.Value.ClassSessionId,
+                entry.Value.UserId,
+                Context.ConnectionId,
+                SessionLobbyVisitCloseReason.Leave);
             await NotifyLobbyAfterExitAsync(entry.Value.ClassSessionId, entry.Value.UserId);
         }
 
@@ -149,6 +165,12 @@ namespace MV.ApplicationLayer.Hubs
             var db = scope.ServiceProvider.GetRequiredService<IAppDbContext>();
             var session = await LoadSessionAsync(db, classSessionId);
             if (session == null) return;
+
+            var sessionLogService = scope.ServiceProvider.GetRequiredService<ISessionLogService>();
+            await sessionLogService.RecordLobbyHeartbeatAsync(
+                classSessionId,
+                userId,
+                Context.ConnectionId);
 
             // Buổi có thể đã đổi trạng thái trong lúc chờ (vd. bị hủy, hoặc đã check-in ở nơi khác).
             if (session.CheckoutTime != null)
@@ -176,6 +198,11 @@ namespace MV.ApplicationLayer.Hubs
             if (entry != null)
             {
                 // Group membership tự mất khi disconnect — chỉ cần báo cho người còn lại.
+                await CloseLobbyEvidenceAsync(
+                    entry.Value.ClassSessionId,
+                    entry.Value.UserId,
+                    Context.ConnectionId,
+                    SessionLobbyVisitCloseReason.Disconnect);
                 await NotifyLobbyAfterExitAsync(entry.Value.ClassSessionId, entry.Value.UserId);
             }
 
@@ -222,6 +249,14 @@ namespace MV.ApplicationLayer.Hubs
             if (session.ParentId == userId) return true;
             if (!string.IsNullOrEmpty(session.StudentUserId) && session.StudentUserId == userId) return true;
             return false;
+        }
+
+        private static string ResolveParticipantRole(LobbySessionSnapshot session, string userId)
+        {
+            if (session.TutorId == userId) return SessionParticipantRole.Tutor;
+            if (session.StudentUserId == userId) return SessionParticipantRole.Student;
+            if (session.ParentId == userId) return SessionParticipantRole.Parent;
+            return SessionParticipantRole.Unknown;
         }
 
         /// <summary>
@@ -285,6 +320,21 @@ namespace MV.ApplicationLayer.Hubs
                 // Best-effort: lỗi cập nhật trạng thái cho người còn lại không được làm hỏng disconnect.
                 _logger.LogWarning(ex, "Failed to broadcast lobby state after user {UserId} left classSession {ClassSessionId}", userId, classSessionId);
             }
+        }
+
+        private async Task CloseLobbyEvidenceAsync(
+            int classSessionId,
+            string userId,
+            string connectionId,
+            string closedReason)
+        {
+            using var scope = _serviceProvider.CreateScope();
+            var sessionLogService = scope.ServiceProvider.GetRequiredService<ISessionLogService>();
+            await sessionLogService.CloseLobbyVisitAsync(
+                classSessionId,
+                userId,
+                connectionId,
+                closedReason);
         }
     }
 }

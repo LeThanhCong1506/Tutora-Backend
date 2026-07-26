@@ -25,6 +25,13 @@ public class SessionLogResponse
     /// <summary>Networks and devices each participant was admitted from during this lesson.</summary>
     public List<SessionLogDeviceUse> Devices { get; set; } = [];
 
+    /// <summary>
+    /// Authenticated visits to the waiting lobby, recorded by Tutora before room admission.
+    /// This proves that someone reached and waited at the gate even when the peer never arrived
+    /// and therefore neither side could receive the meeting room.
+    /// </summary>
+    public SessionLogLobbyEvidence Lobby { get; set; } = new();
+
     /// <summary>Machine-readable warnings; see <see cref="SessionLogFlag"/> for the vocabulary.</summary>
     public List<string> Flags { get; set; } = [];
 }
@@ -195,6 +202,63 @@ public class SessionLogDeviceUse
     public int AdmissionCount { get; set; }
 }
 
+/// <summary>Server-side evidence captured before participants are allowed into the media room.</summary>
+public class SessionLogLobbyEvidence
+{
+    /// <summary>
+    /// False means no lobby row exists. It must be displayed as missing data, not as proof that
+    /// neither side came, because the lesson may predate this capture.
+    /// </summary>
+    public bool HasAnyRecord { get; set; }
+
+    public bool TutorRecorded { get; set; }
+
+    /// <summary>Student account, or the parent account when the student has no linked login.</summary>
+    public bool StudentSideRecorded { get; set; }
+
+    public bool BothSidesRecorded => TutorRecorded && StudentSideRecorded;
+
+    public List<SessionLogLobbyParticipant> Participants { get; set; } = [];
+}
+
+/// <summary>All lobby visits made by one authenticated application user.</summary>
+public class SessionLogLobbyParticipant
+{
+    public string AppUserId { get; set; } = string.Empty;
+    public string Role { get; set; } = string.Empty;
+    public string? DisplayName { get; set; }
+
+    public DateTime FirstEnteredAt { get; set; }
+    public DateTime LastSeenAt { get; set; }
+    public DateTime? LastLeftAt { get; set; }
+
+    /// <summary>Union of recorded visit windows, so overlapping tabs are not double-counted.</summary>
+    public int TotalSeconds { get; set; }
+
+    public int VisitCount { get; set; }
+    public int BeatCount { get; set; }
+    public int DisconnectCount { get; set; }
+    public bool IsCurrentlyWaiting { get; set; }
+
+    /// <summary>
+    /// True when this account later appears in the room-admission registry. False means the
+    /// strongest Tutora evidence stops at the lobby; it is not automatically a no-show verdict.
+    /// </summary>
+    public bool WasAdmittedToRoom { get; set; }
+
+    public List<SessionLogLobbyVisit> Visits { get; set; } = [];
+}
+
+public class SessionLogLobbyVisit
+{
+    public DateTime EnteredAt { get; set; }
+    public DateTime LastSeenAt { get; set; }
+    public DateTime? LeftAt { get; set; }
+    public int BeatCount { get; set; }
+    public string? ClosedReason { get; set; }
+    public string? ClosedReasonLabel { get; set; }
+}
+
 public class SessionLogParticipant
 {
     public string? AppUserId { get; set; }
@@ -361,6 +425,17 @@ public static class PresenceIntervalCloseReasonLabels
         null => null,
         MV.DomainLayer.Constants.PresenceIntervalCloseReason.Leave => "Client báo rời phòng",
         MV.DomainLayer.Constants.PresenceIntervalCloseReason.Gap => "Ngừng gửi nhịp (đóng tab, treo máy hoặc mất mạng)",
+        _ => closedReason
+    };
+}
+
+public static class SessionLobbyVisitCloseReasonLabels
+{
+    public static string? Label(string? closedReason) => closedReason switch
+    {
+        null => null,
+        MV.DomainLayer.Constants.SessionLobbyVisitCloseReason.Leave => "Rời lobby/chuyển sang phòng học",
+        MV.DomainLayer.Constants.SessionLobbyVisitCloseReason.Disconnect => "Mất kết nối lobby",
         _ => closedReason
     };
 }

@@ -29,6 +29,7 @@ public interface IAppDbContext
     DbSet<SessionParticipant> SessionParticipants { get; }
     DbSet<SessionParticipantDevice> SessionParticipantDevices { get; }
     DbSet<SessionPresenceInterval> SessionPresenceIntervals { get; }
+    DbSet<SessionLobbyVisit> SessionLobbyVisits { get; }
     DbSet<Notification> Notifications { get; }
     DbSet<QuestionBank> QuestionBanks { get; }
     DbSet<QuestionVote> QuestionVotes { get; }

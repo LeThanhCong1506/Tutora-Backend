@@ -59,6 +59,8 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
 
     public virtual DbSet<SessionPresenceInterval> SessionPresenceIntervals { get; set; }
 
+    public virtual DbSet<SessionLobbyVisit> SessionLobbyVisits { get; set; }
+
     public virtual DbSet<Notification> Notifications { get; set; }
 
     public virtual DbSet<QuestionBank> QuestionBanks { get; set; }
@@ -408,6 +410,47 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
             entity.HasIndex(
                 e => new { e.ClassSessionId, e.AppUserId, e.StartedAt },
                 "idx_presence_intervals_session");
+        });
+
+        modelBuilder.Entity<SessionLobbyVisit>(entity =>
+        {
+            entity.HasKey(e => e.LobbyVisitId).HasName("session_lobby_visits_pkey");
+
+            entity.ToTable("session_lobby_visits");
+
+            entity.Property(e => e.LobbyVisitId).HasColumnName("lobby_visit_id");
+            entity.Property(e => e.ClassSessionId).HasColumnName("class_session_id");
+            entity.Property(e => e.AppUserId)
+                .HasMaxLength(50)
+                .HasColumnName("app_user_id");
+            entity.Property(e => e.Role)
+                .HasMaxLength(20)
+                .HasColumnName("role");
+            entity.Property(e => e.ConnectionId)
+                .HasMaxLength(128)
+                .HasColumnName("connection_id");
+            entity.Property(e => e.EnteredAt)
+                .HasColumnType("timestamp without time zone")
+                .HasColumnName("entered_at");
+            entity.Property(e => e.LastSeenAt)
+                .HasColumnType("timestamp without time zone")
+                .HasColumnName("last_seen_at");
+            entity.Property(e => e.BeatCount)
+                .HasDefaultValue(1)
+                .HasColumnName("beat_count");
+            entity.Property(e => e.LeftAt)
+                .HasColumnType("timestamp without time zone")
+                .HasColumnName("left_at");
+            entity.Property(e => e.ClosedReason)
+                .HasMaxLength(20)
+                .HasColumnName("closed_reason");
+
+            entity.HasIndex(
+                e => new { e.ClassSessionId, e.ConnectionId },
+                "ux_session_lobby_visits_connection").IsUnique();
+            entity.HasIndex(
+                e => new { e.ClassSessionId, e.AppUserId, e.EnteredAt },
+                "idx_session_lobby_visits_session");
         });
 
         modelBuilder.Entity<WithdrawalScore>(entity =>

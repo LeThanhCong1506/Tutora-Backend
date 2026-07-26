@@ -848,6 +848,112 @@ public class SessionLogServiceTests
         Assert.Equal(2, row.AdmissionCount);
     }
 
+    // ── Lobby evidence ────────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task LobbyJoinRefreshAndDisconnectProduceOneAuditableVisit()
+    {
+        await using var db = CreateContext();
+        SeedSession(db, status: ClassSessionStatus.Scheduled);
+        await db.SaveChangesAsync();
+        var service = CreateService(db);
+
+        await service.RecordLobbyJoinAsync(
+            ClassSessionId,
+            TutorUserId,
+            SessionParticipantRole.Tutor,
+            "connection-a");
+        await service.RecordLobbyHeartbeatAsync(ClassSessionId, TutorUserId, "connection-a");
+        await service.CloseLobbyVisitAsync(
+            ClassSessionId,
+            TutorUserId,
+            "connection-a",
+            SessionLobbyVisitCloseReason.Disconnect);
+
+        var visit = await db.SessionLobbyVisits.SingleAsync();
+        Assert.Equal(2, visit.BeatCount);
+        Assert.Equal(SessionLobbyVisitCloseReason.Disconnect, visit.ClosedReason);
+        Assert.NotNull(visit.LeftAt);
+        Assert.True(visit.LastSeenAt >= visit.EnteredAt);
+    }
+
+    [Fact]
+    public async Task LobbyLogShowsWhichSideWaitedAndWhetherTheyReachedRoomAdmission()
+    {
+        await using var db = CreateContext();
+        SeedSession(db);
+        db.SessionLobbyVisits.Add(new SessionLobbyVisit
+        {
+            ClassSessionId = ClassSessionId,
+            AppUserId = TutorUserId,
+            Role = SessionParticipantRole.Tutor,
+            ConnectionId = "connection-a",
+            EnteredAt = ScheduledStart,
+            LastSeenAt = ScheduledStart.AddMinutes(10),
+            BeatCount = 61,
+            LeftAt = ScheduledStart.AddMinutes(10),
+            ClosedReason = SessionLobbyVisitCloseReason.Leave
+        });
+        await db.SaveChangesAsync();
+
+        var log = await CreateService(db).GetSessionLogAsync(ClassSessionId);
+
+        Assert.NotNull(log);
+        Assert.True(log!.Lobby.HasAnyRecord);
+        Assert.True(log.Lobby.TutorRecorded);
+        Assert.False(log.Lobby.StudentSideRecorded);
+        Assert.False(log.Lobby.BothSidesRecorded);
+
+        var tutor = Assert.Single(log.Lobby.Participants);
+        Assert.Equal("Gia sư", tutor.DisplayName);
+        Assert.Equal(600, tutor.TotalSeconds);
+        Assert.Equal(61, tutor.BeatCount);
+        Assert.False(tutor.WasAdmittedToRoom);
+        Assert.Equal("Rời lobby/chuyển sang phòng học", Assert.Single(tutor.Visits).ClosedReasonLabel);
+    }
+
+    [Fact]
+    public async Task MissingLobbyRowsAreReportedAsMissingDataRatherThanAbsence()
+    {
+        await using var db = CreateContext();
+        SeedSession(db);
+        await db.SaveChangesAsync();
+
+        var log = await CreateService(db).GetSessionLogAsync(ClassSessionId);
+
+        Assert.NotNull(log);
+        Assert.False(log!.Lobby.HasAnyRecord);
+        Assert.False(log.Lobby.TutorRecorded);
+        Assert.False(log.Lobby.StudentSideRecorded);
+        Assert.Empty(log.Lobby.Participants);
+    }
+
+    [Fact]
+    public async Task ParentLobbyVisitCountsAsStudentSideOnlyWhenStudentHasNoLinkedLogin()
+    {
+        await using var db = CreateContext();
+        SeedSession(db, studentLinkedUserId: null);
+        db.SessionLobbyVisits.Add(new SessionLobbyVisit
+        {
+            ClassSessionId = ClassSessionId,
+            AppUserId = ParentUserId,
+            Role = SessionParticipantRole.Parent,
+            ConnectionId = "connection-parent",
+            EnteredAt = ScheduledStart,
+            LastSeenAt = ScheduledStart.AddMinutes(1),
+            BeatCount = 7,
+            LeftAt = ScheduledStart.AddMinutes(1),
+            ClosedReason = SessionLobbyVisitCloseReason.Leave
+        });
+        await db.SaveChangesAsync();
+
+        var log = await CreateService(db).GetSessionLogAsync(ClassSessionId);
+
+        Assert.NotNull(log);
+        Assert.True(log!.Lobby.StudentSideRecorded);
+        Assert.Equal(SessionParticipantRole.Parent, Assert.Single(log.Lobby.Participants).Role);
+    }
+
     // ── Networks and devices ──────────────────────────────────────────────────
 
     [Fact]
@@ -973,6 +1079,60 @@ public class SessionLogServiceTests
 
         var run = await db.SessionPresenceIntervals.SingleAsync();
         Assert.Equal(PresenceIntervalCloseReason.Leave, run.ClosedReason);
+    }
+
+    [Fact]
+    public async Task RacingFirstBeatsAreReportedAsOneRunWhoseLeaveSurvives()
+    {
+        await using var db = CreateContext();
+        SeedSession(db);
+        SeedParticipants(db, ScheduledStart, ScheduledStart);
+        // Two beats fired concurrently at room entry: each opened its own row before the other's
+        // insert was visible. The stray one-beat twin stays open forever; the real run carried the
+        // whole lesson and was closed by a deliberate leave.
+        AddBeatRun(
+            db, StudentUserId, SessionParticipantRole.Student,
+            ScheduledStart, ScheduledStart, beatCount: 1, closedReason: null);
+        AddBeatRun(
+            db, StudentUserId, SessionParticipantRole.Student,
+            ScheduledStart.AddMilliseconds(8), ScheduledStart.AddMinutes(40),
+            beatCount: 120, closedReason: PresenceIntervalCloseReason.Leave);
+        await db.SaveChangesAsync();
+
+        var log = await CreateService(db).GetSessionLogAsync(ClassSessionId);
+
+        Assert.NotNull(log);
+        var student = Assert.Single(log!.Heartbeats, h => h.Role == SessionParticipantRole.Student);
+        var run = Assert.Single(student.Runs);
+        // The twin that kept beating longer holds the truth about how the run ended.
+        Assert.Equal(PresenceIntervalCloseReason.Leave, run.ClosedReason);
+        Assert.Equal(121, student.BeatCount);
+        Assert.Equal(0, student.GapCount);
+    }
+
+    [Fact]
+    public async Task LeaveThenRejoinStaysTwoRunsSoTheStoryIsNotErased()
+    {
+        await using var db = CreateContext();
+        SeedSession(db);
+        SeedParticipants(db, ScheduledStart, ScheduledStart);
+        // A real exit and a return half a minute later — exactly what the chain must preserve.
+        AddBeatRun(
+            db, StudentUserId, SessionParticipantRole.Student,
+            ScheduledStart, ScheduledStart.AddMinutes(5),
+            beatCount: 15, closedReason: PresenceIntervalCloseReason.Leave);
+        AddBeatRun(
+            db, StudentUserId, SessionParticipantRole.Student,
+            ScheduledStart.AddMinutes(5).AddSeconds(31), ScheduledStart.AddMinutes(40),
+            beatCount: 100, closedReason: PresenceIntervalCloseReason.Leave);
+        await db.SaveChangesAsync();
+
+        var log = await CreateService(db).GetSessionLogAsync(ClassSessionId);
+
+        Assert.NotNull(log);
+        var student = Assert.Single(log!.Heartbeats, h => h.Role == SessionParticipantRole.Student);
+        Assert.Equal(2, student.Runs.Count);
+        Assert.All(student.Runs, r => Assert.Equal(PresenceIntervalCloseReason.Leave, r.ClosedReason));
     }
 
     [Fact]

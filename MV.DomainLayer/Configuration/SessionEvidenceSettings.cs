@@ -25,6 +25,12 @@ public class SessionEvidenceSettings
     public int HeartbeatGapSeconds { get; set; } = 75;
 
     /// <summary>
+    /// How recent the last 10-second lobby refresh must be before the admin log may say the person
+    /// is currently waiting. An unclosed row older than this is historical evidence, not presence.
+    /// </summary>
+    public int LobbyHeartbeatGapSeconds { get; set; } = 35;
+
+    /// <summary>
     /// Share of reported beats with no microphone, no camera and an idle tab that makes a
     /// participant's presence look like an empty room. Advisory only — it raises a flag for staff,
     /// it never decides a dispute.
