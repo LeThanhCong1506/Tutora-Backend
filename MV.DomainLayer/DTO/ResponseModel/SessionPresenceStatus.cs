@@ -17,5 +17,6 @@ public record SessionPresenceStatus(
     bool IsCheckedIn,
     bool RoomClosed,
     bool BlockedByPayment,
-    bool IsRecording
+    bool IsRecording,
+    SessionScheduleConflictResponse? ScheduleConflict = null
 );

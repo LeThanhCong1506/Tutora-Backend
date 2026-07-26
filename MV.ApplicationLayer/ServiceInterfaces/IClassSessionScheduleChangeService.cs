@@ -22,4 +22,9 @@ public interface IClassSessionScheduleChangeService
         string? role,
         bool confirmed,
         CancellationToken cancellationToken = default);
+
+    Task<SessionScheduleConflictResponse?> FindCurrentConflictAsync(
+        int classSessionId,
+        DateTime candidateStart,
+        CancellationToken cancellationToken = default);
 }

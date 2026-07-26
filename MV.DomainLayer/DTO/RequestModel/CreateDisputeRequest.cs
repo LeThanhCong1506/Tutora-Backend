@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using Microsoft.AspNetCore.Http;
 
 namespace MV.DomainLayer.DTO.RequestModel;
 
@@ -24,4 +25,9 @@ public class CreateDisputeRequest
     /// Evidence URLs (images, screenshots)
     /// </summary>
     public List<string>? Evidence { get; set; }
+
+    /// <summary>
+    /// Evidence files submitted together with the dispute.
+    /// </summary>
+    public List<IFormFile>? Files { get; set; }
 }

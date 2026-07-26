@@ -228,6 +228,8 @@ public class ClassSessionRepository(AgoraDbContext context) : IClassSessionRepos
         {
             ClassSessionId        = l.Classsessionid,
             Status          = l.Status,
+            BookingStatus   = l.Booking?.Status,
+            IsSettled       = l.Issettled,
             ScheduledStart  = l.Scheduledstart,
             ScheduledEnd    = l.Scheduledend,
             ConfirmDeadline = l.Confirmdeadline,
@@ -271,6 +273,8 @@ public class ClassSessionRepository(AgoraDbContext context) : IClassSessionRepos
         {
             ClassSessionId        = classSession.Classsessionid,
             Status          = classSession.Status,
+            BookingStatus   = classSession.Booking?.Status,
+            IsSettled       = classSession.Issettled,
             ScheduledStart  = classSession.Scheduledstart,
             ScheduledEnd    = classSession.Scheduledend,
             ConfirmDeadline = classSession.Confirmdeadline,
@@ -338,6 +342,8 @@ public class ClassSessionRepository(AgoraDbContext context) : IClassSessionRepos
         {
             ClassSessionId        = l.Classsessionid,
             Status          = l.Status,
+            BookingStatus   = l.Booking?.Status,
+            IsSettled       = l.Issettled,
             ScheduledStart  = l.Scheduledstart,
             ScheduledEnd    = l.Scheduledend,
             ConfirmDeadline = l.Confirmdeadline,

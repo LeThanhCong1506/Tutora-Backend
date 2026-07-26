@@ -7,6 +7,7 @@ using MV.ApplicationLayer.Common.Hubs;
 using MV.ApplicationLayer.Interfaces;
 using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.Constants;
+using MV.DomainLayer.Helpers;
 using System.Security.Claims;
 
 namespace MV.ApplicationLayer.Hubs
@@ -347,8 +348,25 @@ namespace MV.ApplicationLayer.Hubs
 
             if (tutorWaiting && studentWaiting && scheduleChange.AdmissionAllowed)
             {
+                var conflict = await _scheduleChanges.FindCurrentConflictAsync(
+                    classSessionId,
+                    TimeZoneHelper.UtcNow,
+                    Context.ConnectionAborted);
+                if (conflict != null)
+                {
+                    await Clients.Group(LobbyGroup(classSessionId)).SendAsync(
+                        "scheduleConflict",
+                        conflict,
+                        Context.ConnectionAborted);
+                    return;
+                }
+
+                await Clients.Group(LobbyGroup(classSessionId)).SendAsync(
+                    "scheduleConflictCleared",
+                    new { classSessionId },
+                    Context.ConnectionAborted);
                 _logger.LogInformation(
-                    "Lobby of classSession {ClassSessionId} ready — presence and schedule confirmations are complete",
+                    "Lobby of classSession {ClassSessionId} ready — presence, confirmations and schedule validation are complete",
                     classSessionId);
                 await Clients.Group(LobbyGroup(classSessionId)).SendAsync("sessionReady", new { classSessionId });
             }

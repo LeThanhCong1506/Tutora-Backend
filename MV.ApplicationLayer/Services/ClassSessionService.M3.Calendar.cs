@@ -46,6 +46,7 @@ public partial class ClassSessionService
                     StudentName = l.Booking?.Student?.Fullname,
                     SubjectName = l.Booking?.Subject?.Subjectname,
                     Status = l.Status,
+                    BookingStatus = l.Booking?.Status,
                     MeetingLink = l.Meetinglink,
                     CheckOutTime = l.Checkouttime,
                     HasRecording = RecordingStatusResolver.Resolve(l.Recordingurl, l.Recordings3key, l.Recordingsid, l.Checkouttime.HasValue).Status == "available"
@@ -102,6 +103,7 @@ public partial class ClassSessionService
                     TutorName = l.Booking?.Tutor?.Tutor?.Fullname,
                     SubjectName = l.Booking?.Subject?.Subjectname,
                     Status = l.Status,
+                    BookingStatus = l.Booking?.Status,
                     MeetingLink = l.Meetinglink,
                     CheckOutTime = l.Checkouttime,
                     HasRecording = RecordingStatusResolver.Resolve(l.Recordingurl, l.Recordings3key, l.Recordingsid, l.Checkouttime.HasValue).Status == "available"

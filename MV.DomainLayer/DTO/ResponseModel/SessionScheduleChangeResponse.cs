@@ -25,6 +25,7 @@ public class SessionScheduleChangeResponse
     public DateTime? AppliedAt { get; set; }
     public DateTime? AdjustedScheduledStart { get; set; }
     public DateTime? AdjustedScheduledEnd { get; set; }
+    public SessionScheduleConflictResponse? ScheduleConflict { get; set; }
 }
 
 public class DisputeScheduleChangeAuditResponse

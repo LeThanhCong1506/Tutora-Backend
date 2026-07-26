@@ -24,6 +24,7 @@ public partial class ClassSessionService
             IsStudentPresent = classSession.Isstudentpresent,
             AttendanceNote = classSession.Attendancenote,
             Status = classSession.Status,
+            BookingStatus = classSession.Booking?.Status,
             SubmittedAt = classSession.Submittedat,
             ConfirmDeadline = classSession.Confirmdeadline,
             ParentAckAt = classSession.Parentackat,

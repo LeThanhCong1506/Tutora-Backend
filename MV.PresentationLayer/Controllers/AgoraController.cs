@@ -131,6 +131,23 @@ public class AgoraController(
                     scheduleChange = heartbeatScheduleState
                 }));
         }
+        var heartbeatScheduleConflict = await scheduleChanges.FindCurrentConflictAsync(
+            classSessionId,
+            TimeZoneHelper.UtcNow,
+            cancellationToken);
+        if (heartbeatScheduleConflict != null)
+        {
+            presence.Leave(classSessionId, userId);
+            return Conflict(APIResponse<object>.Fail(
+                heartbeatScheduleConflict.Message,
+                409,
+                new
+                {
+                    code = LiveSessionScheduleChangeErrorCodes.ScheduleConflict,
+                    conflict = heartbeatScheduleConflict
+                }));
+        }
+
         presence.Heartbeat(classSessionId, userId);
 
         // In-memory presence answers "is this lesson checkable in right now" and is gone on restart.
@@ -144,6 +161,18 @@ public class AgoraController(
             cancellationToken);
 
         var status = await classSessionService.TryAutoCheckInAsync(classSessionId);
+        if (status.ScheduleConflict != null)
+        {
+            presence.Leave(classSessionId, userId);
+            return Conflict(APIResponse<object>.Fail(
+                status.ScheduleConflict.Message,
+                409,
+                new
+                {
+                    code = LiveSessionScheduleChangeErrorCodes.ScheduleConflict,
+                    conflict = status.ScheduleConflict
+                }));
+        }
 
         return Ok(APIResponse<object>.Success(new
         {
@@ -537,6 +566,22 @@ public class AgoraController(
                     scheduleChange = scheduleChangeState
                 }));
         }
+        var scheduleConflict = await scheduleChanges.FindCurrentConflictAsync(
+            classSessionId,
+            TimeZoneHelper.UtcNow,
+            cancellationToken);
+        if (scheduleConflict != null)
+        {
+            return Conflict(APIResponse<object>.Fail(
+                scheduleConflict.Message,
+                409,
+                new
+                {
+                    code = LiveSessionScheduleChangeErrorCodes.ScheduleConflict,
+                    conflict = scheduleConflict
+                }));
+        }
+
         LiveSessionDeviceLease lease;
         if (normalizedExpectedLeaseId == null)
         {
