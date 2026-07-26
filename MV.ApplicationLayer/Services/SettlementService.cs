@@ -285,8 +285,6 @@ public partial class SettlementService : ISettlementService
                 ?? throw new ClassSessionException(ClassSessionErrorCodes.ClassSessionNotFound, "Buổi học không có thông tin booking để tính hoàn tiền", 400);
             var parentRefundPerSession = LessonRefundCalculator.ParentRefundPerSession(booking);
             var tutorEscrowPerSession = LessonRefundCalculator.TutorEscrowPerSession(booking);
-            var refundAmount = Math.Round(parentRefundPerSession * refundPercentage / 100m, 2);
-            var tutorAmount = Math.Round(tutorEscrowPerSession * (100 - refundPercentage) / 100m, 2);
             // Người nhận hoàn tiền = người đã trả: phụ huynh đặt hộ → Parentid; học sinh tự đặt → ví học sinh.
             var refundRecipientId = !string.IsNullOrWhiteSpace(booking.Parentid)
                 ? booking.Parentid
@@ -305,13 +303,29 @@ public partial class SettlementService : ISettlementService
                 ? await WalletLockHelper.GetOrCreateForUpdateAsync(_context, refundRecipientId, MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow)
                 : null;
 
+            // Clamp against what's actually collected/frozen — LessonRefundCalculator's per-session
+            // math assumes the full booking (both payment phases) is collected, which isn't true if
+            // "remaining" hasn't been paid yet (only the deposit — exactly session 1's share — has).
+            // Same clamping pattern as ProcessNoShowActionAsync's ChangeTutor branch.
+            var totalPaidByParent = booking.Remainingpaidat.HasValue
+                ? (booking.Finalprice ?? 0)
+                : (booking.Depositpaidat.HasValue ? (booking.Depositamount ?? 0) : 0m);
+            var totalAlreadyRefunded = await _context.Wallettransactions
+                .Where(wt => wt.Referencetable == ReferenceTable.Booking
+                          && wt.Referenceid == classSession.Bookingid
+                          && wt.Transactiontype == TransactionType.Refund)
+                .SumAsync(wt => wt.Amount ?? 0);
+            var maxParentRefund = Math.Max(0, totalPaidByParent - totalAlreadyRefunded);
+
+            if (tutorWallet != null)
+                tutorEscrowPerSession = Math.Round(Math.Min(tutorEscrowPerSession, Math.Max(0, tutorWallet.Frozenbalance ?? 0)), 2);
+
+            var refundAmount = Math.Round(Math.Min(parentRefundPerSession * refundPercentage / 100m, maxParentRefund), 2);
+            var tutorAmount = Math.Round(tutorEscrowPerSession * (100 - refundPercentage) / 100m, 2);
+
             // Release exactly one session's worth of escrow from tutor frozen balance
             if (tutorWallet != null)
             {
-                if ((tutorWallet.Frozenbalance ?? 0) < tutorEscrowPerSession)
-                    _logger.LogWarning(
-                        "Tutor {TutorId} frozen balance {Frozen} less than escrow per session {Escrow} for classSession {ClassSessionId}",
-                        tutorId, tutorWallet.Frozenbalance, tutorEscrowPerSession, classSession.Classsessionid);
                 tutorWallet.Frozenbalance = Math.Max(0, (tutorWallet.Frozenbalance ?? 0) - tutorEscrowPerSession);
                 if (tutorAmount > 0)
                     tutorWallet.Balance += tutorAmount;
@@ -431,6 +445,62 @@ public partial class SettlementService : ISettlementService
     }
 
     // Múi giờ Việt Nam (UTC+7) – dùng cho response hiển thị (now using VietnamTimeHelper)
+
+    public async Task<RefundPreviewResponse> PreviewRefundAsync(int classSessionId, int refundPercentage)
+    {
+        if (refundPercentage < 0 || refundPercentage > 100)
+            throw new ArgumentException("Phần trăm hoàn tiền phải nằm trong khoảng từ 0 đến 100");
+
+        var classSession = await _context.ClassSessions
+            .AsNoTracking()
+            .Include(l => l.Booking)
+            .FirstOrDefaultAsync(l => l.Classsessionid == classSessionId)
+            ?? throw new ClassSessionException(ClassSessionErrorCodes.ClassSessionNotFound, "Không tìm thấy buổi học", 404);
+
+        var booking = classSession.Booking
+            ?? throw new ClassSessionException(ClassSessionErrorCodes.ClassSessionNotFound, "Buổi học không có thông tin booking để tính hoàn tiền", 400);
+
+        var parentRefundPerSession = LessonRefundCalculator.ParentRefundPerSession(booking);
+        var tutorEscrowPerSession = LessonRefundCalculator.TutorEscrowPerSession(booking);
+
+        var tutorWallet = await _context.Wallets.AsNoTracking().FirstOrDefaultAsync(w => w.Userid == classSession.Tutorid);
+        var tutorFrozenBalance = tutorWallet?.Frozenbalance ?? 0;
+
+        var totalPaidByParent = booking.Remainingpaidat.HasValue
+            ? (booking.Finalprice ?? 0)
+            : (booking.Depositpaidat.HasValue ? (booking.Depositamount ?? 0) : 0m);
+        var totalAlreadyRefunded = await _context.Wallettransactions
+            .Where(wt => wt.Referencetable == ReferenceTable.Booking
+                      && wt.Referenceid == classSession.Bookingid
+                      && wt.Transactiontype == TransactionType.Refund)
+            .SumAsync(wt => wt.Amount ?? 0);
+        var maxParentRefund = Math.Max(0, totalPaidByParent - totalAlreadyRefunded);
+
+        var clampedTutorEscrow = Math.Round(Math.Min(tutorEscrowPerSession, Math.Max(0, tutorFrozenBalance)), 2);
+        var rawRefundAmount = Math.Round(parentRefundPerSession * refundPercentage / 100m, 2);
+        var refundAmount = Math.Round(Math.Min(rawRefundAmount, maxParentRefund), 2);
+        var tutorAmount = Math.Round(clampedTutorEscrow * (100 - refundPercentage) / 100m, 2);
+
+        var warnings = new List<string>();
+        if (refundAmount < rawRefundAmount)
+            warnings.Add(
+                $"Số tiền hoàn phụ huynh bị giới hạn còn {refundAmount:N0}đ (thay vì {rawRefundAmount:N0}đ) vì mới thu được {totalPaidByParent:N0}đ cho booking này" +
+                (totalAlreadyRefunded > 0 ? $" (đã hoàn {totalAlreadyRefunded:N0}đ trước đó)." : "."));
+        if (clampedTutorEscrow < tutorEscrowPerSession)
+            warnings.Add($"Escrow gia sư không đủ — chỉ giải phóng được {clampedTutorEscrow:N0}đ thay vì {tutorEscrowPerSession:N0}đ (số dư đóng băng hiện tại: {tutorFrozenBalance:N0}đ).");
+
+        return new RefundPreviewResponse
+        {
+            ClassSessionId = classSessionId,
+            Percentage = refundPercentage,
+            ParentRefundAmount = refundAmount,
+            TutorPayoutAmount = tutorAmount,
+            IsDepositPaid = booking.Depositpaidat.HasValue,
+            IsRemainingPaid = booking.Remainingpaidat.HasValue,
+            TutorFrozenBalance = tutorFrozenBalance,
+            Warnings = warnings
+        };
+    }
 
     /// <summary>
     /// Get classSessions pending settlement (for admin view)

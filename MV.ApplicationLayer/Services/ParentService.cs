@@ -1,5 +1,7 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Hangfire;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using MV.ApplicationLayer.Helpers;
 using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO.RequestModel;
@@ -20,17 +22,23 @@ public class ParentService : IParentService
     private readonly IAppDbContext _context;
     private readonly ISettlementService _settlementService;
     private readonly INotificationService _notificationService;
+    private readonly IFileStorageService _storageService;
+    private readonly IBackgroundJobClient _backgroundJobClient;
     private readonly ILogger<ParentService> _logger;
 
     public ParentService(
         IAppDbContext context,
         ISettlementService settlementService,
         INotificationService notificationService,
+        IFileStorageService storageService,
+        IBackgroundJobClient backgroundJobClient,
         ILogger<ParentService> logger)
     {
         _context = context;
         _settlementService = settlementService;
         _notificationService = notificationService;
+        _storageService = storageService;
+        _backgroundJobClient = backgroundJobClient;
         _logger = logger;
     }
 
@@ -103,6 +111,22 @@ public class ParentService : IParentService
 
         if (classSession == null) return null;
 
+        // Lịch sử dời lịch (nếu có) — mirror của DisputeService.GetDisputeDetailAsync.
+        var scheduleChanges = await _context.ClassSessionScheduleChanges
+            .AsNoTracking()
+            .Where(x => x.Classsessionid == classSessionId)
+            .OrderBy(x => x.Schedulechangeid)
+            .ToListAsync();
+        var scheduleChangeConfirmerIds = scheduleChanges
+            .SelectMany(x => new[] { x.Tutorconfirmedby, x.Learnerconfirmedby })
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Cast<string>()
+            .Distinct()
+            .ToList();
+        var scheduleChangeConfirmerNames = await _context.Users.AsNoTracking()
+            .Where(x => scheduleChangeConfirmerIds.Contains(x.Userid))
+            .ToDictionaryAsync(x => x.Userid, x => x.Fullname ?? x.Username ?? x.Email);
+
         // Buổi tiếp theo bị khóa nếu chưa thanh toán đợt 2 (các buổi còn lại).
         var requiresRemainingPayment = classSession.Booking != null
             && (classSession.Booking.Status == BookingStatus.DepositPaid
@@ -127,6 +151,7 @@ public class ParentService : IParentService
             IsStudentPresent = classSession.Isstudentpresent,
             AttendanceNote = classSession.Attendancenote,
             Status = classSession.Status,
+            BookingStatus = classSession.Booking?.Status,
             SubmittedAt = classSession.Submittedat,
             ConfirmDeadline = classSession.Confirmdeadline,
             ParentAckAt = classSession.Parentackat,
@@ -165,7 +190,24 @@ public class ParentService : IParentService
                 StudentPerformanceRating = classSession.ClassSessionReport.Studentperformancerating,
                 Attachments = DeserializeJsonList(classSession.ClassSessionReport.Attachments),
                 CreatedAt = classSession.ClassSessionReport.Createdat.HasValue ? classSession.ClassSessionReport.Createdat.Value : (DateTime?)null
-            } : null
+            } : null,
+            ScheduleChanges = scheduleChanges.Select(x => new DisputeScheduleChangeAuditResponse
+            {
+                ScheduleChangeId = x.Schedulechangeid,
+                Status = x.Status,
+                OriginalScheduledStart = x.Originalscheduledstart,
+                OriginalScheduledEnd = x.Originalscheduledend,
+                AdjustedScheduledStart = x.Adjustedscheduledstart,
+                AdjustedScheduledEnd = x.Adjustedscheduledend,
+                LearnerApproverRole = x.Learnerapproverrole,
+                TutorConfirmedByName = x.Tutorconfirmedby != null && scheduleChangeConfirmerNames.TryGetValue(x.Tutorconfirmedby, out var tutorName) ? tutorName : null,
+                TutorConfirmedAt = x.Tutorconfirmedat,
+                LearnerConfirmedByName = x.Learnerconfirmedby != null && scheduleChangeConfirmerNames.TryGetValue(x.Learnerconfirmedby, out var learnerName) ? learnerName : null,
+                LearnerConfirmedAt = x.Learnerconfirmedat,
+                RequestedAt = x.Requestedat,
+                ApprovedAt = x.Approvedat,
+                AppliedAt = x.Appliedat
+            }).ToList()
         };
     }
 
@@ -209,80 +251,227 @@ public class ParentService : IParentService
             ? await _context.Studentprofiles.Where(s => s.Parentid == userId).Select(s => s.Studentid).ToListAsync()
             : await _context.Studentprofiles.Where(s => s.Studentid == userId || s.Linkeduserid == userId).Select(s => s.Studentid).ToListAsync();
 
-        var classSession = await _context.ClassSessions
-            .Include(l => l.Booking)
-            .Include(l => l.Disputes)
-            .FirstOrDefaultAsync(l => l.Classsessionid == classSessionId && studentIds.Contains(l.Studentid!))
-            ?? throw new ClassSessionException(ClassSessionErrorCodes.ClassSessionNotFound, "Không tìm thấy buổi học hoặc bạn không có quyền truy cập", 404);
-
-        // An already-settled classSession cannot be disputed: a refund would throw on Issettled and a
-        // Release would throw on status → the dispute would deadlock (unresolvable).
-        if (classSession.Issettled == true)
-            throw new ClassSessionException(ClassSessionErrorCodes.ClassSessionAlreadyConfirmed, "Buổi học đã thanh toán, không thể tạo tranh chấp", 400);
-
-        if (classSession.Status != PendingConfirmation && classSession.Status != Completed)
-            throw new ClassSessionException(ClassSessionErrorCodes.InvalidClassSessionStatus, "Buổi học không thể tạo tranh chấp ở trạng thái này", 400);
-
-        if (classSession.Disputes.Any())
-            throw new ClassSessionException(ClassSessionErrorCodes.DisputeAlreadyExists, "Buổi học này đã có tranh chấp rồi", 400);
+        if (role == UserRole.Student)
+        {
+            var studentProfile = await _context.Studentprofiles
+                .FirstOrDefaultAsync(s => s.Studentid == userId || s.Linkeduserid == userId);
+            if (studentProfile?.Parentid != null)
+                throw new ClassSessionException(
+                    BookingErrorCodes.StudentManagedByParent,
+                    "Tài khoản học sinh do phụ huynh quản lý không thể tự tạo tranh chấp",
+                    403);
+        }
 
         if (!DisputeTypes.All.Contains(request.DisputeType))
             throw new ArgumentException("Loại tranh chấp không hợp lệ");
 
-        var dispute = new Dispute
-        {
-            Classsessionid = classSessionId,
-            Bookingid = classSession.Bookingid,
-            Createdby = userId,
-            Disputetype = request.DisputeType,
-            Reason = request.Reason,
-            Status = DisputeStatus.Pending,
-            Evidence = request.Evidence != null ? JsonSerializer.Serialize(request.Evidence) : null,
-            Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
-        };
-
-        _context.Disputes.Add(dispute);
-
-        // Update classSession status
-        classSession.Status = Disputed;
-
-        await _context.SaveChangesAsync();
-
-        _logger.LogInformation("{Role} {UserId} created dispute {DisputeId} for classSession {ClassSessionId}",
-            role, userId, dispute.Disputeid, classSessionId);
-
-        // Notify Admins
-        var admins = await _context.Users
-            .Where(u => u.Primaryrole == UserRole.Admin)
-            .Select(u => u.Userid)
-            .ToListAsync();
-
-        if (admins.Any())
-        {
-            var notis = admins.Select(adminId => new NotificationRequest
+        var snapshot = await _context.ClassSessions
+            .AsNoTracking()
+            .Where(l => l.Classsessionid == classSessionId && studentIds.Contains(l.Studentid!))
+            .Select(l => new
             {
-                Userid = adminId,
-                Title = "Tranh chấp mới",
-                Message = $"Phụ huynh đã tạo tranh chấp cho buổi học #{classSessionId}. Lý do: {request.Reason}"
-            });
-            await _notificationService.CreateNotificationsAsync(notis);
-        }
+                l.Bookingid,
+                l.Status,
+                BookingStatus = l.Booking != null ? l.Booking.Status : null
+            })
+            .FirstOrDefaultAsync()
+            ?? throw new ClassSessionException(
+                ClassSessionErrorCodes.ClassSessionNotFound,
+                "Không tìm thấy buổi học hoặc bạn không có quyền truy cập",
+                404);
 
-        return new DisputeDetailResponse
+        if (!snapshot.Bookingid.HasValue)
+            throw new ClassSessionException(ClassSessionErrorCodes.ClassSessionNotFound, "Buổi học không có booking hợp lệ", 400);
+        if (DisputeSettlementPolicy.IsTerminalBooking(snapshot.BookingStatus))
+            throw new ClassSessionException(ClassSessionErrorCodes.InvalidClassSessionStatus, "Booking đã kết thúc, không thể tạo tranh chấp mới", 400);
+        if (!DisputeSettlementPolicy.IsEligibleClassSession(snapshot.Status))
+            throw new ClassSessionException(ClassSessionErrorCodes.InvalidClassSessionStatus, "Chỉ buổi học đã diễn ra mới có thể tạo tranh chấp", 400);
+
+        var uploadedEvidence = new List<string>();
+        var newlyUploadedEvidence = new List<string>();
+        var evidenceFolder = $"dispute-evidence-{classSessionId}";
+        var disputeCommitted = false;
+
+        try
         {
-            DisputeId = dispute.Disputeid,
-            BookingId = dispute.Bookingid,
-            ClassSessionId = dispute.Classsessionid,
-            DisputeType = request.DisputeType,
-            Reason = dispute.Reason,
-            Status = dispute.Status,
-            Evidence = request.Evidence,
-            CreatedAt = dispute.Createdat.HasValue ? dispute.Createdat.Value : (DateTime?)null,
-            CreatedBy = new DisputeUserResponse
+            if (request.Files?.Count > 0)
             {
-                UserId = userId
+                await _storageService.EnsureBucketExistsAsync(StorageBucket.ClassSessionAttachments);
+                foreach (var file in request.Files.Where(f => f is { Length: > 0 }))
+                {
+                    var fileUrl = await _storageService.UploadFileAsync(
+                        StorageBucket.ClassSessionAttachments,
+                        evidenceFolder,
+                        file);
+                    newlyUploadedEvidence.Add(fileUrl);
+                    uploadedEvidence.Add(fileUrl);
+                }
             }
-        };
+
+            if (request.Evidence?.Count > 0)
+                uploadedEvidence.AddRange(request.Evidence.Where(url => !string.IsNullOrWhiteSpace(url)));
+
+            Dispute dispute;
+            ClassSession classSession;
+
+            // Serialize with settlement/admin resolution using the shared lock order.
+            await using (var tx = await _context.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable))
+            {
+                try
+                {
+                    var booking = await _context.Bookings
+                        .FromSqlRaw(SqlQueries.LockBookingById, snapshot.Bookingid.Value)
+                        .SingleOrDefaultAsync()
+                        ?? throw new ClassSessionException(ClassSessionErrorCodes.ClassSessionNotFound, "Không tìm thấy booking của buổi học", 404);
+
+                    classSession = await _context.ClassSessions
+                        .FromSqlRaw(SqlQueries.LockClassSessionById, classSessionId)
+                        .SingleOrDefaultAsync()
+                        ?? throw new ClassSessionException(ClassSessionErrorCodes.ClassSessionNotFound, "Không tìm thấy buổi học", 404);
+
+                    if (!studentIds.Contains(classSession.Studentid!))
+                        throw new ClassSessionException(ClassSessionErrorCodes.ClassSessionNotFound, "Bạn không có quyền truy cập buổi học này", 404);
+                    if (DisputeSettlementPolicy.IsTerminalBooking(booking.Status))
+                        throw new ClassSessionException(ClassSessionErrorCodes.InvalidClassSessionStatus, "Booking đã kết thúc, không thể tạo tranh chấp mới", 400);
+                    if (!DisputeSettlementPolicy.IsEligibleClassSession(classSession.Status))
+                        throw new ClassSessionException(ClassSessionErrorCodes.InvalidClassSessionStatus, "Chỉ buổi học đã diễn ra mới có thể tạo tranh chấp", 400);
+                    if (await _context.Disputes.AnyAsync(d => d.Classsessionid == classSessionId))
+                        throw new ClassSessionException(ClassSessionErrorCodes.DisputeAlreadyExists, "Buổi học này đã có tranh chấp rồi", 400);
+
+                    if (classSession.Issettled == true)
+                    {
+                        // Settlement already reduced this counter once. Reopen exactly one unit;
+                        // no wallet balance changes until admin chooses Release/Refund.
+                        classSession.Issettled = false;
+                        booking.Sessionsremaining = DisputeSettlementPolicy.SessionsRemainingAfterOpeningDispute(
+                            booking.Sessionsremaining,
+                            wasSettled: true);
+                        booking.Updatedat = TimeZoneHelper.UtcNow;
+                    }
+
+                    dispute = new Dispute
+                    {
+                        Classsessionid = classSessionId,
+                        Bookingid = classSession.Bookingid,
+                        Createdby = userId,
+                        Disputetype = request.DisputeType,
+                        Reason = request.Reason,
+                        Status = DisputeStatus.Pending,
+                        Evidence = uploadedEvidence.Count > 0
+                            ? JsonSerializer.Serialize(uploadedEvidence.Distinct())
+                            : null,
+                        Createdat = TimeZoneHelper.UtcNow
+                    };
+
+                    _context.Disputes.Add(dispute);
+                    classSession.Status = Disputed;
+                    await _context.SaveChangesAsync();
+                    await tx.CommitAsync();
+                    disputeCommitted = true;
+                }
+                catch
+                {
+                    await tx.RollbackAsync();
+                    throw;
+                }
+            }
+
+            try
+            {
+                var jobId = _backgroundJobClient.Enqueue<IDisputeService>(
+                    s => s.ClassifyDisputePriorityAsync(dispute.Disputeid, "system"));
+                _logger.LogInformation(
+                    "Enqueued Hangfire job {JobId} to classify priority for dispute {DisputeId}",
+                    jobId,
+                    dispute.Disputeid);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to enqueue priority classification job for dispute {DisputeId}", dispute.Disputeid);
+            }
+
+            _logger.LogInformation(
+                "{Role} {UserId} created dispute {DisputeId} for classSession {ClassSessionId}",
+                role,
+                userId,
+                dispute.Disputeid,
+                classSessionId);
+
+            try
+            {
+                var admins = await _context.Users
+                    .Where(u => u.Primaryrole == UserRole.Admin)
+                    .Select(u => u.Userid)
+                    .ToListAsync();
+                if (admins.Count > 0)
+                {
+                    await _notificationService.CreateNotificationsAsync(admins.Select(adminId => new NotificationRequest
+                    {
+                        Userid = adminId,
+                        Title = "Tranh chấp mới",
+                        Message = $"Phụ huynh đã tạo tranh chấp cho buổi học #{classSessionId}. Lý do: {request.Reason}"
+                    }));
+                }
+
+                if (!string.IsNullOrWhiteSpace(classSession.Tutorid))
+                {
+                    await _notificationService.CreateNotificationAsync(new NotificationRequest
+                    {
+                        Userid = classSession.Tutorid,
+                        Title = "Có khiếu nại về buổi học của bạn",
+                        Message = $"Một khiếu nại đã được tạo cho buổi học #{classSessionId}. Bạn có thể xem chi tiết và gửi phản hồi."
+                    });
+                }
+            }
+            catch (Exception notificationError)
+            {
+                _logger.LogWarning(
+                    notificationError,
+                    "Dispute {DisputeId} was created but one or more notifications failed",
+                    dispute.Disputeid);
+            }
+
+            return new DisputeDetailResponse
+            {
+                DisputeId = dispute.Disputeid,
+                BookingId = dispute.Bookingid,
+                ClassSessionId = dispute.Classsessionid,
+                DisputeType = request.DisputeType,
+                Reason = dispute.Reason,
+                Status = dispute.Status,
+                Priority = dispute.Priority,
+                PriorityReason = dispute.Priorityreason,
+                Evidence = uploadedEvidence.Count > 0 ? uploadedEvidence.Distinct().ToList() : null,
+                CreatedAt = dispute.Createdat,
+                CreatedBy = new DisputeUserResponse { UserId = userId }
+            };
+        }
+        catch
+        {
+            if (!disputeCommitted)
+            {
+                foreach (var fileUrl in newlyUploadedEvidence)
+                {
+                    try
+                    {
+                        await _storageService.DeleteFileAsync(
+                            StorageBucket.ClassSessionAttachments,
+                            evidenceFolder,
+                            fileUrl);
+                    }
+                    catch (Exception cleanupError)
+                    {
+                        _logger.LogWarning(
+                            cleanupError,
+                            "Failed to clean orphan dispute evidence {FileUrl} for classSession {ClassSessionId}",
+                            fileUrl,
+                            classSessionId);
+                    }
+                }
+            }
+
+            throw;
+        }
     }
 
     /// <summary>
@@ -308,8 +497,11 @@ public class ParentService : IParentService
                 d.Disputeid,
                 d.Classsessionid,
                 d.Bookingid,
+                d.Disputetype,
                 d.Status,
                 d.Reason,
+                d.Priority,
+                d.Priorityreason,
                 TutorName = d.ClassSession!.Tutor!.Tutor!.Fullname,
                 ClassSessionPrice = d.ClassSession.Lessonprice,
                 d.Createdat
@@ -321,8 +513,11 @@ public class ParentService : IParentService
             DisputeId = d.Disputeid,
             ClassSessionId = d.Classsessionid,
             BookingId = d.Bookingid,
+            DisputeType = d.Disputetype,
             Status = d.Status,
             Reason = d.Reason,
+            Priority = d.Priority,
+            PriorityReason = d.Priorityreason,
             TutorName = d.TutorName,
             ClassSessionPrice = d.ClassSessionPrice,
             CreatedAt = d.Createdat.HasValue ? d.Createdat.Value : (DateTime?)null
@@ -382,8 +577,10 @@ public class ParentService : IParentService
                         TutorName = l.Booking?.Tutor?.Tutor?.Fullname,
                         SubjectName = l.Booking?.Subject?.Subjectname,
                         Status = l.Status,
+                        BookingStatus = l.Booking?.Status,
                         MeetingLink = l.Meetinglink,
-                        CheckOutTime = l.Checkouttime
+                        CheckOutTime = l.Checkouttime,
+                        HasRecording = RecordingStatusResolver.Resolve(l.Recordingurl, l.Recordings3key, l.Recordingsid, l.Checkouttime.HasValue).Status == "available"
                     }).ToList()
                 })
                 .ToList();
@@ -409,4 +606,5 @@ public class ParentService : IParentService
 
         return value.Split(',', StringSplitOptions.RemoveEmptyEntries).ToList();
     }
+
 }

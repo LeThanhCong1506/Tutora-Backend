@@ -52,23 +52,47 @@ public class RecordingRelayService : IRecordingRelayService
             .Where(s => s.Recordings3key != null)
             .OrderBy(s => s.Classsessionid)
             .Take(BatchSize)
+            .Select(s => new
+            {
+                ClassSession = s,
+                TutorName = s.Tutor != null && s.Tutor.Tutor != null ? s.Tutor.Tutor.Fullname : null,
+                StudentName = s.Student != null ? s.Student.Fullname : null
+            })
             .ToListAsync(ct);
 
         if (pending.Count == 0) return;
 
         using var s3 = CreateS3Client();
 
-        foreach (var session in pending)
+        foreach (var item in pending)
         {
+            var session = item.ClassSession;
             var key = session.Recordings3key!;
+            var fileName = $"session-{session.Classsessionid}.mp4";
             try
             {
-                // ① tải file từ S3 (stream, không buffer toàn bộ vào RAM)
-                using var s3Obj = await s3.GetObjectAsync(_rec.StorageBucket, key, ct);
+                // ⓪ CHỐNG TRÙNG: nếu Drive đã có file (vòng trước upload xong nhưng
+                //    SaveChanges lỗi / app restart giữa chừng khiến s3key chưa được xóa)
+                //    → dùng lại fileId cũ, KHÔNG upload lần 2. Tên "session-{id}.mp4" cố định
+                //    nên tra cứu theo tên là đủ; với scope drive.file chỉ thấy file do app này tạo.
+                var fileId = await _drive.FindFileIdByNameAsync(fileName, ct);
 
-                // ② upload thẳng lên Google Drive
-                var fileName = $"session-{session.Classsessionid}.mp4";
-                var fileId = await _drive.UploadAsync(s3Obj.ResponseStream, fileName, "video/mp4", ct);
+                if (fileId == null)
+                {
+                    // Tổ chức theo Tutor/Student thay vì để phẳng — tạo lười (lazy), chỉ khi
+                    // thực sự có buổi cần relay. Tên thư mục kèm id để không lẫn khi trùng tên.
+                    var tutorFolderName = !string.IsNullOrWhiteSpace(item.TutorName)
+                        ? $"{item.TutorName} ({session.Tutorid})" : session.Tutorid ?? "unknown-tutor";
+                    var studentFolderName = !string.IsNullOrWhiteSpace(item.StudentName)
+                        ? $"{item.StudentName} ({session.Studentid})" : session.Studentid ?? "unknown-student";
+                    var folderId = await _drive.GetRecordingFolderAsync(tutorFolderName, studentFolderName, ct);
+
+                    // ① tải file từ S3 (stream, không buffer toàn bộ vào RAM)
+                    using var s3Obj = await s3.GetObjectAsync(_rec.StorageBucket, key, ct);
+
+                    // ② upload thẳng lên Google Drive, vào đúng thư mục Tutor/Student
+                    fileId = await _drive.UploadAsync(s3Obj.ResponseStream, fileName, "video/mp4", folderId, ct);
+                }
 
                 // ③ lưu link Drive + xóa s3key (= đánh dấu đã relay xong)
                 session.Recordingurl = $"https://drive.google.com/file/d/{fileId}/view";

@@ -515,7 +515,7 @@ public partial class PaymentService(
                 paymentRequest.Paymentlinkid))
         {
             await MarkPaymentRequestForReviewAsync(
-                paymentRequest.Bookingid,
+                paymentRequest.Bookingid!.Value,
                 paymentRequest,
                 ct);
             return;
@@ -523,7 +523,7 @@ public partial class PaymentService(
 
         await ProcessPaymentLinkTransactionsAsync(
             paymentRequest,
-            paymentRequest.Bookingid,
+            paymentRequest.Bookingid!.Value,
             ct);
     }
 
@@ -535,7 +535,7 @@ public partial class PaymentService(
             System.Data.IsolationLevel.Serializable,
             ct);
         _ = await bookingRepo.FindWithRelationsForUpdateAsync(
-            paymentRequest.Bookingid,
+            paymentRequest.Bookingid!.Value,
             ct);
         await context.PaymentRequests.Entry(paymentRequest).ReloadAsync(ct);
         paymentRequest.Status = PaymentRequestStatus.RequiresReview;
@@ -560,7 +560,7 @@ public partial class PaymentService(
                 {
                     paymentRequestId =
                         paymentRequest.Paymentrequestid,
-                    paymentRequest.Bookingid,
+                    paymentRequest.Bookingid!.Value,
                     paymentRequest.Ordercode,
                     paymentRequest.Paymentlinkid
                 }),

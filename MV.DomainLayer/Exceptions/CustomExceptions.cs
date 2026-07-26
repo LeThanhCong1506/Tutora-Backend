@@ -21,7 +21,7 @@ namespace MV.DomainLayer.Exceptions
         public UserNotFoundException() : base(ApiMessages.UserNotFoundWithPeriod) { }
     }
 
-    // ---------------------------------- Email Exceptions ----------------------------------
+    // Email Exceptions
     public class EmailAlreadyExistsException : BadRequestException
     {
         public EmailAlreadyExistsException()
@@ -38,7 +38,7 @@ namespace MV.DomainLayer.Exceptions
         }
     }
 
-    // ---------------------------------- UserName Exceptions ----------------------------------
+    // UserName Exceptions
     public class UsernameAlreadyExistsException : BadRequestException
     {
         public UsernameAlreadyExistsException()
@@ -55,7 +55,7 @@ namespace MV.DomainLayer.Exceptions
         }
     }
 
-    // ---------------------------------- Phone Number Exceptions ----------------------------------
+    // Phone Number Exceptions
     public class PhoneAlreadyExistsException : BadRequestException
     {
         public PhoneAlreadyExistsException()
@@ -72,7 +72,7 @@ namespace MV.DomainLayer.Exceptions
         }
     }
 
-    // ---------------------------------- Identity Number Exceptions ----------------------------------
+    // Identity Number Exceptions
     public class IdentityNumberAlreadyExistsException : BadRequestException
     {
         public IdentityNumberAlreadyExistsException()
@@ -101,7 +101,7 @@ namespace MV.DomainLayer.Exceptions
         }
     }
 
-    // ---------------------------------- Chat Exceptions ----------------------------------
+    // Chat Exceptions
     public class ChannelNotFoundException : NotFoundException
     {
         public ChannelNotFoundException(int channelId)
@@ -120,7 +120,7 @@ namespace MV.DomainLayer.Exceptions
             : base(message) { }
     }
 
-    // ---------------------------------- AI Chat Exceptions ----------------------------------
+    // AI Chat Exceptions
     public class AiChatSessionNotFoundException : NotFoundException
     {
         public AiChatSessionNotFoundException(Guid sessionId)
@@ -133,7 +133,19 @@ namespace MV.DomainLayer.Exceptions
             : base("Bạn không có quyền truy cập phiên trò chuyện AI này.") { }
     }
 
-    // ---------------------------------- Finance Exceptions ----------------------------------
+    public class QuestionNoteNotFoundException : NotFoundException
+    {
+        public QuestionNoteNotFoundException(Guid noteId)
+            : base($"Question note with ID '{noteId}' was not found.") { }
+    }
+
+    public class QuestionNoteForbiddenException : BadRequestException
+    {
+        public QuestionNoteForbiddenException()
+            : base("Bạn không có quyền truy cập note này.") { }
+    }
+
+    // Finance Exceptions
     public class WalletNotFoundException : NotFoundException
     {
         public WalletNotFoundException()
@@ -200,7 +212,7 @@ namespace MV.DomainLayer.Exceptions
             : base("Transaction not found.") { }
     }
 
-    // ---------------------------------- Learning Material Exceptions ----------------------------------
+    // Learning Material Exceptions
     public class BookingNotFoundException : NotFoundException
     {
         public BookingNotFoundException()

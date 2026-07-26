@@ -30,6 +30,12 @@ public interface ISettlementService
     Task<SettlementResultResponse> ProcessRefundAsync(int classSessionId, int refundPercentage, string processedBy);
 
     /// <summary>
+    /// Dry-run of ProcessRefundAsync — same clamped math (funding-phase and frozen-balance aware),
+    /// no side effects. Used to preview a custom refund percentage before committing to it.
+    /// </summary>
+    Task<RefundPreviewResponse> PreviewRefundAsync(int classSessionId, int refundPercentage);
+
+    /// <summary>
     /// Get pending settlements (classSessions ready for auto-confirm)
     /// </summary>
     Task<List<PendingClassSessionResponse>> GetPendingSettlementsAsync();

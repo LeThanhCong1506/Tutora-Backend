@@ -18,11 +18,38 @@ namespace MV.PresentationLayer.Controllers;
 [Authorize]
 public class AdminLookupController : ControllerBase
 {
-    private readonly ILookupService _lookup;
+    private const string SubjectIconBucket = "subject-icons";
+    private const long MaxIconSizeBytes = 2 * 1024 * 1024;
 
-    public AdminLookupController(ILookupService lookup)
+    private readonly ILookupService _lookup;
+    private readonly IFileStorageService _storage;
+
+    public AdminLookupController(ILookupService lookup, IFileStorageService storage)
     {
         _lookup = lookup;
+        _storage = storage;
+    }
+
+    /// <summary>
+    /// Upload icon môn học, trả về public URL.
+    /// </summary>
+    [HttpPost("subjects/icon")]
+    [RequestSizeLimit(MaxIconSizeBytes)]
+    [RequirePermission(Permissions.LookupCreate)]
+    public async Task<ActionResult<APIResponse<object>>> UploadSubjectIcon(IFormFile file)
+    {
+        if (file == null || file.Length == 0)
+            return BadRequest(APIResponse.Fail("Chưa chọn file.", 400));
+
+        if (file.Length > MaxIconSizeBytes)
+            return BadRequest(APIResponse.Fail("Kích thước ảnh vượt quá 2MB.", 400));
+
+        if (!file.ContentType.StartsWith("image/"))
+            return BadRequest(APIResponse.Fail("Chỉ chấp nhận file hình ảnh.", 400));
+
+        await _storage.EnsureBucketExistsAsync(SubjectIconBucket);
+        var url = await _storage.UploadFileAsync(SubjectIconBucket, "subjects", file);
+        return Ok(APIResponse<object>.Success(new { iconUrl = url }, "Tải icon lên thành công."));
     }
 
     // Subjects
@@ -102,6 +129,16 @@ public class AdminLookupController : ControllerBase
 
     // Chapters
 
+    /// <summary>Liệt kê chương (gồm cả đã ngừng dùng), lọc theo môn/khối.
+    [HttpGet("chapters")]
+    [RequirePermission(Permissions.LookupView)]
+    public async Task<ActionResult<APIResponse<List<AdminChapterResponse>>>> GetChapters(
+        [FromQuery] int? subjectId, [FromQuery] int? gradeLevelId)
+    {
+        var result = await _lookup.GetAllChaptersAsync(subjectId, gradeLevelId);
+        return Ok(APIResponse<List<AdminChapterResponse>>.Success(result, "Lấy danh sách chương thành công."));
+    }
+
     [HttpPost("chapters")]
     [RequirePermission(Permissions.LookupCreate)]
     public async Task<ActionResult<APIResponse<ChapterResponse>>> CreateChapter(
@@ -131,6 +168,15 @@ public class AdminLookupController : ControllerBase
 
     // QuestionTypes
 
+    /// <summary>Liệt kê loại câu hỏi (gồm cả đã ngừng dùng). GET /api/admin/lookup/question-types</summary>
+    [HttpGet("question-types")]
+    [RequirePermission(Permissions.LookupView)]
+    public async Task<ActionResult<APIResponse<List<AdminQuestionTypeResponse>>>> GetQuestionTypes()
+    {
+        var result = await _lookup.GetAllQuestionTypesAsync();
+        return Ok(APIResponse<List<AdminQuestionTypeResponse>>.Success(result, "Lấy danh sách loại câu hỏi thành công."));
+    }
+
     [HttpPost("question-types")]
     [RequirePermission(Permissions.LookupCreate)]
     public async Task<ActionResult<APIResponse<QuestionTypeResponse>>> CreateQuestionType(
@@ -158,7 +204,41 @@ public class AdminLookupController : ControllerBase
     public Task<ActionResult<APIResponse<object>>> DeleteQuestionType(int id)
         => DeleteGuarded(() => _lookup.DeleteQuestionTypeAsync(id), "loại câu hỏi");
 
+    // Reorder — kéo-thả đổi thứ tự hiển thị trên CMS.
+    [HttpPut("subjects/reorder")]
+    [RequirePermission(Permissions.LookupUpdate)]
+    public Task<ActionResult<APIResponse<object>>> ReorderSubjects([FromBody] ReorderRequest req)
+        => ReorderGuarded(() => _lookup.ReorderSubjectsAsync(req), "môn học");
+
+    [HttpPut("grade-levels/reorder")]
+    [RequirePermission(Permissions.LookupUpdate)]
+    public Task<ActionResult<APIResponse<object>>> ReorderGradeLevels([FromBody] ReorderRequest req)
+        => ReorderGuarded(() => _lookup.ReorderGradeLevelsAsync(req), "khối lớp");
+
+    [HttpPut("chapters/reorder")]
+    [RequirePermission(Permissions.LookupUpdate)]
+    public Task<ActionResult<APIResponse<object>>> ReorderChapters([FromBody] ReorderRequest req)
+        => ReorderGuarded(() => _lookup.ReorderChaptersAsync(req), "chương");
+
+    [HttpPut("question-types/reorder")]
+    [RequirePermission(Permissions.LookupUpdate)]
+    public Task<ActionResult<APIResponse<object>>> ReorderQuestionTypes([FromBody] ReorderRequest req)
+        => ReorderGuarded(() => _lookup.ReorderQuestionTypesAsync(req), "loại câu hỏi");
+
     // Helpers
+
+    /// <summary>Bọc reorder: dữ liệu rỗng/id lạ -> 400, ok -> 200.</summary>
+    private async Task<ActionResult<APIResponse<object>>> ReorderGuarded(
+        Func<Task<bool>> reorderFn, string label)
+    {
+        if (!ModelState.IsValid)
+            return BadRequest(APIResponse.Fail("Dữ liệu sắp xếp không hợp lệ.", 400));
+
+        var ok = await reorderFn();
+        return ok
+            ? Ok(APIResponse<object>.Success($"Đã cập nhật thứ tự {label}."))
+            : BadRequest(APIResponse.Fail($"Danh sách {label} chứa mục không tồn tại.", 400));
+    }
 
     /// <summary>Bọc xoá: not-found -> 404, đang tham chiếu -> 409, ok -> 200.
     /// Truyền successMessage cho trường hợp soft-delete.</summary>

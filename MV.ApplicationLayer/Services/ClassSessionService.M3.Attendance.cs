@@ -1,6 +1,7 @@
-﻿using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using MV.ApplicationLayer.Helpers;
 using MV.ApplicationLayer.Services.Agora;
 using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO.RequestModel;
@@ -31,7 +32,7 @@ public partial class ClassSessionService
             .FirstOrDefaultAsync(l => l.Classsessionid == classSessionId);
 
         if (classSession == null)
-            return new SessionPresenceStatus(false, false, false, false, false);
+            return new SessionPresenceStatus(false, false, false, false, false, false);
 
         var tutorId = classSession.Tutorid;
         var studentUserId = classSession.Booking?.Student?.Linkeduserid; // UserId thực của student (có thể null với dữ liệu cũ)
@@ -47,6 +48,7 @@ public partial class ClassSessionService
         var roomClosed = classSession.Checkouttime.HasValue;
         var isCheckedIn = classSession.Checkintime.HasValue;
         var blockedByPayment = false;
+        SessionScheduleConflictResponse? scheduleConflict = null;
 
         if (classSession.Status == Scheduled && tutorPresent && studentPresent && !roomClosed)
         {
@@ -58,18 +60,79 @@ public partial class ClassSessionService
             else
             {
                 var now = TimeZoneHelper.UtcNow;
-                // Cập nhật có điều kiện (atomic UPDATE ... WHERE status='scheduled'): khi hai
-                // heartbeat của gia sư và học viên tới gần như đồng thời, chỉ một request thắng
-                // → tránh double check-in mà không cần khoá hàng (điểm yếu của luồng cũ).
-                var affected = await _context.ClassSessions
-                    .Where(l => l.Classsessionid == classSessionId && l.Status == Scheduled)
-                    .ExecuteUpdateAsync(s => s
-                        .SetProperty(l => l.Status, InProgress)
-                        .SetProperty(l => l.Checkintime, now)
-                        .SetProperty(l => l.Realstart, now)
-                        .SetProperty(l => l.Istutorpresent, true)
-                        .SetProperty(l => l.Isstudentpresent, true)
-                        .SetProperty(l => l.Meetinglink, l => l.Meetinglink ?? classSessionId.ToString()));
+                var approvedChange = await _context.ClassSessionScheduleChanges
+                    .Where(x => x.Classsessionid == classSessionId
+                        && x.Status == ScheduleChangeStatus.Approved
+                        && x.Expiresat > now)
+                    .OrderByDescending(x => x.Schedulechangeid)
+                    .FirstOrDefaultAsync();
+
+                int affected;
+                if (approvedChange != null)
+                {
+                    var adjustedEnd = now.Add(
+                        approvedChange.Originalscheduledend - approvedChange.Originalscheduledstart);
+                    await using var scheduleTransaction = _context.Database.IsRelational()
+                        ? await _context.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable)
+                        : null;
+
+                    scheduleConflict = await ClassSessionScheduleConflictGuard.FindAsync(
+                        _context,
+                        classSessionId,
+                        classSession.Tutorid,
+                        classSession.Studentid,
+                        now,
+                        adjustedEnd,
+                        currentApprovedAt: approvedChange.Approvedat,
+                        currentScheduleChangeId: approvedChange.Schedulechangeid);
+
+                    if (scheduleConflict != null)
+                    {
+                        affected = 0;
+                    }
+                    else
+                    {
+                        affected = await _context.ClassSessions
+                            .Where(l => l.Classsessionid == classSessionId && l.Status == Scheduled)
+                            .ExecuteUpdateAsync(s => s
+                                .SetProperty(l => l.Status, InProgress)
+                                .SetProperty(l => l.Checkintime, now)
+                                .SetProperty(l => l.Realstart, now)
+                                .SetProperty(l => l.Scheduledstart, now)
+                                .SetProperty(l => l.Scheduledend, adjustedEnd)
+                                .SetProperty(l => l.Istutorpresent, true)
+                                .SetProperty(l => l.Isstudentpresent, true)
+                                .SetProperty(l => l.Meetinglink, l => l.Meetinglink ?? classSessionId.ToString()));
+
+                        if (affected == 1)
+                        {
+                            approvedChange.Status = ScheduleChangeStatus.Applied;
+                            approvedChange.Appliedat = now;
+                            approvedChange.Adjustedscheduledstart = now;
+                            approvedChange.Adjustedscheduledend = adjustedEnd;
+                            approvedChange.Updatedat = now;
+                            await _context.SaveChangesAsync();
+                            classSession.Scheduledstart = now;
+                            classSession.Scheduledend = adjustedEnd;
+                        }
+                    }
+
+                    if (scheduleTransaction != null)
+                        await scheduleTransaction.CommitAsync();
+                }
+                else
+                {
+                    // Atomic status transition keeps concurrent tutor/student heartbeats idempotent.
+                    affected = await _context.ClassSessions
+                        .Where(l => l.Classsessionid == classSessionId && l.Status == Scheduled)
+                        .ExecuteUpdateAsync(s => s
+                            .SetProperty(l => l.Status, InProgress)
+                            .SetProperty(l => l.Checkintime, now)
+                            .SetProperty(l => l.Realstart, now)
+                            .SetProperty(l => l.Istutorpresent, true)
+                            .SetProperty(l => l.Isstudentpresent, true)
+                            .SetProperty(l => l.Meetinglink, l => l.Meetinglink ?? classSessionId.ToString()));
+                }
 
                 if (affected == 1)
                 {
@@ -84,12 +147,22 @@ public partial class ClassSessionService
             }
         }
 
+        // Ghi hình đang chạy khi đã có Sid (được TryStartRecordingAsync gán, hoặc nạp sẵn từ DB
+        // nếu buổi record ở nhịp heartbeat trước). Tính sau khối auto check-in để bắt cả 2 trường hợp.
+        var isRecording = !string.IsNullOrEmpty(classSession.Recordingsid) && !roomClosed;
+        // TODO(TEMP-DEV): revert trước khi merge. Cloud Recording thật chưa bật ở develop
+        // (Recordingsid luôn null) nên badge không bao giờ hiện. Dòng dưới coi buổi đã check-in
+        // là "đang ghi hình" để test chỉ báo bằng gia sư + học viên thật. Xoá dòng này khi bật record thật.
+        isRecording = isRecording || (isCheckedIn && !roomClosed);
+
         return new SessionPresenceStatus(
             TutorPresent: tutorPresent,
             StudentPresent: studentPresent,
             IsCheckedIn: isCheckedIn,
             RoomClosed: roomClosed,
-            BlockedByPayment: blockedByPayment);
+            BlockedByPayment: blockedByPayment,
+            IsRecording: isRecording,
+            ScheduleConflict: scheduleConflict);
     }
 
     /// <summary>

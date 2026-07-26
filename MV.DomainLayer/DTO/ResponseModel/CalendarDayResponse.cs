@@ -37,6 +37,7 @@ public class CalendarClassSessionResponse
     public string? TutorName { get; set; }
     public string? SubjectName { get; set; }
     public string? Status { get; set; }
+    public string? BookingStatus { get; set; }
     public string? MeetingLink { get; set; }
 
     /// <summary>
@@ -45,6 +46,9 @@ public class CalendarClassSessionResponse
     /// để ẩn nút "Vào lớp" và hiển thị "Chờ gửi báo cáo" thay vì "Đang diễn ra".
     /// </summary>
     public DateTime? CheckOutTime { get; set; }
+
+    /// <summary>True nếu buổi học đã có video xem lại (đã upload xong lên Drive).</summary>
+    public bool HasRecording { get; set; }
 
     /// <summary>
     /// Color code based on status for UI rendering

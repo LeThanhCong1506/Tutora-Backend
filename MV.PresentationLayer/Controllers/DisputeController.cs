@@ -54,7 +54,8 @@ public class DisputeController : ControllerBase
     [HttpGet("{id}")]
     public async Task<ActionResult<APIResponse<DisputeDetailResponse>>> GetDisputeDetail(int id)
     {
-        var result = await _disputeService.GetDisputeDetailAsync(id);
+        var actorId = UserHelper.GetUserId(User);
+        var result = await _disputeService.GetDisputeDetailAsync(id, actorId);
 
         if (result == null)
             return NotFound(APIResponse<DisputeDetailResponse>.Fail("Không tìm thấy tranh chấp."));
@@ -63,13 +64,14 @@ public class DisputeController : ControllerBase
     }
 
     /// <summary>
-    /// Lấy bản ghi video (link Drive + trạng thái) của buổi học gắn với tranh chấp — phục vụ xử lý tranh chấp.
+    /// Lấy bản ghi video (trạng thái + link stream tạm) của buổi học gắn với tranh chấp — phục vụ xử lý tranh chấp.
     /// </summary>
     [RequirePermission(Permissions.DisputeView)]
     [HttpGet("{id}/recording")]
     public async Task<ActionResult<APIResponse<DisputeRecordingResponse>>> GetRecording(int id)
     {
-        var result = await _disputeService.GetDisputeRecordingAsync(id);
+        var actorId = UserHelper.GetUserId(User);
+        var result = await _disputeService.GetDisputeRecordingAsync(id, actorId);
         return Ok(APIResponse<DisputeRecordingResponse>.Success(result, "Lấy video buổi học thành công."));
     }
 
@@ -89,11 +91,52 @@ public class DisputeController : ControllerBase
     /// </summary>
     [RequirePermission(Permissions.DisputeInvestigate)]
     [HttpPut("{id}/investigate")]
-    public async Task<ActionResult<APIResponse<DisputeDetailResponse>>> Investigate(int id)
+    public async Task<ActionResult<APIResponse<DisputeDetailResponse>>> Investigate(int id, [FromQuery] bool forceEarly = false)
     {
         var adminId = UserHelper.GetUserId(User);
-        var result = await _disputeService.InvestigateDisputeAsync(id, adminId);
+        var result = await _disputeService.InvestigateDisputeAsync(id, adminId, forceEarly);
         return Ok(APIResponse<DisputeDetailResponse>.Success(result, "Đã bắt đầu điều tra tranh chấp."));
+    }
+
+    /// <summary>
+    /// (Re)run AI priority classification for a dispute. Used to backfill disputes created before this
+    /// feature existed, or to retry one whose automatic classification failed.
+    /// </summary>
+    [RequirePermission(Permissions.DisputeInvestigate)]
+    [HttpPut("{id}/classify")]
+    public async Task<ActionResult<APIResponse<DisputeDetailResponse>>> Classify(int id)
+    {
+        var adminId = UserHelper.GetUserId(User);
+        var result = await _disputeService.ClassifyDisputePriorityAsync(id, adminId);
+
+        if (result == null)
+            return NotFound(APIResponse<DisputeDetailResponse>.Fail("Không tìm thấy tranh chấp."));
+
+        return Ok(APIResponse<DisputeDetailResponse>.Success(result, "Đã phân loại tranh chấp."));
+    }
+
+    /// <summary>
+    /// Confirm a tutor no-show after admin review. The parent/self-managed student can choose the
+    /// financial remedy only after this gate succeeds.
+    /// </summary>
+    [RequirePermission(Permissions.DisputeResolve)]
+    [HttpPut("{id}/confirm-no-show")]
+    public async Task<ActionResult<APIResponse<DisputeDetailResponse>>> ConfirmNoShow(int id)
+    {
+        var adminId = UserHelper.GetUserId(User);
+        var result = await _disputeService.ConfirmTutorNoShowAsync(id, adminId);
+        return Ok(APIResponse<DisputeDetailResponse>.Success(result, "Đã xác nhận gia sư vắng mặt."));
+    }
+
+    /// <summary>
+    /// Preview parent refund / tutor payout amounts for a candidate percentage before resolving.
+    /// </summary>
+    [RequirePermission(Permissions.DisputeResolve)]
+    [HttpGet("{id}/refund-preview")]
+    public async Task<ActionResult<APIResponse<RefundPreviewResponse>>> GetRefundPreview(int id, [FromQuery] int percentage)
+    {
+        var result = await _disputeService.GetRefundPreviewAsync(id, percentage);
+        return Ok(APIResponse<RefundPreviewResponse>.Success(result, "Tính toán xem trước thành công."));
     }
 
     /// <summary>
@@ -106,5 +149,28 @@ public class DisputeController : ControllerBase
         var adminId = UserHelper.GetUserId(User);
         var result = await _disputeService.ResolveDisputeAsync(id, adminId, request);
         return Ok(APIResponse<DisputeDetailResponse>.Success(result, "Giải quyết tranh chấp thành công."));
+    }
+
+    /// <summary>
+    /// Get one of the two private threads (tutor or parent/student) for a dispute.
+    /// </summary>
+    [RequirePermission(Permissions.DisputeView)]
+    [HttpGet("{id}/thread/{threadType}")]
+    public async Task<ActionResult<APIResponse<List<DisputeMessageResponse>>>> GetThread(int id, string threadType)
+    {
+        var result = await _disputeService.GetDisputeThreadAsync(id, threadType);
+        return Ok(APIResponse<List<DisputeMessageResponse>>.Success(result, "Lấy tin nhắn thành công."));
+    }
+
+    /// <summary>
+    /// Send a message into one of the two private threads for a dispute.
+    /// </summary>
+    [RequirePermission(Permissions.DisputeInvestigate)]
+    [HttpPost("{id}/thread/{threadType}/messages")]
+    public async Task<ActionResult<APIResponse<DisputeMessageResponse>>> SendThreadMessage(int id, string threadType, [FromBody] SendDisputeMessageRequest request)
+    {
+        var adminId = UserHelper.GetUserId(User);
+        var result = await _disputeService.SendAdminDisputeMessageAsync(id, adminId, threadType, request.Message);
+        return Ok(APIResponse<DisputeMessageResponse>.Success(result, "Gửi tin nhắn thành công."));
     }
 }

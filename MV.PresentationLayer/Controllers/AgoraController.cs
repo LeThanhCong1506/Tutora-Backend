@@ -2,14 +2,17 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using MV.ApplicationLayer.Helpers;
 using MV.ApplicationLayer.Hubs;
 using MV.ApplicationLayer.Interfaces;
 using MV.ApplicationLayer.ServiceInterfaces;
+using MV.DomainLayer.Configuration;
 using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO;
 using MV.DomainLayer.DTO.RequestModel;
 using MV.DomainLayer.Entities;
+using MV.DomainLayer.Helpers;
 using MV.PresentationLayer.Helpers;
 using System.Security.Claims;
 
@@ -19,7 +22,7 @@ namespace MV.PresentationLayer.Controllers;
 /// Agora RTC Controller — cung cấp token + channel để client join video call.
 ///
 /// Flow hoạt động:
-///   1. Client (Tutor/Student/Parent) POST /api/agora/room/{classSessionId}/join với danh tính
+///   1. Client (Tutor/Student) POST /api/agora/room/{classSessionId}/join với danh tính
 ///      thiết bị. Chỉ thiết bị giữ lease hiện hành mới nhận token + channel + appId.
 ///   2. Client join channel bằng Agora SDK: appId + channel + token + uid (= userId).
 ///   3. Trong lúc ở trong phòng, client heartbeat định kỳ (POST .../heartbeat) → khi cả gia sư
@@ -32,11 +35,15 @@ namespace MV.PresentationLayer.Controllers;
 public class AgoraController(
     IAgoraRTCService agoraService,
     IClassSessionService classSessionService,
+    IClassSessionScheduleChangeService scheduleChanges,
     ISessionPresenceService presence,
     ILiveSessionDeviceLeaseService deviceLeases,
     IWhiteboardService whiteboardService,
+    ISessionLogService sessionLogService,
     IAppDbContext context,
     IHubContext<LiveSessionHub> liveSessionHub,
+    IHubContext<NotificationHub> notificationHub,
+    IOptions<SessionEvidenceSettings> evidenceSettings,
     ILogger<AgoraController> logger) : ControllerBase
 {
     private string UserId => User.FindFirstValue(ClaimTypes.NameIdentifier)
@@ -92,6 +99,7 @@ public class AgoraController(
 
         var classSession = await context.ClassSessions
             .Include(l => l.Booking)
+                .ThenInclude(b => b!.Student)
             .FirstOrDefaultAsync(l => l.Classsessionid == classSessionId);
 
         if (classSession == null)
@@ -106,9 +114,65 @@ public class AgoraController(
             return RevokedLease();
         }
 
+        var heartbeatScheduleState = await scheduleChanges.GetOrCreateStateAsync(
+            classSessionId,
+            userId,
+            CurrentUserRole,
+            cancellationToken);
+        if (!heartbeatScheduleState.AdmissionAllowed)
+        {
+            presence.Leave(classSessionId, userId);
+            return Conflict(APIResponse<object>.Fail(
+                "Cần đủ xác nhận đổi giờ học trước khi vào phòng.",
+                409,
+                new
+                {
+                    code = LiveSessionScheduleChangeErrorCodes.ConfirmationRequired,
+                    scheduleChange = heartbeatScheduleState
+                }));
+        }
+        var heartbeatScheduleConflict = await scheduleChanges.FindCurrentConflictAsync(
+            classSessionId,
+            TimeZoneHelper.UtcNow,
+            cancellationToken);
+        if (heartbeatScheduleConflict != null)
+        {
+            presence.Leave(classSessionId, userId);
+            return Conflict(APIResponse<object>.Fail(
+                heartbeatScheduleConflict.Message,
+                409,
+                new
+                {
+                    code = LiveSessionScheduleChangeErrorCodes.ScheduleConflict,
+                    conflict = heartbeatScheduleConflict
+                }));
+        }
+
         presence.Heartbeat(classSessionId, userId);
 
+        // In-memory presence answers "is this lesson checkable in right now" and is gone on restart.
+        // The same beat is also appended to the durable chain, which is what a dispute weeks later
+        // is settled with. Best-effort inside the service: it must never break the beat.
+        await sessionLogService.RecordHeartbeatAsync(
+            classSessionId,
+            userId,
+            ResolveParticipantRole(classSession, userId),
+            request.Activity,
+            cancellationToken);
+
         var status = await classSessionService.TryAutoCheckInAsync(classSessionId);
+        if (status.ScheduleConflict != null)
+        {
+            presence.Leave(classSessionId, userId);
+            return Conflict(APIResponse<object>.Fail(
+                status.ScheduleConflict.Message,
+                409,
+                new
+                {
+                    code = LiveSessionScheduleChangeErrorCodes.ScheduleConflict,
+                    conflict = status.ScheduleConflict
+                }));
+        }
 
         return Ok(APIResponse<object>.Success(new
         {
@@ -116,7 +180,8 @@ public class AgoraController(
             studentPresent   = status.StudentPresent,
             isCheckedIn      = status.IsCheckedIn,
             roomClosed       = status.RoomClosed,
-            blockedByPayment = status.BlockedByPayment
+            blockedByPayment = status.BlockedByPayment,
+            isRecording      = status.IsRecording
         }, "OK"));
     }
 
@@ -137,7 +202,12 @@ public class AgoraController(
         var released = await deviceLeases.ReleaseAsync(
             classSessionId, UserId, participationId, leaseId, cancellationToken);
         if (released)
+        {
             presence.Leave(classSessionId, UserId);
+            // Marks the beat run as an intentional exit, so leaving on purpose stays
+            // distinguishable from a client that simply stopped reporting.
+            await sessionLogService.CloseHeartbeatAsync(classSessionId, UserId, cancellationToken);
+        }
 
         return Ok(APIResponse<object>.Success(new { released }, "OK"));
     }
@@ -192,6 +262,18 @@ public class AgoraController(
         if (classSession.Status != ClassSessionStatus.Scheduled && classSession.Status != ClassSessionStatus.InProgress)
             return BadRequest(APIResponse<object>.Fail("Phòng học không khả dụng cho buổi này.", 400));
 
+        var whiteboardScheduleState = await scheduleChanges.GetOrCreateStateAsync(
+            classSessionId,
+            userId,
+            CurrentUserRole,
+            cancellationToken);
+        if (!whiteboardScheduleState.AdmissionAllowed)
+        {
+            return Conflict(APIResponse<object>.Fail(
+                "Cần đủ xác nhận đổi giờ học trước khi mở bảng trắng.",
+                409,
+                new { code = LiveSessionScheduleChangeErrorCodes.ConfirmationRequired }));
+        }
         var isTutor = classSession.Tutorid == userId;
         var room = await whiteboardService.GetOrCreateRoomAsync(classSessionId, isTutor);
 
@@ -229,7 +311,187 @@ public class AgoraController(
         }, "Tạo Agora token thành công."));
     }
 
+    // ── Emotion / Engagement monitoring ───────────────────────────────────────
+    // Máy HỌC VIÊN tự phân tích cảm xúc/độ tập trung cục bộ (MediaPipe + FER+ trong trình duyệt).
+    // Ảnh khuôn mặt KHÔNG rời máy học viên — chỉ điểm số/nhãn đã tổng hợp mới gửi lên đây.
+
+    /// <summary>
+    /// POST /api/agora/room/{classSessionId}/engagement
+    /// Học viên gửi lô mẫu điểm cảm xúc/độ tập trung (~mỗi 15-30s) để lưu, phục vụ báo cáo sau buổi.
+    /// Chỉ HỌC VIÊN của buổi học được gửi (gia sư/phụ huynh không tự sinh dữ liệu này).
+    /// </summary>
+    [HttpPost("room/{classSessionId:int}/engagement")]
+    public async Task<IActionResult> IngestEngagement(int classSessionId, [FromBody] EngagementSampleBatchRequest body)
+    {
+        var userId = UserId;
+
+        var classSession = await context.ClassSessions
+            .Include(l => l.Booking)
+            .FirstOrDefaultAsync(l => l.Classsessionid == classSessionId);
+
+        if (classSession == null)
+            return NotFound(APIResponse<object>.Fail("Không tìm thấy buổi học.", 404));
+
+        // Chỉ chính học viên của buổi mới được gửi mẫu (không phải bất kỳ ai có quyền truy cập).
+        if (!await IsSessionStudentAsync(classSession, userId))
+            return Forbid();
+
+        if (body?.Samples == null || body.Samples.Count == 0)
+            return Ok(APIResponse<object>.Success(new { inserted = 0 }, "Không có mẫu nào để lưu."));
+
+        var now = TimeZoneHelper.UtcNow;
+        var rows = body.Samples.Select(s => new SessionEngagementSample
+        {
+            ClassSessionId  = classSessionId,
+            StudentUserId   = userId,
+            Emotion         = s.Emotion,
+            EngagementScore = s.EngagementScore,
+            Drowsy          = s.Drowsy,
+            SampledAt       = now,
+        }).ToList();
+
+        context.SessionEngagementSamples.AddRange(rows);
+        await context.SaveChangesAsync();
+
+        return Ok(APIResponse<object>.Success(new { inserted = rows.Count }, "Đã lưu mẫu độ tập trung."));
+    }
+
+    /// <summary>
+    /// POST /api/agora/room/{classSessionId}/engagement-alert
+    /// Học viên báo một cảnh báo (rời màn hình / buồn ngủ / mất tập trung / căng thẳng). BE lưu lại
+    /// kèm mẫu và đẩy realtime tới GIA SƯ của buổi qua SignalR để hiện toast.
+    /// </summary>
+    [HttpPost("room/{classSessionId:int}/engagement-alert")]
+    public async Task<IActionResult> EngagementAlert(int classSessionId, [FromBody] EngagementAlertRequest body)
+    {
+        var userId = UserId;
+
+        var classSession = await context.ClassSessions
+            .Include(l => l.Booking)
+            .FirstOrDefaultAsync(l => l.Classsessionid == classSessionId);
+
+        if (classSession == null)
+            return NotFound(APIResponse<object>.Fail("Không tìm thấy buổi học.", 404));
+
+        if (!await IsSessionStudentAsync(classSession, userId))
+            return Forbid();
+
+        if (body == null || string.IsNullOrWhiteSpace(body.Reason) || string.IsNullOrWhiteSpace(body.Message))
+            return BadRequest(APIResponse<object>.Fail("Thiếu 'reason' hoặc 'message'.", 400));
+
+        // Lưu alert như một mẫu có alert_reason để báo cáo đếm được số cảnh báo mà không cần bảng riêng.
+        context.SessionEngagementSamples.Add(new SessionEngagementSample
+        {
+            ClassSessionId  = classSessionId,
+            StudentUserId   = userId,
+            Emotion         = null,
+            EngagementScore = body.EngagementScore ?? 0,
+            Drowsy          = body.Reason == "drowsy",
+            AlertReason     = body.Reason,
+            SampledAt       = TimeZoneHelper.UtcNow,
+        });
+        await context.SaveChangesAsync();
+
+        // Đẩy tới gia sư qua NotificationHub, group "user:{tutorUserId}" — BaseHub.OnConnectedAsync
+        // tự thêm mọi connection vào group này. Dùng NotificationHub (không phải SessionLobbyHub) vì
+        // gia sư luôn kết nối NotificationHub toàn app; SessionLobbyHub chỉ sống ở trang phòng chờ.
+        var tutorUserId = classSession.Tutorid;
+        if (!string.IsNullOrEmpty(tutorUserId))
+        {
+            await notificationHub.Clients.Group($"user:{tutorUserId}").SendAsync("engagementAlert", new
+            {
+                classSessionId,
+                reason  = body.Reason,
+                level   = body.Level,
+                message = body.Message,
+            });
+        }
+
+        return Ok(APIResponse<object>.Success(new { }, "Đã gửi cảnh báo."));
+    }
+
+    /// <summary>
+    /// GET /api/agora/room/{classSessionId}/engagement/summary
+    /// Tổng hợp cho báo cáo sau buổi: điểm tập trung trung bình, phân bố cảm xúc, số cảnh báo.
+    /// Tutor / Parent / Student của buổi đều xem được.
+    /// </summary>
+    [HttpGet("room/{classSessionId:int}/engagement/summary")]
+    public async Task<IActionResult> EngagementSummary(int classSessionId)
+    {
+        var userId = UserId;
+
+        var classSession = await context.ClassSessions
+            .Include(l => l.Booking)
+            .FirstOrDefaultAsync(l => l.Classsessionid == classSessionId);
+
+        if (classSession == null)
+            return NotFound(APIResponse<object>.Fail("Không tìm thấy buổi học.", 404));
+
+        if (!await CheckClassSessionAccessAsync(classSession, userId))
+            return Forbid();
+
+        var samples = await context.SessionEngagementSamples
+            .AsNoTracking()
+            .Where(s => s.ClassSessionId == classSessionId)
+            .OrderBy(s => s.SampledAt)
+            .ToListAsync();
+
+        // Chỉ các mẫu điểm thường (không phải alert) mới tính vào trung bình / phân bố cảm xúc.
+        var scoreSamples = samples.Where(s => s.AlertReason == null).ToList();
+        var avgEngagement = scoreSamples.Count > 0
+            ? Math.Round(scoreSamples.Average(s => s.EngagementScore), 4)
+            : 0d;
+
+        var emotionDistribution = scoreSamples
+            .Where(s => !string.IsNullOrEmpty(s.Emotion))
+            .GroupBy(s => s.Emotion!)
+            .ToDictionary(g => g.Key, g => g.Count());
+
+        var alertCounts = samples
+            .Where(s => s.AlertReason != null)
+            .GroupBy(s => s.AlertReason!)
+            .ToDictionary(g => g.Key, g => g.Count());
+
+        // Chuỗi thời gian điểm tập trung (cho biểu đồ) — chỉ mẫu điểm thường.
+        var timeline = scoreSamples.Select(s => new
+        {
+            sampledAt       = s.SampledAt,
+            engagementScore = s.EngagementScore,
+            emotion         = s.Emotion,
+            drowsy          = s.Drowsy,
+        });
+
+        return Ok(APIResponse<object>.Success(new
+        {
+            classSessionId,
+            sampleCount        = scoreSamples.Count,
+            avgEngagement,
+            emotionDistribution,
+            alertCounts,
+            totalAlerts        = samples.Count(s => s.AlertReason != null),
+            timeline,
+        }, "Lấy tổng hợp độ tập trung thành công."));
+    }
+
     // ── Private helpers ───────────────────────────────────────────────────────
+
+    /// <summary>
+    /// True nếu <paramref name="userId"/> chính là HỌC VIÊN của buổi học (tài khoản student có
+    /// Linkeduserid). Chặt hơn <see cref="CheckClassSessionAccessAsync"/> — không tính tutor/parent/admin.
+    /// </summary>
+    private async Task<bool> IsSessionStudentAsync(ClassSession classSession, string userId)
+    {
+        var studentId = classSession.Booking?.Studentid;
+        if (string.IsNullOrEmpty(studentId))
+            return false;
+
+        var linkedUserId = await context.Studentprofiles
+            .Where(s => s.Studentid == studentId)
+            .Select(s => s.Linkeduserid)
+            .FirstOrDefaultAsync();
+
+        return linkedUserId == userId;
+    }
 
     private async Task<IActionResult> AdmitAndBuildRoomAsync(
         int classSessionId,
@@ -286,6 +548,38 @@ public class AgoraController(
             && classSession.Status != ClassSessionStatus.InProgress)
         {
             return BadRequest(APIResponse<object>.Fail("Phòng học không khả dụng cho buổi này.", 400));
+        }
+
+        var scheduleChangeState = await scheduleChanges.GetOrCreateStateAsync(
+            classSessionId,
+            userId,
+            CurrentUserRole,
+            cancellationToken);
+        if (!scheduleChangeState.AdmissionAllowed)
+        {
+            return Conflict(APIResponse<object>.Fail(
+                "Cần đủ xác nhận đổi giờ học trước khi vào phòng.",
+                409,
+                new
+                {
+                    code = LiveSessionScheduleChangeErrorCodes.ConfirmationRequired,
+                    scheduleChange = scheduleChangeState
+                }));
+        }
+        var scheduleConflict = await scheduleChanges.FindCurrentConflictAsync(
+            classSessionId,
+            TimeZoneHelper.UtcNow,
+            cancellationToken);
+        if (scheduleConflict != null)
+        {
+            return Conflict(APIResponse<object>.Fail(
+                scheduleConflict.Message,
+                409,
+                new
+                {
+                    code = LiveSessionScheduleChangeErrorCodes.ScheduleConflict,
+                    conflict = scheduleConflict
+                }));
         }
 
         LiveSessionDeviceLease lease;
@@ -350,14 +644,27 @@ public class AgoraController(
         var tutorName = classSession.Tutor?.Tutor?.Fullname ?? "Gia sư";
         var studentName = classSession.Booking?.Student?.Fullname ?? "Học sinh";
         var tutorUserId = classSession.Tutorid;
-        var parentUserId = classSession.Booking?.Parentid;
         var studentUserId = classSession.Booking?.Student?.Linkeduserid;
         var participantNames = new Dictionary<string, string>();
 
+        // Agora's channel notifications identify users by a uid that carries no application
+        // meaning, so the session log needs to know who was admitted and when. The network and
+        // device come along for the ride: two of them for one account in one lesson is the signal
+        // behind account sharing. Recording it is best-effort inside the service — it must never
+        // stand between a user and their lesson.
+        await sessionLogService.RecordAdmissionAsync(
+            classSessionId,
+            userId,
+            ResolveParticipantRole(classSession, userId),
+            new SessionAdmissionContext(
+                ResolveClientIpAddress(),
+                deviceId,
+                deviceLabel,
+                Request.Headers.UserAgent.ToString()),
+            cancellationToken);
+
         if (classSession.Tutor?.Tutor != null && !string.IsNullOrEmpty(tutorUserId))
             participantNames[tutorUserId] = tutorName;
-        if (classSession.Booking?.Parent != null && !string.IsNullOrEmpty(parentUserId))
-            participantNames[parentUserId] = classSession.Booking.Parent.Fullname ?? "Phụ huynh";
         if (!string.IsNullOrEmpty(studentUserId))
             participantNames[studentUserId] = studentName;
 
@@ -433,6 +740,40 @@ public class AgoraController(
             && LiveSessionDeviceInputValidator.TryNormalizeGuid(request.LeaseId, out leaseId);
     }
 
+    /// <summary>
+    /// Which side of the lesson a user is on, for the attendance record. Requires the booking's
+    /// student to be loaded; an unloaded one yields <c>unknown</c>, which the session log then
+    /// resolves from the booking itself rather than guessing.
+    /// </summary>
+    private static string ResolveParticipantRole(ClassSession classSession, string userId)
+    {
+        if (userId == classSession.Tutorid) return SessionParticipantRole.Tutor;
+        if (userId == classSession.Booking?.Student?.Linkeduserid) return SessionParticipantRole.Student;
+        if (userId == classSession.Booking?.Parentid) return SessionParticipantRole.Parent;
+        return SessionParticipantRole.Unknown;
+    }
+
+    /// <summary>
+    /// The client address to store with an admission.
+    ///
+    /// <c>X-Forwarded-For</c> is only read when the deployment says a trusted proxy overwrites it:
+    /// the header is otherwise attacker-controlled, and an address a user chose for themselves would
+    /// be worse in the fraud record than no address at all. Returns null when nothing is resolvable.
+    /// </summary>
+    private string? ResolveClientIpAddress()
+    {
+        if (evidenceSettings.Value.TrustForwardedFor)
+        {
+            var forwarded = Request.Headers["X-Forwarded-For"].FirstOrDefault();
+            // Proxies append, so the original client is the leftmost entry.
+            var firstHop = forwarded?.Split(',').FirstOrDefault()?.Trim();
+            if (!string.IsNullOrWhiteSpace(firstHop))
+                return firstHop;
+        }
+
+        return HttpContext.Connection.RemoteIpAddress?.ToString();
+    }
+
     private async Task<bool> CheckClassSessionAccessAsync(ClassSession classSession, string userId)
     {
         // Admin có toàn quyền
@@ -441,10 +782,6 @@ public class AgoraController(
 
         // Tutor của buổi học
         if (classSession.Tutorid == userId)
-            return true;
-
-        // Parent của booking
-        if (classSession.Booking?.Parentid == userId)
             return true;
 
         // Student có tài khoản riêng (linkedUserId)

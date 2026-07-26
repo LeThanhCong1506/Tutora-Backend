@@ -57,6 +57,11 @@ public static class Permissions
     public const string QuestionDocumentView = "question_document.view";
     public const string QuestionDocumentUpload = "question_document.upload";
 
+    // Knowledge Base (nội dung/chính sách Tutora cho bot FAQ)
+    public const string KnowledgeBaseView = "knowledge_base.view";
+    public const string KnowledgeBaseUpload = "knowledge_base.upload";
+    public const string KnowledgeBaseDelete = "knowledge_base.delete";
+
     public static readonly IReadOnlySet<string> All = new HashSet<string>(StringComparer.Ordinal)
     {
         TutorApprovalView, TutorApprovalDecide, CertificateView, CertificateVerify, TutorCccdView,
@@ -71,7 +76,8 @@ public static class Permissions
         NotificationSend, NotificationView, NotificationDelete,
         LookupView, LookupCreate, LookupUpdate, LookupDelete,
         QuestionBankView, QuestionBankCreate, QuestionBankUpdate, QuestionBankDelete,
-        QuestionDocumentView, QuestionDocumentUpload
+        QuestionDocumentView, QuestionDocumentUpload,
+        KnowledgeBaseView, KnowledgeBaseUpload, KnowledgeBaseDelete
     };
 
     /// <summary>
@@ -105,6 +111,9 @@ public static class Permissions
         new(QuestionBankDelete, "Xóa câu hỏi", "Nội dung", "Ngân hàng câu hỏi", "Xóa", QuestionBankView),
         new(QuestionDocumentView, "Xem lịch sử trích xuất PDF", "Nội dung", "Trích xuất câu hỏi từ PDF", "Xem"),
         new(QuestionDocumentUpload, "Upload PDF và trích xuất câu hỏi", "Nội dung", "Trích xuất câu hỏi từ PDF", "Upload", QuestionDocumentView, QuestionBankCreate),
+        new(KnowledgeBaseView, "Xem tài liệu về Tutora", "Nội dung", "Knowledge Base", "Xem"),
+        new(KnowledgeBaseUpload, "Tải lên tài liệu về Tutora", "Nội dung", "Knowledge Base", "Upload", KnowledgeBaseView),
+        new(KnowledgeBaseDelete, "Xóa tài liệu về Tutora", "Nội dung", "Knowledge Base", "Xóa", KnowledgeBaseView),
 
         new(DashboardView, "Xem dashboard và báo cáo thống kê", "Báo cáo", "Tổng quan", "Xem"),
         new(FinancialView, "Xem báo cáo tài chính", "Báo cáo", "Tài chính", "Xem"),

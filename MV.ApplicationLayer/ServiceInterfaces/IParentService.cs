@@ -37,4 +37,6 @@ public interface IParentService
     /// Get calendar view
     /// </summary>
     Task<List<CalendarDayResponse>> GetParentCalendarAsync(string userId, string role, DateTime startDate, DateTime endDate);
+
 }
+

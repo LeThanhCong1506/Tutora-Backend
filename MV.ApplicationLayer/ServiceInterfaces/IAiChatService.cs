@@ -5,13 +5,12 @@ namespace MV.ApplicationLayer.ServiceInterfaces;
 
 public interface IAiChatService
 {
-    /// <summary>
-    /// Hỏi AI giải toán trong một phiên: lưu user message → dựng history từ DB →
-    /// gọi tutora-ai /solve → stream từng dòng SSE về cho caller (yield) →
-    /// lưu assistant message khi stream xong. .NET là cổng duy nhất.
-    /// </summary>
+
     IAsyncEnumerable<string> SolveStreamAsync(
         string userId, Guid sessionId, AiSolveRequest dto, CancellationToken ct = default);
+
+    Task<AssistantRespondResponse> RespondAsync(
+        string? userId, AssistantRespondRequest dto, CancellationToken ct = default);
 
     /// <summary>Tạo phiên chat AI mới cho người dùng.</summary>
     Task<AiChatSessionResponse> CreateSessionAsync(string userId, AiChatSessionCreateRequest dto);

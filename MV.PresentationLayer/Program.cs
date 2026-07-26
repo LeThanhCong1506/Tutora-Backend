@@ -50,6 +50,8 @@ builder.Services.Configure<PaymentSettings>(builder.Configuration.GetSection(Pay
 builder.Services.Configure<GoogleSettings>(builder.Configuration.GetSection(GoogleSettings.SectionName));
 builder.Services.Configure<AgoraSettings>(builder.Configuration.GetSection(AgoraSettings.SectionName));
 builder.Services.Configure<AgoraRecordingSettings>(builder.Configuration.GetSection(AgoraRecordingSettings.SectionName));
+builder.Services.Configure<AgoraNotificationSettings>(builder.Configuration.GetSection(AgoraNotificationSettings.SectionName));
+builder.Services.Configure<SessionEvidenceSettings>(builder.Configuration.GetSection(SessionEvidenceSettings.SectionName));
 builder.Services.Configure<GoogleDriveSettings>(builder.Configuration.GetSection(GoogleDriveSettings.SectionName));
 builder.Services.Configure<WhiteboardSettings>(builder.Configuration.GetSection(WhiteboardSettings.SectionName));
 builder.Services.Configure<VietQRSettings>(builder.Configuration.GetSection(VietQRSettings.SectionName));
@@ -190,18 +192,25 @@ builder.Services.AddCors(options =>
         {
             policy.WithOrigins(
                     "https://localhost:7203", "http://localhost:5173", "http://localhost:5174", "http://localhost:5166",
+                    "http://localhost:5180",
                     // Next.js dev server (apps/web-next)
                     "http://localhost:3000",
                     "https://swd-391-frontend-d4ek.vercel.app", "http://localhost:5500",
                     "https://www.tutora.vn", "https://tutora.vn", "https://tutorahelps.vercel.app",
                     // Vite app sau cutover sang Next (portal + auth)
                     "https://app.tutora.vn",
+                    "https://apps.tutora.vn",
                     // Developer app
                     "https://tutora-developer.vercel.app",
                     // Zalo Mini App domains
                     "https://h5.zalo.me", "https://h5.zadn.vn", "https://h5.zdn.vn", "https://miniapp-cdn.zalo.me")
                   .AllowAnyHeader()
                   .AllowAnyMethod()
+                  // AllowAnyHeader chỉ áp dụng cho REQUEST header. Muốn JS đọc được
+                  // response header tuỳ biến thì phải khai báo Access-Control-Expose-Headers.
+                  // Thiếu dòng này, FE không đọc nổi X-Pagination → tổng số bản ghi rơi
+                  // về độ dài của trang hiện tại → thanh phân trang biến mất.
+                  .WithExposedHeaders("X-Pagination")
                   .AllowCredentials();
         });
 });
@@ -264,6 +273,12 @@ builder.Services.AddHttpClient<IFptAiService, FptAiService>();
 // 2. Đăng ký HttpClient cho OcrSpaceService (OCR cho chứng chỉ/bằng cấp)
 builder.Services.AddHttpClient<IOcrService, OcrSpaceService>();
 
+// 3. Đăng ký HttpClient cho DisputeClassificationService (Groq AI phân loại ưu tiên tranh chấp)
+builder.Services.AddHttpClient<IDisputeClassificationService, DisputeClassificationService>(client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(10);
+});
+
 // Repo injection
 builder.Services.AddScoped<IAuthenticationRepository, AuthenticationRepository>();
 builder.Services.AddScoped<IPasswordRepository, PasswordRepository>();
@@ -274,6 +289,7 @@ builder.Services.AddScoped<IDisputeRepository, DisputeRepository>();
 builder.Services.AddScoped<IWarningRepository, WarningRepository>();
 builder.Services.AddScoped<IChatRepository, ChatRepository>();
 builder.Services.AddScoped<IAiChatRepository, AiChatRepository>();
+builder.Services.AddScoped<IQuestionNoteRepository, QuestionNoteRepository>();
 builder.Services.AddScoped<IClassSessionRepository, ClassSessionRepository>();
 builder.Services.AddScoped<IWalletRepository, WalletRepository>();
 builder.Services.AddScoped<IWithdrawalRepository, WithdrawalRepository>();
@@ -309,6 +325,7 @@ builder.Services.AddScoped<IZaloAuthService, ZaloAuthService>();
 builder.Services.AddScoped<IRefreshTokenService, RefreshTokenService>();
 builder.Services.AddScoped<ITutorAvailabilityService, TutorAvailabilityService>();
 builder.Services.AddScoped<ILookupService, LookupService>();
+builder.Services.AddScoped<IStudyResourceService, StudyResourceService>();
 builder.Services.AddScoped<IBookingService, BookingService>();
 builder.Services.AddScoped<IEkycService, EkycService>();
 builder.Services.AddScoped<IStudentIdentityService, StudentIdentityService>();
@@ -317,9 +334,13 @@ builder.Services.AddScoped<IChatService, ChatService>();
 builder.Services.AddScoped<IPresenceService, PresenceService>();
 builder.Services.AddHostedService<PresenceLeaseCleanupService>();
 builder.Services.AddScoped<IAiChatService, AiChatService>();
+builder.Services.AddScoped<IQuestionNoteService, QuestionNoteService>();
 builder.Services.AddScoped<IPaymentService, PaymentService>();
 builder.Services.AddScoped<IWalletService, WalletService>();
+builder.Services.AddScoped<IAiCreditService, AiCreditService>();
 builder.Services.AddScoped<IClassSessionService, ClassSessionService>();
+builder.Services.AddScoped<ISessionLogService, SessionLogService>();
+builder.Services.AddScoped<IClassSessionScheduleChangeService, ClassSessionScheduleChangeService>();
 builder.Services.AddScoped<IAgoraRTCService, AgoraRTCService>();
 builder.Services.AddSingleton<ILiveSessionDeviceLeaseService, LiveSessionDeviceLeaseService>();
 // Presence in-memory (Singleton): theo dõi ai đang trong phòng học để auto check-in khi đủ cả 2.
@@ -328,6 +349,7 @@ builder.Services.AddSingleton<ISessionPresenceService, SessionPresenceService>()
 builder.Services.AddHttpClient<ICloudRecordingService, CloudRecordingService>();
 builder.Services.AddHttpClient<IWhiteboardService, WhiteboardService>();
 builder.Services.AddScoped<IGoogleDriveService, GoogleDriveService>();
+builder.Services.AddSingleton<IRecordingAccessTokenService, RecordingAccessTokenService>();
 builder.Services.AddScoped<IRecordingRelayService, RecordingRelayService>();
 builder.Services.AddHostedService<MV.PresentationLayer.BackgroundServices.RecordingRelayHostedService>();
 builder.Services.AddScoped<ITutorFinanceService, TutorFinanceService>();
@@ -343,6 +365,7 @@ builder.Services.AddScoped<IWarningService, WarningService>();
 builder.Services.AddScoped<IFeedbackService, FeedbackService>();
 builder.Services.AddScoped<IQuestionService, QuestionService>();
 builder.Services.AddScoped<ISourceDocumentService, SourceDocumentService>();
+builder.Services.AddScoped<IKnowledgeBaseService, KnowledgeBaseService>();
 
 builder.Services.AddScoped<IBankListService, BankListService>();
 builder.Services.AddScoped<PayOSWebhookService>();
@@ -423,8 +446,9 @@ builder.Services.AddHostedService<AutoUnsuspendJob>();
 builder.Services.AddHostedService<ClassSessionReminderJob>();
 builder.Services.AddHostedService<RemainingPaymentTriggerJob>();
 builder.Services.AddHostedService<GhostUserCleanupJob>();
-// Chủ động refresh Zalo OA token trước khi hết hạn.
 builder.Services.AddHostedService<ZaloTokenRefreshJob>();
+builder.Services.AddSingleton<ITutorEmbedQueue, TutorEmbedQueue>();
+builder.Services.AddHostedService<TutorEmbedWorker>();
 
 // Cấu hình Authentication (JWT mặc định, Google/Facebook song song)
 builder.Services.AddAuthentication(options =>
@@ -539,6 +563,21 @@ if (args.Any(arg => string.Equals(arg, "--run-managed-migrations", StringCompari
 }
 
 var app = builder.Build();
+
+// Development applies managed migrations on boot so a new table never needs to be pasted into a
+// SQL console by hand. Other environments keep the explicit --run-managed-migrations gate, where
+// schema changes belong to the deployment step rather than to whoever starts the process first.
+// The runner takes an advisory lock and journals checksums, so repeated starts are a no-op.
+if (app.Environment.IsDevelopment())
+{
+    var migrationLogger = app.Services.GetRequiredService<ILoggerFactory>()
+        .CreateLogger("ManagedMigrationRunner");
+    // Session admission and the admin evidence endpoint both depend on the managed schema.
+    // Starting with a failed/checksum-mismatched migration would only defer the error into a
+    // lesson or dispute, so development fails fast just like the explicit deployment command.
+    await ManagedMigrationRunner.RunAsync(app.Configuration);
+    migrationLogger.LogInformation("Managed migrations are up to date.");
+}
 
 await using (var schemaScope = app.Services.CreateAsyncScope())
 {

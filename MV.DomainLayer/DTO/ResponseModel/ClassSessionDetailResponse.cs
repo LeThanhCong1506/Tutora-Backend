@@ -34,6 +34,7 @@ public class ClassSessionDetailResponse
 
     // Status
     public string? Status { get; set; }
+    public string? BookingStatus { get; set; }
     public DateTime? SubmittedAt { get; set; }
     public DateTime? ConfirmDeadline { get; set; }
     public DateTime? ParentAckAt { get; set; }
@@ -64,6 +65,9 @@ public class ClassSessionDetailResponse
     public ClassSessionTutorResponse? Tutor { get; set; }
     public ClassSessionSubjectResponse? Subject { get; set; }
     public ClassSessionReportResponse? Report { get; set; }
+
+    /// <summary>Lịch sử dời lịch (nếu có) — bao gồm cả yêu cầu đã áp dụng, đang chờ, hoặc bị từ chối.</summary>
+    public List<DisputeScheduleChangeAuditResponse> ScheduleChanges { get; set; } = new();
 
     // Time calculations (so sánh với giờ VN vì ScheduledStart/ConfirmDeadline đã là giờ VN)
     public TimeSpan? TimeUntilStart => ScheduledStart > TimeZoneHelper.UtcNow

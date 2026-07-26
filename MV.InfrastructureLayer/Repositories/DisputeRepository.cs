@@ -25,6 +25,8 @@ public class DisputeRepository(AgoraDbContext context) : IDisputeRepository
             .Include(d => d.ClassSession).ThenInclude(l => l!.Tutor).ThenInclude(t => t!.Tutor)
             .Include(d => d.CreatedbyNavigation)
             .Include(d => d.ResolvedbyNavigation)
+            .Include(d => d.DisputeEvidences)
+                .ThenInclude(e => e.UploadedbyNavigation)
             .FirstOrDefaultAsync();
 
     public Task<Dispute?> FindWithBookingAsync(int disputeId)

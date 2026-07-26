@@ -143,6 +143,34 @@ public class TutorAiClient : ITutorAiClient
         }
     }
 
+    public async Task EmbedTutorAsync(string tutorId, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var client = _httpClientFactory.CreateClient(ServiceKeys.HttpClients.TutorAi);
+
+            using var request = new HttpRequestMessage(
+                HttpMethod.Post, $"/api/v1/tutors/{Uri.EscapeDataString(tutorId)}/embed");
+            if (!string.IsNullOrWhiteSpace(_apiKey))
+                request.Headers.Add("X-API-Key", _apiKey);
+
+            // Embed nhờ Gemini -> có thể vài giây; cho timeout riêng để không kẹt luồng gọi.
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            cts.CancelAfter(TimeSpan.FromSeconds(60));
+
+            using var response = await client.SendAsync(request, cts.Token);
+            if (!response.IsSuccessStatusCode)
+                _logger.LogWarning(
+                    "TutorAI embed gia sư {TutorId} trả status {StatusCode} — sẽ được embed lại ở lần cập nhật sau.",
+                    tutorId, (int)response.StatusCode);
+        }
+        catch (Exception ex)
+        {
+            // Nuốt lỗi: embed hỏng không được chặn luồng lưu hồ sơ gia sư.
+            _logger.LogWarning(ex, "Lỗi gọi TutorAI embed gia sư {TutorId}.", tutorId);
+        }
+    }
+
     public async Task<List<AiExtractedQuestion>?> ExtractPdfAsync(
         byte[] pdfBytes, string fileName, CancellationToken cancellationToken = default)
     {
@@ -193,7 +221,118 @@ public class TutorAiClient : ITutorAiClient
         }
     }
 
+    // Knowledge Base: forward thuần sang tutora-ai
+    public async Task<KbUploadResult?> KbUploadAsync(
+        byte[] fileBytes, string fileName, string? uploadedBy,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var client = _httpClientFactory.CreateClient(ServiceKeys.HttpClients.TutorAi);
+
+            using var form = new MultipartFormDataContent();
+            var fileContent = new ByteArrayContent(fileBytes);
+            fileContent.Headers.ContentType =
+                new System.Net.Http.Headers.MediaTypeHeaderValue(ContentTypeForFile(fileName));
+            form.Add(fileContent, "file", fileName);
+            if (!string.IsNullOrWhiteSpace(uploadedBy))
+                form.Add(new StringContent(uploadedBy), "uploaded_by");
+
+            using var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/kb/upload")
+            {
+                Content = form
+            };
+            if (!string.IsNullOrWhiteSpace(_apiKey))
+                request.Headers.Add("X-API-Key", _apiKey);
+
+            // Extract + chunk + embed nhiều đoạn -> có thể lâu; cho timeout rộng như extract-pdf.
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            cts.CancelAfter(TimeSpan.FromSeconds(180));
+
+            using var response = await client.SendAsync(request, cts.Token);
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogWarning("TutorAI kb/upload trả status {StatusCode}.", (int)response.StatusCode);
+                return null;
+            }
+
+            var content = await response.Content.ReadAsStringAsync(cts.Token);
+            var result = JsonSerializer.Deserialize<KbUploadResponse>(content, _jsonOptions);
+            if (result?.DocumentId == null)
+            {
+                _logger.LogWarning("TutorAI kb/upload trả null document_id.");
+                return null;
+            }
+            return new KbUploadResult(result.DocumentId, result.ChunkCount, result.FileName ?? fileName);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Lỗi gọi TutorAI kb/upload.");
+            return null;
+        }
+    }
+
+    public async Task<int?> KbUpdateContentAsync(string documentId, string content, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var client = _httpClientFactory.CreateClient(ServiceKeys.HttpClients.TutorAi);
+
+            using var request = new HttpRequestMessage(
+                HttpMethod.Put, $"/api/v1/kb/documents/{Uri.EscapeDataString(documentId)}/content")
+            {
+                Content = JsonContent.Create(new { content }),
+            };
+            if (!string.IsNullOrWhiteSpace(_apiKey))
+                request.Headers.Add("X-API-Key", _apiKey);
+
+            // Chunk lại + re-embed -> có thể lâu; timeout rộng như upload.
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            cts.CancelAfter(TimeSpan.FromSeconds(180));
+
+            using var response = await client.SendAsync(request, cts.Token);
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogWarning("TutorAI kb update-content trả status {StatusCode}.", (int)response.StatusCode);
+                return null;
+            }
+
+            var body = await response.Content.ReadAsStringAsync(cts.Token);
+            var result = JsonSerializer.Deserialize<KbUploadResponse>(body, _jsonOptions);
+            return result?.ChunkCount;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Lỗi gọi TutorAI kb update-content.");
+            return null;
+        }
+    }
+
+    private static string ContentTypeForFile(string fileName)
+    {
+        var ext = System.IO.Path.GetExtension(fileName).ToLowerInvariant();
+        return ext switch
+        {
+            ".pdf" => "application/pdf",
+            ".docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            ".xlsx" => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            _ => "application/octet-stream",
+        };
+    }
+
     // Internal request/response shapes
+
+    private sealed class KbUploadResponse
+    {
+        [JsonPropertyName("document_id")]
+        public string? DocumentId { get; set; }
+
+        [JsonPropertyName("chunk_count")]
+        public int ChunkCount { get; set; }
+
+        [JsonPropertyName("file_name")]
+        public string? FileName { get; set; }
+    }
 
     private sealed class ExtractPdfResponse
     {

@@ -7,7 +7,8 @@ public partial class PaymentRequest
 {
     public int Paymentrequestid { get; set; }
 
-    public int Bookingid { get; set; }
+    /// <summary>NULL khi phase = 'ai_credit'. Luồng booking luôn có giá trị.</summary>
+    public int? Bookingid { get; set; }
 
     public string? Userid { get; set; }
 
@@ -47,7 +48,11 @@ public partial class PaymentRequest
 
     public DateTime Updatedat { get; set; }
 
-    public virtual Booking Booking { get; set; } = null!;
+    public int? AiCreditPackageid { get; set; }
+
+    public string? AiCreditUserid { get; set; }
+
+    public virtual Booking? Booking { get; set; }
 
     public virtual User? User { get; set; }
 

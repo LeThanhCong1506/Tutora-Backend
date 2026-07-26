@@ -1,0 +1,3 @@
+ALTER TABLE disputes
+    ADD COLUMN IF NOT EXISTS priority VARCHAR(20),
+    ADD COLUMN IF NOT EXISTS priority_reason VARCHAR(500);
