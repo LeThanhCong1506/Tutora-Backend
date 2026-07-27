@@ -8,9 +8,9 @@ namespace MV.ApplicationLayer.ServiceInterfaces
     public interface IDisputeClassificationService
     {
         /// <summary>
-        /// Trả về mức độ ưu tiên (low/medium/high) + lý do ngắn gọn, hoặc null nếu AI không khả dụng/lỗi.
-        /// Không bao giờ throw — caller có thể bỏ qua kết quả null mà không ảnh hưởng luồng chính.
+        /// Trả về mức độ ưu tiên (low/medium/high) + lý do ngắn gọn.
+        /// Throws when Groq is unavailable or returns an invalid response so Hangfire can retry the job.
         /// </summary>
-        Task<DisputeClassificationResult?> ClassifyAsync(string disputeType, string reason);
+        Task<DisputeClassificationResult> ClassifyAsync(string disputeType, string reason);
     }
 }

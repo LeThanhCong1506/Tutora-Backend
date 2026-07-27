@@ -107,7 +107,16 @@ public class DisputeController : ControllerBase
     public async Task<ActionResult<APIResponse<DisputeDetailResponse>>> Classify(int id)
     {
         var adminId = UserHelper.GetUserId(User);
-        var result = await _disputeService.ClassifyDisputePriorityAsync(id, adminId);
+        DisputeDetailResponse? result;
+        try
+        {
+            result = await _disputeService.ClassifyDisputePriorityAsync(id, adminId);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or InvalidOperationException or TaskCanceledException)
+        {
+            return StatusCode(StatusCodes.Status502BadGateway,
+                APIResponse<DisputeDetailResponse>.Fail("Không thể phân loại ưu tiên bằng AI. Vui lòng thử lại sau."));
+        }
 
         if (result == null)
             return NotFound(APIResponse<DisputeDetailResponse>.Fail("Không tìm thấy tranh chấp."));
