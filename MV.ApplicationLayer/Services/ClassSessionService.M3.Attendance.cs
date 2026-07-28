@@ -155,6 +155,13 @@ public partial class ClassSessionService
         // là "đang ghi hình" để test chỉ báo bằng gia sư + học viên thật. Xoá dòng này khi bật record thật.
         isRecording = isRecording || (isCheckedIn && !roomClosed);
 
+        // Mốc hệ thống sẽ tự đóng phòng nếu chưa ai kết thúc — chỉ có ý nghĩa khi buổi đang
+        // diễn ra thật (đã check-in) và chưa đóng. Dùng Scheduledend đã nạp (có thể vừa được
+        // điều chỉnh theo lịch đổi giờ được duyệt ở khối auto check-in phía trên).
+        DateTime? autoEndAt = (isCheckedIn && !roomClosed)
+            ? classSession.Scheduledend.AddMinutes(LiveSessionAutoEndGraceMinutes)
+            : null;
+
         return new SessionPresenceStatus(
             TutorPresent: tutorPresent,
             StudentPresent: studentPresent,
@@ -162,7 +169,8 @@ public partial class ClassSessionService
             RoomClosed: roomClosed,
             BlockedByPayment: blockedByPayment,
             IsRecording: isRecording,
-            ScheduleConflict: scheduleConflict);
+            ScheduleConflict: scheduleConflict,
+            AutoEndAt: autoEndAt);
     }
 
     /// <summary>

@@ -181,7 +181,8 @@ public class AgoraController(
             isCheckedIn      = status.IsCheckedIn,
             roomClosed       = status.RoomClosed,
             blockedByPayment = status.BlockedByPayment,
-            isRecording      = status.IsRecording
+            isRecording      = status.IsRecording,
+            autoEndAt        = status.AutoEndAt
         }, "OK"));
     }
 
