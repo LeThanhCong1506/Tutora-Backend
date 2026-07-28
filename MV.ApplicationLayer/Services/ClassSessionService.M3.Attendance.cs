@@ -256,6 +256,45 @@ public partial class ClassSessionService
     }
 
     /// <summary>
+    /// Thời gian ân hạn sau giờ kết thúc dự kiến trước khi hệ thống tự đóng phòng — đề phòng
+    /// buổi học kéo dài thêm chút ít nhưng không ai bấm "Kết thúc". Sau mốc này, phòng bị đóng
+    /// (Checkouttime) dù gia sư/học viên chưa tự rời — cả 2 phía tự động bị đá ra ở nhịp heartbeat
+    /// kế tiếp (≤20s, xem RoomClosed trong TryAutoCheckInAsync và sendHeartbeat ở FE) thay vì mỗi
+    /// người tự rời lúc khác nhau.
+    /// </summary>
+    public const int LiveSessionAutoEndGraceMinutes = 30;
+
+    public async Task<int> AutoCloseExpiredLiveSessionsAsync(CancellationToken ct = default)
+    {
+        var now = TimeZoneHelper.UtcNow;
+        var cutoff = now.AddMinutes(-LiveSessionAutoEndGraceMinutes);
+
+        var expiredSessions = await _context.ClassSessions
+            .Where(l => l.Status == InProgress
+                && l.Checkintime.HasValue
+                && l.Checkouttime == null
+                && l.Scheduledend <= cutoff)
+            .ToListAsync(ct);
+
+        if (expiredSessions.Count == 0) return 0;
+
+        foreach (var classSession in expiredSessions)
+        {
+            classSession.Checkouttime = now;
+            classSession.Realend = now;
+
+            await TryStopRecordingAsync(classSession);
+
+            _logger.LogInformation(
+                "Tự động đóng phòng buổi học {ClassSessionId}: đã quá {GraceMinutes} phút sau giờ kết thúc dự kiến {ScheduledEnd:o}.",
+                classSession.Classsessionid, LiveSessionAutoEndGraceMinutes, classSession.Scheduledend);
+        }
+
+        await _context.SaveChangesAsync(ct);
+        return expiredSessions.Count;
+    }
+
+    /// <summary>
     /// Bắt đầu Agora Cloud Recording cho buổi học (nếu tính năng bật).
     /// Lỗi record KHÔNG được làm hỏng check-in → nuốt exception, chỉ log cảnh báo.
     /// </summary>
