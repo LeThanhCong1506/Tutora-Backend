@@ -16,6 +16,7 @@ public class QuestionNoteResponse
     public JsonElement? SolutionSteps { get; set; }
     public string? AnswerSummary { get; set; }
     public string? PersonalNote { get; set; }
+    public JsonElement? StepNotes { get; set; }
     public string? Subject { get; set; }
     public int? GradeLevel { get; set; }
     public string? Chapter { get; set; }
