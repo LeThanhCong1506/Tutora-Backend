@@ -11,6 +11,11 @@ namespace MV.DomainLayer.DTO.ResponseModel;
 /// <param name="RoomClosed">Buổi đã check-out — phòng đóng, client nên rời.</param>
 /// <param name="BlockedByPayment">Bị chặn auto check-in vì phụ huynh chưa thanh toán đợt 2.</param>
 /// <param name="IsRecording">Cloud Recording đang chạy (đã có Sid). FE dùng để hiện chỉ báo ghi hình.</param>
+/// <param name="AutoEndAt">
+/// Mốc thời gian (UTC) hệ thống sẽ tự đóng phòng nếu chưa ai kết thúc — tức
+/// Scheduledend + LiveSessionAutoEndGraceMinutes. Null khi buổi chưa in_progress hoặc đã đóng.
+/// FE dùng để hiện đếm ngược cảnh báo trước khi bị tự động đá ra.
+/// </param>
 public record SessionPresenceStatus(
     bool TutorPresent,
     bool StudentPresent,
@@ -18,5 +23,6 @@ public record SessionPresenceStatus(
     bool RoomClosed,
     bool BlockedByPayment,
     bool IsRecording,
-    SessionScheduleConflictResponse? ScheduleConflict = null
+    SessionScheduleConflictResponse? ScheduleConflict = null,
+    DateTime? AutoEndAt = null
 );

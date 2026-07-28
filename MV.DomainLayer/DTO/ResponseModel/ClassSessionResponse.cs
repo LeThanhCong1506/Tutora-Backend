@@ -24,6 +24,12 @@ public class ClassSessionResponse
     public DateTime? CreatedAt { get; set; }
     /// <summary>True nếu đã có video buổi học xem lại được (không phân biệt đang xử lý/đang ghi).</summary>
     public bool HasRecording { get; set; }
+    /// <summary>
+    /// Trạng thái yêu cầu đổi lịch (dời lịch) đang còn hiệu lực cho buổi này — "pending" (chờ xác
+    /// nhận) hoặc "approved" (đã xác nhận, sẽ áp dụng khi check-in). Null nếu không có yêu cầu nào
+    /// đang hiệu lực. Dùng để hiện badge riêng trên danh sách buổi học, KHÔNG liên quan tới Status.
+    /// </summary>
+    public string? ScheduleChangeStatus { get; set; }
     public StudentMiniResponse? Student { get; set; }
     public SubjectResponse? Subject { get; set; }
     public TutorMiniResponse? Tutor { get; set; }

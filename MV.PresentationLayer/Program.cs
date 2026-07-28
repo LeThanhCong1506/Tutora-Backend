@@ -445,6 +445,7 @@ builder.Services.AddHostedService<AutoConfirmClassSessionJob>();
 builder.Services.AddHostedService<AutoUnsuspendJob>();
 builder.Services.AddHostedService<ClassSessionReminderJob>();
 builder.Services.AddHostedService<RemainingPaymentTriggerJob>();
+builder.Services.AddHostedService<AutoEndLiveSessionJob>();
 builder.Services.AddHostedService<GhostUserCleanupJob>();
 builder.Services.AddHostedService<ZaloTokenRefreshJob>();
 builder.Services.AddSingleton<ITutorEmbedQueue, TutorEmbedQueue>();
