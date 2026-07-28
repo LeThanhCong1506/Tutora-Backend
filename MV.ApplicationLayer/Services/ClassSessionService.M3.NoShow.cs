@@ -1,7 +1,9 @@
+using Hangfire;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using System.Text.Json;
 using MV.ApplicationLayer.Helpers;
+using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO.RequestModel;
 using MV.DomainLayer.DTO.ResponseModel;
@@ -108,6 +110,20 @@ public partial class ClassSessionService
             }
 
             throw;
+        }
+
+        try
+        {
+            var jobId = _backgroundJobClient.Enqueue<IDisputeService>(
+                s => s.ClassifyDisputePriorityAsync(dispute.Disputeid, "system"));
+            _logger.LogInformation(
+                "Enqueued Hangfire job {JobId} to classify priority for dispute {DisputeId}",
+                jobId,
+                dispute.Disputeid);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to enqueue priority classification job for dispute {DisputeId}", dispute.Disputeid);
         }
 
         // Notify tutor about the no-show report
