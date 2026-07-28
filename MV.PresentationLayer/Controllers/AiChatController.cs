@@ -12,7 +12,6 @@ namespace MV.PresentationLayer.Controllers;
 
 /// <summary>
 /// Lịch sử hội thoại người dùng ↔ AI (chat giải toán + chat tư vấn matching).
-/// Tách hoàn toàn với /api/chat (chat người-người).
 /// </summary>
 [ApiController]
 [Route("api/ai-chat")]
@@ -89,6 +88,34 @@ public class AiChatController : ControllerBase
         return Ok(APIResponse<AiChatMessageResponse>.Success(result, "Lưu tin nhắn thành công."));
     }
 
+    /// <summary>
+    /// POST /api/ai-chat/messages/{messageId}/vote — đánh giá một câu trả lời của AI.
+    /// </summary>
+    [HttpPost("messages/{messageId}/vote")]
+    public async Task<IActionResult> VoteMessage(
+        Guid messageId, [FromBody] AiMessageVoteRequest dto, CancellationToken ct)
+    {
+        if (string.IsNullOrEmpty(UserId))
+            return Unauthorized(APIResponse.Fail(ApiMessages.Unauthorized, 401));
+
+        if (!ModelState.IsValid)
+            return BadRequest(APIResponse.Fail(ApiMessages.InvalidInputData, 400));
+
+        try
+        {
+            await _aiChatService.VoteMessageAsync(UserId, messageId, dto, ct);
+            return Ok(APIResponse.Success("Cảm ơn bạn đã góp ý."));
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(APIResponse.Fail(ex.Message, 400));
+        }
+        catch (KeyNotFoundException ex)
+        {
+            return NotFound(APIResponse.Fail(ex.Message, 404));
+        }
+    }
+
     [HttpDelete("sessions/{sessionId}")]
     public async Task<IActionResult> DeleteSession(Guid sessionId)
     {
@@ -111,8 +138,6 @@ public class AiChatController : ControllerBase
 
     /// <summary>
     /// POST /api/ai-chat/sessions/{id}/solve — hỏi AI giải toán (SSE streaming).
-    /// .NET lưu user message, proxy stream từ tutora-ai về FE, rồi tự lưu assistant message.
-    /// FE chỉ cần gọi 1 lần và đọc stream như SSE.
     /// </summary>
     [HttpPost("sessions/{sessionId}/solve")]
     public async Task Solve(Guid sessionId, [FromBody] AiSolveRequest dto, CancellationToken ct)
