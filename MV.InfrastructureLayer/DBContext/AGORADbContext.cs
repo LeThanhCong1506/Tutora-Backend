@@ -33,6 +33,12 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
 
     public virtual DbSet<ChatHistory> ChatHistories { get; set; }
 
+    public virtual DbSet<StudentTopicSignal> StudentTopicSignals { get; set; }
+
+    public virtual DbSet<AiMessageVote> AiMessageVotes { get; set; }
+
+    public virtual DbSet<TutorSuggestionVote> TutorSuggestionVotes { get; set; }
+
     public virtual DbSet<QuestionNote> QuestionNotes { get; set; }
 
     public virtual DbSet<Class> Classes { get; set; }
@@ -848,6 +854,10 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
                 .HasColumnName("answer_summary");
             entity.Property(e => e.PersonalNote)
                 .HasColumnName("personal_note");
+            entity.Property(e => e.StepNotes)
+                .HasColumnType("jsonb")
+                .HasDefaultValueSql("'{}'::jsonb")
+                .HasColumnName("step_notes");
             entity.Property(e => e.Subject)
                 .HasMaxLength(100)
                 .HasColumnName("subject");
@@ -912,6 +922,138 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
                 .HasForeignKey(d => d.SessionId)
                 .OnDelete(DeleteBehavior.Cascade)
                 .HasConstraintName("fk_chat_histories_session");
+        });
+
+        modelBuilder.Entity<StudentTopicSignal>(entity =>
+        {
+            entity.HasKey(e => e.Id).HasName("student_topic_signals_pkey");
+
+            entity.ToTable("student_topic_signals");
+
+            entity.Property(e => e.Id)
+                .HasDefaultValueSql("gen_random_uuid()")
+                .HasColumnName("id");
+            entity.Property(e => e.UserId)
+                .HasMaxLength(50)
+                .HasColumnName("user_id");
+            entity.Property(e => e.SessionId).HasColumnName("session_id");
+            entity.Property(e => e.MessageId).HasColumnName("message_id");
+            entity.Property(e => e.Grade)
+                .HasMaxLength(50)
+                .HasColumnName("grade");
+            entity.Property(e => e.ChapterSlug)
+                .HasMaxLength(120)
+                .HasColumnName("chapter_slug");
+            entity.Property(e => e.Topic)
+                .HasMaxLength(60)
+                .HasColumnName("topic");
+            entity.Property(e => e.Confidence)
+                .HasDefaultValue(0f)
+                .HasColumnName("confidence");
+            entity.Property(e => e.CreatedAt)
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
+                .HasColumnType("timestamp with time zone")
+                .HasColumnName("created_at");
+
+            // Đường nóng: đếm chương trong 1 phiên (gợi ý tính theo phiên).
+            entity.HasIndex(e => new { e.SessionId, e.ChapterSlug }, "idx_student_topic_signals_session");
+            entity.HasIndex(e => new { e.UserId, e.CreatedAt }, "idx_student_topic_signals_user_created");
+
+            entity.HasOne(d => d.User).WithMany()
+                .HasForeignKey(d => d.UserId)
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("student_topic_signals_user_fk");
+
+            entity.HasOne(d => d.Session).WithMany()
+                .HasForeignKey(d => d.SessionId)
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("student_topic_signals_session_fk");
+        });
+
+        modelBuilder.Entity<AiMessageVote>(entity =>
+        {
+            entity.HasKey(e => e.Id).HasName("ai_message_votes_pkey");
+
+            entity.ToTable("ai_message_votes");
+
+            entity.Property(e => e.Id)
+                .HasDefaultValueSql("gen_random_uuid()")
+                .HasColumnName("id");
+            entity.Property(e => e.MessageId).HasColumnName("message_id");
+            entity.Property(e => e.UserId)
+                .HasMaxLength(50)
+                .HasColumnName("user_id");
+            entity.Property(e => e.Vote).HasColumnName("vote");
+            entity.Property(e => e.Reason)
+                .HasMaxLength(60)
+                .HasColumnName("reason");
+            entity.Property(e => e.Detail).HasColumnName("detail");
+            entity.Property(e => e.CreatedAt)
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
+                .HasColumnType("timestamp with time zone")
+                .HasColumnName("created_at");
+            entity.Property(e => e.UpdatedAt)
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
+                .HasColumnType("timestamp with time zone")
+                .HasColumnName("updated_at");
+
+            entity.HasIndex(e => new { e.MessageId, e.UserId }, "ai_message_votes_unique").IsUnique();
+            entity.HasIndex(e => new { e.Vote, e.Reason }, "idx_ai_message_votes_reason");
+
+            entity.HasOne(d => d.Message).WithMany()
+                .HasForeignKey(d => d.MessageId)
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("ai_message_votes_message_fk");
+
+            entity.HasOne(d => d.User).WithMany()
+                .HasForeignKey(d => d.UserId)
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("ai_message_votes_user_fk");
+        });
+
+        modelBuilder.Entity<TutorSuggestionVote>(entity =>
+        {
+            entity.HasKey(e => e.Id).HasName("tutor_suggestion_votes_pkey");
+
+            entity.ToTable("tutor_suggestion_votes");
+
+            entity.Property(e => e.Id)
+                .HasDefaultValueSql("gen_random_uuid()")
+                .HasColumnName("id");
+            entity.Property(e => e.SuggestionId).HasColumnName("suggestion_id");
+            entity.Property(e => e.SessionId).HasColumnName("session_id");
+            entity.Property(e => e.TutorId)
+                .HasMaxLength(50)
+                .HasColumnName("tutor_id");
+            entity.Property(e => e.UserId)
+                .HasMaxLength(50)
+                .HasColumnName("user_id");
+            entity.Property(e => e.Vote).HasColumnName("vote");
+            entity.Property(e => e.Reason)
+                .HasMaxLength(60)
+                .HasColumnName("reason");
+            entity.Property(e => e.Detail).HasColumnName("detail");
+            entity.Property(e => e.ChapterSlug)
+                .HasMaxLength(120)
+                .HasColumnName("chapter_slug");
+            entity.Property(e => e.CreatedAt)
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
+                .HasColumnType("timestamp with time zone")
+                .HasColumnName("created_at");
+            entity.Property(e => e.UpdatedAt)
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
+                .HasColumnType("timestamp with time zone")
+                .HasColumnName("updated_at");
+
+            entity.HasIndex(e => new { e.SuggestionId, e.TutorId, e.UserId }, "tutor_suggestion_votes_unique")
+                .IsUnique();
+            entity.HasIndex(e => new { e.ChapterSlug, e.Vote }, "idx_tutor_suggestion_votes_chapter");
+            entity.HasIndex(e => new { e.TutorId, e.Vote }, "idx_tutor_suggestion_votes_tutor");
+
+            entity.HasOne(d => d.User).WithMany()
+                .HasForeignKey(d => d.UserId)
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("tutor_suggestion_votes_user_fk");
         });
 
         modelBuilder.Entity<Class>(entity =>
@@ -1700,6 +1842,9 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
             entity.Property(e => e.Deletedat)
                 .HasColumnType("timestamp without time zone")
                 .HasColumnName("deleted_at");
+            entity.Property(e => e.Tutorsuggestionenabled)
+                .HasDefaultValue(true)
+                .HasColumnName("tutor_suggestion_enabled");
 
             entity.HasOne(d => d.Linkeduser).WithMany(p => p.StudentprofileLinkedusers)
                 .HasForeignKey(d => d.Linkeduserid)
