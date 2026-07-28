@@ -4,6 +4,7 @@ using MV.ApplicationLayer.RepositoryInterfaces;
 using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO;
+using MV.DomainLayer.DTO.RequestModel;
 using MV.DomainLayer.DTO.ResponseModel;
 using MV.PresentationLayer.Helpers;
 using System.Security.Claims;
@@ -18,15 +19,18 @@ namespace MV.PresentationLayer.Controllers
         private readonly ISettlementService _settlementService;
         private readonly IClassSessionService _classSessionService;
         private readonly IStudentRepository _studentRepository;
+        private readonly IClassSessionScheduleChangeService _scheduleChangeService;
 
         public StudentClassSessionController(
             ISettlementService settlementService,
             IClassSessionService classSessionService,
-            IStudentRepository studentRepository)
+            IStudentRepository studentRepository,
+            IClassSessionScheduleChangeService scheduleChangeService)
         {
             _settlementService = settlementService;
             _classSessionService = classSessionService;
             _studentRepository = studentRepository;
+            _scheduleChangeService = scheduleChangeService;
         }
 
         private string? UserId => User.FindFirstValue(ClaimTypes.NameIdentifier);
@@ -100,6 +104,65 @@ namespace MV.PresentationLayer.Controllers
 
             await _settlementService.SettleClassSessionAsync(id, UserId ?? "");
             return Ok(APIResponse<object>.Success("Xác nhận buổi học thành công."));
+        }
+
+        /// <summary>
+        /// Học sinh tự quản lý (>16, không có phụ huynh) đọc yêu cầu xác nhận đổi lịch (ngoài giờ đã
+        /// đặt) đã được tạo cho buổi học này, xem từ trang chi tiết buổi học — không tạo request mới.
+        /// </summary>
+        [HttpGet("class-sessions/{id}/schedule-change")]
+        public async Task<ActionResult<APIResponse<SessionScheduleChangeResponse>>> GetScheduleChange(int id)
+        {
+            var userId = UserHelper.GetUserId(User);
+            try
+            {
+                var result = await _scheduleChangeService.GetExistingStateAsync(id, userId, UserRole.Student);
+                return Ok(APIResponse<SessionScheduleChangeResponse>.Success(result, "Lấy trạng thái xác nhận đổi lịch thành công."));
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(APIResponse<object>.Fail(ex.Message, 404));
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return StatusCode(403, APIResponse<object>.Fail(ex.Message, 403));
+            }
+        }
+
+        /// <summary>
+        /// Học sinh tự quản lý xác nhận/từ chối yêu cầu đổi lịch đang chờ, không cần đang ở trong
+        /// phòng chờ. Nếu học sinh này thuộc phụ huynh quản lý, service sẽ từ chối vì người có quyền
+        /// xác nhận là phụ huynh, không phải học sinh.
+        /// </summary>
+        [HttpPost("class-sessions/{id}/schedule-change/respond")]
+        public async Task<ActionResult<APIResponse<SessionScheduleChangeResponse>>> RespondToScheduleChange(
+            int id,
+            [FromBody] SessionScheduleChangeDecisionRequest request)
+        {
+            var userId = UserHelper.GetUserId(User);
+            try
+            {
+                var existing = await _scheduleChangeService.GetExistingStateAsync(id, userId, UserRole.Student);
+                if (!existing.RequiresConfirmation || existing.Status != ScheduleChangeStatus.Pending)
+                    return BadRequest(APIResponse<object>.Fail("Yêu cầu đổi lịch không còn chờ xác nhận.", 400));
+
+                var result = await _scheduleChangeService.RespondAsync(id, userId, UserRole.Student, request.Confirmed);
+                return Ok(APIResponse<SessionScheduleChangeResponse>.Success(
+                    result,
+                    request.Confirmed ? "Đã xác nhận đổi lịch học." : "Đã từ chối đổi lịch học."));
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(APIResponse<object>.Fail(ex.Message, 404));
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return StatusCode(403, APIResponse<object>.Fail(ex.Message, 403));
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(APIResponse<object>.Fail(ex.Message, 400));
+            }
         }
     }
 }
