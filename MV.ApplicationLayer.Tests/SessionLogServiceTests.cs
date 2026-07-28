@@ -1692,6 +1692,7 @@ public class SessionLogServiceTests
         {
             base.OnModelCreating(modelBuilder);
             modelBuilder.Entity<QuestionBank>().Ignore(question => question.Embedding);
+            modelBuilder.Entity<TutoraKbChunk>().Ignore(chunk => chunk.Embedding);
         }
     }
 }
