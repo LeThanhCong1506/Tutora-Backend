@@ -432,6 +432,7 @@ builder.Services.AddScoped<ITutorSearchService, TutorSearchService>();
 // Tutor Recommend (SQL filter → AI rank → profile fetch)
 builder.Services.AddScoped<ITutorAiClient, TutorAiClient>();
 builder.Services.AddScoped<ITutorRecommendService, TutorRecommendService>();
+builder.Services.AddScoped<ITutorSuggestionService, TutorSuggestionService>();
 
 //Unit of work
 builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
