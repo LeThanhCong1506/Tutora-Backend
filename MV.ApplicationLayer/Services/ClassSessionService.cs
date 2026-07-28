@@ -1,4 +1,5 @@
-﻿using Microsoft.EntityFrameworkCore;
+﻿using Hangfire;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using MV.ApplicationLayer.Helpers;
 using MV.ApplicationLayer.ServiceInterfaces;
@@ -29,6 +30,7 @@ public partial class ClassSessionService : IClassSessionService
     private readonly ISettlementService _settlementService;
     private readonly IWarningService _warningService;
     private readonly IRecordingAccessTokenService _recordingAccessTokenService;
+    private readonly IBackgroundJobClient _backgroundJobClient;
     private readonly ILogger<ClassSessionService> _logger;
 
     // Retained for transaction management only (BeginTransactionAsync)
@@ -50,6 +52,7 @@ public partial class ClassSessionService : IClassSessionService
         ISettlementService settlementService,
         IWarningService warningService,
         IRecordingAccessTokenService recordingAccessTokenService,
+        IBackgroundJobClient backgroundJobClient,
         ILogger<ClassSessionService> logger)
     {
         _classSessionRepo = classSessionRepo;
@@ -65,6 +68,7 @@ public partial class ClassSessionService : IClassSessionService
         _settlementService = settlementService;
         _warningService = warningService;
         _recordingAccessTokenService = recordingAccessTokenService;
+        _backgroundJobClient = backgroundJobClient;
         _logger = logger;
     }
 
