@@ -86,6 +86,7 @@ public partial class ClassSessionService
             .Include(l => l.Booking)
                 .ThenInclude(b => b!.Tutor)
                     .ThenInclude(t => t!.Tutor)
+            .Include(l => l.ScheduleChanges)
             .OrderBy(l => l.Scheduledstart)
             .ToListAsync();
 
@@ -106,7 +107,8 @@ public partial class ClassSessionService
                     BookingStatus = l.Booking?.Status,
                     MeetingLink = l.Meetinglink,
                     CheckOutTime = l.Checkouttime,
-                    HasRecording = RecordingStatusResolver.Resolve(l.Recordingurl, l.Recordings3key, l.Recordingsid, l.Checkouttime.HasValue).Status == "available"
+                    HasRecording = RecordingStatusResolver.Resolve(l.Recordingurl, l.Recordings3key, l.Recordingsid, l.Checkouttime.HasValue).Status == "available",
+                    ScheduleChangeStatus = ResolveActiveScheduleChangeStatus(l.ScheduleChanges)
                 }).ToList()
             })
             .ToList();
