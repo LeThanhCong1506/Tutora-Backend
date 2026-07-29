@@ -358,6 +358,21 @@ namespace MV.ApplicationLayer.Services
             user.Status = 1;
             await _unitOfWork.UserRepository.UpdateUserAsync(user);
 
+            // Chặn/mở khóa và tạm ngưng cùng ghi vào users.Status, nên bỏ qua bảng
+            // suspension ở đây để lại bản ghi "đang áp dụng" của một tài khoản đã
+            // hoạt động trở lại: modal chi tiết hiện sai trạng thái, và tệ hơn là
+            // HasActiveSuspensionAsync sẽ luôn thấy user còn bị treo nên mọi cảnh
+            // cáo sau đó không bao giờ tạm ngưng được user này nữa. Bản tạm ngưng
+            // vĩnh viễn (không có Enddate) còn không được job tự gỡ dọn hộ.
+            var activeSuspensions = await _context.Profilesuspensions
+                .Where(suspension => suspension.Userid == userId && suspension.Isactive == true)
+                .ToListAsync();
+            foreach (var suspension in activeSuspensions)
+            {
+                suspension.Isactive = false;
+                suspension.Enddate = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
+            }
+
             // Nếu là gia sư và profile đang Active → khôi phục hiển thị công khai
             var tutorProfile = await _unitOfWork.UserRepository.GetTutorProfileByIdAsync(userId);
             if (tutorProfile != null &&
