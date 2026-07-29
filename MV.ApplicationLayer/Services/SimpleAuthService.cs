@@ -141,7 +141,7 @@ namespace MV.ApplicationLayer.Services
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error while logging in");
-                return new TokenResponse { ErrorMessage = $"Error: {ex.Message}" };
+                return new TokenResponse { ErrorMessage = BuildErrorMessage(ex) };
             }
         }
 
@@ -289,7 +289,7 @@ namespace MV.ApplicationLayer.Services
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error while registering");
-                return new TokenResponse { ErrorMessage = $"Error: {ex.Message}" };
+                return new TokenResponse { ErrorMessage = BuildErrorMessage(ex) };
             }
         }
 
@@ -342,7 +342,7 @@ namespace MV.ApplicationLayer.Services
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error while verifying phone OTP");
-                return new TokenResponse { ErrorMessage = $"Error: {ex.Message}" };
+                return new TokenResponse { ErrorMessage = BuildErrorMessage(ex) };
             }
         }
 
@@ -381,7 +381,7 @@ namespace MV.ApplicationLayer.Services
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error while resending phone OTP");
-                return new TokenResponse { ErrorMessage = $"Error: {ex.Message}" };
+                return new TokenResponse { ErrorMessage = BuildErrorMessage(ex) };
             }
         }
 
@@ -410,7 +410,7 @@ namespace MV.ApplicationLayer.Services
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error while processing forgot password (phone)");
-                return new TokenResponse { ErrorMessage = $"Error: {ex.Message}" };
+                return new TokenResponse { ErrorMessage = BuildErrorMessage(ex) };
             }
         }
 
@@ -459,7 +459,7 @@ namespace MV.ApplicationLayer.Services
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error while resetting password (phone)");
-                return new TokenResponse { ErrorMessage = $"Error: {ex.Message}" };
+                return new TokenResponse { ErrorMessage = BuildErrorMessage(ex) };
             }
         }
 
@@ -530,6 +530,17 @@ namespace MV.ApplicationLayer.Services
 
         private static string GenerateOtpCode()
             => RandomNumberGenerator.GetInt32(100000, 1000000).ToString();
+
+        // Gộp cả chuỗi InnerException vào message trả về — message ngoài cùng của EF/Npgsql
+        // (vd "likely due to a transient failure") chỉ là lời khuyên chung chung, lý do thật
+        // luôn nằm ở InnerException.
+        private static string BuildErrorMessage(Exception ex)
+        {
+            var parts = new List<string> { ex.Message };
+            for (var inner = ex.InnerException; inner != null; inner = inner.InnerException)
+                parts.Add(inner.Message);
+            return "Error: " + string.Join(" | ", parts);
+        }
 
         // ─── OTP storage (Redis via IDistributedCache), keyed by purpose+phone ───
         // Tách 2 namespace key để OTP verify-phone và OTP reset-password không đè nhau.
