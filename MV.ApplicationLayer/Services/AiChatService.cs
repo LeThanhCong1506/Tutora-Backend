@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using MV.ApplicationLayer.RepositoryInterfaces;
@@ -9,6 +10,7 @@ using MV.DomainLayer.Entities;
 using MV.DomainLayer.Exceptions;
 using MV.DomainLayer.Helpers;
 using MV.DomainLayer.Settings;
+using System.Globalization;
 using System.Net.Http.Json;
 using System.Runtime.CompilerServices;
 using System.Text;
@@ -20,10 +22,12 @@ namespace MV.ApplicationLayer.Services;
 public class AiChatService(
     IAiChatRepository aiChatRepo,
     IQuestionNoteRepository questionNoteRepo,
+    IStudentRepository studentRepo,
     IHttpClientFactory httpClientFactory,
     IConfiguration config,
     IFileStorageService storage,
     IAiCreditService aiCreditService,
+    IMemoryCache cache,
     ILogger<AiChatService> logger) : IAiChatService
 {
     /// <summary>Mỗi lần hỏi bài trừ đúng 1 credit.</summary>
@@ -73,6 +77,14 @@ public class AiChatService(
 
         var (items, total) = await aiChatRepo.GetMessagesPagedAsync(sessionId, page, pageSize);
         var dtos = items.Select(ToMessageResponse).ToList();
+
+        var myVotes = await aiChatRepo.GetMyVotesAsync(items.Select(m => m.MessageId), userId);
+        if (myVotes.Count > 0)
+        {
+            foreach (var m in dtos)
+                if (Guid.TryParse(m.MessageId, out var id) && myVotes.TryGetValue(id, out var v))
+                    m.MyVote = v;
+        }
 
         var savedTitles = (await questionNoteRepo.GetSavedTitlesBySessionAsync(userId, sessionId))
             .ToHashSet();
@@ -146,6 +158,9 @@ public class AiChatService(
                 AiCreditErrorCodes.InsufficientCredits,
                 "Bạn đã hết lượt hỏi AI. Vui lòng nâng cấp để tiếp tục.", 402);
 
+        // Client không gửi lớp -> lấy từ hồ sơ học sinh.
+        var grade = dto.Grade ?? await ResolveStudentGradeAsync(userId, ct);
+
         // 1. Lưu user message ngay (không mất kể cả nếu AI lỗi sau đó).
         // Ảnh base64 -> upload lấy URL để mở lại phiên cũ vẫn thấy đề bài.
         var imageUrl = dto.ImageUrl ?? await TryUploadImageAsync(dto.ImageBase64, userId);
@@ -158,7 +173,7 @@ public class AiChatService(
             Role = ChatHistoryRole.User,
             Content = userContent,
             ImageUrl = imageUrl,
-            Grade = dto.Grade,
+            Grade = grade,
             CreatedAt = now
         };
         session.UpdatedAt = now;
@@ -178,15 +193,20 @@ public class AiChatService(
 
         // 3. Gọi tutora-ai /solve và stream pass-through, đồng thời gom assistant content
         var client = httpClientFactory.CreateClient(ServiceKeys.HttpClients.TutorAi);
+        // Sinh id của assistant message TỪ ĐÂY rồi truyền xuống tutora-ai, để `id` trong
+        // SSE trùng với message_id lưu ở DB. Không làm vậy thì python tự sinh uuid khác và
+        // FE không có cách nào biết id thật để gắn đánh giá like/dislike.
+        var assistantMessageId = Guid.NewGuid();
         var payload = new
         {
             text = dto.Text,
             image_url = dto.ImageUrl,
             image_base64 = dto.ImageBase64,
-            grade = dto.Grade,
+            grade,
             chapter = dto.Chapter,
             response_format = dto.ResponseFormat,
             chat_id = sessionId.ToString(),
+            message_id = assistantMessageId.ToString(),
             history
         };
 
@@ -204,6 +224,8 @@ public class AiChatService(
         var ragUsed = false;
         // Danh sách bước cấu trúc cuối cùng (raw JSON array) để lưu Metadata -> canvas.
         string? stepsFinalJson = null;
+        // Tag chủ đề (lớp/chương/dạng) tutora-ai gắn vào done event.
+        TopicClassification? classification = null;
 
         try
         {
@@ -224,11 +246,12 @@ public class AiChatService(
                 // Gom delta (lời giải) + thinking (suy nghĩ) để lưu message khi xong
                 var json = line["data:".Length..].Trim();
                 if (json.Length == 0) continue;
-                var (delta, think, rag, stepsFinal) = TryExtractDelta(json);
+                var (delta, think, rag, stepsFinal, clf) = TryExtractDelta(json);
                 if (!string.IsNullOrEmpty(delta)) assistant.Append(delta);
                 if (!string.IsNullOrEmpty(think)) thinking.Append(think);
                 if (rag) ragUsed = true;
                 if (!string.IsNullOrEmpty(stepsFinal)) stepsFinalJson = stepsFinal;
+                if (clf is not null) classification = clf;
             }
         }
         finally
@@ -246,18 +269,21 @@ public class AiChatService(
                 }
                 aiChatRepo.AddMessage(new ChatHistory
                 {
-                    MessageId = Guid.NewGuid(),
+                    MessageId = assistantMessageId,
                     SessionId = sessionId,
                     Role = ChatHistoryRole.Assistant,
                     Content = assistant.ToString(),
                     Metadata = metadata,
-                    Grade = dto.Grade,
+                    // Lớp từ hồ sơ; classifier đoán được thì dùng làm dự phòng.
+                    Grade = grade ?? classification?.Grade,
                     RagUsed = ragUsed,
                     CreatedAt = finishedAt
                 });
                 session.UpdatedAt = finishedAt;
                 aiChatRepo.UpdateSession(session);
                 await aiChatRepo.SaveChangesAsync();
+
+                await TrackTopicSignalAsync(classification, userId, sessionId, assistantMessageId, finishedAt);
 
                 // Trừ 1 credit ngay tại đây.
                 try
@@ -479,7 +505,107 @@ public class AiChatService(
         return list;
     }
 
-    private (string? Delta, string? Thinking, bool RagUsed, string? StepsFinal) TryExtractDelta(string json)
+    public async Task VoteMessageAsync(
+        string userId, Guid messageId, AiMessageVoteRequest dto, CancellationToken ct = default)
+    {
+        if (!FeedbackVote.IsValid(dto.Vote))
+            throw new ArgumentException("Giá trị đánh giá không hợp lệ.", nameof(dto));
+
+        if (!AiMessageFeedbackReasons.IsValid(dto.Reason))
+            throw new ArgumentException("Lý do đánh giá không hợp lệ.", nameof(dto));
+
+        if (!await aiChatRepo.IsMessageOwnedByUserAsync(messageId, userId))
+            throw new KeyNotFoundException("Không tìm thấy tin nhắn.");
+
+        // Lý do chỉ có nghĩa khi không hài lòng — like kèm lý do là dữ liệu rác.
+        var reason = dto.Vote == FeedbackVote.Dislike ? dto.Reason : null;
+        var detail = dto.Vote == FeedbackVote.Dislike ? dto.Detail : null;
+        var now = TimeZoneHelper.UtcNow;
+
+        var existing = await aiChatRepo.FindMessageVoteAsync(messageId, userId);
+        if (existing is not null) return;
+
+        aiChatRepo.AddMessageVote(new AiMessageVote
+        {
+            Id = Guid.NewGuid(),
+            MessageId = messageId,
+            UserId = userId,
+            Vote = dto.Vote,
+            Reason = reason,
+            Detail = detail,
+            CreatedAt = now,
+            UpdatedAt = now
+        });
+
+        await aiChatRepo.SaveChangesAsync();
+    }
+
+    /// <summary>
+    /// Lớp của học sinh dạng slug tutora-ai hiểu ("9", "10"...), suy từ Levelorder của hồ sơ.
+    /// Cache 10 phút vì gọi mỗi lượt hỏi bài mà lớp thì gần như không đổi.
+    /// Không phải học sinh (khách, phụ huynh, gia sư) -> null, giữ nguyên hành vi cũ.
+    /// </summary>
+    private async Task<string?> ResolveStudentGradeAsync(string userId, CancellationToken ct)
+    {
+        var cacheKey = $"ai-chat:student-grade:{userId}";
+        if (cache.TryGetValue<string?>(cacheKey, out var cached)) return cached;
+
+        string? grade = null;
+        try
+        {
+            var profile = await studentRepo.FindByStudentOrLinkedUserAsync(userId);
+            var levelOrder = profile?.GradelevelNavigation?.Levelorder;
+            if (levelOrder is > 0)
+                grade = levelOrder.Value.ToString(CultureInfo.InvariantCulture);
+        }
+        catch (Exception ex)
+        {
+            // Không có lớp thì classifier vẫn tự đoán được — không chặn việc giải bài.
+            logger.LogWarning(ex, "Không lấy được lớp của user {UserId}", userId);
+        }
+
+        cache.Set(cacheKey, grade, TimeSpan.FromMinutes(10));
+        return grade;
+    }
+
+    /// <summary>
+    /// Lưu tag chủ đề của lượt giải này để sau tổng hợp ra "chương đang vướng".
+    /// </summary>
+    private async Task TrackTopicSignalAsync(
+        TopicClassification? classification,
+        string userId,
+        Guid sessionId,
+        Guid messageId,
+        DateTime createdAt)
+    {
+        if (classification is null) return;
+
+        try
+        {
+            aiChatRepo.AddTopicSignal(new StudentTopicSignal
+            {
+                Id = Guid.NewGuid(),
+                UserId = userId,
+                SessionId = sessionId,
+                MessageId = messageId,
+                Grade = classification.Grade,
+                ChapterSlug = classification.Chapter,
+                Topic = classification.Topic,
+                Confidence = classification.Confidence,
+                CreatedAt = createdAt
+            });
+            await aiChatRepo.SaveChangesAsync();
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex,
+                "Không ghi được tín hiệu chủ đề (session {SessionId}, chapter {Chapter})",
+                sessionId, classification.Chapter);
+        }
+    }
+
+    private (string? Delta, string? Thinking, bool RagUsed, string? StepsFinal, TopicClassification? Classification)
+        TryExtractDelta(string json)
     {
         try
         {
@@ -491,13 +617,45 @@ public class AiChatService(
             string? stepsFinal = root.TryGetProperty("steps_final", out var sf) && sf.ValueKind == JsonValueKind.Array
                 ? sf.GetRawText()
                 : null;
-            return (delta, thinking, rag, stepsFinal);
+            var classification = ParseClassification(root);
+            return (delta, thinking, rag, stepsFinal, classification);
         }
         catch (JsonException)
         {
-            return (null, null, false, null);
+            return (null, null, false, null, null);
         }
     }
+
+    /// <summary>
+    /// Tag chủ đề tutora-ai gắn vào done event. Chỉ nhận khi có chapter — không có
+    /// chapter thì tín hiệu vô dụng cho việc gợi ý.
+    /// </summary>
+    private static TopicClassification? ParseClassification(JsonElement root)
+    {
+        if (!root.TryGetProperty("classification", out var c) || c.ValueKind != JsonValueKind.Object)
+            return null;
+
+        var chapter = c.TryGetProperty("chapter", out var ch) && ch.ValueKind == JsonValueKind.String
+            ? ch.GetString()
+            : null;
+        if (string.IsNullOrWhiteSpace(chapter)) return null;
+
+        return new TopicClassification(
+            Grade: c.TryGetProperty("grade", out var g) && g.ValueKind == JsonValueKind.String
+                ? g.GetString()
+                : null,
+            Chapter: chapter,
+            Topic: c.TryGetProperty("topic", out var tp) && tp.ValueKind == JsonValueKind.String
+                ? tp.GetString()
+                : null,
+            Confidence: c.TryGetProperty("confidence", out var cf)
+                && cf.ValueKind == JsonValueKind.Number
+                && cf.TryGetSingle(out var cfv)
+                    ? cfv
+                    : 0f);
+    }
+
+    private sealed record TopicClassification(string? Grade, string Chapter, string? Topic, float Confidence);
 
     private const string CanvasOpen = "【CANVAS】";
     private const string CanvasClose = "【HẾT CANVAS】";

@@ -16,9 +16,16 @@ namespace MV.PresentationLayer.Controllers
     public class StudentController : ControllerBase
     {
         private readonly IStudentService _studentService;
+        private readonly ITutorSuggestionService _tutorSuggestionService;
 
-        public StudentController(IStudentService studentService)
-            => _studentService = studentService ?? throw new ArgumentNullException(nameof(studentService));
+        public StudentController(
+            IStudentService studentService,
+            ITutorSuggestionService tutorSuggestionService)
+        {
+            _studentService = studentService ?? throw new ArgumentNullException(nameof(studentService));
+            _tutorSuggestionService = tutorSuggestionService
+                ?? throw new ArgumentNullException(nameof(tutorSuggestionService));
+        }
 
         private string GetStudentUserId() => User.FindFirstValue(ClaimTypes.NameIdentifier)!;
 
@@ -131,6 +138,58 @@ namespace MV.PresentationLayer.Controllers
                 return Ok(APIResponse<object>.Success(new { ParentPhone = saved }, "Cập nhật số điện thoại phụ huynh thành công."));
             }
             catch (StudentNotFoundException)
+            {
+                return NotFound(APIResponse<object>.Fail("Không tìm thấy hồ sơ học sinh.", 404));
+            }
+        }
+
+        /// <summary>
+        /// Gợi ý gia sư dựa trên chương học sinh đang vướng trong phiên giải bài này.
+        /// </remarks>
+        [HttpGet("me/tutor-suggestions")]
+        public async Task<IActionResult> GetTutorSuggestions(
+            [FromQuery] Guid? sessionId, CancellationToken ct)
+        {
+            var result = await _tutorSuggestionService.GetForSessionAsync(GetStudentUserId(), sessionId, ct);
+            return Ok(APIResponse<StudentTutorSuggestionResponse>.Success(result, "Lấy gợi ý gia sư thành công."));
+        }
+
+        /// <summary>
+        /// Đánh giá một gia sư trong danh sách gợi ý.
+        /// </summary>
+        [HttpPost("me/tutor-suggestions/vote")]
+        public async Task<IActionResult> VoteTutorSuggestion(
+            [FromBody] TutorSuggestionVoteRequest request, CancellationToken ct)
+        {
+            if (!ModelState.IsValid)
+                return BadRequest(APIResponse<object>.Fail(ApiMessages.InvalidInputData, 400));
+
+            try
+            {
+                await _tutorSuggestionService.VoteTutorAsync(GetStudentUserId(), request, ct);
+                return Ok(APIResponse<object>.Success(null!, "Cảm ơn bạn đã góp ý."));
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(APIResponse<object>.Fail(ex.Message, 400));
+            }
+        }
+
+        /// <summary>
+        /// Học sinh bật/tắt nhận gợi ý gia sư.
+        /// </summary>
+        [HttpPatch("me/preferences")]
+        public async Task<IActionResult> UpdatePreferences(
+            [FromBody] StudentPreferencesRequest request, CancellationToken ct)
+        {
+            try
+            {
+                await _tutorSuggestionService.SetUserPreferenceAsync(
+                    GetStudentUserId(), request.TutorSuggestionEnabled, ct);
+                return Ok(APIResponse<object>.Success(
+                    new { request.TutorSuggestionEnabled }, "Cập nhật tuỳ chọn thành công."));
+            }
+            catch (KeyNotFoundException)
             {
                 return NotFound(APIResponse<object>.Fail("Không tìm thấy hồ sơ học sinh.", 404));
             }

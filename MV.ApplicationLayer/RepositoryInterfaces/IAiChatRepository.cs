@@ -17,5 +17,16 @@ public interface IAiChatRepository
         Guid sessionId, int page, int pageSize);
     void AddMessage(ChatHistory message);
 
+    void AddTopicSignal(StudentTopicSignal signal);
+
+    // Đánh giá lời giải
+    Task<bool> IsMessageOwnedByUserAsync(Guid messageId, string userId);
+
+    Task<AiMessageVote?> FindMessageVoteAsync(Guid messageId, string userId);
+
+    Task<Dictionary<Guid, short>> GetMyVotesAsync(IEnumerable<Guid> messageIds, string userId);
+
+    void AddMessageVote(AiMessageVote vote);
+
     Task<int> SaveChangesAsync();
 }

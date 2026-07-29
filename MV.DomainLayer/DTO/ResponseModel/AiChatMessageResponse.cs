@@ -9,5 +9,6 @@ public class AiChatMessageResponse
     public string? ImageUrl { get; set; }
     public object? Metadata { get; set; }
     public bool NoteSaved { get; set; }
+    public int? MyVote { get; set; }
     public DateTime CreatedAt { get; set; }
 }
