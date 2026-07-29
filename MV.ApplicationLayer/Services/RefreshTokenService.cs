@@ -86,8 +86,12 @@ namespace MV.ApplicationLayer.Services
 
                 // Cổng SĐT chỉ áp cho khách hàng — tài khoản nội bộ (Staff/Admin)
                 // không có phone vẫn refresh bình thường; nếu không miễn, staff sẽ
-                // bị revoke sạch token ngay lần silent-refresh đầu tiên.
+                // bị revoke sạch token ngay lần silent-refresh đầu tiên. Tài khoản
+                // con do phụ huynh tạo cũng miễn (xem SimpleAuthService cùng cổng
+                // ở lúc đăng nhập) — nếu không, con đăng nhập được nhưng bị revoke
+                // token và buộc đăng nhập lại ngay khi access token hết hạn.
                 if (!UserRole.IsInternal(user.Primaryrole)
+                    && !await IsParentManagedChildAccountAsync(userId)
                     && (string.IsNullOrWhiteSpace(user.Phone) || user.Isphoneverified != true))
                 {
                     await _unitOfWork.RefreshTokenRepository.RevokeAllByUserIdAsync(userId);
@@ -174,6 +178,18 @@ namespace MV.ApplicationLayer.Services
             {
                 _logger.LogError(ex, "[RefreshToken] Lỗi khi revoke token");
             }
+        }
+
+        /// <summary>
+        /// True nếu userId là tài khoản con do phụ huynh tạo (Studentprofile.Linkeduserid
+        /// trỏ tới user này, Parentid khác null) — cùng định nghĩa với
+        /// SimpleAuthService.IsParentManagedChildAccountAsync, giữ nguyên đây vì cổng SĐT
+        /// được lặp lại độc lập ở từng service theo đúng convention hiện có của codebase.
+        /// </summary>
+        private async Task<bool> IsParentManagedChildAccountAsync(string userId)
+        {
+            var profile = await _unitOfWork.StudentRepository.FindByStudentOrLinkedUserAsync(userId);
+            return profile?.Parentid != null;
         }
     }
 }
