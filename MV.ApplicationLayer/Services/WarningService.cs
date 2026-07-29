@@ -180,7 +180,14 @@ public class WarningService : IWarningService
                 existing.Isactive = false;
 
             var now = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
-            DateTime? endDate = suspensionType == SuspensionType.Temporary && durationDays > 0
+            // The duration decides the end date; the type only names the *kind* of
+            // restriction. Callers use two vocabularies — "temporary"/"permanent"
+            // from auto-suspension, "hidden_1_week"/"account_locked" from the CMS —
+            // so requiring an exact match on "temporary" silently stored every
+            // CMS-issued suspension with no end date, making it permanent and
+            // invisible to the auto-unsuspend job despite the admin picking a
+            // duration. Only an explicitly permanent type is open-ended now.
+            DateTime? endDate = suspensionType != SuspensionType.Permanent && durationDays > 0
                 ? now.AddDays(durationDays)
                 : null;
 
