@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO;
+using MV.DomainLayer.DTO.RequestModel;
 using MV.DomainLayer.DTO.ResponseModel.Admin;
 using MV.PresentationLayer.Authorization;
 
@@ -22,34 +23,23 @@ public class AdminBookingController(IAdminBookingService adminBookingService) : 
     /// <summary>
     /// GET /api/admin/bookings
     /// Returns a paginated list of all bookings across the platform.
-    /// Supports filtering by status, teachingMode, tutorId, parentId, subjectId, date range, and keyword search.
+    /// Supports filtering by status, teachingMode, tutorId, parentId, subjectId, date range,
+    /// keyword search, bookingId, classSessionId, and ordering by creation time (sortDirection).
     /// </summary>
     [HttpGet]
     public async Task<IActionResult> GetBookings(
-        [FromQuery] int page = 1,
-        [FromQuery] int pageSize = 20,
-        [FromQuery] string? status = null,
-        [FromQuery] string? teachingMode = null,
-        [FromQuery] string? tutorId = null,
-        [FromQuery] string? parentId = null,
-        [FromQuery] int? subjectId = null,
-        [FromQuery] DateTime? from = null,
-        [FromQuery] DateTime? to = null,
-        [FromQuery] string? search = null,
+        [FromQuery] AdminBookingQueryRequest query,
         CancellationToken ct = default)
     {
         try
         {
-            var validation = ValidatePagination(page, pageSize);
+            var validation = ValidatePagination(query.Page, query.PageSize);
             if (validation != null) return validation;
 
-            if (from.HasValue && to.HasValue && from > to)
+            if (query.From.HasValue && query.To.HasValue && query.From > query.To)
                 return BadRequest(APIResponse<object>.Fail("Ngày bắt đầu không được lớn hơn ngày kết thúc.", 400));
 
-            var result = await adminBookingService.GetAdminBookingsAsync(
-                page, pageSize, status, teachingMode,
-                tutorId, parentId, subjectId,
-                from, to, search, ct);
+            var result = await adminBookingService.GetAdminBookingsAsync(query, ct);
 
             return Ok(APIResponse<AdminBookingListResponse>.Success(result, "Lấy danh sách đặt lịch thành công."));
         }
