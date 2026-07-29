@@ -68,6 +68,36 @@ public class AiChatRepository(AgoraDbContext context) : IAiChatRepository
     public void AddMessage(ChatHistory message)
         => context.ChatHistories.Add(message);
 
+    // Tín hiệu chủ đề (student_topic_signals)
+    // Xoá phiên -> DB tự cascade theo FK session_id
+    public void AddTopicSignal(StudentTopicSignal signal)
+        => context.StudentTopicSignals.Add(signal);
+
+    // Đánh giá lời giải (ai_message_votes)
+    public Task<bool> IsMessageOwnedByUserAsync(Guid messageId, string userId)
+        => context.ChatHistories
+            .AsNoTracking()
+            .AnyAsync(m => m.MessageId == messageId
+                           && context.ChatSessions.Any(s => s.SessionId == m.SessionId && s.UserId == userId));
+
+    public Task<AiMessageVote?> FindMessageVoteAsync(Guid messageId, string userId)
+        => context.AiMessageVotes
+            .FirstOrDefaultAsync(v => v.MessageId == messageId && v.UserId == userId);
+
+    public async Task<Dictionary<Guid, short>> GetMyVotesAsync(IEnumerable<Guid> messageIds, string userId)
+    {
+        var ids = messageIds as IReadOnlyCollection<Guid> ?? messageIds.ToList();
+        if (ids.Count == 0) return new Dictionary<Guid, short>();
+
+        return await context.AiMessageVotes
+            .AsNoTracking()
+            .Where(v => v.UserId == userId && ids.Contains(v.MessageId))
+            .ToDictionaryAsync(v => v.MessageId, v => v.Vote);
+    }
+
+    public void AddMessageVote(AiMessageVote vote)
+        => context.AiMessageVotes.Add(vote);
+
     public Task<int> SaveChangesAsync()
         => context.SaveChangesAsync();
 }

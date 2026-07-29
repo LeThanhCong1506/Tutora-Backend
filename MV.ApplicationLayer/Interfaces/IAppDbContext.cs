@@ -16,6 +16,9 @@ public interface IAppDbContext
     DbSet<Chatmessage> Chatmessages { get; }
     DbSet<ChatSession> ChatSessions { get; }
     DbSet<ChatHistory> ChatHistories { get; }
+    DbSet<StudentTopicSignal> StudentTopicSignals { get; }
+    DbSet<AiMessageVote> AiMessageVotes { get; }
+    DbSet<TutorSuggestionVote> TutorSuggestionVotes { get; }
     DbSet<Class> Classes { get; }
     DbSet<Dispute> Disputes { get; }
     DbSet<DisputeEvidence> DisputeEvidences { get; }

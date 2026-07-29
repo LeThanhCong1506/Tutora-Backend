@@ -98,6 +98,14 @@ public interface IClassSessionService
     Task<ClassSessionDetailResponse> CheckOutAsync(int classSessionId, string tutorId, CheckOutRequest request);
 
     /// <summary>
+    /// Tự động check-out (đóng phòng) các buổi <c>in_progress</c> đã quá giờ kết thúc dự kiến +
+    /// <see cref="ClassSessionService.LiveSessionAutoEndGraceMinutes"/> phút mà gia sư chưa tự kết
+    /// thúc — dùng bởi background job. Cả 2 bên tự rời phòng ở nhịp heartbeat kế tiếp (xem
+    /// TryAutoCheckInAsync/RoomClosed). Trả về số buổi đã tự động đóng.
+    /// </summary>
+    Task<int> AutoCloseExpiredLiveSessionsAsync(CancellationToken ct = default);
+
+    /// <summary>
     /// Tutor submits a post-classSession report (homework, notes, rating).
     /// </summary>
     Task<ClassSessionDetailResponse> SubmitReportAsync(int classSessionId, string tutorId, SubmitReportRequest request);

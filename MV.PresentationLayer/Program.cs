@@ -432,6 +432,7 @@ builder.Services.AddScoped<ITutorSearchService, TutorSearchService>();
 // Tutor Recommend (SQL filter → AI rank → profile fetch)
 builder.Services.AddScoped<ITutorAiClient, TutorAiClient>();
 builder.Services.AddScoped<ITutorRecommendService, TutorRecommendService>();
+builder.Services.AddScoped<ITutorSuggestionService, TutorSuggestionService>();
 
 //Unit of work
 builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
@@ -445,6 +446,7 @@ builder.Services.AddHostedService<AutoConfirmClassSessionJob>();
 builder.Services.AddHostedService<AutoUnsuspendJob>();
 builder.Services.AddHostedService<ClassSessionReminderJob>();
 builder.Services.AddHostedService<RemainingPaymentTriggerJob>();
+builder.Services.AddHostedService<AutoEndLiveSessionJob>();
 builder.Services.AddHostedService<GhostUserCleanupJob>();
 builder.Services.AddHostedService<ZaloTokenRefreshJob>();
 builder.Services.AddSingleton<ITutorEmbedQueue, TutorEmbedQueue>();

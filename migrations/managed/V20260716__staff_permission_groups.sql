@@ -111,7 +111,10 @@ INSERT INTO permission_definitions(permission_key, domain, module, action, label
 ('question_bank.update','Nội dung','Ngân hàng câu hỏi','Sửa','Sửa câu hỏi'),
 ('question_bank.delete','Nội dung','Ngân hàng câu hỏi','Xóa','Xóa câu hỏi'),
 ('question_document.view','Nội dung','Trích xuất câu hỏi từ PDF','Xem','Xem lịch sử trích xuất PDF'),
-('question_document.upload','Nội dung','Trích xuất câu hỏi từ PDF','Upload','Upload PDF và trích xuất câu hỏi')
+('question_document.upload','Nội dung','Trích xuất câu hỏi từ PDF','Upload','Upload PDF và trích xuất câu hỏi'),
+('knowledge_base.view','Nội dung','Knowledge Base','Xem','Xem tài liệu về Tutora'),
+('knowledge_base.upload','Nội dung','Knowledge Base','Upload','Tải lên tài liệu về Tutora'),
+('knowledge_base.delete','Nội dung','Knowledge Base','Xóa','Xóa tài liệu về Tutora')
 ON CONFLICT (permission_key) DO UPDATE SET
     domain = EXCLUDED.domain,
     module = EXCLUDED.module,
@@ -140,7 +143,9 @@ INSERT INTO permission_definition_requirements(permission_key, required_permissi
 ('question_bank.update','question_bank.view'),
 ('question_bank.delete','question_bank.view'),
 ('question_document.upload','question_document.view'),
-('question_document.upload','question_bank.create')
+('question_document.upload','question_bank.create'),
+('knowledge_base.upload','knowledge_base.view'),
+('knowledge_base.delete','knowledge_base.view')
 ON CONFLICT DO NOTHING;
 
 -- Convert every distinct legacy direct-permission set into one shared Legacy group.

@@ -65,6 +65,7 @@ public class ClassSessionRepository(AgoraDbContext context) : IClassSessionRepos
             .Include(l => l.Booking).ThenInclude(b => b!.Tutorsubjectgradeprice).ThenInclude(p => p!.Gradelevel)
             .Include(l => l.Booking).ThenInclude(b => b!.Student)
             .Include(l => l.Tutor).ThenInclude(t => t!.Tutor)
+            .Include(l => l.ScheduleChanges)
             .AsQueryable();
 
         if (fromDate.HasValue)

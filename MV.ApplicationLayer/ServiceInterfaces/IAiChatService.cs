@@ -29,4 +29,9 @@ public interface IAiChatService
 
     /// <summary>Xoá TẤT CẢ phiên chat AI của user. Trả về số phiên đã xoá.</summary>
     Task<int> DeleteAllSessionsAsync(string userId, string? sessionType = null);
+
+    /// <summary>
+    /// Đánh giá một câu trả lời của AI (like/dislike kèm lý do).
+    /// </summary>
+    Task VoteMessageAsync(string userId, Guid messageId, AiMessageVoteRequest dto, CancellationToken ct = default);
 }

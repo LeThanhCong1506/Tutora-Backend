@@ -448,3 +448,58 @@ public class RemainingPaymentTriggerJob : BackgroundService
         }
     }
 }
+
+/// <summary>
+/// Tự động đóng phòng học trực tuyến (RTC) khi đã quá giờ kết thúc dự kiến +
+/// <see cref="MV.ApplicationLayer.Services.ClassSessionService.LiveSessionAutoEndGraceMinutes"/> phút
+/// mà gia sư chưa tự bấm "Kết thúc buổi học". Cả gia sư lẫn học viên/phụ huynh sẽ cùng bị đưa ra
+/// khỏi phòng ở nhịp heartbeat kế tiếp (thay vì một bên rời trước, bên kia rời sau không đồng bộ).
+/// Runs every 1 minute.
+/// </summary>
+public class AutoEndLiveSessionJob : BackgroundService
+{
+    private readonly IServiceProvider _serviceProvider;
+    private readonly ILogger<AutoEndLiveSessionJob> _logger;
+    private readonly TimeSpan _interval = TimeSpan.FromMinutes(1);
+
+    public AutoEndLiveSessionJob(IServiceProvider serviceProvider, ILogger<AutoEndLiveSessionJob> logger)
+    {
+        _serviceProvider = serviceProvider;
+        _logger = logger;
+    }
+
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        _logger.LogInformation("AutoEndLiveSessionJob đã bắt đầu.");
+        await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken);
+
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            try
+            {
+                await ProcessAutoEndAsync(stoppingToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi trong AutoEndLiveSessionJob.");
+            }
+
+            await Task.Delay(_interval, stoppingToken);
+        }
+
+        _logger.LogInformation("AutoEndLiveSessionJob đã dừng.");
+    }
+
+    private async Task ProcessAutoEndAsync(CancellationToken ct)
+    {
+        using var scope = _serviceProvider.CreateScope();
+        var classSessionService = scope.ServiceProvider.GetRequiredService<IClassSessionService>();
+
+        var closedCount = await classSessionService.AutoCloseExpiredLiveSessionsAsync(ct);
+
+        if (closedCount > 0)
+        {
+            _logger.LogInformation("AutoEndLiveSessionJob: Đã tự động đóng {Count} phòng học quá giờ.", closedCount);
+        }
+    }
+}
