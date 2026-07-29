@@ -299,6 +299,29 @@ public class WarningService : IWarningService
         return new PagedList<SuspensionListResponse>(dtos, total, page, pageSize);
     }
 
+    public async Task<List<SuspensionListResponse>> GetUserSuspensionsAsync(string userId)
+    {
+        var user = await _userRepo.GetUserByIdAsync(userId)
+            ?? throw new ArgumentException("Không tìm thấy người dùng");
+
+        var suspensions = await _warningRepo.GetUserSuspensionsAsync(userId);
+
+        return suspensions.Select(s => new SuspensionListResponse
+        {
+            SuspensionId = s.Suspensionid,
+            UserId = s.Userid,
+            UserName = user.Fullname,
+            UserEmail = user.Email,
+            SuspensionType = s.Suspensiontype,
+            Reason = s.Reason,
+            StartDate = s.Startdate,
+            EndDate = s.Enddate,
+            // Auto-suspensions carry no admin in Createdby, so fall back to the system actor.
+            CreatedByName = s.CreatedbyNavigation?.Fullname ?? SystemActors.DisplayName,
+            IsActive = s.Isactive
+        }).ToList();
+    }
+
     public async Task<int> ProcessAutoUnsuspendAsync(CancellationToken ct = default)
     {
         var expiredSuspensions = await _warningRepo.GetExpiredActiveSuspensionsAsync(MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow);
