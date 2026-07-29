@@ -45,6 +45,14 @@ public class WarningRepository(AgoraDbContext context) : IWarningRepository
             .OrderByDescending(s => s.Startdate)
             .FirstOrDefaultAsync();
 
+    public Task<List<Profilesuspension>> GetUserSuspensionsAsync(string userId)
+        => context.Profilesuspensions
+            .AsNoTracking()
+            .Where(s => s.Userid == userId)
+            .OrderByDescending(s => s.Startdate)
+            .Include(s => s.CreatedbyNavigation)
+            .ToListAsync();
+
     public Task<List<Profilesuspension>> GetExpiredActiveSuspensionsAsync(DateTime now)
         => context.Profilesuspensions
             .Where(s => s.Isactive == true && s.Enddate.HasValue && s.Enddate.Value <= now)

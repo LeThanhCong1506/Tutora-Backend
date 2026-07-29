@@ -180,7 +180,14 @@ public class WarningService : IWarningService
                 existing.Isactive = false;
 
             var now = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
-            DateTime? endDate = suspensionType == SuspensionType.Temporary && durationDays > 0
+            // The duration decides the end date; the type only names the *kind* of
+            // restriction. Callers use two vocabularies — "temporary"/"permanent"
+            // from auto-suspension, "hidden_1_week"/"account_locked" from the CMS —
+            // so requiring an exact match on "temporary" silently stored every
+            // CMS-issued suspension with no end date, making it permanent and
+            // invisible to the auto-unsuspend job despite the admin picking a
+            // duration. Only an explicitly permanent type is open-ended now.
+            DateTime? endDate = suspensionType != SuspensionType.Permanent && durationDays > 0
                 ? now.AddDays(durationDays)
                 : null;
 
@@ -290,6 +297,29 @@ public class WarningService : IWarningService
         }).ToList();
 
         return new PagedList<SuspensionListResponse>(dtos, total, page, pageSize);
+    }
+
+    public async Task<List<SuspensionListResponse>> GetUserSuspensionsAsync(string userId)
+    {
+        var user = await _userRepo.GetUserByIdAsync(userId)
+            ?? throw new ArgumentException("Không tìm thấy người dùng");
+
+        var suspensions = await _warningRepo.GetUserSuspensionsAsync(userId);
+
+        return suspensions.Select(s => new SuspensionListResponse
+        {
+            SuspensionId = s.Suspensionid,
+            UserId = s.Userid,
+            UserName = user.Fullname,
+            UserEmail = user.Email,
+            SuspensionType = s.Suspensiontype,
+            Reason = s.Reason,
+            StartDate = s.Startdate,
+            EndDate = s.Enddate,
+            // Auto-suspensions carry no admin in Createdby, so fall back to the system actor.
+            CreatedByName = s.CreatedbyNavigation?.Fullname ?? SystemActors.DisplayName,
+            IsActive = s.Isactive
+        }).ToList();
     }
 
     public async Task<int> ProcessAutoUnsuspendAsync(CancellationToken ct = default)
