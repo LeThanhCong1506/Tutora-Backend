@@ -112,9 +112,14 @@ namespace MV.ApplicationLayer.Services
                 // là tùy chọn khi tạo — nên miễn cả 2 cổng; nếu không, staff không
                 // phone sẽ vĩnh viễn bị chặn đăng nhập, còn có phone thì bị ép OTP
                 // Zalo như khách hàng.
+                // Tài khoản con do PHỤ HUYNH tạo (StudentService.CreateStudentAsync)
+                // cũng không có Phone (chỉ có username + mật khẩu do parent xem 1 lần)
+                // — miễn luôn 2 cổng này, nếu không con sẽ vĩnh viễn không đăng nhập
+                // được dù đúng username/mật khẩu.
                 var isInternalAccount = UserRole.IsInternal(user.Primaryrole);
+                var skipsPhoneGate = isInternalAccount || await IsParentManagedChildAccountAsync(user.Userid);
 
-                if (!isInternalAccount && string.IsNullOrWhiteSpace(user.Phone))
+                if (!skipsPhoneGate && string.IsNullOrWhiteSpace(user.Phone))
                 {
                     return new TokenResponse
                     {
@@ -123,7 +128,7 @@ namespace MV.ApplicationLayer.Services
                     };
                 }
 
-                if (!isInternalAccount && user.Isphoneverified != true)
+                if (!skipsPhoneGate && user.Isphoneverified != true)
                 {
                     return new TokenResponse
                     {
@@ -466,8 +471,10 @@ namespace MV.ApplicationLayer.Services
         private async Task<TokenResponse> CreateTokenResponseAsync(User user)
         {
             // Chốt chặn cuối trước khi phát token — miễn cho tài khoản nội bộ
-            // (Staff/Admin, xác thực bằng email + mật khẩu, không qua OTP).
+            // (Staff/Admin, xác thực bằng email + mật khẩu, không qua OTP) và cho
+            // tài khoản con do phụ huynh tạo (xem gate tương ứng ở SimpleLoginAsync).
             if (!UserRole.IsInternal(user.Primaryrole)
+                && !await IsParentManagedChildAccountAsync(user.Userid)
                 && (string.IsNullOrWhiteSpace(user.Phone) || user.Isphoneverified != true))
             {
                 return new TokenResponse
@@ -505,6 +512,17 @@ namespace MV.ApplicationLayer.Services
                 RefreshToken = rawRefreshToken,
                 ErrorMessage = string.Empty
             };
+        }
+
+        /// <summary>
+        /// True nếu userId là tài khoản con do phụ huynh tạo (StudentService.CreateStudentAsync
+        /// — Studentprofile.Linkeduserid trỏ tới user này, Parentid khác null). Tự đăng ký
+        /// (Studentprofile.Studentid == userId) luôn có Parentid null nên không tính.
+        /// </summary>
+        private async Task<bool> IsParentManagedChildAccountAsync(string userId)
+        {
+            var profile = await _unitOfWork.StudentRepository.FindByStudentOrLinkedUserAsync(userId);
+            return profile?.Parentid != null;
         }
 
         private async Task<string> CreateRefreshTokenAsync(string userId)
