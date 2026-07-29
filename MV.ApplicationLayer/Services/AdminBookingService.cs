@@ -269,12 +269,20 @@ public class AdminBookingService(IAppDbContext context) : IAdminBookingService
                 TutorName   = x.TutorUser.Fullname,
                 TutorAvatar = x.TutorUser.Avatarurl,
                 // Parent
-                ParentId    = x.ParentUser != null ? x.ParentUser.Userid   : null,
-                ParentName  = x.ParentUser != null ? x.ParentUser.Fullname : null,
-                ParentEmail = x.ParentUser != null ? x.ParentUser.Email    : null,
+                ParentId     = x.ParentUser != null ? x.ParentUser.Userid    : null,
+                ParentName   = x.ParentUser != null ? x.ParentUser.Fullname  : null,
+                ParentEmail  = x.ParentUser != null ? x.ParentUser.Email     : null,
+                ParentAvatar = x.ParentUser != null ? x.ParentUser.Avatarurl : null,
                 // Student
                 StudentId   = x.StudentProfile != null ? x.StudentProfile.Studentid  : null,
                 StudentName = x.StudentProfile != null ? x.StudentProfile.Fullname   : null,
+                // Studentprofile giữ bản sao avatar, nhưng tài khoản liên kết mới là
+                // nguồn mới nhất — ưu tiên nó rồi mới fallback, giống AdminGetUserDetail.
+                StudentAvatar = x.StudentProfile == null
+                    ? null
+                    : (x.StudentProfile.Linkeduser != null && x.StudentProfile.Linkeduser.Avatarurl != null
+                        ? x.StudentProfile.Linkeduser.Avatarurl
+                        : x.StudentProfile.Avatarurl),
                 GradeLevel  = x.StudentProfile != null && x.StudentProfile.GradelevelNavigation != null
                     ? x.StudentProfile.GradelevelNavigation.Gradename
                     : null,
@@ -396,14 +404,16 @@ public class AdminBookingService(IAppDbContext context) : IAdminBookingService
             },
             Parent = row.ParentId != null ? new AdminBookingPartyInfo
             {
-                Id    = row.ParentId,
-                Name  = row.ParentName,
-                Email = row.ParentEmail
+                Id        = row.ParentId,
+                Name      = row.ParentName,
+                Email     = row.ParentEmail,
+                AvatarUrl = row.ParentAvatar
             } : null,
             Student = row.StudentId != null ? new AdminBookingStudentInfo
             {
                 Id         = row.StudentId,
                 Name       = row.StudentName,
+                AvatarUrl  = row.StudentAvatar,
                 GradeLevel = row.GradeLevel
             } : null,
             Subject = row.SubjectId != null ? new AdminBookingSubjectInfo
