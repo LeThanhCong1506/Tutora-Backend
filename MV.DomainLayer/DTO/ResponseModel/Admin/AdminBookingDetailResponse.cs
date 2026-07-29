@@ -48,6 +48,13 @@ public class AdminBookingStudentInfo
 {
     public string? Id { get; set; }
     public string? Name { get; set; }
+
+    /// <summary>
+    /// Avatar of the linked user account when the student has one, otherwise the
+    /// copy stored on the student profile. Null when neither has an avatar.
+    /// </summary>
+    public string? AvatarUrl { get; set; }
+
     public string? GradeLevel { get; set; }
 }
 

@@ -83,6 +83,24 @@ namespace MV.ApplicationLayer.Services
                 .Take(pageSize)
                 .ToListAsync();
 
+            // Warning / suspension counts for just this page, as two grouped
+            // queries rather than one per user.
+            var pageUserIds = pageUsers.Select(u => u.Userid).ToList();
+
+            var warningCounts = await _context.Userwarnings
+                .AsNoTracking()
+                .Where(w => w.Userid != null && pageUserIds.Contains(w.Userid))
+                .GroupBy(w => w.Userid!)
+                .Select(g => new { UserId = g.Key, Count = g.Count() })
+                .ToDictionaryAsync(x => x.UserId, x => x.Count);
+
+            var suspensionCounts = await _context.Profilesuspensions
+                .AsNoTracking()
+                .Where(s => s.Userid != null && pageUserIds.Contains(s.Userid))
+                .GroupBy(s => s.Userid!)
+                .Select(g => new { UserId = g.Key, Count = g.Count() })
+                .ToDictionaryAsync(x => x.UserId, x => x.Count);
+
             var userResponses = pageUsers.Select(u => new UserResponse
             {
                 Userid = u.Userid,
@@ -97,7 +115,9 @@ namespace MV.ApplicationLayer.Services
                 Status = u.Status,
                 Createdat = u.Createdat,
                 LastLoginAt = u.Lastloginat,
-                Role = u.Primaryrole ?? UserRole.User
+                Role = u.Primaryrole ?? UserRole.User,
+                WarningsCount = warningCounts.GetValueOrDefault(u.Userid),
+                SuspensionsCount = suspensionCounts.GetValueOrDefault(u.Userid)
             }).ToList();
 
             return new PagedList<UserResponse>(
@@ -337,6 +357,21 @@ namespace MV.ApplicationLayer.Services
 
             user.Status = 1;
             await _unitOfWork.UserRepository.UpdateUserAsync(user);
+
+            // Chặn/mở khóa và tạm ngưng cùng ghi vào users.Status, nên bỏ qua bảng
+            // suspension ở đây để lại bản ghi "đang áp dụng" của một tài khoản đã
+            // hoạt động trở lại: modal chi tiết hiện sai trạng thái, và tệ hơn là
+            // HasActiveSuspensionAsync sẽ luôn thấy user còn bị treo nên mọi cảnh
+            // cáo sau đó không bao giờ tạm ngưng được user này nữa. Bản tạm ngưng
+            // vĩnh viễn (không có Enddate) còn không được job tự gỡ dọn hộ.
+            var activeSuspensions = await _context.Profilesuspensions
+                .Where(suspension => suspension.Userid == userId && suspension.Isactive == true)
+                .ToListAsync();
+            foreach (var suspension in activeSuspensions)
+            {
+                suspension.Isactive = false;
+                suspension.Enddate = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
+            }
 
             // Nếu là gia sư và profile đang Active → khôi phục hiển thị công khai
             var tutorProfile = await _unitOfWork.UserRepository.GetTutorProfileByIdAsync(userId);

@@ -56,6 +56,19 @@ public class WarningController : ControllerBase
     }
 
     /// <summary>
+    /// Get the full suspension history for one user, including suspensions that
+    /// already ended. GET /admin/warnings/suspensions only covers currently
+    /// active ones across all users, so admin user detail needs this instead.
+    /// </summary>
+    [RequirePermission(Permissions.WarningView)]
+    [HttpGet("users/{id}/suspensions")]
+    public async Task<ActionResult<APIResponse<List<SuspensionListResponse>>>> GetUserSuspensions(string id)
+    {
+        var result = await _warningService.GetUserSuspensionsAsync(id);
+        return Ok(APIResponse<List<SuspensionListResponse>>.Success(result, "Lấy lịch sử tạm ngưng thành công."));
+    }
+
+    /// <summary>
     /// Apply suspension to a user
     /// </summary>
     [RequirePermission(Permissions.SuspensionManage)]
