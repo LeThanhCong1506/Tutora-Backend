@@ -73,6 +73,14 @@ public class QuestionNoteService(IQuestionNoteRepository repo) : IQuestionNoteSe
 
         if (dto.Title is not null) note.Title = dto.Title;
         if (dto.PersonalNote is not null) note.PersonalNote = dto.PersonalNote;
+        if (dto.Subject is not null) note.Subject = dto.Subject;
+        if (dto.GradeLevel is not null) note.GradeLevel = dto.GradeLevel;
+        if (dto.Chapter is not null) note.Chapter = dto.Chapter;
+
+        // Chỉ nhận object; mảng/chuỗi lọt vào sẽ làm FE vỡ khi đọc theo khoá bước.
+        if (dto.StepNotes is { ValueKind: JsonValueKind.Object } sn)
+            note.StepNotes = sn.GetRawText();
+
         note.UpdatedAt = TimeZoneHelper.UtcNow;
 
         repo.Update(note);
@@ -108,6 +116,10 @@ public class QuestionNoteService(IQuestionNoteRepository repo) : IQuestionNoteSe
             : null,
         AnswerSummary = n.AnswerSummary,
         PersonalNote = n.PersonalNote,
+        // Ghi chú bước chỉ có nghĩa khi có steps để gắn vào -> theo cùng includeSteps.
+        StepNotes = includeSteps && !string.IsNullOrEmpty(n.StepNotes)
+            ? JsonSerializer.Deserialize<JsonElement>(n.StepNotes)
+            : null,
         Subject = n.Subject,
         GradeLevel = n.GradeLevel,
         Chapter = n.Chapter,

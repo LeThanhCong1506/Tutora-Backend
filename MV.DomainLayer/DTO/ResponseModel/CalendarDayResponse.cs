@@ -51,6 +51,12 @@ public class CalendarClassSessionResponse
     public bool HasRecording { get; set; }
 
     /// <summary>
+    /// Trạng thái yêu cầu đổi lịch (dời lịch) đang còn hiệu lực — "pending" hoặc "approved". Null
+    /// nếu không có yêu cầu nào đang hiệu lực. Chỉ được populate ở lịch của student hiện tại.
+    /// </summary>
+    public string? ScheduleChangeStatus { get; set; }
+
+    /// <summary>
     /// Color code based on status for UI rendering
     /// </summary>
     public string StatusColor => Status switch

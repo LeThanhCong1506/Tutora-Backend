@@ -41,6 +41,8 @@ public partial class Studentprofile
 
     public DateTime? Deletedat { get; set; }
 
+    public bool Tutorsuggestionenabled { get; set; } = true;
+
     public virtual ICollection<Booking> Bookings { get; set; } = new List<Booking>();
 
     public virtual ICollection<Handoversummary> Handoversummaries { get; set; } = new List<Handoversummary>();

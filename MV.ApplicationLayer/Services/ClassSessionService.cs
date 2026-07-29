@@ -1,4 +1,5 @@
-﻿using Microsoft.EntityFrameworkCore;
+﻿using Hangfire;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using MV.ApplicationLayer.Helpers;
 using MV.ApplicationLayer.ServiceInterfaces;
@@ -29,6 +30,7 @@ public partial class ClassSessionService : IClassSessionService
     private readonly ISettlementService _settlementService;
     private readonly IWarningService _warningService;
     private readonly IRecordingAccessTokenService _recordingAccessTokenService;
+    private readonly IBackgroundJobClient _backgroundJobClient;
     private readonly ILogger<ClassSessionService> _logger;
 
     // Retained for transaction management only (BeginTransactionAsync)
@@ -50,6 +52,7 @@ public partial class ClassSessionService : IClassSessionService
         ISettlementService settlementService,
         IWarningService warningService,
         IRecordingAccessTokenService recordingAccessTokenService,
+        IBackgroundJobClient backgroundJobClient,
         ILogger<ClassSessionService> logger)
     {
         _classSessionRepo = classSessionRepo;
@@ -65,6 +68,7 @@ public partial class ClassSessionService : IClassSessionService
         _settlementService = settlementService;
         _warningService = warningService;
         _recordingAccessTokenService = recordingAccessTokenService;
+        _backgroundJobClient = backgroundJobClient;
         _logger = logger;
     }
 
@@ -301,6 +305,22 @@ public partial class ClassSessionService : IClassSessionService
         return (utcStart, utcEnd);
     }
 
+    /// <summary>
+    /// Yêu cầu đổi lịch (dời lịch) mới nhất còn hiệu lực cho buổi này — "pending" hoặc "approved".
+    /// Null nếu không có (đã Applied/Rejected/Expired, hoặc chưa có yêu cầu nào). Đòi hỏi
+    /// <paramref name="scheduleChanges"/> đã được nạp qua .Include(l => l.ScheduleChanges) — nếu
+    /// không sẽ luôn rỗng (không lazy-load) và trả về null một cách vô hại.
+    /// </summary>
+    private static string? ResolveActiveScheduleChangeStatus(IEnumerable<ClassSessionScheduleChange> scheduleChanges)
+    {
+        var latest = scheduleChanges.OrderByDescending(x => x.Schedulechangeid).FirstOrDefault();
+        if (latest == null) return null;
+        var now = TimeZoneHelper.UtcNow;
+        var isActive = (latest.Status == ScheduleChangeStatus.Pending || latest.Status == ScheduleChangeStatus.Approved)
+            && latest.Expiresat > now;
+        return isActive ? latest.Status : null;
+    }
+
     private static ClassSessionResponse MapToClassSessionResponse(ClassSession classSession)
     {
         var booking = classSession.Booking;
@@ -308,6 +328,7 @@ public partial class ClassSessionService : IClassSessionService
         var subject = booking?.Tutorsubjectgradeprice?.Subject;
         return new ClassSessionResponse
         {
+            ScheduleChangeStatus = ResolveActiveScheduleChangeStatus(classSession.ScheduleChanges),
             ClassSessionId = classSession.Classsessionid,
             BookingId = classSession.Bookingid ?? 0,
             TutorId = classSession.Tutorid,

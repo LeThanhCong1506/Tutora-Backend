@@ -264,17 +264,10 @@ public class DisputeService : IDisputeService
         _logger.LogInformation("ClassifyDisputePriorityAsync started for dispute {DisputeId} (type={DisputeType})", disputeId, dispute.Disputetype);
 
         var classification = await _classificationService.ClassifyAsync(dispute.Disputetype ?? "", dispute.Reason ?? "");
-        if (classification != null)
-        {
-            dispute.Priority = classification.Priority;
-            dispute.Priorityreason = classification.Reason;
-            await _disputeRepo.SaveChangesAsync();
-            _logger.LogInformation("Dispute {DisputeId} classified as priority {Priority}", disputeId, classification.Priority);
-        }
-        else
-        {
-            _logger.LogWarning("Dispute {DisputeId} left unclassified — AI classification returned no result (see DisputeClassificationService logs above for the reason)", disputeId);
-        }
+        dispute.Priority = classification.Priority;
+        dispute.Priorityreason = classification.Reason;
+        await _disputeRepo.SaveChangesAsync();
+        _logger.LogInformation("Dispute {DisputeId} classified as priority {Priority}", disputeId, classification.Priority);
 
         return await GetDisputeDetailAsync(disputeId, actorId);
     }

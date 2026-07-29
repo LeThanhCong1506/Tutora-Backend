@@ -28,6 +28,11 @@ public partial class QuestionNote
 
     public string? PersonalNote { get; set; }
 
+    /// <summary>
+    /// Ghi chú theo từng bước giải
+    /// </summary>
+    public string StepNotes { get; set; } = "{}";
+
     public string? Subject { get; set; }
 
     public int? GradeLevel { get; set; }
