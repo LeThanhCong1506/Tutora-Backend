@@ -20,6 +20,7 @@ public class WarningHistoryResponse
     {
         1 => "⚠️ Cảnh báo mức 1",
         2 => "🚨 Cảnh báo mức 2",
+        3 => "⛔ Cảnh báo mức 3",
         _ => $"Mức {WarningLevel}"
     };
 
@@ -27,6 +28,7 @@ public class WarningHistoryResponse
     {
         1 => "#F59E0B",
         2 => "#EF4444",
+        3 => "#B91C1C",
         _ => "#9CA3AF"
     };
 }

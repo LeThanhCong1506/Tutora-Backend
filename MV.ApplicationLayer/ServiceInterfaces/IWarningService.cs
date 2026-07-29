@@ -29,6 +29,11 @@ public interface IWarningService
     Task<PagedList<SuspensionListResponse>> GetActiveSuspensionsAsync(int page, int pageSize);
 
     /// <summary>
+    /// Get the full suspension history for one user — active and past — newest first.
+    /// </summary>
+    Task<List<SuspensionListResponse>> GetUserSuspensionsAsync(string userId);
+
+    /// <summary>
     /// Process auto-unsuspend for expired suspensions
     /// Called by background job every hour
     /// </summary>
