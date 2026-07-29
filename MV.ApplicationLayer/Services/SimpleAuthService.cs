@@ -27,6 +27,7 @@ namespace MV.ApplicationLayer.Services
         private readonly IConfiguration _configuration;
         private readonly ILogger<SimpleAuthService> _logger;
         private readonly IDistributedCache _cache;
+        private readonly IAiCreditService _aiCreditService;
 
         private const int OtpExpiryMinutes = 10;
         private const int MaxOtpAttempts = 5;
@@ -38,7 +39,8 @@ namespace MV.ApplicationLayer.Services
             IOtpSender otpSender,
             IConfiguration configuration,
             ILogger<SimpleAuthService> logger,
-            IDistributedCache cache)
+            IDistributedCache cache,
+            IAiCreditService aiCreditService)
         {
             _unitOfWork = unitOfWork;
             _passwordRepository = passwordRepository;
@@ -47,6 +49,7 @@ namespace MV.ApplicationLayer.Services
             _configuration = configuration;
             _logger = logger;
             _cache = cache;
+            _aiCreditService = aiCreditService;
         }
 
         public async Task<TokenResponse> SimpleLoginAsync(SimpleLoginRequest request)
@@ -269,6 +272,15 @@ namespace MV.ApplicationLayer.Services
 
                 await _unitOfWork.UserRepository.CreateUserAsync(newUser);
                 await _unitOfWork.SaveChangesAsync();
+
+                try
+                {
+                    await _aiCreditService.GrantFreePackageAsync(userId);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to grant Free AI credit to new user {UserId}", userId);
+                }
 
                 var otpCode = GenerateOtpCode();
                 await StoreOtpAsync(PhoneVerifyKey(phone), otpCode);
