@@ -20,5 +20,17 @@ namespace MV.DomainLayer.DTO.ResponseModel
         public string? Role { get; set; }
         public PermissionGroupReferenceResponse? PermissionGroup { get; set; }
         public long AssignmentVersion { get; set; }
+
+        /// <summary>
+        /// Lifetime warning count. Only populated by the admin user list
+        /// (AdminGetAllUsersAsync); other endpoints leave it null.
+        /// </summary>
+        public int? WarningsCount { get; set; }
+
+        /// <summary>
+        /// Lifetime suspension count (active and past). Only populated by the
+        /// admin user list (AdminGetAllUsersAsync); other endpoints leave it null.
+        /// </summary>
+        public int? SuspensionsCount { get; set; }
     }
 }

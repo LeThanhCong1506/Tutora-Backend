@@ -83,6 +83,24 @@ namespace MV.ApplicationLayer.Services
                 .Take(pageSize)
                 .ToListAsync();
 
+            // Warning / suspension counts for just this page, as two grouped
+            // queries rather than one per user.
+            var pageUserIds = pageUsers.Select(u => u.Userid).ToList();
+
+            var warningCounts = await _context.Userwarnings
+                .AsNoTracking()
+                .Where(w => w.Userid != null && pageUserIds.Contains(w.Userid))
+                .GroupBy(w => w.Userid!)
+                .Select(g => new { UserId = g.Key, Count = g.Count() })
+                .ToDictionaryAsync(x => x.UserId, x => x.Count);
+
+            var suspensionCounts = await _context.Profilesuspensions
+                .AsNoTracking()
+                .Where(s => s.Userid != null && pageUserIds.Contains(s.Userid))
+                .GroupBy(s => s.Userid!)
+                .Select(g => new { UserId = g.Key, Count = g.Count() })
+                .ToDictionaryAsync(x => x.UserId, x => x.Count);
+
             var userResponses = pageUsers.Select(u => new UserResponse
             {
                 Userid = u.Userid,
@@ -97,7 +115,9 @@ namespace MV.ApplicationLayer.Services
                 Status = u.Status,
                 Createdat = u.Createdat,
                 LastLoginAt = u.Lastloginat,
-                Role = u.Primaryrole ?? UserRole.User
+                Role = u.Primaryrole ?? UserRole.User,
+                WarningsCount = warningCounts.GetValueOrDefault(u.Userid),
+                SuspensionsCount = suspensionCounts.GetValueOrDefault(u.Userid)
             }).ToList();
 
             return new PagedList<UserResponse>(
