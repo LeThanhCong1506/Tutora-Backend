@@ -91,6 +91,8 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
 
     public virtual DbSet<AiCreditTransaction> AiCreditTransactions { get; set; }
 
+    public virtual DbSet<AiUsageMonthly> AiUsageMonthly { get; set; }
+
     public virtual DbSet<AiCreditPackage> AiCreditPackages { get; set; }
 
     public virtual DbSet<Profilesuspension> Profilesuspensions { get; set; }
@@ -2679,6 +2681,30 @@ entity.HasOne(d => d.Tutor).WithOne(p => p.Tutorprofile)
                 .HasForeignKey(d => d.Userid)
                 .OnDelete(DeleteBehavior.Cascade)
                 .HasConstraintName("ai_credit_transactions_userid_fkey");
+        });
+
+        // Lượt dùng AI gộp theo (tài khoản, tháng) — không ghi từng lượt hỏi.
+        modelBuilder.Entity<AiUsageMonthly>(entity =>
+        {
+            entity.HasKey(e => new { e.Userid, e.Period }).HasName("pk_ai_usage_monthly");
+
+            entity.ToTable("ai_usage_monthly");
+
+            entity.Property(e => e.Userid)
+                .HasMaxLength(50)
+                .HasColumnName("user_id");
+            entity.Property(e => e.Period).HasColumnName("period");
+            entity.Property(e => e.Usedcount)
+                .HasDefaultValue(0)
+                .HasColumnName("used_count");
+            entity.Property(e => e.Updatedat)
+                .HasColumnType("timestamp without time zone")
+                .HasColumnName("updated_at");
+
+            entity.HasOne(d => d.User).WithMany()
+                .HasForeignKey(d => d.Userid)
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("fk_ai_usage_monthly_user");
         });
 
         modelBuilder.Entity<AiCreditPackage>(entity =>

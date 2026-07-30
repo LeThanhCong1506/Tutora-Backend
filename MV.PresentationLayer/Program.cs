@@ -26,6 +26,8 @@ using MV.InfrastructureLayer.ExternalServices;
 using MV.InfrastructureLayer.Repositories;
 using MV.InfrastructureLayer.Services;
 using MV.ApplicationLayer.RepositoryInterfaces;
+using Npgsql;
+using Pgvector.Npgsql;
 using PayOS;
 using Resend;
 using SP25.OJT202.AccountManagement.Presentation.Middlewares;
@@ -246,9 +248,14 @@ builder.Services.AddSwaggerGen(options =>
     });
 });
 
+var pgDataSourceBuilder = new NpgsqlDataSourceBuilder(
+    builder.Configuration.GetConnectionString(ConfigurationKeys.ConnectionStrings.DefaultConnection));
+pgDataSourceBuilder.UseVector();
+var pgDataSource = pgDataSourceBuilder.Build();
+
 builder.Services.AddDbContext<AgoraDbContext>(options =>
                 options.UseNpgsql(
-                    builder.Configuration.GetConnectionString(ConfigurationKeys.ConnectionStrings.DefaultConnection),
+                    pgDataSource,
                     o => o.UseVector())   // pgvector: map cột vector(768) của questions.embedding
             );
 builder.Services.AddScoped<IAppDbContext>(sp => sp.GetRequiredService<AgoraDbContext>());
@@ -374,6 +381,7 @@ builder.Services.AddScoped<PayOSWebhookService>();
 builder.Services.AddScoped<IAdminPayoutService, AdminPayoutService>();
 builder.Services.AddScoped<ISystemAlertService, SystemAlertService>();
 builder.Services.AddScoped<IAdminFinancialService, AdminFinancialService>();
+builder.Services.AddScoped<IAdminRevenueAnalyticsService, AdminRevenueAnalyticsService>();
 builder.Services.AddScoped<IAdminBookingService, AdminBookingService>();
 builder.Services.AddScoped<IAdminDashboardService, AdminDashboardService>();
 

@@ -41,6 +41,7 @@ public interface IAppDbContext
     DbSet<TutoraKbChunk> TutoraKbChunks { get; }
     DbSet<QuestionVote> QuestionVotes { get; }
     DbSet<AiCreditTransaction> AiCreditTransactions { get; }
+    DbSet<AiUsageMonthly> AiUsageMonthly { get; }
     DbSet<Profilesuspension> Profilesuspensions { get; }
     DbSet<Promotion> Promotions { get; }
     DbSet<Gradelevel> Gradelevels { get; }
