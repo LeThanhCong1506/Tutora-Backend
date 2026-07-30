@@ -203,7 +203,7 @@ builder.Services.AddCors(options =>
                     "https://app.tutora.vn",
                     "https://apps.tutora.vn",
                     // Developer app
-                    "https://tutora-developer.vercel.app",
+                    "https://tutora-developer.vercel.app", "https://cms-tutora-fe.vercel.app", "https://cms.tutora.vn",
                     // Zalo Mini App domains
                     "https://h5.zalo.me", "https://h5.zadn.vn", "https://h5.zdn.vn", "https://miniapp-cdn.zalo.me")
                   .AllowAnyHeader()
