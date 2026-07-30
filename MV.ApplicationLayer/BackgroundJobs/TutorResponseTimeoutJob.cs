@@ -71,6 +71,7 @@ public class TutorResponseTimeoutJob(IServiceProvider sp, ILogger<TutorResponseT
         using var scope = sp.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<IAppDbContext>();
         var notify = scope.ServiceProvider.GetRequiredService<INotificationService>();
+        var zaloOAService = scope.ServiceProvider.GetRequiredService<IZaloOAService>();
         var now = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
         List<NotificationRequest> notifications = new();
 
@@ -159,15 +160,59 @@ public class TutorResponseTimeoutJob(IServiceProvider sp, ILogger<TutorResponseT
             return;
         }
 
-        if (notifications.Count == 0) return;
-
-        try
+        if (notifications.Count > 0)
         {
-            await notify.CreateNotificationsAsync(notifications);
+            try
+            {
+                await notify.CreateNotificationsAsync(notifications);
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Không thể gửi thông báo timeout cho booking {BookingId}.", bookingId);
+            }
         }
-        catch (Exception ex)
+
+        var refunded = await db.Bookings.AsNoTracking()
+            .Where(x => x.Bookingid == bookingId)
+            .Select(x => new { x.Parentid, x.Tutorid, x.Refundamount })
+            .FirstOrDefaultAsync(ct);
+        if (refunded == null) return;
+
+        if (!string.IsNullOrEmpty(refunded.Parentid))
         {
-            logger.LogError(ex, "Không thể gửi thông báo timeout cho booking {BookingId}.", bookingId);
+            try
+            {
+                await zaloOAService.SendNotificationAsync(
+                    refunded.Parentid,
+                    ZnsTemplateType.BookingCancelled,
+                    new Dictionary<string, string>
+                    {
+                        { "ly_do", "gia sư không phản hồi trong 24 giờ" },
+                        { "so_tien_hoan", (refunded.Refundamount ?? 0).ToString("N0") }
+                    });
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Không thể gửi ZNS hủy booking cho phụ huynh của booking {BookingId}.", bookingId);
+            }
+        }
+        if (!string.IsNullOrEmpty(refunded.Tutorid))
+        {
+            try
+            {
+                await zaloOAService.SendNotificationAsync(
+                    refunded.Tutorid,
+                    ZnsTemplateType.BookingCancelled,
+                    new Dictionary<string, string>
+                    {
+                        { "ly_do", "bạn không phản hồi trong 24 giờ" },
+                        { "so_tien_hoan", "0" }
+                    });
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Không thể gửi ZNS hủy booking cho gia sư của booking {BookingId}.", bookingId);
+            }
         }
     }
 

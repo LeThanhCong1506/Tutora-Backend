@@ -351,9 +351,12 @@ public class ZaloOAService : IZaloOAService
         var znsTemplateId = templateId switch
         {
             ZnsTemplateType.LessonReminder => _config.ZnsTemplateLessonReminder,
-            ZnsTemplateType.BookingConfirmed => _config.ZnsTemplateBookingConfirmed,
-            ZnsTemplateType.LessonReport => _config.ZnsTemplateLessonReport,
-            ZnsTemplateType.PayoutProcessed => _config.ZnsTemplatePayoutProcessed,
+            ZnsTemplateType.PaymentReminder => _config.ZnsTemplatePaymentReminder,
+            ZnsTemplateType.PaymentSuccess => _config.ZnsTemplatePaymentSuccess,
+            ZnsTemplateType.BookingCancelled => _config.ZnsTemplateBookingCancelled,
+            ZnsTemplateType.LessonConfirmReminder => _config.ZnsTemplateLessonConfirmReminder,
+            ZnsTemplateType.PayoutResult => _config.ZnsTemplatePayoutResult,
+            ZnsTemplateType.DisputeResult => _config.ZnsTemplateDisputeResult,
             _ => null
         };
 
@@ -482,7 +485,10 @@ public class ZaloOAConfig
     // ZNS Template IDs — điền sau khi Zalo duyệt template
     public string? ZnsTemplateOtp { get; set; }
     public string? ZnsTemplateLessonReminder { get; set; }
-    public string? ZnsTemplateBookingConfirmed { get; set; }
-    public string? ZnsTemplateLessonReport { get; set; }
-    public string? ZnsTemplatePayoutProcessed { get; set; }
+    public string? ZnsTemplatePaymentReminder { get; set; }
+    public string? ZnsTemplatePaymentSuccess { get; set; }
+    public string? ZnsTemplateBookingCancelled { get; set; }
+    public string? ZnsTemplateLessonConfirmReminder { get; set; }
+    public string? ZnsTemplatePayoutResult { get; set; }
+    public string? ZnsTemplateDisputeResult { get; set; }
 }

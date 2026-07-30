@@ -200,11 +200,12 @@ public partial class BookingService
             logger.LogError(ex, "Failed to send decline chat message for booking {BookingId}", bookingId);
         }
 
+        var refundRecipientId = ResolveRefundRecipientId(booking);
         try
         {
             await notificationService.CreateNotificationAsync(new NotificationRequest
             {
-                Userid = ResolveRefundRecipientId(booking)!,
+                Userid = refundRecipientId!,
                 Title = "Gia sư đã từ chối lịch học",
                 Message = $"Gia sư đã từ chối yêu cầu đặt lịch #{bookingId}. Tiền cọc đã được hoàn vào ví của bạn.",
                 Type = NotificationType.BookingDeclined,
@@ -214,6 +215,25 @@ public partial class BookingService
         catch (Exception ex)
         {
             logger.LogError(ex, "Failed to send decline notification for booking {BookingId}", bookingId);
+        }
+
+        if (!string.IsNullOrWhiteSpace(refundRecipientId))
+        {
+            try
+            {
+                await zaloOAService.SendNotificationAsync(
+                    refundRecipientId,
+                    ZnsTemplateType.BookingCancelled,
+                    new Dictionary<string, string>
+                    {
+                        { "ly_do", string.IsNullOrWhiteSpace(reason) ? "gia sư đã từ chối yêu cầu đặt lịch" : $"gia sư từ chối: {reason}" },
+                        { "so_tien_hoan", (booking.Refundamount ?? 0).ToString("N0") }
+                    });
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Failed to send ZNS decline notification for booking {BookingId}", bookingId);
+            }
         }
 
         return MapToResponse(booking, booking.Student, booking.Tutor, booking.Tutorsubjectgradeprice?.Subject);

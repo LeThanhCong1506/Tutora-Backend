@@ -22,6 +22,7 @@ public class AdminPayoutService(
     IAppDbContext context,
     INotificationService notificationService,
     IFileStorageService fileStorageService,
+    IZaloOAService zaloOAService,
     ILogger<AdminPayoutService> logger) : IAdminPayoutService
 {
     private static readonly string[] ClaimableStatuses =
@@ -588,6 +589,24 @@ public class AdminPayoutService(
             logger.LogWarning(ex, "Failed to send completed withdrawal notification for {WithdrawalId}", withdrawalId);
         }
 
+        try
+        {
+            await zaloOAService.SendNotificationAsync(
+                withdrawal.Userid!,
+                ZnsTemplateType.PayoutResult,
+                new Dictionary<string, string>
+                {
+                    { "ket_qua", "Đã duyệt & chuyển khoản" },
+                    { "so_tien", (withdrawal.Amount ?? 0).ToString("N0") },
+                    { "thoi_gian", withdrawal.Processedat?.ToString("HH:mm dd/MM") ?? "" },
+                    { "ghi_chu", note ?? "" }
+                });
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Failed to send ZNS completed withdrawal notification for {WithdrawalId}", withdrawalId);
+        }
+
         logger.LogInformation(
             "{Role} {ActorId} completed withdrawal {WithdrawalId} with transaction {TransactionId}",
             actorRole,
@@ -673,6 +692,24 @@ public class AdminPayoutService(
             catch (Exception ex)
             {
                 logger.LogWarning(ex, "Failed to send rejected withdrawal notification for {WithdrawalId}", withdrawalId);
+            }
+
+            try
+            {
+                await zaloOAService.SendNotificationAsync(
+                    tutorId,
+                    ZnsTemplateType.PayoutResult,
+                    new Dictionary<string, string>
+                    {
+                        { "ket_qua", "Bị từ chối, đã hoàn về ví" },
+                        { "so_tien", amount.ToString("N0") },
+                        { "thoi_gian", withdrawal.Processedat?.ToString("HH:mm dd/MM") ?? "" },
+                        { "ghi_chu", rejectionReason }
+                    });
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Failed to send ZNS rejected withdrawal notification for {WithdrawalId}", withdrawalId);
             }
 
             logger.LogInformation(

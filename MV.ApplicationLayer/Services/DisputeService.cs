@@ -33,6 +33,7 @@ public class DisputeService : IDisputeService
     private readonly IHubContext<NotificationHub> _hubContext;
     private readonly IDisputeClassificationService _classificationService;
     private readonly IRecordingAccessTokenService _recordingAccessTokenService;
+    private readonly IZaloOAService _zaloOAService;
     private readonly ILogger<DisputeService> _logger;
 
     public DisputeService(
@@ -45,6 +46,7 @@ public class DisputeService : IDisputeService
         IHubContext<NotificationHub> hubContext,
         IDisputeClassificationService classificationService,
         IRecordingAccessTokenService recordingAccessTokenService,
+        IZaloOAService zaloOAService,
         ILogger<DisputeService> logger)
     {
         _disputeRepo = disputeRepo;
@@ -56,6 +58,7 @@ public class DisputeService : IDisputeService
         _hubContext = hubContext;
         _classificationService = classificationService;
         _recordingAccessTokenService = recordingAccessTokenService;
+        _zaloOAService = zaloOAService;
         _logger = logger;
     }
 
@@ -441,14 +444,18 @@ public class DisputeService : IDisputeService
                     {
                         Userid = snapshot.Createdby,
                         Title = "Báo cáo vắng mặt đã được xác nhận",
-                        Message = $"Admin đã xác nhận gia sư vắng mặt ở buổi học #{classSessionId}. Bạn có thể chọn phương án xử lý."
+                        Message = $"Admin đã xác nhận gia sư vắng mặt ở buổi học #{classSessionId}. Bạn có thể chọn phương án xử lý.",
+                        Type = NotificationType.LessonNoShow,
+                        Referenceid = classSessionId.ToString()
                     });
                 if (!string.IsNullOrWhiteSpace(tutorId))
                     notifications.Add(new NotificationRequest
                     {
                         Userid = tutorId,
                         Title = "Xác nhận vắng mặt",
-                        Message = $"Admin đã xác nhận báo cáo vắng mặt cho buổi học #{classSessionId}."
+                        Message = $"Admin đã xác nhận báo cáo vắng mặt cho buổi học #{classSessionId}.",
+                        Type = NotificationType.LessonNoShow,
+                        Referenceid = classSessionId.ToString()
                     });
                 if (notifications.Count > 0)
                     await _notificationService.CreateNotificationsAsync(notifications);
@@ -456,6 +463,26 @@ public class DisputeService : IDisputeService
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Failed to send no-show confirmation notifications for dispute {DisputeId}", disputeId);
+            }
+
+            if (!string.IsNullOrWhiteSpace(snapshot.Createdby))
+            {
+                try
+                {
+                    await _zaloOAService.SendNotificationAsync(
+                        snapshot.Createdby,
+                        ZnsTemplateType.DisputeResult,
+                        new Dictionary<string, string>
+                        {
+                            { "mon_hoc", "" },
+                            { "ket_qua", $"Admin đã xác nhận gia sư vắng mặt ở buổi học #{classSessionId}. Bạn có thể chọn phương án xử lý." },
+                            { "so_tien_hoan", "0" }
+                        });
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to send ZNS no-show confirmation for dispute {DisputeId}", disputeId);
+                }
             }
         }
 
@@ -478,6 +505,7 @@ public class DisputeService : IDisputeService
 
         string? createdBy;
         string? tutorId;
+        decimal amountRefunded = 0;
 
         await using (var tx = await _context.Database.BeginTransactionAsync())
         {
@@ -525,7 +553,10 @@ public class DisputeService : IDisputeService
                 if (classSession != null)
                 {
                     if (refundPercentage > 0)
-                        await _settlementService.ProcessRefundAsync(classSession.Classsessionid, refundPercentage, adminId);
+                    {
+                        var refundResult = await _settlementService.ProcessRefundAsync(classSession.Classsessionid, refundPercentage, adminId);
+                        amountRefunded = refundResult.AmountRefunded;
+                    }
                     else
                         await _settlementService.SettleDisputedClassSessionAsync(classSession.Classsessionid, adminId);
                 }
@@ -574,14 +605,38 @@ public class DisputeService : IDisputeService
                 {
                     Userid = createdBy,
                     Title = "Tranh chấp đã được giải quyết",
-                    Message = $"Tranh chấp #{disputeId} đã được giải quyết. Kết quả: {request.ResolutionType}. Ghi chú: {request.ResolutionNote}"
+                    Message = $"Tranh chấp #{disputeId} đã được giải quyết. Kết quả: {request.ResolutionType}. Ghi chú: {request.ResolutionNote}",
+                    Type = NotificationType.DisputeResolved,
+                    Referenceid = disputeId.ToString()
                 });
 
             if (tutorId != null)
                 notifications.Add(new NotificationRequest { Userid = tutorId, Title = "Thông báo giải quyết tranh chấp",
-                    Message = $"Tranh chấp #{disputeId} liên quan đến buổi học của bạn đã được giải quyết. Kết quả: {request.ResolutionType}." });
+                    Message = $"Tranh chấp #{disputeId} liên quan đến buổi học của bạn đã được giải quyết. Kết quả: {request.ResolutionType}.",
+                    Type = NotificationType.DisputeResolved,
+                    Referenceid = disputeId.ToString() });
 
             await _notificationService.CreateNotificationsAsync(notifications);
+
+            if (!string.IsNullOrWhiteSpace(createdBy))
+            {
+                try
+                {
+                    await _zaloOAService.SendNotificationAsync(
+                        createdBy,
+                        ZnsTemplateType.DisputeResult,
+                        new Dictionary<string, string>
+                        {
+                            { "mon_hoc", "" },
+                            { "ket_qua", $"Đã giải quyết: {request.ResolutionNote}" },
+                            { "so_tien_hoan", amountRefunded.ToString("N0") }
+                        });
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to send ZNS dispute-resolved notification for dispute {DisputeId}", disputeId);
+                }
+            }
 
             return (await GetDisputeDetailAsync(disputeId, adminId))!;
         }

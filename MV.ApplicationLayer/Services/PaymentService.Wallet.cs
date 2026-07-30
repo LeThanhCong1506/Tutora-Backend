@@ -290,6 +290,25 @@ public partial class PaymentService
         {
             logger.LogError(ex, "Không thể gửi thông báo thanh toán cho booking {BookingId}", booking.Bookingid);
         }
+
+        if (!string.IsNullOrWhiteSpace(booking.Parentid))
+        {
+            try
+            {
+                await zaloOAService.SendNotificationAsync(
+                    booking.Parentid,
+                    ZnsTemplateType.PaymentSuccess,
+                    new Dictionary<string, string>
+                    {
+                        { "dot", isDepositPhase ? "1" : "2" },
+                        { "so_tien", (isDepositPhase ? booking.Depositamount ?? 0 : booking.Remainingamount ?? 0).ToString("N0") }
+                    });
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Không thể gửi ZNS thanh toán thành công cho booking {BookingId}", booking.Bookingid);
+            }
+        }
     }
 
     /// <summary>

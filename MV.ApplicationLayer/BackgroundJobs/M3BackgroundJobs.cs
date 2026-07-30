@@ -57,12 +57,18 @@ public class AutoConfirmClassSessionJob : BackgroundService
         var context = scope.ServiceProvider.GetRequiredService<MV.ApplicationLayer.Interfaces.IAppDbContext>();
         var notificationService = scope.ServiceProvider.GetRequiredService<INotificationService>();
         var notificationRepo = scope.ServiceProvider.GetRequiredService<INotificationRepository>();
+        var zaloOAService = scope.ServiceProvider.GetRequiredService<IZaloOAService>();
         var now = TimeZoneHelper.UtcNow;
         var deadlineWindow = now.AddHours(2);
 
         var classSessionsToRemind = await context.ClassSessions
             .Include(l => l.Booking)
                 .ThenInclude(b => b!.Student)
+            .Include(l => l.Booking)
+                .ThenInclude(b => b!.Tutorsubjectgradeprice)
+                    .ThenInclude(t => t!.Subject)
+            .Include(l => l.Tutor)
+                .ThenInclude(t => t!.Tutor)
             .Where(l => l.Status == PendingConfirmation &&
                         l.Confirmdeadline.HasValue &&
                         l.Confirmdeadline > now &&
@@ -107,6 +113,24 @@ public class AutoConfirmClassSessionJob : BackgroundService
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Không thể gửi nhắc hạn xác nhận cho classSession {ClassSessionId}.", classSession.Classsessionid);
+            }
+
+            try
+            {
+                await zaloOAService.SendNotificationAsync(
+                    parentId,
+                    ZnsTemplateType.LessonConfirmReminder,
+                    new Dictionary<string, string>
+                    {
+                        { "mon_hoc", classSession.Booking?.Subject?.Subjectname ?? "" },
+                        { "gia_su", classSession.Tutor?.Tutor?.Fullname ?? "" },
+                        { "ngay_hoc", classSession.Scheduledstart.ToString("HH:mm dd/MM") },
+                        { "han_xac_nhan", classSession.Confirmdeadline?.ToString("HH:mm dd/MM") ?? "" }
+                    });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Không thể gửi ZNS nhắc hạn xác nhận cho classSession {ClassSessionId}.", classSession.Classsessionid);
             }
         }
     }
@@ -351,6 +375,7 @@ public class RemainingPaymentTriggerJob : BackgroundService
         using var scope = _serviceProvider.CreateScope();
         var context = scope.ServiceProvider.GetRequiredService<MV.ApplicationLayer.Interfaces.IAppDbContext>();
         var notificationService = scope.ServiceProvider.GetRequiredService<INotificationService>();
+        var zaloOAService = scope.ServiceProvider.GetRequiredService<IZaloOAService>();
 
         var now = TimeZoneHelper.UtcNow;
 
@@ -362,6 +387,7 @@ public class RemainingPaymentTriggerJob : BackgroundService
                         && b.Remainingpaidat == null)
             .Include(b => b.ClassSessions)
             .Include(b => b.Student)
+            .Include(b => b.Tutorsubjectgradeprice).ThenInclude(t => t!.Subject)
             .ToListAsync(ct);
 
         var triggeredCount = 0;
@@ -439,6 +465,27 @@ public class RemainingPaymentTriggerJob : BackgroundService
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Không thể gửi thông báo thanh toán còn lại cho booking {BookingId}.", booking.Bookingid);
+            }
+
+            if (!string.IsNullOrEmpty(parentId))
+            {
+                try
+                {
+                    await zaloOAService.SendNotificationAsync(
+                        parentId,
+                        ZnsTemplateType.PaymentReminder,
+                        new Dictionary<string, string>
+                        {
+                            { "subject", booking.Subject?.Subjectname ?? "" },
+                            { "dot", "2" },
+                            { "so_tien", (booking.Remainingamount ?? 0).ToString("N0") },
+                            { "han_chot", booking.Paymentdueat?.ToString("HH:mm dd/MM") ?? "" }
+                        });
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Không thể gửi ZNS đến hạn thanh toán phần còn lại cho booking {BookingId}.", booking.Bookingid);
+                }
             }
         }
 

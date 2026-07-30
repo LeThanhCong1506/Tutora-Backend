@@ -43,10 +43,12 @@ public class PaymentTimeoutJob(IServiceProvider sp, ILogger<PaymentTimeoutJob> l
         var db = scope.ServiceProvider.GetRequiredService<IAppDbContext>();
         var notify = scope.ServiceProvider.GetRequiredService<INotificationService>();
         var notificationRepo = scope.ServiceProvider.GetRequiredService<INotificationRepository>();
+        var zaloOAService = scope.ServiceProvider.GetRequiredService<IZaloOAService>();
         var now = TimeZoneHelper.UtcNow;
         var dueSoon = now.AddMinutes(10);
 
         var bookingsDueSoon = await db.Bookings
+            .Include(b => b.Tutorsubjectgradeprice).ThenInclude(t => t!.Subject)
             .Where(b => (b.Status == BookingStatus.PendingPayment || b.Status == BookingStatus.Accepted)
                         && b.Paymentdueat != null
                         && b.Paymentdueat > now
@@ -81,6 +83,24 @@ public class PaymentTimeoutJob(IServiceProvider sp, ILogger<PaymentTimeoutJob> l
             {
                 logger.LogError(ex, "Không thể gửi cảnh báo sắp hết hạn thanh toán cho booking {BookingId}.", booking.Bookingid);
             }
+
+            try
+            {
+                await zaloOAService.SendNotificationAsync(
+                    booking.Parentid,
+                    ZnsTemplateType.PaymentReminder,
+                    new Dictionary<string, string>
+                    {
+                        { "subject", booking.Subject?.Subjectname ?? "" },
+                        { "dot", "1" },
+                        { "so_tien", (booking.Depositamount ?? 0).ToString("N0") },
+                        { "han_chot", booking.Paymentdueat?.ToString("HH:mm dd/MM") ?? "" }
+                    });
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Không thể gửi ZNS nhắc thanh toán cọc cho booking {BookingId}.", booking.Bookingid);
+            }
         }
     }
 
@@ -93,10 +113,12 @@ public class PaymentTimeoutJob(IServiceProvider sp, ILogger<PaymentTimeoutJob> l
         using var scope = sp.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<IAppDbContext>();
         var notify = scope.ServiceProvider.GetRequiredService<INotificationService>();
+        var zaloOAService = scope.ServiceProvider.GetRequiredService<IZaloOAService>();
         var now = TimeZoneHelper.UtcNow;
         var reminderWindow = now.AddHours(24);
 
         var bookingsDueSoon = await db.Bookings
+            .Include(b => b.Tutorsubjectgradeprice).ThenInclude(t => t!.Subject)
             .Where(b => b.Status == BookingStatus.PendingRemainingPayment
                         && b.Remainingpaidat == null
                         && b.Paymentdueat != null
@@ -142,6 +164,24 @@ public class PaymentTimeoutJob(IServiceProvider sp, ILogger<PaymentTimeoutJob> l
             {
                 logger.LogError(ex, "Không thể gửi nhắc hạn thanh toán phần còn lại cho booking {BookingId}.", booking.Bookingid);
             }
+
+            try
+            {
+                await zaloOAService.SendNotificationAsync(
+                    booking.Parentid,
+                    ZnsTemplateType.PaymentReminder,
+                    new Dictionary<string, string>
+                    {
+                        { "subject", booking.Subject?.Subjectname ?? "" },
+                        { "dot", "2" },
+                        { "so_tien", (booking.Remainingamount ?? 0).ToString("N0") },
+                        { "han_chot", booking.Paymentdueat?.ToString("HH:mm dd/MM") ?? "" }
+                    });
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Không thể gửi ZNS nhắc thanh toán phần còn lại cho booking {BookingId}.", booking.Bookingid);
+            }
         }
     }
 
@@ -150,6 +190,7 @@ public class PaymentTimeoutJob(IServiceProvider sp, ILogger<PaymentTimeoutJob> l
         using var scope = sp.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<IAppDbContext>();
         var notify = scope.ServiceProvider.GetRequiredService<INotificationService>();
+        var zaloOAService = scope.ServiceProvider.GetRequiredService<IZaloOAService>();
         var now = TimeZoneHelper.UtcNow;
 
         var expired = await db.Bookings
@@ -220,6 +261,22 @@ public class PaymentTimeoutJob(IServiceProvider sp, ILogger<PaymentTimeoutJob> l
                 {
                     logger.LogError(ex, "Không thể gửi thông báo hết hạn cho booking {BookingId}.", b.Bookingid);
                 }
+            }
+
+            var znsData = new Dictionary<string, string>
+            {
+                { "ly_do", "quá hạn thanh toán buổi học đầu tiên trong 30 phút" },
+                { "so_tien_hoan", "0" }
+            };
+            if (!string.IsNullOrEmpty(b.Parentid))
+            {
+                try { await zaloOAService.SendNotificationAsync(b.Parentid, ZnsTemplateType.BookingCancelled, znsData); }
+                catch (Exception ex) { logger.LogError(ex, "Không thể gửi ZNS hủy booking cho phụ huynh của booking {BookingId}.", b.Bookingid); }
+            }
+            if (!string.IsNullOrEmpty(b.Tutorid))
+            {
+                try { await zaloOAService.SendNotificationAsync(b.Tutorid, ZnsTemplateType.BookingCancelled, znsData); }
+                catch (Exception ex) { logger.LogError(ex, "Không thể gửi ZNS hủy booking cho gia sư của booking {BookingId}.", b.Bookingid); }
             }
         }
     }

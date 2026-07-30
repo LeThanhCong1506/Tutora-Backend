@@ -367,6 +367,11 @@ public partial class ClassSessionService
             var classSession = await _context.ClassSessions
                 .Include(l => l.Booking)
                     .ThenInclude(b => b!.Student)
+                .Include(l => l.Booking)
+                    .ThenInclude(b => b!.Tutorsubjectgradeprice)
+                        .ThenInclude(t => t!.Subject)
+                .Include(l => l.Tutor)
+                    .ThenInclude(t => t!.Tutor)
                 .Include(l => l.ClassSessionReport)
                 .FirstOrDefaultAsync(l => l.Classsessionid == classSessionId && l.Tutorid == tutorId)
                 ?? throw new ClassSessionException(ClassSessionErrorCodes.ClassSessionNotFound, "Không tìm thấy buổi học", 404);
@@ -436,6 +441,24 @@ public partial class ClassSessionService
                     Type = NotificationType.LessonReport,
                     Referenceid = classSessionId.ToString()
                 });
+
+                try
+                {
+                    await _zaloOAService.SendNotificationAsync(
+                        parentId,
+                        ZnsTemplateType.LessonConfirmReminder,
+                        new Dictionary<string, string>
+                        {
+                            { "mon_hoc", classSession.Booking?.Subject?.Subjectname ?? "" },
+                            { "gia_su", classSession.Tutor?.Tutor?.Fullname ?? "" },
+                            { "ngay_hoc", classSession.Scheduledstart.ToString("HH:mm dd/MM") },
+                            { "han_xac_nhan", classSession.Confirmdeadline?.ToString("HH:mm dd/MM") ?? "" }
+                        });
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Không thể gửi ZNS nhắc xác nhận báo cáo cho classSession {ClassSessionId}", classSessionId);
+                }
             }
 
             // Notify Parent — yêu cầu thanh toán remaining trong 48h

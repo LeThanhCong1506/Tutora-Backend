@@ -25,6 +25,7 @@ public partial class BookingService(
     IChatService chatService,
     ISettlementService settlementService,
     IAiCreditService aiCreditService,
+    IZaloOAService zaloOAService,
     ILogger<BookingService> logger) : IBookingService
 {
     private const int AvailabilityValidDays = 30;
@@ -440,6 +441,43 @@ public partial class BookingService(
             catch (Exception ex)
             {
                 logger.LogError(ex, "Không thể gửi thông báo hủy booking {BookingId}", bookingId);
+            }
+        }
+
+        // ZNS hủy booking — gửi 1 lần/người: bên được hoàn tiền (nếu có) + bên còn lại (nếu khác người).
+        var znsReason = cancelledByTutor
+            ? $"gia sư đã hủy đặt lịch{(string.IsNullOrWhiteSpace(reason) ? "" : $": {reason}")}"
+            : $"đã bị hủy{(string.IsNullOrWhiteSpace(reason) ? "" : $": {reason}")}";
+        var znsSentTo = new HashSet<string>();
+
+        if (needsRefund && !string.IsNullOrWhiteSpace(refundNotifyUserId) && refundAmount > 0)
+        {
+            try
+            {
+                await zaloOAService.SendNotificationAsync(
+                    refundNotifyUserId,
+                    ZnsTemplateType.BookingCancelled,
+                    new Dictionary<string, string> { { "ly_do", znsReason }, { "so_tien_hoan", refundAmount.ToString("N0") } });
+                znsSentTo.Add(refundNotifyUserId);
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Không thể gửi ZNS hoàn tiền hủy booking {BookingId}", bookingId);
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(counterpartId) && !znsSentTo.Contains(counterpartId))
+        {
+            try
+            {
+                await zaloOAService.SendNotificationAsync(
+                    counterpartId,
+                    ZnsTemplateType.BookingCancelled,
+                    new Dictionary<string, string> { { "ly_do", znsReason }, { "so_tien_hoan", "0" } });
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Không thể gửi ZNS hủy booking {BookingId} cho phía còn lại", bookingId);
             }
         }
 
