@@ -40,9 +40,7 @@ public class AiCreditService(
     }
 
     /// <summary>
-    /// Tiêu credit ( hỏi bài). THIẾT KẾ: chỉ giảm counter <c>users.ai_credits_balance</c>
-    /// Trừ atomic bằng 1 câu UPDATE có điều kiện
-    /// <c>WHERE balance &gt;= amount</c> → không race, không read-modify-write, đủ credit mới trừ.
+    /// Tiêu credit
     /// </summary>
     public async Task<int> SpendAsync(
         string userId, int amount, string? referenceId, string? description,
@@ -64,8 +62,36 @@ public class AiCreditService(
             throw new BookingException(AiCreditErrorCodes.InsufficientCredits, "Số lượt sử dụng đã hết.", 400);
         }
 
+        await RecordMonthlyUsageAsync(userId, amount, ct);
+
         return await context.Users.AsNoTracking()
             .Where(u => u.Userid == userId).Select(u => u.AiCreditsBalance).FirstAsync(ct);
+    }
+
+    /// <summary>
+    /// Cộng dồn lượt dùng vào ô (tài khoản, tháng hiện tại)
+    /// </summary>
+    private async Task RecordMonthlyUsageAsync(string userId, int amount, CancellationToken ct)
+    {
+        try
+        {
+            var now = TimeZoneHelper.UtcNow;
+            var period = new DateTime(now.Year, now.Month, 1, 0, 0, 0, DateTimeKind.Unspecified);
+
+            await context.Database.ExecuteSqlInterpolatedAsync($"""
+                INSERT INTO ai_usage_monthly (user_id, period, used_count, updated_at)
+                VALUES ({userId}, {period}::date, {amount}, {now})
+                ON CONFLICT (user_id, period)
+                DO UPDATE SET used_count = ai_usage_monthly.used_count + {amount},
+                              updated_at = {now};
+                """, ct);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex,
+                "Không ghi được thống kê lượt dùng AI cho {UserId} — số dư đã trừ đúng, chỉ thiếu số liệu báo cáo.",
+                userId);
+        }
     }
 
     /// <summary>Áp một delta (dương = cấp, âm = tiêu) lên số dư của tài khoản trong 1 transaction serializable:

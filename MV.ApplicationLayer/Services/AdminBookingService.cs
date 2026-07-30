@@ -2,6 +2,7 @@
 using MV.ApplicationLayer.Interfaces;
 using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.Constants;
+using MV.DomainLayer.DTO.RequestModel;
 using MV.DomainLayer.DTO.ResponseModel.Admin;
 using MV.DomainLayer.Helpers;
 
@@ -10,18 +11,19 @@ namespace MV.ApplicationLayer.Services;
 public class AdminBookingService(IAppDbContext context) : IAdminBookingService
 {
     public async Task<AdminBookingListResponse> GetAdminBookingsAsync(
-        int page,
-        int pageSize,
-        string? status,
-        string? teachingMode,
-        string? tutorId,
-        string? parentId,
-        int? subjectId,
-        DateTime? from,
-        DateTime? to,
-        string? search,
+        AdminBookingQueryRequest query,
         CancellationToken ct = default)
     {
+        var page = query.Page;
+        var pageSize = query.PageSize;
+        var status = query.Status;
+        var tutorId = query.TutorId;
+        var parentId = query.ParentId;
+        var subjectId = query.SubjectId;
+        var from = query.From;
+        var to = query.To;
+        var search = query.Search;
+
         // ── Build base query: Bookings JOIN các bảng liên quan ──────────────
         // Dùng LINQ join thủ công để tránh N+1 và kiểm soát chính xác các field cần lấy.
         // Pattern: anonymous-type projection (SQL) → in-memory map (C# với VietnamTimeHelper)
@@ -31,6 +33,18 @@ public class AdminBookingService(IAppDbContext context) : IAdminBookingService
         // ── Áp filter trực tiếp trên Bookings table (index-friendly) ─────────
         if (!string.IsNullOrWhiteSpace(status))
             bookingsQuery = bookingsQuery.Where(b => b.Status == status);
+
+        // Mã đặt lịch: `search` chỉ khớp tên/email/payment code nên không tra được
+        // theo chính mã hiển thị ở cột đầu bảng.
+        if (query.BookingId.HasValue)
+            bookingsQuery = bookingsQuery.Where(b => b.Bookingid == query.BookingId.Value);
+
+        // Id buổi học → truy ra khóa học chứa nó. EXISTS thay vì join để một buổi
+        // học không nhân bản dòng booking trong kết quả.
+        if (query.ClassSessionId.HasValue)
+            bookingsQuery = bookingsQuery.Where(b => context.ClassSessions
+                .Any(cs => cs.Bookingid == b.Bookingid &&
+                           cs.Classsessionid == query.ClassSessionId.Value));
 
         if (!string.IsNullOrWhiteSpace(tutorId))
             bookingsQuery = bookingsQuery.Where(b => b.Tutorid == tutorId);
@@ -104,8 +118,13 @@ public class AdminBookingService(IAppDbContext context) : IAdminBookingService
         var totalCount = await joined.CountAsync(ct);
 
         // ── Fetch trang (raw projection) ──────────────────────────────────────
-        var raw = await joined
-            .OrderByDescending(x => x.b.Createdat)
+        // Sắp xếp trước khi cắt trang: đảo thứ tự sau khi đã Take() chỉ đổi được
+        // thứ tự trong đúng trang đang xem, không phải toàn bộ danh sách.
+        var ordered = ListSortDirection.IsAscending(query.SortDirection)
+            ? joined.OrderBy(x => x.b.Createdat)
+            : joined.OrderByDescending(x => x.b.Createdat);
+
+        var raw = await ordered
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
             .Select(x => new
