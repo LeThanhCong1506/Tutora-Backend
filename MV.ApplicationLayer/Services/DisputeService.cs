@@ -81,8 +81,14 @@ public class DisputeService : IDisputeService
         }
         if (!string.IsNullOrWhiteSpace(query.DisputeType))
             q = q.Where(d => d.Disputetype == query.DisputeType);
+        if (query.ClassSessionId.HasValue)
+            q = q.Where(d => d.Classsessionid == query.ClassSessionId.Value);
 
-        q = q.OrderByDescending(d => d.Createdat);
+        // Thứ tự phải quyết định ở đây vì danh sách phân trang ở server — sắp xếp
+        // sau khi đã cắt trang chỉ đảo được đúng trang đang xem.
+        q = ListSortDirection.IsAscending(query.SortDirection)
+            ? q.OrderBy(d => d.Createdat)
+            : q.OrderByDescending(d => d.Createdat);
 
         var totalCount = await q.CountAsync();
         var rawDisputes = await q

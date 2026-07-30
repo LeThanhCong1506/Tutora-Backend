@@ -26,6 +26,17 @@ public class DisputeQueryRequest
     public DateTime? EndDate { get; set; }
 
     /// <summary>
+    /// Filter by the class session the dispute was raised about.
+    /// </summary>
+    public int? ClassSessionId { get; set; }
+
+    /// <summary>
+    /// Order by creation time: "asc" = oldest first, "desc" (default) = newest first.
+    /// See <see cref="MV.DomainLayer.Constants.ListSortDirection"/>.
+    /// </summary>
+    public string? SortDirection { get; set; }
+
+    /// <summary>
     /// Page number (1-indexed)
     /// </summary>
     public int Page { get; set; } = 1;
