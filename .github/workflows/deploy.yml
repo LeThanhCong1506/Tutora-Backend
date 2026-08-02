@@ -3,29 +3,11 @@ name: CI / CD
 on:
   push:
     branches: [ main ]
-    paths:
-      # Chỉ trigger khi code thay đổi, bỏ qua docs/config không ảnh hưởng build
-      - '**/*.cs'
-      - '**/*.csproj'
-      - '**/*.sln'
-      - '**/appsettings*.json'
-      - 'Dockerfile'
-      - 'docker-compose.yml'
-      - 'migrations/**'
-      - '.dockerignore'
-      - '.github/workflows/deploy.yml'
+    # Không lọc theo paths nữa — mọi commit lên main đều phải build & deploy
+    # bản mới nhất, tránh trường hợp 1 file đổi nhưng path filter bỏ sót khiến
+    # commit đó không lên production.
   pull_request:
     branches: [ main ]
-    paths:
-      - '**/*.cs'
-      - '**/*.csproj'
-      - '**/*.sln'
-      - 'migrations/managed/**'
-      - 'Dockerfile'
-      - 'docker-compose.yml'
-      - 'migrations/**'
-      - '.dockerignore'
-      - '.github/workflows/deploy.yml'
   workflow_dispatch:
     inputs:
       environment:
