@@ -15,7 +15,7 @@ public class KnowledgeBaseService : IKnowledgeBaseService
     private const long MaxBytes = 20L * 1024 * 1024;
 
     private static readonly HashSet<string> AllowedExtensions =
-        new(StringComparer.OrdinalIgnoreCase) { ".pdf", ".docx", ".xlsx" };
+        new(StringComparer.OrdinalIgnoreCase) { ".pdf", ".docx", ".xlsx", ".md", ".markdown" };
 
     private readonly ITutorAiClient _aiClient;
     private readonly IAppDbContext _context;
@@ -33,7 +33,7 @@ public class KnowledgeBaseService : IKnowledgeBaseService
 
         var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
         if (!AllowedExtensions.Contains(ext))
-            throw new ArgumentException("Chỉ nhận file PDF, DOCX hoặc XLSX.");
+            throw new ArgumentException("Chỉ nhận file PDF, DOCX, XLSX hoặc Markdown (.md).");
 
         if (file.Length > MaxBytes)
             throw new ArgumentException("File quá lớn (giới hạn 20MB).");

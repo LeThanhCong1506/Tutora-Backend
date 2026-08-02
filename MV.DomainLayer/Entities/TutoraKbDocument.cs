@@ -10,7 +10,7 @@ public partial class TutoraKbDocument
 
     public string FileName { get; set; } = null!;
 
-    /// <summary>pdf | docx | xlsx | manual.</summary>
+    /// <summary>pdf | docx | xlsx | md | manual.</summary>
     public string SourceType { get; set; } = null!;
 
     public int ChunkCount { get; set; }
