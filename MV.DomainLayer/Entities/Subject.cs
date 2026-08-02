@@ -22,6 +22,16 @@ public partial class Subject
 
     public int DisplayOrder { get; set; }
 
+    /// <summary>Khối lớp thấp nhất môn này áp dụng (so theo Gradelevel.Levelorder). Null = không giới hạn.</summary>
+    public int? MinGradeLevelId { get; set; }
+
+    /// <summary>Khối lớp cao nhất môn này áp dụng (so theo Gradelevel.Levelorder). Null = không giới hạn.</summary>
+    public int? MaxGradeLevelId { get; set; }
+
+    public virtual Gradelevel? MinGradeLevel { get; set; }
+
+    public virtual Gradelevel? MaxGradeLevel { get; set; }
+
     public virtual ICollection<Studentgrade> Studentgrades { get; set; } = new List<Studentgrade>();
 
     public virtual ICollection<Tutorsubjectgradeprice> Tutorsubjectgradeprices { get; set; } = new List<Tutorsubjectgradeprice>();

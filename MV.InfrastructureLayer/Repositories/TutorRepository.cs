@@ -242,6 +242,22 @@ namespace MV.InfrastructureLayer.Repositories
                 .ToListAsync();
         }
 
+        public async Task<List<Subject>> GetSubjectsWithGradeRangeAsync(List<int> subjectIds)
+        {
+            return await _context.Subjects
+                .Include(s => s.MinGradeLevel)
+                .Include(s => s.MaxGradeLevel)
+                .Where(s => subjectIds.Contains(s.Subjectid))
+                .ToListAsync();
+        }
+
+        public async Task<Dictionary<int, int>> GetGradeLevelOrdersAsync(List<int> gradeLevelIds)
+        {
+            return await _context.Gradelevels
+                .Where(g => gradeLevelIds.Contains(g.Gradelevelid))
+                .ToDictionaryAsync(g => g.Gradelevelid, g => g.Levelorder);
+        }
+
         public async Task<List<Tutoravailability>> GetAvailabilitiesByTutorIdAsync(string tutorId)
         {
             return await _context.Tutoravailabilities
