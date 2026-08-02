@@ -240,64 +240,6 @@ public class ZaloOAService : IZaloOAService
         _logger.LogInformation("OA buttons message sent to {ZaloId}: {Status}", recipientZaloId, res.StatusCode);
     }
 
-    // ─── Webhook Handler ─────────────────────────────────────────────────────
-
-    public async Task HandleWebhookAsync(string payload)
-    {
-        if (_isMockMode)
-        {
-            _logger.LogInformation("[MOCK] Webhook: {Payload}", payload);
-            return;
-        }
-
-        using var doc = JsonDocument.Parse(payload);
-        var root = doc.RootElement;
-        var eventName = root.TryGetProperty("event_name", out var ev) ? ev.GetString() : null;
-        var senderId = root.TryGetProperty("sender", out var sender)
-            && sender.TryGetProperty("id", out var sid) ? sid.GetString() : null;
-
-        if (string.IsNullOrEmpty(senderId))
-        {
-            _logger.LogWarning("Webhook missing sender.id");
-            return;
-        }
-
-        switch (eventName)
-        {
-            case ZaloOAEventType.Follow:
-                await HandleFollowAsync(senderId);
-                break;
-            case ZaloOAEventType.UserSendText:
-                var messageText = root.TryGetProperty("message", out var msg)
-                    && msg.TryGetProperty("text", out var t) ? t.GetString() ?? "" : "";
-                using (var scope = _serviceProvider.CreateScope())
-                {
-                    var chatbot = scope.ServiceProvider.GetRequiredService<IZaloChatbotService>();
-                    await chatbot.HandleUserMessageAsync(senderId, messageText);
-                }
-                break;
-            case ZaloOAEventType.Unfollow:
-                _logger.LogInformation("User {ZaloId} unfollowed OA", senderId);
-                break;
-            default:
-                _logger.LogDebug("Unhandled event: {EventName}", eventName);
-                break;
-        }
-    }
-
-    private async Task HandleFollowAsync(string senderZaloId)
-    {
-        _logger.LogInformation("User {ZaloId} followed OA", senderZaloId);
-        await SendOAMessageWithButtonsAsync(senderZaloId,
-            "Chào mừng bạn đến với Tutora! Tôi có thể giúp gì?",
-            new List<ZaloQuickReply>
-            {
-                new() { Title = "Tìm gia sư",     Payload = ZaloChatbotIntent.FindTutor },
-                new() { Title = "Xem lịch học",   Payload = ZaloChatbotIntent.ViewCalendar },
-                new() { Title = "Liên hệ hỗ trợ", Payload = ZaloChatbotIntent.Contact }
-            });
-    }
-
     // ─── ZNS / Notifications ─────────────────────────────────────────────────
 
     public async Task<ZaloSendResult> SendZnsOtpAsync(string phone, string otp)
