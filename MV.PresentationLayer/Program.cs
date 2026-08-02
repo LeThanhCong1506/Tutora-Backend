@@ -432,7 +432,6 @@ builder.Services.AddHttpClient(ServiceKeys.HttpClients.TutorAi, client =>
 });
 // Zalo OA
 builder.Services.AddScoped<IZaloOAService, ZaloOAService>();
-builder.Services.AddScoped<IZaloChatbotService, ZaloChatbotService>();
 
 // Tutor Search Service
 builder.Services.AddScoped<ITutorSearchService, TutorSearchService>();

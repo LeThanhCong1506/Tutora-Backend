@@ -20,11 +20,6 @@ public interface IZaloOAService
     Task<ZaloSendResult> SendNotificationAsync(string userId, string templateId, Dictionary<string, string> data);
 
     /// <summary>
-    /// Process an inbound Zalo OA webhook event (follow / unfollow / user_send_text).
-    /// </summary>
-    Task HandleWebhookAsync(string payload);
-
-    /// <summary>
     /// Check whether a user has linked their Zalo account.
     /// </summary>
     Task<bool> IsZaloLinkedAsync(string userId);
