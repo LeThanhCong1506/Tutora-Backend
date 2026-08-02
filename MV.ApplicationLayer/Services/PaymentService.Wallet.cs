@@ -256,13 +256,16 @@ public partial class PaymentService
 
     private async Task SendPaymentPhaseNotificationsAsync(Booking booking, bool isDepositPhase)
     {
+        // Phụ huynh nếu đặt hộ, ngược lại chính học sinh tự đặt (Parentid null) — trước đây gửi
+        // thẳng booking.Parentid nên học sinh tự quản lý không hề biết mình vừa thanh toán thành công.
+        var payerId = BookingPayerResolver.Resolve(booking);
         try
         {
-            if (!string.IsNullOrWhiteSpace(booking.Parentid))
+            if (!string.IsNullOrWhiteSpace(payerId))
             {
                 await notificationService.CreateNotificationAsync(new NotificationRequest
                 {
-                    Userid = booking.Parentid,
+                    Userid = payerId,
                     Title = isDepositPhase ? "Thanh toán buổi đầu tiên thành công" : "Thanh toán hoàn tất",
                     Message = isDepositPhase
                         ? $"Đã thanh toán buổi học đầu tiên ({booking.Depositamount:N0}đ) cho booking #{booking.Bookingid}. Booking đang chờ gia sư xác nhận."
@@ -291,12 +294,12 @@ public partial class PaymentService
             logger.LogError(ex, "Không thể gửi thông báo thanh toán cho booking {BookingId}", booking.Bookingid);
         }
 
-        if (!string.IsNullOrWhiteSpace(booking.Parentid))
+        if (!string.IsNullOrWhiteSpace(payerId))
         {
             try
             {
                 await zaloOAService.SendNotificationAsync(
-                    booking.Parentid,
+                    payerId,
                     ZnsTemplateType.PaymentSuccess,
                     new Dictionary<string, string>
                     {

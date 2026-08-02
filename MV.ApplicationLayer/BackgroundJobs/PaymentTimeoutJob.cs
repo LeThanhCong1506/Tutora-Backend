@@ -7,6 +7,7 @@ using MV.ApplicationLayer.RepositoryInterfaces;
 using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO.RequestModel;
 using MV.ApplicationLayer.Interfaces;
+using MV.ApplicationLayer.Helpers;
 using MV.DomainLayer.Helpers;
 
 namespace MV.ApplicationLayer.BackgroundJobs;
@@ -49,6 +50,7 @@ public class PaymentTimeoutJob(IServiceProvider sp, ILogger<PaymentTimeoutJob> l
 
         var bookingsDueSoon = await db.Bookings
             .Include(b => b.Tutorsubjectgradeprice).ThenInclude(t => t!.Subject)
+            .Include(b => b.Student)
             .Where(b => (b.Status == BookingStatus.PendingPayment || b.Status == BookingStatus.Accepted)
                         && b.Paymentdueat != null
                         && b.Paymentdueat > now
@@ -57,11 +59,13 @@ public class PaymentTimeoutJob(IServiceProvider sp, ILogger<PaymentTimeoutJob> l
 
         foreach (var booking in bookingsDueSoon)
         {
-            if (string.IsNullOrWhiteSpace(booking.Parentid))
+            // Người trả tiền: phụ huynh nếu đặt hộ, ngược lại chính học sinh tự đặt (Parentid null).
+            var payerId = BookingPayerResolver.Resolve(booking);
+            if (string.IsNullOrWhiteSpace(payerId))
                 continue;
 
             var alreadySent = await notificationRepo.ExistsByUserAndTypeAndReferenceAsync(
-                booking.Parentid,
+                payerId,
                 NotificationType.BookingPaymentDueSoon,
                 booking.Bookingid.ToString());
 
@@ -72,7 +76,7 @@ public class PaymentTimeoutJob(IServiceProvider sp, ILogger<PaymentTimeoutJob> l
             {
                 await notify.CreateNotificationAsync(new NotificationRequest
                 {
-                    Userid = booking.Parentid,
+                    Userid = payerId,
                     Title = "Sắp hết hạn thanh toán buổi học đầu tiên",
                     Message = $"Booking #{booking.Bookingid} sắp hết hạn thanh toán buổi học đầu tiên. Vui lòng hoàn tất thanh toán để giữ lịch học.",
                     Type = NotificationType.BookingPaymentDueSoon,
@@ -87,7 +91,7 @@ public class PaymentTimeoutJob(IServiceProvider sp, ILogger<PaymentTimeoutJob> l
             try
             {
                 await zaloOAService.SendNotificationAsync(
-                    booking.Parentid,
+                    payerId,
                     ZnsTemplateType.PaymentReminder,
                     new Dictionary<string, string>
                     {
@@ -119,6 +123,7 @@ public class PaymentTimeoutJob(IServiceProvider sp, ILogger<PaymentTimeoutJob> l
 
         var bookingsDueSoon = await db.Bookings
             .Include(b => b.Tutorsubjectgradeprice).ThenInclude(t => t!.Subject)
+            .Include(b => b.Student)
             .Where(b => b.Status == BookingStatus.PendingRemainingPayment
                         && b.Remainingpaidat == null
                         && b.Paymentdueat != null
@@ -128,7 +133,8 @@ public class PaymentTimeoutJob(IServiceProvider sp, ILogger<PaymentTimeoutJob> l
 
         foreach (var booking in bookingsDueSoon)
         {
-            if (string.IsNullOrWhiteSpace(booking.Parentid))
+            var payerId = BookingPayerResolver.Resolve(booking);
+            if (string.IsNullOrWhiteSpace(payerId))
                 continue;
 
             var isLastHour = booking.Paymentdueat <= now.AddHours(1);
@@ -141,7 +147,7 @@ public class PaymentTimeoutJob(IServiceProvider sp, ILogger<PaymentTimeoutJob> l
 
             var refId = booking.Bookingid.ToString();
             var alreadySent = await db.Notifications.AnyAsync(n =>
-                n.Userid == booking.Parentid &&
+                n.Userid == payerId &&
                 n.Type == NotificationType.BookingPaymentDueSoon &&
                 n.Referenceid == refId &&
                 n.Title == title, ct);
@@ -153,7 +159,7 @@ public class PaymentTimeoutJob(IServiceProvider sp, ILogger<PaymentTimeoutJob> l
             {
                 await notify.CreateNotificationAsync(new NotificationRequest
                 {
-                    Userid = booking.Parentid,
+                    Userid = payerId,
                     Title = title,
                     Message = message,
                     Type = NotificationType.BookingPaymentDueSoon,
@@ -168,7 +174,7 @@ public class PaymentTimeoutJob(IServiceProvider sp, ILogger<PaymentTimeoutJob> l
             try
             {
                 await zaloOAService.SendNotificationAsync(
-                    booking.Parentid,
+                    payerId,
                     ZnsTemplateType.PaymentReminder,
                     new Dictionary<string, string>
                     {
@@ -196,6 +202,7 @@ public class PaymentTimeoutJob(IServiceProvider sp, ILogger<PaymentTimeoutJob> l
         var expired = await db.Bookings
             .Include(b => b.Chatchannels)
             .Include(b => b.ClassSessions)
+            .Include(b => b.Student)
             .Where(b => (b.Status == BookingStatus.PendingPayment || b.Status == BookingStatus.Accepted)
                         && b.Paymentdueat != null
                         && b.Paymentdueat < now)
@@ -209,6 +216,7 @@ public class PaymentTimeoutJob(IServiceProvider sp, ILogger<PaymentTimeoutJob> l
         {
             await using var tx = await db.Database.BeginTransactionAsync(ct);
             List<NotificationRequest> notifications = new();
+            var payerId = BookingPayerResolver.Resolve(b);
             try
             {
                 b.Status = BookingStatus.PaymentTimeout;
@@ -222,10 +230,10 @@ public class PaymentTimeoutJob(IServiceProvider sp, ILogger<PaymentTimeoutJob> l
 
                 await db.SaveChangesAsync(ct);
 
-                if (!string.IsNullOrEmpty(b.Parentid))
+                if (!string.IsNullOrEmpty(payerId))
                     notifications.Add(new NotificationRequest
                     {
-                        Userid = b.Parentid,
+                        Userid = payerId,
                         Title = "Booking đã hết hạn thanh toán",
                         Message = $"Booking #{b.Bookingid} đã bị hủy do quá hạn thanh toán 30 phút.",
                         Type = NotificationType.BookingTimeout,
@@ -268,10 +276,10 @@ public class PaymentTimeoutJob(IServiceProvider sp, ILogger<PaymentTimeoutJob> l
                 { "ly_do", "quá hạn thanh toán buổi học đầu tiên trong 30 phút" },
                 { "so_tien_hoan", "0" }
             };
-            if (!string.IsNullOrEmpty(b.Parentid))
+            if (!string.IsNullOrEmpty(payerId))
             {
-                try { await zaloOAService.SendNotificationAsync(b.Parentid, ZnsTemplateType.BookingCancelled, znsData); }
-                catch (Exception ex) { logger.LogError(ex, "Không thể gửi ZNS hủy booking cho phụ huynh của booking {BookingId}.", b.Bookingid); }
+                try { await zaloOAService.SendNotificationAsync(payerId, ZnsTemplateType.BookingCancelled, znsData); }
+                catch (Exception ex) { logger.LogError(ex, "Không thể gửi ZNS hủy booking cho phụ huynh/học sinh của booking {BookingId}.", b.Bookingid); }
             }
             if (!string.IsNullOrEmpty(b.Tutorid))
             {

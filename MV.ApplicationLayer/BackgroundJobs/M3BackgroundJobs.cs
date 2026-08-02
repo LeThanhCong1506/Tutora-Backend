@@ -78,7 +78,13 @@ public class AutoConfirmClassSessionJob : BackgroundService
 
         foreach (var classSession in classSessionsToRemind)
         {
-            var parentId = classSession.Booking?.Student?.Parentid ?? classSession.Booking?.Parentid;
+            // Phụ huynh nếu có quản lý; nếu không (học sinh tự đặt, mọi Parentid đều null) thì
+            // gửi thẳng cho chính học sinh — trước đây thiếu nhánh fallback cuối này nên học sinh
+            // tự quản lý không nhận được nhắc nhở nào cả.
+            var parentId = classSession.Booking?.Student?.Parentid
+                ?? classSession.Booking?.Parentid
+                ?? classSession.Booking?.Student?.Linkeduserid
+                ?? classSession.Booking?.Studentid;
             if (string.IsNullOrWhiteSpace(parentId))
                 continue;
 
@@ -288,8 +294,11 @@ public class ClassSessionReminderJob : BackgroundService
                     });
                 }
 
-                // Remind Parent
-                var parentId = classSession.Booking?.Student?.Parentid;
+                // Remind Parent (hoặc chính học sinh nếu tự đặt, không có phụ huynh quản lý)
+                var parentId = classSession.Booking?.Student?.Parentid
+                    ?? classSession.Booking?.Parentid
+                    ?? classSession.Booking?.Student?.Linkeduserid
+                    ?? classSession.Booking?.Studentid;
                 if (!string.IsNullOrEmpty(parentId))
                 {
                     await notificationService.CreateNotificationAsync(new MV.DomainLayer.DTO.RequestModel.NotificationRequest
@@ -422,7 +431,11 @@ public class RemainingPaymentTriggerJob : BackgroundService
             booking.Paymentdueat = now.AddHours(48);
             booking.Updatedat = now;
 
-            var parentId = booking.Student?.Parentid ?? booking.Parentid;
+            // Phụ huynh nếu có quản lý; nếu không thì gửi thẳng cho chính học sinh tự đặt.
+            var parentId = booking.Student?.Parentid
+                ?? booking.Parentid
+                ?? booking.Student?.Linkeduserid
+                ?? booking.Studentid;
             try
             {
                 await context.SaveChangesAsync(ct);

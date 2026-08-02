@@ -411,7 +411,13 @@ public partial class ClassSessionService
 
             // Phát hiện buổi đầu tiên của booking deposit_paid TRƯỚC khi save,
             // để cập nhật booking status trong cùng transaction.
-            var parentId = classSession.Booking?.Student?.Parentid;
+            // Phụ huynh nếu có quản lý; nếu không (học sinh tự đặt, mọi Parentid đều null) thì gửi
+            // thẳng cho chính học sinh — trước đây không có fallback nào nên học sinh tự quản lý
+            // không hề biết gia sư đã nộp báo cáo, mất luôn cơ hội xác nhận/khiếu nại trong 24h.
+            var parentId = classSession.Booking?.Student?.Parentid
+                ?? classSession.Booking?.Parentid
+                ?? classSession.Booking?.Student?.Linkeduserid
+                ?? classSession.Booking?.Studentid;
             var isFirstClassSessionReport = classSession.Booking != null
                 && classSession.Booking.Status == BookingStatus.DepositPaid
                 && classSession.Booking.Remainingpaidat == null

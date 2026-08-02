@@ -126,11 +126,12 @@ public class TutorResponseTimeoutJob(IServiceProvider sp, ILogger<TutorResponseT
             await PromotionUsageHelper.ReturnUsageAsync(db, b.Promotionid, ct);
             await db.SaveChangesAsync(ct);
 
-            if (!string.IsNullOrEmpty(b.Parentid))
+            var payerId = await BookingPayerResolver.ResolveAsync(db, b, ct);
+            if (!string.IsNullOrEmpty(payerId))
             {
                 notifications.Add(new NotificationRequest
                 {
-                    Userid = b.Parentid,
+                    Userid = payerId,
                     Title = "Booking đã tự động hủy",
                     Message = $"Booking #{b.Bookingid} đã bị hủy do gia sư không phản hồi trong 24 giờ. Tiền cọc đã được hoàn vào ví của bạn.",
                     Type = NotificationType.BookingTimeout,
@@ -174,16 +175,25 @@ public class TutorResponseTimeoutJob(IServiceProvider sp, ILogger<TutorResponseT
 
         var refunded = await db.Bookings.AsNoTracking()
             .Where(x => x.Bookingid == bookingId)
-            .Select(x => new { x.Parentid, x.Tutorid, x.Refundamount })
+            .Select(x => new { x.Parentid, x.Studentid, x.Tutorid, x.Refundamount })
             .FirstOrDefaultAsync(ct);
         if (refunded == null) return;
 
-        if (!string.IsNullOrEmpty(refunded.Parentid))
+        var refundedPayerId = !string.IsNullOrWhiteSpace(refunded.Parentid)
+            ? refunded.Parentid
+            : (!string.IsNullOrWhiteSpace(refunded.Studentid)
+                ? await db.Studentprofiles.AsNoTracking()
+                    .Where(s => s.Studentid == refunded.Studentid)
+                    .Select(s => s.Linkeduserid ?? refunded.Studentid)
+                    .FirstOrDefaultAsync(ct)
+                : null);
+
+        if (!string.IsNullOrEmpty(refundedPayerId))
         {
             try
             {
                 await zaloOAService.SendNotificationAsync(
-                    refunded.Parentid,
+                    refundedPayerId,
                     ZnsTemplateType.BookingCancelled,
                     new Dictionary<string, string>
                     {
@@ -193,7 +203,7 @@ public class TutorResponseTimeoutJob(IServiceProvider sp, ILogger<TutorResponseT
             }
             catch (Exception ex)
             {
-                logger.LogError(ex, "Không thể gửi ZNS hủy booking cho phụ huynh của booking {BookingId}.", bookingId);
+                logger.LogError(ex, "Không thể gửi ZNS hủy booking cho phụ huynh/học sinh của booking {BookingId}.", bookingId);
             }
         }
         if (!string.IsNullOrEmpty(refunded.Tutorid))
@@ -223,12 +233,15 @@ public class TutorResponseTimeoutJob(IServiceProvider sp, ILogger<TutorResponseT
                 $"Booking #{booking.Bookingid} is pending tutor response without a paid deposit.");
 
         var refundAmount = TutorResponseTimeoutPolicy.ParentRefundAmount(booking);
+        // Người trả tiền: phụ huynh nếu đặt hộ, ngược lại chính học sinh tự đặt (Parentid null) —
+        // trước đây yêu cầu Parentid trực tiếp nên booking tự đặt bị crash toàn bộ transaction.
+        var payerId = await BookingPayerResolver.ResolveAsync(db, booking, ct);
 
-        if (refundAmount <= 0 || string.IsNullOrWhiteSpace(booking.Parentid))
+        if (refundAmount <= 0 || string.IsNullOrWhiteSpace(payerId))
             throw new InvalidOperationException(
                 $"Booking #{booking.Bookingid} has no valid refund recipient or amount.");
 
-        var parentWallet = await WalletLockHelper.GetOrCreateForUpdateAsync(db, booking.Parentid, now, ct);
+        var parentWallet = await WalletLockHelper.GetOrCreateForUpdateAsync(db, payerId, now, ct);
         parentWallet.Balance = (parentWallet.Balance ?? 0) + refundAmount;
         parentWallet.Lastupdated = now;
 

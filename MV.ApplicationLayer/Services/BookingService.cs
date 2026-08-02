@@ -402,13 +402,18 @@ public partial class BookingService(
 
         var cancelledByTutor = !string.IsNullOrWhiteSpace(booking.Tutorid) && booking.Tutorid == userId;
         var reasonSuffix = string.IsNullOrWhiteSpace(reason) ? "" : $" Lý do: {reason}";
+        // Người trả tiền cho booking — phụ huynh nếu đặt hộ, ngược lại chính học sinh tự đặt
+        // (Parentid null). Dùng thay cho booking.Parentid trực tiếp để học sinh tự quản lý vẫn
+        // nhận được tin nhắn/thông báo hủy booking của chính mình.
+        var payerId = BookingPayerResolver.Resolve(booking);
+        var payerIsStudent = string.IsNullOrWhiteSpace(booking.Parentid);
 
-        if (!string.IsNullOrWhiteSpace(booking.Parentid) && !string.IsNullOrWhiteSpace(booking.Tutorid))
+        if (!string.IsNullOrWhiteSpace(payerId) && !string.IsNullOrWhiteSpace(booking.Tutorid))
         {
             try
             {
-                var senderId = cancelledByTutor ? booking.Tutorid! : booking.Parentid!;
-                var channelId = await chatService.GetOrCreateChannelAsync(booking.Parentid!, booking.Tutorid!);
+                var senderId = cancelledByTutor ? booking.Tutorid! : payerId;
+                var channelId = await chatService.GetOrCreateChannelAsync(payerId, booking.Tutorid!, payerIsStudent);
                 await chatService.SendMessageAsync(senderId, channelId, new ChatMessageCreateRequest
                 {
                     Content = $"🚫 Đặt lịch #{bookingId} đã bị hủy.{reasonSuffix}",
@@ -422,7 +427,7 @@ public partial class BookingService(
             }
         }
 
-        var counterpartId = cancelledByTutor ? booking.Parentid : booking.Tutorid;
+        var counterpartId = cancelledByTutor ? payerId : booking.Tutorid;
         if (!string.IsNullOrWhiteSpace(counterpartId))
         {
             try
@@ -499,14 +504,7 @@ public partial class BookingService(
     ///   fallback <c>Studentid</c> (student tự đăng ký thường có Studentid == userId).
     /// Yêu cầu booking đã được load kèm <c>Student</c> (FindWithRelationsForUpdateAsync).
     /// </summary>
-    private static string? ResolveRefundRecipientId(Booking booking)
-    {
-        if (!string.IsNullOrWhiteSpace(booking.Parentid))
-            return booking.Parentid;
-        if (!string.IsNullOrWhiteSpace(booking.Student?.Linkeduserid))
-            return booking.Student!.Linkeduserid;
-        return booking.Studentid;
-    }
+    private static string? ResolveRefundRecipientId(Booking booking) => BookingPayerResolver.Resolve(booking);
 
     private static bool HasStartedOrSettledLesson(Booking booking, DateTime now)
     {
