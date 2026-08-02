@@ -4,7 +4,7 @@ public class KbDocumentResponse
 {
     public string Id { get; set; } = null!;
     public string FileName { get; set; } = null!;
-    // pdf | docx | xlsx | manual
+    // pdf | docx | xlsx | md | manual
     public string SourceType { get; set; } = null!;   
     public int ChunkCount { get; set; }
     // processing | ready | failed

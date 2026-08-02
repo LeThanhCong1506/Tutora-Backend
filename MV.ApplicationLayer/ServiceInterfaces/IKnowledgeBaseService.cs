@@ -8,7 +8,7 @@ namespace MV.ApplicationLayer.ServiceInterfaces;
 /// </summary>
 public interface IKnowledgeBaseService
 {
-    /// <summary>Upload 1 file (pdf/docx/xlsx) → tutora-ai extract/chunk/embed vào KB.</summary>
+    /// <summary>Upload 1 file (pdf/docx/xlsx/md) → tutora-ai extract/chunk/embed vào KB.</summary>
     Task<KbUploadResponse> UploadAsync(IFormFile file, string? uploadedBy, CancellationToken ct = default);
 
     /// <summary>Danh sách tài liệu KB đã nạp (mới nhất trước).</summary>

@@ -11,7 +11,7 @@ using MV.PresentationLayer.Helpers;
 namespace MV.PresentationLayer.Controllers;
 
 /// <summary>
-/// Knowledge Base Tutora - admin upload nội dung/chính sách (pdf/docx/xlsx) để bot
+/// Knowledge Base Tutora - admin upload nội dung/chính sách (pdf/docx/xlsx/md) để bot
 /// trả FAQ.
 /// </summary>
 [ApiController]
@@ -26,7 +26,7 @@ public class KnowledgeBaseController : ControllerBase
         _service = service;
     }
 
-    /// <summary>Upload 1 tài liệu (pdf/docx/xlsx, ≤20MB) → nạp vào Knowledge Base.</summary>
+    /// <summary>Upload 1 tài liệu (pdf/docx/xlsx/md, ≤20MB) → nạp vào Knowledge Base.</summary>
     [HttpPost("upload")]
     [RequirePermission(Permissions.KnowledgeBaseUpload)]
     [RequestSizeLimit(25_000_000)]   // ~25MB (service tự chặn 20MB, buffer thêm cho multipart)
