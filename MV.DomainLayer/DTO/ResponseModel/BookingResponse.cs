@@ -40,6 +40,10 @@ public class SubjectResponse
     public string? IconUrl { get; set; }
     public bool IsHomeworkEnabled { get; set; }
     public int DisplayOrder { get; set; }
+    /// <summary>Khối lớp thấp nhất môn này áp dụng. Null = không giới hạn.</summary>
+    public int? MinGradeLevelId { get; set; }
+    /// <summary>Khối lớp cao nhất môn này áp dụng. Null = không giới hạn.</summary>
+    public int? MaxGradeLevelId { get; set; }
 }
 
 public class GradeLevelResponse

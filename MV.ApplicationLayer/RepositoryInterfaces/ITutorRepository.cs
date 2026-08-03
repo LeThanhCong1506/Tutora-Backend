@@ -24,6 +24,8 @@ namespace MV.ApplicationLayer.RepositoryInterfaces
         // Subject validation
         Task<List<int>> GetExistingSubjectIdsAsync(List<int> subjectIds);
         Task<List<int>> GetExistingGradeLevelIdsAsync(List<int> gradeLevelIds);
+        Task<List<Subject>> GetSubjectsWithGradeRangeAsync(List<int> subjectIds);
+        Task<Dictionary<int, int>> GetGradeLevelOrdersAsync(List<int> gradeLevelIds);
 
         // Availability
         Task<List<Tutoravailability>> GetAvailabilitiesByTutorIdAsync(string tutorId);
