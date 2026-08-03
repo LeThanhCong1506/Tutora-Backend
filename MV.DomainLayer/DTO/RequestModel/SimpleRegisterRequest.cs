@@ -1,3 +1,4 @@
+using System.ComponentModel.DataAnnotations;
 using MV.DomainLayer.Constants;
 
 namespace MV.DomainLayer.DTO.RequestModel
@@ -25,6 +26,8 @@ namespace MV.DomainLayer.DTO.RequestModel
         /// <summary>
         /// Họ tên đầy đủ
         /// </summary>
+        [Required(ErrorMessage = "Họ tên không được để trống.")]
+        [StringLength(100, MinimumLength = 2, ErrorMessage = "Họ tên phải từ 2 đến 100 ký tự.")]
         public string FullName { get; set; } = string.Empty;
 
         /// <summary>
