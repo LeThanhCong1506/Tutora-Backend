@@ -37,6 +37,20 @@ public class CreateWarningAsyncTests
     }
 
     [Fact]
+    public async Task SingleMediumWarning_CreatesWarningWithoutSuspension()
+    {
+        var ctx = CreateService();
+        ctx.Db.Users.Add(NewUser("target-3"));
+        await ctx.Db.SaveChangesAsync();
+
+        var result = await ctx.Service.CreateWarningAsync("target-3", new CreateWarningRequest { WarningLevel = WarningLevel.Medium, Reason = "Huỷ buổi học sát giờ" }, "admin-1");
+
+        Assert.Equal(WarningLevel.Medium, result.WarningLevel);
+        var user = await ctx.Db.Users.FindAsync("target-3");
+        Assert.Equal(1, user!.Status);
+    }
+
+    [Fact]
     public async Task HighWarning_TriggersImmediateSuspension()
     {
         var ctx = CreateService();

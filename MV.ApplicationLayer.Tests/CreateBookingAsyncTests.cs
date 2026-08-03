@@ -113,6 +113,51 @@ public class CreateBookingAsyncTests
         Assert.Equal(4, stored.Totalsessions);
     }
 
+    [Fact]
+    public async Task SelfBookingStudentNotIdentityVerified_ThrowsBookingException()
+    {
+        var ctx = CreateService();
+        // Self-booking student: no Parentid, so the identity/age gate applies.
+        ctx.Db.Users.Add(new User { Userid = "student-user-1", Password = "hash", Fullname = "Học sinh tự đặt", Primaryrole = UserRole.Student, Status = 1, Isidentityverified = false, Createdat = DateTime.UtcNow });
+        ctx.Db.Studentprofiles.Add(new Studentprofile { Studentid = "student-profile-2", Linkeduserid = "student-user-1", Fullname = "Học sinh tự đặt", Createdat = DateTime.UtcNow });
+        await ctx.Db.SaveChangesAsync();
+        var request = new CreateBookingRequest { TutorId = TutorId, StudentId = "student-profile-2", TutorSubjectGradePriceId = 1, PackageId = 1, StartDate = NextMonday() };
+
+        var ex = await Assert.ThrowsAsync<BookingException>(() => ctx.Service.CreateBookingAsync("student-user-1", UserRole.Student, request));
+        Assert.Equal(BookingErrorCodes.StudentIdentityNotVerified, ex.ErrorCode);
+    }
+
+    [Fact]
+    public async Task SlotOutsideTutorAvailability_ThrowsBookingException()
+    {
+        var ctx = CreateService();
+        await SeedStudentAsync(ctx.Db);
+        SeedActiveTutor(ctx.Db, acceptingBookings: true);
+        SeedPriceAndPackage(ctx.Db);
+        // Tutor is only available 09:00-10:00 on Mondays; the request asks for 14:00-15:00.
+        ctx.Db.Tutoravailabilities.Add(new Tutoravailability { Tutorid = TutorId, Dayofweek = 1, Starttime = new TimeOnly(9, 0), Endtime = new TimeOnly(10, 0), Createdat = DateTime.UtcNow });
+        await ctx.Db.SaveChangesAsync();
+
+        var firstMonday = NextMonday();
+        var slots = Enumerable.Range(0, 4)
+            .Select(i => firstMonday.AddDays(7 * i))
+            .Select(day => new FlexibleBookingSlotRequest { ScheduledStart = day.AddHours(14), ScheduledEnd = day.AddHours(15) })
+            .ToList();
+        var request = new CreateBookingRequest
+        {
+            TutorId = TutorId,
+            StudentId = StudentId,
+            TutorSubjectGradePriceId = 1,
+            PackageId = 1,
+            StartDate = firstMonday,
+            TotalSessions = 4,
+            FlexibleSlots = slots
+        };
+
+        var ex = await Assert.ThrowsAsync<BookingException>(() => ctx.Service.CreateBookingAsync(ParentId, UserRole.Parent, request));
+        Assert.Equal(BookingErrorCodes.ScheduleNotInAvailability, ex.ErrorCode);
+    }
+
     private static DateTime NextMonday()
     {
         var day = DateTime.UtcNow.Date.AddDays(1);

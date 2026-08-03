@@ -59,6 +59,34 @@ public class ApproveTutorProfileAsyncTests
         Assert.Equal("Thiếu chứng chỉ", profile.Rejectionnote);
     }
 
+    [Fact]
+    public async Task RejectWithoutReason_StillRejectsAndStoresNullNote()
+    {
+        var ctx = CreateService();
+        ctx.Db.Users.Add(NewUser("tutor-3"));
+        ctx.Db.Tutorprofiles.Add(NewProfile("tutor-3", TutorProfileStatus.Draft, rejectionNote: null));
+        await ctx.Db.SaveChangesAsync();
+
+        var result = await ctx.Service.ApproveTutorProfileAsync("tutor-3", new ApproveTutorRequest { IsApproved = false, Reason = null }, AdminId);
+
+        Assert.Equal("Rejected", result.IsApproved);
+        var profile = await ctx.Db.Tutorprofiles.AsNoTracking().SingleAsync(p => p.Tutorid == "tutor-3");
+        Assert.Equal(TutorProfileStatus.Rejected, profile.Profilestatus);
+        Assert.Null(profile.Rejectionnote);
+    }
+
+    [Fact]
+    public async Task ProfileExistsButUserMissing_ThrowsUserNotFoundException()
+    {
+        var ctx = CreateService();
+        // Profile row without its owning User row - the service looks each up separately.
+        ctx.Db.Tutorprofiles.Add(NewProfile("tutor-4", TutorProfileStatus.Draft, rejectionNote: null));
+        await ctx.Db.SaveChangesAsync();
+
+        await Assert.ThrowsAsync<MV.DomainLayer.Exceptions.UserNotFoundException>(
+            () => ctx.Service.ApproveTutorProfileAsync("tutor-4", new ApproveTutorRequest { IsApproved = true }, AdminId));
+    }
+
     private static User NewUser(string id) => new()
     {
         Userid = id,

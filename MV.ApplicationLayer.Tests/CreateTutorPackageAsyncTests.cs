@@ -26,6 +26,17 @@ public class CreateTutorPackageAsyncTests
     }
 
     [Fact]
+    public async Task BlankName_ThrowsArgumentException()
+    {
+        var ctx = CreateService();
+        await SeedProfileAsync(ctx.Db);
+        var request = FlexibleRequest();
+        request.Name = "   ";
+
+        await Assert.ThrowsAsync<ArgumentException>(() => ctx.Service.CreateTutorPackageAsync(TutorId, request));
+    }
+
+    [Fact]
     public async Task InvalidPackageType_ThrowsArgumentException()
     {
         var ctx = CreateService();

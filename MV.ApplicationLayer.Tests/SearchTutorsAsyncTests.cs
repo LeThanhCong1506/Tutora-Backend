@@ -62,6 +62,61 @@ public class SearchTutorsAsyncTests
         Assert.Equal("tutor-high-rated", tutor.TutorId);
     }
 
+    [Fact]
+    public async Task NotAcceptingBookingsTutor_IsExcluded()
+    {
+        var db = TestSupport.CreateInMemoryContext("search-tutors");
+        db.Users.Add(NewTutorUser("tutor-open", out var open));
+        db.Tutorprofiles.Add(open);
+        db.Users.Add(NewTutorUser("tutor-closed", out var closed));
+        closed.Isacceptingbookings = false;
+        db.Tutorprofiles.Add(closed);
+        await db.SaveChangesAsync();
+        var repo = new TutorSearchRepository(db);
+
+        var result = await repo.SearchTutorsAsync(new TutorSearchParameters { PageNumber = 1, PageSize = 10 });
+
+        var tutor = Assert.Single(result.Items);
+        Assert.Equal("tutor-open", tutor.TutorId);
+    }
+
+    [Fact]
+    public async Task BudgetRangeFilter_ExcludesTutorsOutsideRange()
+    {
+        // The price filter reads Tutorsubjectgradeprices.Priceperhour, not Tutorprofile.Hourlyrate.
+        var db = TestSupport.CreateInMemoryContext("search-tutors");
+        db.Users.Add(NewTutorUser("tutor-cheap", out var cheap));
+        db.Tutorprofiles.Add(cheap);
+        db.Users.Add(NewTutorUser("tutor-pricey", out var pricey));
+        db.Tutorprofiles.Add(pricey);
+        db.Tutorsubjectgradeprices.Add(NewPrice(1, "tutor-cheap", 150000));
+        db.Tutorsubjectgradeprices.Add(NewPrice(2, "tutor-pricey", 900000));
+        await db.SaveChangesAsync();
+        var repo = new TutorSearchRepository(db);
+
+        var result = await repo.SearchTutorsAsync(new TutorSearchParameters
+        {
+            PageNumber = 1,
+            PageSize = 10,
+            MinHourlyRate = 100000,
+            MaxHourlyRate = 300000
+        });
+
+        var tutor = Assert.Single(result.Items);
+        Assert.Equal("tutor-cheap", tutor.TutorId);
+    }
+
+    private static Tutorsubjectgradeprice NewPrice(int id, string tutorId, decimal pricePerHour) => new()
+    {
+        Id = id,
+        Tutorid = tutorId,
+        Subjectid = 1,
+        Gradelevelid = 1,
+        Priceperhour = pricePerHour,
+        Isactive = true,
+        Createdat = DateTime.UtcNow
+    };
+
     private static User NewTutorUser(string id, out Tutorprofile profile)
     {
         var user = new User

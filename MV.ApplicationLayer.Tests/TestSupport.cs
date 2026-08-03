@@ -19,7 +19,12 @@ internal static class TestSupport
     public static Microsoft.AspNetCore.Http.IFormFile FakeFormFile(string fileName, long sizeBytes = 1024)
     {
         var stream = new MemoryStream(new byte[sizeBytes]);
-        return new Microsoft.AspNetCore.Http.FormFile(stream, 0, sizeBytes, "file", fileName);
+        return new Microsoft.AspNetCore.Http.FormFile(stream, 0, sizeBytes, "file", fileName)
+        {
+            // FormFile.ContentType reads from Headers - null Headers throws NullReferenceException
+            // the moment any code reads .ContentType (e.g. DisputeService.UploadTutorDisputeEvidenceAsync).
+            Headers = new Microsoft.AspNetCore.Http.HeaderDictionary { ["Content-Type"] = "image/jpeg" }
+        };
     }
 
     public static AgoraDbContext CreateInMemoryContext(string dbNamePrefix)

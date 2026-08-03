@@ -93,6 +93,35 @@ public class TryAutoCheckInAsyncTests
         Assert.True(result.IsCheckedIn);
     }
 
+    [Fact]
+    public async Task OnlyStudentPresent_DoesNotCheckIn()
+    {
+        var ctx = CreateService();
+        SeedScheduledSession(ctx.Db, sessionId: 5, bookingStatus: BookingStatus.DepositPaid, bookingId: 30);
+        await ctx.Db.SaveChangesAsync();
+        ctx.Presence.SetPresent(5, StudentUserId);
+
+        var result = await ctx.Service.TryAutoCheckInAsync(5);
+
+        Assert.False(result.TutorPresent);
+        Assert.True(result.StudentPresent);
+        Assert.False(result.IsCheckedIn);
+    }
+
+    [Fact]
+    public async Task NobodyPresent_DoesNotCheckIn()
+    {
+        var ctx = CreateService();
+        SeedScheduledSession(ctx.Db, sessionId: 6, bookingStatus: BookingStatus.DepositPaid, bookingId: 40);
+        await ctx.Db.SaveChangesAsync();
+
+        var result = await ctx.Service.TryAutoCheckInAsync(6);
+
+        Assert.False(result.TutorPresent);
+        Assert.False(result.StudentPresent);
+        Assert.False(result.IsCheckedIn);
+    }
+
     private static void SeedScheduledSession(AgoraDbContext db, int sessionId, string bookingStatus, int bookingId = 100)
     {
         db.Studentprofiles.Add(new Studentprofile { Studentid = "student-profile-1", Linkeduserid = StudentUserId, Fullname = "Học sinh", Createdat = DateTime.UtcNow });

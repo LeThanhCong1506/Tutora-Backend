@@ -65,6 +65,31 @@ public class ReportTutorNoShowAsyncTests
         Assert.Single(ctx.Db.Disputes.Where(d => d.Classsessionid == 3));
     }
 
+    [Fact]
+    public async Task ReportedLessThanFifteenMinutesLate_IsStillAccepted()
+    {
+        // The old "must be >=15 minutes late" gate was removed by product decision - the reported
+        // time is advisory context for admins now, so an early report must NOT be rejected.
+        var ctx = CreateService();
+        ctx.Db.Studentprofiles.Add(new Studentprofile { Studentid = StudentProfileId, Parentid = ParentId, Fullname = "Học sinh", Createdat = DateTime.UtcNow });
+        ctx.Db.ClassSessions.Add(new ClassSession
+        {
+            Classsessionid = 4,
+            Bookingid = 100,
+            Studentid = StudentProfileId,
+            Tutorid = "tutor-1",
+            Status = ClassSessionStatus.Scheduled,
+            Scheduledstart = DateTime.UtcNow.AddMinutes(-2),
+            Scheduledend = DateTime.UtcNow.AddMinutes(58)
+        });
+        await ctx.Db.SaveChangesAsync();
+
+        await ctx.Service.ReportTutorNoShowAsync(4, ParentId, UserRole.Parent);
+
+        var session = ctx.Db.ClassSessions.Single(s => s.Classsessionid == 4);
+        Assert.Equal(ClassSessionStatus.NoShow, session.Status);
+    }
+
     private static ClassSession NewSession(int id, string status) => new()
     {
         Classsessionid = id,

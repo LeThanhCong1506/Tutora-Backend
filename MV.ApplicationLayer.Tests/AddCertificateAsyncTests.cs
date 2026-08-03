@@ -60,6 +60,18 @@ public class AddCertificateAsyncTests
     }
 
     [Fact]
+    public async Task YearIssuedAboveCurrentYear_ThrowsArgumentException()
+    {
+        var (service, db) = CreateService();
+        db.Tutorprofiles.Add(new Tutorprofile { Tutorid = TutorId, Createdat = DateTime.UtcNow });
+        await db.SaveChangesAsync();
+        var request = ValidRequest();
+        request.YearIssued = DateTime.UtcNow.Year + 1;
+
+        await Assert.ThrowsAsync<ArgumentException>(() => service.AddCertificateAsync(TutorId, request));
+    }
+
+    [Fact]
     public async Task ValidCertificate_AlwaysCreatedAsPendingReview()
     {
         var (service, db) = CreateService();
