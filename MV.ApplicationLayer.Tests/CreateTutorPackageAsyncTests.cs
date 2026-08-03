@@ -26,6 +26,19 @@ public class CreateTutorPackageAsyncTests
     }
 
     [Fact]
+    public async Task ValidFlexiblePackage_CreatesPackageWithoutSlots()
+    {
+        var ctx = CreateService();
+        await SeedProfileAsync(ctx.Db);
+
+        var result = await ctx.Service.CreateTutorPackageAsync(TutorId, FlexibleRequest());
+
+        Assert.NotNull(result);
+        Assert.Equal(Tutorpackage.FlexiblePackageType, result!.PackageType);
+        Assert.Empty(result.FixedSlots);
+    }
+
+    [Fact]
     public async Task BlankName_ThrowsArgumentException()
     {
         var ctx = CreateService();
