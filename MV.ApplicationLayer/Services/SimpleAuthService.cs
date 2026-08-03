@@ -172,11 +172,18 @@ namespace MV.ApplicationLayer.Services
                     return new TokenResponse { ErrorMessage = "Tên đầy đủ là bắt buộc." };
                 }
 
-                var requestedRole = !string.IsNullOrEmpty(request.Role) ? request.Role : UserRole.Parent;
-                if (!UserRole.SelfRegisterable.Contains(requestedRole))
+                var rawRequestedRole = !string.IsNullOrEmpty(request.Role) ? request.Role : UserRole.Parent;
+                if (!UserRole.SelfRegisterable.Contains(rawRequestedRole))
                 {
                     return new TokenResponse { ErrorMessage = "Chức vụ này không cho phép tự đăng ký." };
                 }
+
+                // Chuẩn hóa về casing chuẩn trong UserRole.SelfRegisterable trước khi lưu Primaryrole.
+                // Contains() ở trên so sánh không phân biệt hoa/thường nên "student"/"STUDENT" vẫn qua
+                // được, nhưng IsInRole()/[Authorize(Roles=...)] so khớp claim role theo kiểu Ordinal
+                // (phân biệt hoa/thường) — nếu lưu nguyên casing client gửi, tài khoản đó sẽ bị 403 ở
+                // mọi endpoint yêu cầu đúng role dù Primaryrole "về ý nghĩa" là đúng.
+                var requestedRole = NormalizeRole(rawRequestedRole) ?? rawRequestedRole;
 
                 var phone = request.Phone.Trim();
 
@@ -560,6 +567,15 @@ namespace MV.ApplicationLayer.Services
 
         private static string GenerateOtpCode()
             => RandomNumberGenerator.GetInt32(100000, 1000000).ToString();
+
+        private static string? NormalizeRole(string? role)
+        {
+            if (string.IsNullOrWhiteSpace(role))
+                return null;
+
+            return UserRole.SelfRegisterable.FirstOrDefault(
+                value => string.Equals(value, role.Trim(), StringComparison.OrdinalIgnoreCase));
+        }
 
         // Gộp cả chuỗi InnerException vào message trả về — message ngoài cùng của EF/Npgsql
         // (vd "likely due to a transient failure") chỉ là lời khuyên chung chung, lý do thật
