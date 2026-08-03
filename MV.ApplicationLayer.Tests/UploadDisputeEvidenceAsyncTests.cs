@@ -10,7 +10,7 @@ namespace MV.ApplicationLayer.Tests;
 // Maps to Excel sheet "UploadDisputeEvidenceAsync" (Code_31, DisputeService.UploadTutorDisputeEvidenceAsync).
 // Unlike most Dispute/Settlement functions, this one has no FromSqlRaw/ExecuteUpdateAsync -
 // plain LINQ + SaveChangesAsync throughout - so it's fully testable on EF InMemory.
-// The only gate is dispute.Status == Pending; settle state and file validity are not checked.
+// Gates are the file guard and dispute.Status == Pending; the session's settle state is not checked.
 public class UploadDisputeEvidenceAsyncTests
 {
     [Fact]
@@ -71,18 +71,31 @@ public class UploadDisputeEvidenceAsyncTests
     }
 
     [Fact]
-    public async Task NullFile_ThrowsNullReferenceException_NoGuardExists()
+    public async Task NullFile_ThrowsArgumentException()
     {
-        // Documents a real gap: the service never null-checks the file, so a null upload surfaces
-        // as an unhandled NullReferenceException instead of a 400. Asserted so the day someone
-        // adds the guard, this test fails and the spec gets revisited.
         var db = TestSupport.CreateInMemoryContext("upload-dispute-evidence");
         db.ClassSessions.Add(new ClassSession { Classsessionid = 4, Tutorid = "tutor-1", Status = ClassSessionStatus.Disputed, Scheduledstart = DateTime.UtcNow.AddDays(-1), Scheduledend = DateTime.UtcNow.AddDays(-1).AddHours(1) });
         db.Disputes.Add(new Dispute { Classsessionid = 4, Status = DisputeStatus.Pending, Disputetype = DisputeTypes.Quality, Reason = "test", Createdat = DateTime.UtcNow });
         await db.SaveChangesAsync();
         var service = CreateService(db);
 
-        await Assert.ThrowsAsync<NullReferenceException>(() => service.UploadTutorDisputeEvidenceAsync(4, "tutor-1", null!));
+        var ex = await Assert.ThrowsAsync<ArgumentException>(() => service.UploadTutorDisputeEvidenceAsync(4, "tutor-1", null!));
+        // Distinguishes the file guard from the "dispute not found" ArgumentException below it.
+        Assert.Contains("bằng chứng", ex.Message);
+    }
+
+    [Fact]
+    public async Task EmptyFile_ThrowsArgumentException()
+    {
+        var db = TestSupport.CreateInMemoryContext("upload-dispute-evidence");
+        db.ClassSessions.Add(new ClassSession { Classsessionid = 5, Tutorid = "tutor-1", Status = ClassSessionStatus.Disputed, Scheduledstart = DateTime.UtcNow.AddDays(-1), Scheduledend = DateTime.UtcNow.AddDays(-1).AddHours(1) });
+        db.Disputes.Add(new Dispute { Classsessionid = 5, Status = DisputeStatus.Pending, Disputetype = DisputeTypes.Quality, Reason = "test", Createdat = DateTime.UtcNow });
+        await db.SaveChangesAsync();
+        var service = CreateService(db);
+        var emptyFile = new Microsoft.AspNetCore.Http.FormFile(new MemoryStream(), 0, 0, "file", "evidence.jpg");
+
+        var ex = await Assert.ThrowsAsync<ArgumentException>(() => service.UploadTutorDisputeEvidenceAsync(5, "tutor-1", emptyFile));
+        Assert.Contains("bằng chứng", ex.Message);
     }
 
     private static DisputeService CreateService(AgoraDbContext db) => new(
