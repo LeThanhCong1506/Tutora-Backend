@@ -18,7 +18,7 @@ namespace MV.ApplicationLayer.Services;
 public class SocialRegistrationService : ISocialRegistrationService
 {
     private const int SessionExpiryMinutes = 15;
-    private const int OtpExpiryMinutes = 10;
+    private const int OtpExpiryMinutes = 5;
     private const int MaxOtpAttempts = 5;
     private static readonly Regex PhoneRegex = new(
         @"^\+?\d{9,15}$",

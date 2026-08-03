@@ -29,7 +29,7 @@ namespace MV.ApplicationLayer.Services
         private readonly IDistributedCache _cache;
         private readonly IAiCreditService _aiCreditService;
 
-        private const int OtpExpiryMinutes = 10;
+        private const int OtpExpiryMinutes = 5;
         private const int MaxOtpAttempts = 5;
 
         public SimpleAuthService(
