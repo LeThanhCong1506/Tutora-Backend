@@ -39,7 +39,9 @@ namespace MV.ApplicationLayer.Services
                     Slug = s.Slug,
                     IconUrl = s.IconUrl,
                     IsHomeworkEnabled = s.IsHomeworkEnabled,
-                    DisplayOrder = s.DisplayOrder
+                    DisplayOrder = s.DisplayOrder,
+                    MinGradeLevelId = s.MinGradeLevelId,
+                    MaxGradeLevelId = s.MaxGradeLevelId
                 })
                 .ToListAsync();
         }
@@ -74,7 +76,9 @@ namespace MV.ApplicationLayer.Services
                     Slug = s.Slug,
                     IconUrl = s.IconUrl,
                     IsHomeworkEnabled = s.IsHomeworkEnabled,
-                    DisplayOrder = s.DisplayOrder
+                    DisplayOrder = s.DisplayOrder,
+                    MinGradeLevelId = s.MinGradeLevelId,
+                    MaxGradeLevelId = s.MaxGradeLevelId
                 })
                 .ToListAsync();
         }
@@ -230,6 +234,8 @@ namespace MV.ApplicationLayer.Services
         // Subject
         public async Task<SubjectResponse> CreateSubjectAsync(SubjectRequest req)
         {
+            await ValidateGradeRangeAsync(req.MinGradeLevelId, req.MaxGradeLevelId);
+
             var entity = new Subject
             {
                 Subjectname = req.SubjectName.Trim(),
@@ -239,6 +245,8 @@ namespace MV.ApplicationLayer.Services
                 IconUrl = req.IconUrl?.Trim(),
                 IsHomeworkEnabled = req.IsHomeworkEnabled,
                 DisplayOrder = req.DisplayOrder,
+                MinGradeLevelId = req.MinGradeLevelId,
+                MaxGradeLevelId = req.MaxGradeLevelId,
             };
             _context.Subjects.Add(entity);
             await _context.SaveChangesAsync();
@@ -247,6 +255,8 @@ namespace MV.ApplicationLayer.Services
 
         public async Task<SubjectResponse?> UpdateSubjectAsync(int id, SubjectRequest req)
         {
+            await ValidateGradeRangeAsync(req.MinGradeLevelId, req.MaxGradeLevelId);
+
             var entity = await _context.Subjects.FirstOrDefaultAsync(s => s.Subjectid == id);
             if (entity == null) return null;
             entity.Subjectname = req.SubjectName.Trim();
@@ -256,8 +266,29 @@ namespace MV.ApplicationLayer.Services
             entity.IconUrl = req.IconUrl?.Trim();
             entity.IsHomeworkEnabled = req.IsHomeworkEnabled;
             entity.DisplayOrder = req.DisplayOrder;
+            entity.MinGradeLevelId = req.MinGradeLevelId;
+            entity.MaxGradeLevelId = req.MaxGradeLevelId;
             await _context.SaveChangesAsync();
             return ToSubjectResponse(entity);
+        }
+
+        /// <summary>
+        /// So theo Levelorder (không so trực tiếp id — id không đảm bảo tăng dần theo khối lớp).
+        /// </summary>
+        private async Task ValidateGradeRangeAsync(int? minGradeLevelId, int? maxGradeLevelId)
+        {
+            if (minGradeLevelId == null || maxGradeLevelId == null) return;
+
+            var orders = await _context.Gradelevels
+                .Where(g => g.Gradelevelid == minGradeLevelId || g.Gradelevelid == maxGradeLevelId)
+                .ToDictionaryAsync(g => g.Gradelevelid, g => g.Levelorder);
+
+            if (!orders.TryGetValue(minGradeLevelId.Value, out var minOrder))
+                throw new ArgumentException($"Khối lớp tối thiểu (id={minGradeLevelId}) không tồn tại.");
+            if (!orders.TryGetValue(maxGradeLevelId.Value, out var maxOrder))
+                throw new ArgumentException($"Khối lớp tối đa (id={maxGradeLevelId}) không tồn tại.");
+            if (maxOrder < minOrder)
+                throw new ArgumentException("Khối lớp tối đa phải lớn hơn hoặc bằng khối lớp tối thiểu.");
         }
 
         // Soft-delete: chỉ đặt IsActive=false, GIỮ NGUYÊN dữ liệu để không phá tham chiếu
@@ -443,6 +474,8 @@ namespace MV.ApplicationLayer.Services
             IconUrl = s.IconUrl,
             IsHomeworkEnabled = s.IsHomeworkEnabled,
             DisplayOrder = s.DisplayOrder,
+            MinGradeLevelId = s.MinGradeLevelId,
+            MaxGradeLevelId = s.MaxGradeLevelId,
         };
 
         private static GradeLevelResponse ToGradeResponse(Gradelevel g) => new()

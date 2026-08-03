@@ -1881,6 +1881,16 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
             entity.Property(e => e.IconUrl).HasColumnName("icon_url");
             entity.Property(e => e.IsHomeworkEnabled).HasDefaultValue(false).HasColumnName("is_homework_enabled");
             entity.Property(e => e.DisplayOrder).HasDefaultValue(0).HasColumnName("display_order");
+            entity.Property(e => e.MinGradeLevelId).HasColumnName("min_grade_level_id");
+            entity.Property(e => e.MaxGradeLevelId).HasColumnName("max_grade_level_id");
+
+            entity.HasOne(d => d.MinGradeLevel).WithMany()
+                .HasForeignKey(d => d.MinGradeLevelId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(d => d.MaxGradeLevel).WithMany()
+                .HasForeignKey(d => d.MaxGradeLevelId)
+                .OnDelete(DeleteBehavior.Restrict);
         });
 
         modelBuilder.Entity<Systemconfig>(entity =>

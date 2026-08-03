@@ -718,6 +718,12 @@ public class DisputeService : IDisputeService
 
     public async Task<string> UploadTutorDisputeEvidenceAsync(int classSessionId, string tutorId, IFormFile file)
     {
+        // The HTTP endpoint rejects an empty upload before reaching here, but the service is also
+        // called directly; without this it fails as a NullReferenceException deep inside the
+        // storage call instead of saying what is wrong.
+        if (file == null || file.Length == 0)
+            throw new ArgumentException("Tệp bằng chứng là bắt buộc.");
+
         var dispute = await _context.Disputes
             .FirstOrDefaultAsync(d => d.Classsessionid == classSessionId && d.ClassSession!.Tutorid == tutorId)
             ?? throw new ArgumentException("Không tìm thấy tranh chấp cho buổi học này");

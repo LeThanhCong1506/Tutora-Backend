@@ -587,6 +587,32 @@ namespace MV.ApplicationLayer.Services
                 throw new ArgumentException($"GradeLevel IDs không tồn tại hoặc đã ngừng sử dụng: {string.Join(", ", invalidGradeLevelIds)}");
             }
 
+            // Rule 0: khối lớp phải thuộc chương trình môn học (vd Vật Lý không áp dụng cho Lớp 1).
+            // So theo Levelorder, không so trực tiếp id vì id không đảm bảo tăng dần theo khối lớp.
+            var subjectsWithRange = await _unitOfWork.TutorRepository.GetSubjectsWithGradeRangeAsync(subjectIds);
+            var subjectById = subjectsWithRange.ToDictionary(s => s.Subjectid);
+            var gradeLevelOrders = await _unitOfWork.TutorRepository.GetGradeLevelOrdersAsync(gradeLevelIds);
+
+            foreach (var p in prices)
+            {
+                var subject = subjectById[p.SubjectId];
+                if (subject.MinGradeLevel == null && subject.MaxGradeLevel == null) continue;
+
+                var targetOrder = gradeLevelOrders[p.GradeLevelId];
+                var minOrder = subject.MinGradeLevel?.Levelorder ?? int.MinValue;
+                var maxOrder = subject.MaxGradeLevel?.Levelorder ?? int.MaxValue;
+                if (targetOrder < minOrder || targetOrder > maxOrder)
+                {
+                    var rangeText = subject.MinGradeLevel != null && subject.MaxGradeLevel != null
+                        ? $"từ {subject.MinGradeLevel.Gradename} đến {subject.MaxGradeLevel.Gradename}"
+                        : subject.MinGradeLevel != null
+                            ? $"từ {subject.MinGradeLevel.Gradename} trở lên"
+                            : $"đến {subject.MaxGradeLevel!.Gradename}";
+                    throw new ArgumentException(
+                        $"Khối lớp không thuộc chương trình môn {subject.Subjectname} (áp dụng {rangeText}).");
+                }
+            }
+
             // Rule 1 & 2: validate session duration and sessions/week against tutor availability
             var availabilities = await _unitOfWork.TutorRepository.GetAvailabilitiesByTutorIdAsync(tutorId);
             if (!availabilities.Any())
