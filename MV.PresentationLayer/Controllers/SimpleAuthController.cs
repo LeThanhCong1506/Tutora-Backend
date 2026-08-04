@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.DTO;
 using MV.DomainLayer.DTO.RequestModel;
@@ -20,6 +21,7 @@ namespace MV.PresentationLayer.Controllers
         /// Simple login without Supabase.
         /// </summary>
         [HttpPost("login")]
+        [EnableRateLimiting("login")]
         public async Task<IActionResult> Login([FromBody] SimpleLoginRequest request)
         {
             var result = await _simpleAuthService.SimpleLoginAsync(request);
@@ -42,6 +44,7 @@ namespace MV.PresentationLayer.Controllers
         /// Đăng ký bằng số điện thoại + mật khẩu. Phải xác thực OTP phone trước khi nhận JWT.
         /// </summary>
         [HttpPost("register")]
+        [EnableRateLimiting("otp")]
         public async Task<IActionResult> Register([FromBody] SimpleRegisterRequest request)
         {
             var result = await _simpleAuthService.SimpleRegisterAsync(request);
@@ -62,6 +65,7 @@ namespace MV.PresentationLayer.Controllers
         /// Xác thực số điện thoại bằng OTP. Thành công sẽ trả JWT.
         /// </summary>
         [HttpPost("verify-phone")]
+        [EnableRateLimiting("otp")]
         public async Task<IActionResult> VerifyPhone([FromBody] VerifyPhoneOtpRequest request)
         {
             var result = await _simpleAuthService.VerifyPhoneOtpAsync(request);
@@ -78,6 +82,7 @@ namespace MV.PresentationLayer.Controllers
         /// Gửi lại mã OTP xác thực số điện thoại.
         /// </summary>
         [HttpPost("resend-phone-otp")]
+        [EnableRateLimiting("otp")]
         public async Task<IActionResult> ResendPhoneOtp([FromBody] ResendPhoneOtpRequest request)
         {
             var result = await _simpleAuthService.ResendPhoneOtpAsync(request);
@@ -98,6 +103,7 @@ namespace MV.PresentationLayer.Controllers
         /// Quên mật khẩu: gửi mã OTP tới số điện thoại để đặt lại mật khẩu.
         /// </summary>
         [HttpPost("forgot-password")]
+        [EnableRateLimiting("otp")]
         public async Task<IActionResult> ForgotPassword([FromBody] ForgotPasswordRequest request)
         {
             var result = await _simpleAuthService.ForgotPasswordAsync(request);
@@ -115,6 +121,7 @@ namespace MV.PresentationLayer.Controllers
         /// Đặt lại mật khẩu bằng OTP gửi tới số điện thoại.
         /// </summary>
         [HttpPost("reset-password")]
+        [EnableRateLimiting("otp")]
         public async Task<IActionResult> ResetPassword([FromBody] ResetPasswordRequest request)
         {
             var result = await _simpleAuthService.ResetPasswordAsync(request);
