@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.DTO;
 using MV.DomainLayer.DTO.RequestModel;
@@ -20,6 +21,7 @@ public class SocialRegistrationController : ControllerBase
     /// Nhận role + số điện thoại sau khi Google/Zalo đã được xác thực và gửi OTP.
     /// </summary>
     [HttpPost("complete-registration")]
+    [EnableRateLimiting("otp")]
     public async Task<IActionResult> CompleteRegistration(
         [FromBody] CompleteSocialRegistrationRequest request)
     {
@@ -37,6 +39,7 @@ public class SocialRegistrationController : ControllerBase
     /// Xác thực OTP, tạo hoặc cập nhật tài khoản social và cấp JWT.
     /// </summary>
     [HttpPost("verify-phone")]
+    [EnableRateLimiting("otp")]
     public async Task<IActionResult> VerifyPhone([FromBody] VerifySocialPhoneOtpRequest request)
     {
         var result = await _socialRegistrationService.VerifyPhoneOtpAsync(request);
@@ -54,6 +57,7 @@ public class SocialRegistrationController : ControllerBase
     /// Gửi lại OTP cho phiên đăng ký social hiện tại.
     /// </summary>
     [HttpPost("resend-phone-otp")]
+    [EnableRateLimiting("otp")]
     public async Task<IActionResult> ResendPhoneOtp(
         [FromBody] ResendSocialPhoneOtpRequest request)
     {

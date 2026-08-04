@@ -29,8 +29,28 @@ namespace MV.ApplicationLayer.Services
         private readonly IDistributedCache _cache;
         private readonly IAiCreditService _aiCreditService;
 
-        private const int OtpExpiryMinutes = 10;
+        private const int OtpExpiryMinutes = 5;
         private const int MaxOtpAttempts = 5;
+
+        // Chống brute-force/spam đăng nhập: sai quá MaxLoginAttempts lần liên tiếp (tính theo
+        // định danh email/SĐT/username) → khóa tạm LoginLockoutMinutes phút. Việc check khóa
+        // nằm ở ngay đầu SimpleLoginAsync, TRƯỚC mọi truy vấn DB — nên khi đã bị khóa, các
+        // request tiếp theo không còn chạm tới Postgres nữa (giảm tải DB, không chỉ chặn hack).
+        private const int MaxLoginAttempts = 5;
+        private const int LoginLockoutMinutes = 15;
+
+        // Chống spam gửi OTP qua Zalo ZNS (mỗi lần gửi tốn phí thật): tối thiểu
+        // OtpResendCooldownSeconds giữa 2 lần gửi liên tiếp cho CÙNG số điện thoại +
+        // CÙNG mục đích (verify SĐT khi đăng ký, hoặc đặt lại mật khẩu) — khớp với
+        // cooldown 60s FE đang hiển thị (VerifyPhonePage.tsx RESEND_COOLDOWN), nhưng
+        // FE chỉ chặn trên UI; đây là chặn thật ở BE, áp dụng cho mọi client gọi trực
+        // tiếp API (không riêng gì Tutora-FE).
+        private const int OtpResendCooldownSeconds = 60;
+
+        // Cooldown chỉ chặn TỐC ĐỘ gửi (60s/lần) — không chặn TỔNG SỐ trong ngày; ai đó
+        // đổi IP liên tục vẫn có thể spam tới 1440 lần/ngày nếu chỉ có cooldown. Thêm giới
+        // hạn tổng số lần gửi/24h cho CÙNG 1 số điện thoại để bịt khoảng hở này.
+        private const int MaxOtpSendsPerDay = 5;
 
         public SimpleAuthService(
             IUnitOfWork unitOfWork,
@@ -61,6 +81,20 @@ namespace MV.ApplicationLayer.Services
                     return new TokenResponse { ErrorMessage = "Bạn cần cung cấp email/số điện thoại và mật khẩu." };
                 }
 
+                // Check khóa TRƯỚC mọi truy vấn DB — request vào một định danh đang bị khóa
+                // không chạm tới Postgres, tránh bị dùng để dội tải DB.
+                var attemptKey = LoginAttemptKey(request.EmailOrPhone);
+                var attemptEntry = await GetLoginAttemptAsync(attemptKey);
+                if (attemptEntry != null && attemptEntry.LockedUntilUtc > MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow)
+                {
+                    var minutesLeft = Math.Max(1, (int)Math.Ceiling(
+                        (attemptEntry.LockedUntilUtc - MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow).TotalMinutes));
+                    return new TokenResponse
+                    {
+                        ErrorMessage = $"Tài khoản tạm khóa đăng nhập do nhập sai quá {MaxLoginAttempts} lần. Vui lòng thử lại sau {minutesLeft} phút."
+                    };
+                }
+
                 User? user;
 
                 if (request.EmailOrPhone.Contains("@"))
@@ -70,6 +104,7 @@ namespace MV.ApplicationLayer.Services
 
                     if (!isValid)
                     {
+                        await RecordFailedLoginAttemptAsync(attemptKey);
                         return new TokenResponse { ErrorMessage = "Email hoặc mật khẩu không đúng." };
                     }
 
@@ -82,6 +117,7 @@ namespace MV.ApplicationLayer.Services
 
                     if (!isValid)
                     {
+                        await RecordFailedLoginAttemptAsync(attemptKey);
                         return new TokenResponse { ErrorMessage = "Số điện thoại hoặc mật khẩu không đúng." };
                     }
 
@@ -94,11 +130,15 @@ namespace MV.ApplicationLayer.Services
 
                     if (!isValid)
                     {
+                        await RecordFailedLoginAttemptAsync(attemptKey);
                         return new TokenResponse { ErrorMessage = "Tên người dùng hoặc mật khẩu không chính xác." };
                     }
 
                     user = await _unitOfWork.UserRepository.GetUserByUsernameAsync(request.EmailOrPhone);
                 }
+
+                // Mật khẩu đã đúng — xóa bộ đếm sai để không cộng dồn qua các lần đăng nhập sau.
+                await ClearLoginAttemptAsync(attemptKey);
 
                 if (user == null)
                 {
@@ -172,11 +212,18 @@ namespace MV.ApplicationLayer.Services
                     return new TokenResponse { ErrorMessage = "Tên đầy đủ là bắt buộc." };
                 }
 
-                var requestedRole = !string.IsNullOrEmpty(request.Role) ? request.Role : UserRole.Parent;
-                if (!UserRole.SelfRegisterable.Contains(requestedRole))
+                var rawRequestedRole = !string.IsNullOrEmpty(request.Role) ? request.Role : UserRole.Parent;
+                if (!UserRole.SelfRegisterable.Contains(rawRequestedRole))
                 {
                     return new TokenResponse { ErrorMessage = "Chức vụ này không cho phép tự đăng ký." };
                 }
+
+                // Chuẩn hóa về casing chuẩn trong UserRole.SelfRegisterable trước khi lưu Primaryrole.
+                // Contains() ở trên so sánh không phân biệt hoa/thường nên "student"/"STUDENT" vẫn qua
+                // được, nhưng IsInRole()/[Authorize(Roles=...)] so khớp claim role theo kiểu Ordinal
+                // (phân biệt hoa/thường) — nếu lưu nguyên casing client gửi, tài khoản đó sẽ bị 403 ở
+                // mọi endpoint yêu cầu đúng role dù Primaryrole "về ý nghĩa" là đúng.
+                var requestedRole = NormalizeRole(rawRequestedRole) ?? rawRequestedRole;
 
                 var phone = request.Phone.Trim();
 
@@ -217,9 +264,21 @@ namespace MV.ApplicationLayer.Services
                     await _unitOfWork.UserRepository.UpdateUserAsync(existingUserByPhone);
                     await _unitOfWork.SaveChangesAsync();
 
+                    var blockReason = await GetOtpBlockReasonAsync(PhoneVerifyKey(phone));
+                    if (blockReason != null)
+                    {
+                        return new TokenResponse
+                        {
+                            ErrorMessage = blockReason,
+                            RequiresPhoneVerification = true,
+                            Phone = phone
+                        };
+                    }
+
                     var resendCode = GenerateOtpCode();
                     await StoreOtpAsync(PhoneVerifyKey(phone), resendCode);
                     await _otpSender.SendOtpAsync(phone, resendCode);
+                    await MarkOtpSentAsync(PhoneVerifyKey(phone));
 
                     return new TokenResponse
                     {
@@ -290,6 +349,7 @@ namespace MV.ApplicationLayer.Services
                 var otpCode = GenerateOtpCode();
                 await StoreOtpAsync(PhoneVerifyKey(phone), otpCode);
                 await _otpSender.SendOtpAsync(phone, otpCode);
+                await MarkOtpSentAsync(PhoneVerifyKey(phone));
 
                 return new TokenResponse
                 {
@@ -384,9 +444,21 @@ namespace MV.ApplicationLayer.Services
                     return new TokenResponse { ErrorMessage = "Số điện thoại đã được xác thực." };
                 }
 
+                var blockReason = await GetOtpBlockReasonAsync(PhoneVerifyKey(phone));
+                if (blockReason != null)
+                {
+                    return new TokenResponse
+                    {
+                        ErrorMessage = blockReason,
+                        RequiresPhoneVerification = true,
+                        Phone = phone
+                    };
+                }
+
                 var otpCode = GenerateOtpCode();
                 await StoreOtpAsync(PhoneVerifyKey(phone), otpCode);
                 await _otpSender.SendOtpAsync(phone, otpCode);
+                await MarkOtpSentAsync(PhoneVerifyKey(phone));
 
                 return new TokenResponse
                 {
@@ -415,11 +487,14 @@ namespace MV.ApplicationLayer.Services
                 var user = await _unitOfWork.UserRepository.GetUserByPhoneAsync(phone);
 
                 // Chỉ gửi OTP nếu user tồn tại; luôn trả success để tránh dò số điện thoại (enumeration).
-                if (user != null)
+                // Cooldown/giới hạn ngày cũng check âm thầm — không trả lỗi khác biệt khi bị chặn, để
+                // không lộ thông tin số điện thoại có tồn tại hay không qua sự khác biệt phản hồi.
+                if (user != null && await GetOtpBlockReasonAsync(PhoneResetKey(phone)) == null)
                 {
                     var otpCode = GenerateOtpCode();
                     await StoreOtpAsync(PhoneResetKey(phone), otpCode);
                     await _otpSender.SendOtpAsync(phone, otpCode);
+                    await MarkOtpSentAsync(PhoneResetKey(phone));
                 }
 
                 return new TokenResponse { Phone = phone, ErrorMessage = string.Empty };
@@ -561,6 +636,15 @@ namespace MV.ApplicationLayer.Services
         private static string GenerateOtpCode()
             => RandomNumberGenerator.GetInt32(100000, 1000000).ToString();
 
+        private static string? NormalizeRole(string? role)
+        {
+            if (string.IsNullOrWhiteSpace(role))
+                return null;
+
+            return UserRole.SelfRegisterable.FirstOrDefault(
+                value => string.Equals(value, role.Trim(), StringComparison.OrdinalIgnoreCase));
+        }
+
         // Gộp cả chuỗi InnerException vào message trả về — message ngoài cùng của EF/Npgsql
         // (vd "likely due to a transient failure") chỉ là lời khuyên chung chung, lý do thật
         // luôn nằm ở InnerException.
@@ -614,6 +698,116 @@ namespace MV.ApplicationLayer.Services
         }
 
         private Task RemoveOtpAsync(string key) => _cache.RemoveAsync(key);
+
+        // ─── OTP resend cooldown (Redis), khóa theo cùng key purpose+phone với OTP entry ───
+        private static string OtpCooldownKey(string otpKey) => $"{otpKey}:cooldown";
+
+        private async Task<int> GetOtpCooldownSecondsLeftAsync(string otpKey)
+        {
+            var raw = await _cache.GetStringAsync(OtpCooldownKey(otpKey));
+            if (string.IsNullOrEmpty(raw)
+                || !DateTime.TryParse(raw, null, System.Globalization.DateTimeStyles.RoundtripKind, out var sentAtUtc))
+                return 0;
+
+            var secondsLeft = OtpResendCooldownSeconds
+                - (MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow - sentAtUtc).TotalSeconds;
+            return secondsLeft > 0 ? (int)Math.Ceiling(secondsLeft) : 0;
+        }
+
+        // ─── OTP daily send limit (Redis), cửa sổ cố định 24h tính từ lần gửi đầu tiên trong ngày ───
+        private static string OtpDailyLimitKey(string otpKey) => $"{otpKey}:daily";
+
+        private sealed class OtpDailyLimitEntry
+        {
+            public int Count { get; set; }
+            public DateTime WindowStartUtc { get; set; }
+        }
+
+        private async Task<OtpDailyLimitEntry> GetOtpDailyLimitAsync(string otpKey)
+        {
+            var raw = await _cache.GetStringAsync(OtpDailyLimitKey(otpKey));
+            if (!string.IsNullOrEmpty(raw))
+            {
+                var entry = JsonSerializer.Deserialize<OtpDailyLimitEntry>(raw)!;
+                if (MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow - entry.WindowStartUtc < TimeSpan.FromHours(24))
+                    return entry;
+            }
+            // Chưa có bản ghi, hoặc bản ghi cũ đã qua 24h → coi như ngày mới, đếm lại từ 0.
+            return new OtpDailyLimitEntry { Count = 0, WindowStartUtc = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow };
+        }
+
+        private Task SaveOtpDailyLimitAsync(string otpKey, OtpDailyLimitEntry entry)
+        {
+            var remaining = TimeSpan.FromHours(24) - (MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow - entry.WindowStartUtc);
+            if (remaining <= TimeSpan.Zero) remaining = TimeSpan.FromSeconds(1);
+            return _cache.SetStringAsync(OtpDailyLimitKey(otpKey), JsonSerializer.Serialize(entry),
+                new DistributedCacheEntryOptions { AbsoluteExpirationRelativeToNow = remaining });
+        }
+
+        /// <summary>
+        /// Check cả cooldown 60s VÀ giới hạn tổng số/ngày trước khi cho gửi OTP.
+        /// Trả về thông báo lỗi nếu bị chặn, null nếu được phép gửi.
+        /// </summary>
+        private async Task<string?> GetOtpBlockReasonAsync(string otpKey)
+        {
+            var cooldownLeft = await GetOtpCooldownSecondsLeftAsync(otpKey);
+            if (cooldownLeft > 0)
+                return $"Vui lòng đợi {cooldownLeft} giây trước khi gửi lại mã.";
+
+            var dailyEntry = await GetOtpDailyLimitAsync(otpKey);
+            if (dailyEntry.Count >= MaxOtpSendsPerDay)
+                return $"Số điện thoại này đã đạt giới hạn {MaxOtpSendsPerDay} lần gửi OTP trong 24 giờ. Vui lòng thử lại sau.";
+
+            return null;
+        }
+
+        // Gọi ngay sau khi _otpSender.SendOtpAsync thành công — ghi cooldown 60s VÀ cộng dồn
+        // bộ đếm ngày cho cùng 1 key purpose+phone.
+        private async Task MarkOtpSentAsync(string otpKey)
+        {
+            await _cache.SetStringAsync(
+                OtpCooldownKey(otpKey),
+                MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow.ToString("o"),
+                new DistributedCacheEntryOptions { AbsoluteExpirationRelativeToNow = TimeSpan.FromSeconds(OtpResendCooldownSeconds) });
+
+            var dailyEntry = await GetOtpDailyLimitAsync(otpKey);
+            dailyEntry.Count++;
+            await SaveOtpDailyLimitAsync(otpKey, dailyEntry);
+        }
+
+        // ─── Login attempt lockout (Redis via IDistributedCache), keyed by định danh đăng nhập ───
+        private static string LoginAttemptKey(string identifier) => $"login:fail:{identifier.Trim().ToLowerInvariant()}";
+
+        private sealed class LoginAttemptEntry
+        {
+            public int FailCount { get; set; }
+            public DateTime LockedUntilUtc { get; set; }
+        }
+
+        private async Task<LoginAttemptEntry?> GetLoginAttemptAsync(string key)
+        {
+            var json = await _cache.GetStringAsync(key);
+            return string.IsNullOrEmpty(json) ? null : JsonSerializer.Deserialize<LoginAttemptEntry>(json);
+        }
+
+        // Mỗi lần sai reset TTL của cả cửa sổ đếm — nghĩa là chuỗi lần sai phải liên tiếp trong
+        // vòng LoginLockoutMinutes phút mới cộng dồn; im lặng quá lâu thì bộ đếm tự hết hạn về 0.
+        private Task SaveLoginAttemptAsync(string key, LoginAttemptEntry entry) =>
+            _cache.SetStringAsync(key, JsonSerializer.Serialize(entry), new DistributedCacheEntryOptions
+            {
+                AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(LoginLockoutMinutes)
+            });
+
+        private async Task RecordFailedLoginAttemptAsync(string key)
+        {
+            var entry = await GetLoginAttemptAsync(key) ?? new LoginAttemptEntry();
+            entry.FailCount++;
+            if (entry.FailCount >= MaxLoginAttempts)
+                entry.LockedUntilUtc = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow.AddMinutes(LoginLockoutMinutes);
+            await SaveLoginAttemptAsync(key, entry);
+        }
+
+        private Task ClearLoginAttemptAsync(string key) => _cache.RemoveAsync(key);
 
         private static bool IsUniquePhoneConflict(DbUpdateException ex)
         {

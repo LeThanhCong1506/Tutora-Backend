@@ -2,10 +2,12 @@ using FirebaseAdmin;
 using Google.Apis.Auth.OAuth2;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
+using System.Threading.RateLimiting;
 using MV.ApplicationLayer.Hubs;
 using MV.ApplicationLayer.Interfaces;
 using MV.ApplicationLayer.ServiceInterfaces;
@@ -565,6 +567,63 @@ builder.Services.AddAuthorization(options =>
 });
 builder.Services.AddSingleton<Microsoft.AspNetCore.Authorization.IAuthorizationHandler, MV.PresentationLayer.Authorization.PermissionRequirementHandler>();
 
+// Chống spam/brute-force ở endpoint đăng nhập: tối đa 10 request/phút cho mỗi IP.
+// Đây là lớp chặn theo IP (dội request từ 1 nguồn, bất kể nhắm vào tài khoản nào);
+// khóa theo TỪNG tài khoản khi sai nhiều lần được xử lý riêng trong SimpleAuthService
+// (Redis, MaxLoginAttempts/LoginLockoutMinutes) — hai lớp bổ sung cho nhau.
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+
+    // Mặc định khi bị rate-limit, middleware trả 429 với BODY RỖNG — FE không có
+    // error.response.data.message để hiển thị, nên rơi về các message fallback rời rạc,
+    // khác nhau giữa từng trang (VerifyPhonePage: "Request failed with status code 429"
+    // ở nút Xác nhận vs "Không gửi lại được mã..." ở nút Gửi lại mã — cùng 1 nguyên nhân
+    // 429 nhưng 2 chỗ catch khác nhau tự bịa fallback text khác nhau). Viết JSON body
+    // đúng format APIResponse (message/statusCode) để FE hiển thị đúng lý do + số giây
+    // cần đợi, thống nhất ở mọi endpoint dùng rate limiter.
+    options.OnRejected = async (context, cancellationToken) =>
+    {
+        var retryAfterSeconds = 60;
+        if (context.Lease.TryGetMetadata(MetadataName.RetryAfter, out var retryAfter))
+            retryAfterSeconds = (int)Math.Ceiling(retryAfter.TotalSeconds);
+
+        context.HttpContext.Response.Headers["Retry-After"] = retryAfterSeconds.ToString();
+        context.HttpContext.Response.ContentType = "application/json";
+        var body = System.Text.Json.JsonSerializer.Serialize(new
+        {
+            statusCode = StatusCodes.Status429TooManyRequests,
+            message = $"Bạn đã gửi quá nhiều yêu cầu. Vui lòng thử lại sau {retryAfterSeconds} giây.",
+            error = (object?)null
+        });
+        await context.HttpContext.Response.WriteAsync(body, cancellationToken);
+    };
+
+    options.AddPolicy("login", httpContext => RateLimitPartition.GetFixedWindowLimiter(
+        partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+        factory: _ => new FixedWindowRateLimiterOptions
+        {
+            Window = TimeSpan.FromMinutes(1),
+            PermitLimit = 10,
+            QueueLimit = 0,
+            QueueProcessingOrder = QueueProcessingOrder.OldestFirst
+        }));
+
+    // Endpoint gửi/xác thực OTP qua Zalo ZNS (register, resend-phone-otp, forgot-password,
+    // verify-phone, reset-password) — giới hạn chặt hơn "login" vì mỗi lần gửi tốn phí ZNS
+    // thật; cooldown thực sự chống spam gửi lặp nằm ở SimpleAuthService (Redis, theo từng số
+    // điện thoại) — policy IP này chỉ chặn dội request thô, không phân biệt số điện thoại.
+    options.AddPolicy("otp", httpContext => RateLimitPartition.GetFixedWindowLimiter(
+        partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+        factory: _ => new FixedWindowRateLimiterOptions
+        {
+            Window = TimeSpan.FromMinutes(1),
+            PermitLimit = 5,
+            QueueLimit = 0,
+            QueueProcessingOrder = QueueProcessingOrder.OldestFirst
+        }));
+});
+
 if (args.Any(arg => string.Equals(arg, "--run-managed-migrations", StringComparison.OrdinalIgnoreCase)))
 {
     await ManagedMigrationRunner.RunAsync(builder.Configuration);
@@ -636,6 +695,7 @@ app.UseStaticFiles();
 
 app.UseAuthentication();
 app.UseAuthorization();
+app.UseRateLimiter();
 
 // M4-T6: Hangfire Dashboard (optional, for monitoring jobs)
 app.UseHangfireDashboard("/hangfire", new DashboardOptions
