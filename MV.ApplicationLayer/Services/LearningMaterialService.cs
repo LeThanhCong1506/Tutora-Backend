@@ -86,6 +86,7 @@ public class LearningMaterialService(
     private static bool IsPartyToBooking(Booking booking, string actorUserId) =>
         booking.Tutorid == actorUserId
         || booking.Parentid == actorUserId
+        || booking.Studentid == actorUserId
         || booking.Student?.Linkeduserid == actorUserId;
 
     private static LearningMaterialResponse MapToResponse(Learningmaterial m) => new()
