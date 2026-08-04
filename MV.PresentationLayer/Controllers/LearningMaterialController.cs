@@ -60,25 +60,6 @@ public class LearningMaterialController(ILearningMaterialService materialService
         }
     }
 
-    [HttpPatch("{materialId}")]
-    public async Task<IActionResult> UpdateVisibility(int bookingId, int materialId, [FromBody] UpdateMaterialVisibilityRequest request)
-    {
-        try
-        {
-            var tutorId = UserHelper.GetUserId(User);
-            var result = await materialService.UpdateVisibilityAsync(bookingId, materialId, tutorId, request.IsPublic);
-            return Ok(APIResponse<LearningMaterialResponse>.Success(result, "Cập nhật tài liệu thành công."));
-        }
-        catch (NotFoundException ex)
-        {
-            return NotFound(APIResponse.Fail(ex.Message, 404));
-        }
-        catch (BadRequestException ex)
-        {
-            return BadRequest(APIResponse.Fail(ex.Message));
-        }
-    }
-
     [HttpDelete("{materialId}")]
     public async Task<IActionResult> DeleteMaterial(int bookingId, int materialId)
     {
