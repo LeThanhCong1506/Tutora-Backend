@@ -20,6 +20,16 @@ public class SocialRegistrationService : ISocialRegistrationService
     private const int SessionExpiryMinutes = 15;
     private const int OtpExpiryMinutes = 5;
     private const int MaxOtpAttempts = 5;
+
+    // Cooldown chống spam gửi OTP qua Zalo ZNS — dùng ĐÚNG format key
+    // "otp:phone:{phone}" mà SimpleAuthService dùng, để 1 số điện thoại bị
+    // spam qua đăng ký social (Google/Zalo) và đăng ký thường (email/SĐT)
+    // đều cộng dồn vào cùng 1 cooldown, không lách được bằng cách đổi đường đăng ký.
+    private const int OtpResendCooldownSeconds = 60;
+
+    // Giới hạn tổng số lần gửi OTP/24h cho CÙNG 1 số điện thoại — dùng chung key với
+    // SimpleAuthService nên cộng dồn chung giữa 2 đường đăng ký (social + thường).
+    private const int MaxOtpSendsPerDay = 5;
     private static readonly Regex PhoneRegex = new(
         @"^\+?\d{9,15}$",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
@@ -158,6 +168,18 @@ public class SocialRegistrationService : ISocialRegistrationService
             };
         }
 
+        var blockReason = await GetOtpBlockReasonAsync(phone);
+        if (blockReason != null)
+        {
+            return new TokenResponse
+            {
+                RequiresPhoneVerification = true,
+                SocialRegistrationToken = request.SocialRegistrationToken,
+                Phone = phone,
+                ErrorMessage = blockReason
+            };
+        }
+
         session.Phone = phone;
         session.OtpCode = GenerateOtpCode();
         session.OtpAttempts = 0;
@@ -166,6 +188,7 @@ public class SocialRegistrationService : ISocialRegistrationService
 
         await SaveSessionAsync(request.SocialRegistrationToken, session);
         await _otpSender.SendOtpAsync(phone, session.OtpCode);
+        await MarkOtpSentAsync(phone);
 
         return new TokenResponse
         {
@@ -286,12 +309,25 @@ public class SocialRegistrationService : ISocialRegistrationService
             };
         }
 
+        var resendBlockReason = await GetOtpBlockReasonAsync(session.Phone);
+        if (resendBlockReason != null)
+        {
+            return new TokenResponse
+            {
+                RequiresPhoneVerification = true,
+                SocialRegistrationToken = request.SocialRegistrationToken,
+                Phone = session.Phone,
+                ErrorMessage = resendBlockReason
+            };
+        }
+
         session.OtpCode = GenerateOtpCode();
         session.OtpAttempts = 0;
         session.OtpExpiresAtUtc = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow.AddMinutes(OtpExpiryMinutes);
         session.ExpiresAtUtc = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow.AddMinutes(SessionExpiryMinutes);
         await SaveSessionAsync(request.SocialRegistrationToken, session);
         await _otpSender.SendOtpAsync(session.Phone, session.OtpCode);
+        await MarkOtpSentAsync(session.Phone);
 
         return new TokenResponse
         {
@@ -459,6 +495,74 @@ public class SocialRegistrationService : ISocialRegistrationService
         => RandomNumberGenerator.GetInt32(100000, 1000000).ToString();
 
     private static string SessionKey(string token) => $"social-auth:{token.Trim()}";
+
+    private static string OtpCooldownKey(string phone) => $"otp:phone:{phone.Trim()}:cooldown";
+
+    private async Task<int> GetOtpCooldownSecondsLeftAsync(string phone)
+    {
+        var raw = await _cache.GetStringAsync(OtpCooldownKey(phone));
+        if (string.IsNullOrEmpty(raw)
+            || !DateTime.TryParse(raw, null, System.Globalization.DateTimeStyles.RoundtripKind, out var sentAtUtc))
+            return 0;
+
+        var secondsLeft = OtpResendCooldownSeconds
+            - (MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow - sentAtUtc).TotalSeconds;
+        return secondsLeft > 0 ? (int)Math.Ceiling(secondsLeft) : 0;
+    }
+
+    private static string OtpDailyLimitKey(string phone) => $"otp:phone:{phone.Trim()}:daily";
+
+    private sealed class OtpDailyLimitEntry
+    {
+        public int Count { get; set; }
+        public DateTime WindowStartUtc { get; set; }
+    }
+
+    private async Task<OtpDailyLimitEntry> GetOtpDailyLimitAsync(string phone)
+    {
+        var raw = await _cache.GetStringAsync(OtpDailyLimitKey(phone));
+        if (!string.IsNullOrEmpty(raw))
+        {
+            var entry = JsonSerializer.Deserialize<OtpDailyLimitEntry>(raw)!;
+            if (MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow - entry.WindowStartUtc < TimeSpan.FromHours(24))
+                return entry;
+        }
+        return new OtpDailyLimitEntry { Count = 0, WindowStartUtc = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow };
+    }
+
+    private Task SaveOtpDailyLimitAsync(string phone, OtpDailyLimitEntry entry)
+    {
+        var remaining = TimeSpan.FromHours(24) - (MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow - entry.WindowStartUtc);
+        if (remaining <= TimeSpan.Zero) remaining = TimeSpan.FromSeconds(1);
+        return _cache.SetStringAsync(OtpDailyLimitKey(phone), JsonSerializer.Serialize(entry),
+            new DistributedCacheEntryOptions { AbsoluteExpirationRelativeToNow = remaining });
+    }
+
+    /// <summary>Check cả cooldown 60s VÀ giới hạn tổng số/ngày. Trả về lý do bị chặn, null nếu được gửi.</summary>
+    private async Task<string?> GetOtpBlockReasonAsync(string phone)
+    {
+        var cooldownLeft = await GetOtpCooldownSecondsLeftAsync(phone);
+        if (cooldownLeft > 0)
+            return $"Vui lòng đợi {cooldownLeft} giây trước khi gửi lại mã.";
+
+        var dailyEntry = await GetOtpDailyLimitAsync(phone);
+        if (dailyEntry.Count >= MaxOtpSendsPerDay)
+            return $"Số điện thoại này đã đạt giới hạn {MaxOtpSendsPerDay} lần gửi OTP trong 24 giờ. Vui lòng thử lại sau.";
+
+        return null;
+    }
+
+    private async Task MarkOtpSentAsync(string phone)
+    {
+        await _cache.SetStringAsync(
+            OtpCooldownKey(phone),
+            MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow.ToString("o"),
+            new DistributedCacheEntryOptions { AbsoluteExpirationRelativeToNow = TimeSpan.FromSeconds(OtpResendCooldownSeconds) });
+
+        var dailyEntry = await GetOtpDailyLimitAsync(phone);
+        dailyEntry.Count++;
+        await SaveOtpDailyLimitAsync(phone, dailyEntry);
+    }
 
     private static string? NormalizeRole(string? role)
     {
