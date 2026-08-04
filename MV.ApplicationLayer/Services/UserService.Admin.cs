@@ -337,6 +337,8 @@ namespace MV.ApplicationLayer.Services
                 ?? throw new UserNotFoundException(userId);
 
             user.Status = 0;
+            user.Isdeactivated = true;
+            user.Deactivatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
             await _unitOfWork.UserRepository.UpdateUserAsync(user);
 
             // Also hide tutor profile from search results
@@ -356,6 +358,8 @@ namespace MV.ApplicationLayer.Services
                 ?? throw new UserNotFoundException(userId);
 
             user.Status = 1;
+            user.Isdeactivated = false;
+            user.Deactivatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
             await _unitOfWork.UserRepository.UpdateUserAsync(user);
 
             // Chặn/mở khóa và tạm ngưng cùng ghi vào users.Status, nên bỏ qua bảng

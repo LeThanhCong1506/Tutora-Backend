@@ -2652,6 +2652,12 @@ entity.HasOne(d => d.Tutor).WithOne(p => p.Tutorprofile)
             entity.Property(e => e.Deactivatedat)
                 .HasColumnType("timestamp without time zone")
                 .HasColumnName("deactivated_at");
+            entity.Property(e => e.Isdeleted)
+                .HasDefaultValue(false)
+                .HasColumnName("is_deleted");
+            entity.Property(e => e.Deletedat)
+                .HasColumnType("timestamp without time zone")
+                .HasColumnName("deleted_at");
             entity.Property(e => e.AiCreditsBalance)
                 .HasDefaultValue(0)
                 .HasColumnName("ai_credits_balance");

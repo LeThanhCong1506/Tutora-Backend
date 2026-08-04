@@ -312,6 +312,8 @@ namespace MV.InfrastructureLayer.Repositories
             // Soft Delete: Không xóa khỏi DB, chỉ đổi Status
             // Giả sử Status = 0 là Deleted/Banned
             user.Status = 0;
+            user.Isdeleted = true;
+            user.Deletedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
             _context.Users.Update(user);
 
             return Task.CompletedTask;

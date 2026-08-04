@@ -72,8 +72,14 @@ public partial class User
     /// <summary>Người dùng tự tạm khóa tài khoản của mình (self-deactivation).</summary>
     public bool? Isdeactivated { get; set; }
 
-    /// <summary>Thời điểm người dùng tự tạm khóa tài khoản.</summary>
+    /// <summary>Thời điểm người dùng tự tạm khóa tài khoản (hoặc admin Chặn/Mở khóa — ghi lại mỗi lần đổi trạng thái).</summary>
     public DateTime? Deactivatedat { get; set; }
+
+    /// <summary>Tài khoản đã bị Admin xóa (soft-delete) — cột đã tồn tại trong DB từ trước nhưng chưa từng được map/ghi ở đây.</summary>
+    public bool? Isdeleted { get; set; }
+
+    /// <summary>Thời điểm Admin xóa tài khoản.</summary>
+    public DateTime? Deletedat { get; set; }
 
     /// <summary>Cache số dư AI credit hiện tại — nguồn chi tiết nằm ở <see cref="AiCreditTransaction"/>.</summary>
     public int AiCreditsBalance { get; set; }
