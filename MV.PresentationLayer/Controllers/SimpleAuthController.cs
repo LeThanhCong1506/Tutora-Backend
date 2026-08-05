@@ -17,6 +17,11 @@ namespace MV.PresentationLayer.Controllers
             _simpleAuthService = simpleAuthService;
         }
 
+        // tutora-mobile gửi header này ở mọi request (xem api_client.dart); web/Zalo Mini
+        // App không gửi gì → mặc định coi là web. Dùng để loại app mobile khỏi luật
+        // "chỉ 1 phiên web active tại 1 thời điểm" (xem SimpleAuthService.KickOtherWebSessionsAsync).
+        private string? ClientPlatform => Request.Headers["X-Client-Platform"].ToString() is { Length: > 0 } value ? value : null;
+
         /// <summary>
         /// Simple login without Supabase.
         /// </summary>
@@ -24,7 +29,7 @@ namespace MV.PresentationLayer.Controllers
         [EnableRateLimiting("login")]
         public async Task<IActionResult> Login([FromBody] SimpleLoginRequest request)
         {
-            var result = await _simpleAuthService.SimpleLoginAsync(request);
+            var result = await _simpleAuthService.SimpleLoginAsync(request, ClientPlatform);
 
             // Chưa xác thực số điện thoại → FE chuyển sang màn nhập OTP (không phải lỗi sai mật khẩu)
             if (result.RequiresPhoneVerification)
@@ -68,7 +73,7 @@ namespace MV.PresentationLayer.Controllers
         [EnableRateLimiting("otp")]
         public async Task<IActionResult> VerifyPhone([FromBody] VerifyPhoneOtpRequest request)
         {
-            var result = await _simpleAuthService.VerifyPhoneOtpAsync(request);
+            var result = await _simpleAuthService.VerifyPhoneOtpAsync(request, ClientPlatform);
 
             if (!string.IsNullOrEmpty(result.ErrorMessage))
             {
@@ -113,8 +118,7 @@ namespace MV.PresentationLayer.Controllers
                 return BadRequest(new APIResponse<object>(400, result.ErrorMessage, null));
             }
 
-            // Luôn trả success kể cả khi số không tồn tại (tránh dò số điện thoại).
-            return Ok(new APIResponse<object>(200, "Nếu số điện thoại tồn tại, mã OTP đặt lại mật khẩu đã được gửi.", new { phone = result.Phone }));
+            return Ok(new APIResponse<object>(200, "Mã OTP đặt lại mật khẩu đã được gửi.", new { phone = result.Phone }));
         }
 
         /// <summary>

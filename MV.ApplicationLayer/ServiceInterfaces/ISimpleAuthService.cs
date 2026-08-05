@@ -8,9 +8,9 @@ namespace MV.ApplicationLayer.ServiceInterfaces
     /// </summary>
     public interface ISimpleAuthService
     {
-        Task<TokenResponse> SimpleLoginAsync(SimpleLoginRequest request);
+        Task<TokenResponse> SimpleLoginAsync(SimpleLoginRequest request, string? platform = null);
         Task<TokenResponse> SimpleRegisterAsync(SimpleRegisterRequest request);
-        Task<TokenResponse> VerifyPhoneOtpAsync(VerifyPhoneOtpRequest request);
+        Task<TokenResponse> VerifyPhoneOtpAsync(VerifyPhoneOtpRequest request, string? platform = null);
         Task<TokenResponse> ResendPhoneOtpAsync(ResendPhoneOtpRequest request);
         Task<TokenResponse> ForgotPasswordAsync(ForgotPasswordRequest request);
         Task<TokenResponse> ResetPasswordAsync(ResetPasswordRequest request);
