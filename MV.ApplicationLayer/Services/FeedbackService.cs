@@ -36,16 +36,19 @@ public class FeedbackService : IFeedbackService
             return await CreateEarlyTerminationFeedbackAsync(fromUserId, request);
         }
 
-        // Validate classSession belongs to parent's student
-        var studentIds = await _context.Studentprofiles
-            .Where(s => s.Parentid == fromUserId)
-            .Select(s => s.Studentid)
-            .ToListAsync();
-
         var classSession = await _context.ClassSessions
             .Include(l => l.Booking)
-            .FirstOrDefaultAsync(l => l.Classsessionid == request.ClassSessionId && studentIds.Contains(l.Studentid!))
+                .ThenInclude(b => b!.Student)
+            .FirstOrDefaultAsync(l => l.Classsessionid == request.ClassSessionId)
             ?? throw new ArgumentException("Không tìm thấy buổi học hoặc bạn không có quyền truy cập");
+
+        var isOwner = classSession.Booking != null && (
+            classSession.Booking.Parentid == fromUserId ||
+            classSession.Booking.Studentid == fromUserId ||
+            (classSession.Booking.Student != null && classSession.Booking.Student.Linkeduserid == fromUserId));
+
+        if (!isOwner)
+            throw new ArgumentException("Không tìm thấy buổi học hoặc bạn không có quyền truy cập");
 
         if (classSession.Status != Completed)
             throw new InvalidOperationException("Chỉ có thể đánh giá cho buổi học đã hoàn thành");
@@ -283,15 +286,19 @@ public class FeedbackService : IFeedbackService
     /// </summary>
     public async Task<bool> CanLeaveFeedbackAsync(int classSessionId, string userId)
     {
-        var studentIds = await _context.Studentprofiles
-            .Where(s => s.Parentid == userId)
-            .Select(s => s.Studentid)
-            .ToListAsync();
-
         var classSession = await _context.ClassSessions
-            .FirstOrDefaultAsync(l => l.Classsessionid == classSessionId && studentIds.Contains(l.Studentid!));
+            .Include(l => l.Booking)
+                .ThenInclude(b => b!.Student)
+            .FirstOrDefaultAsync(l => l.Classsessionid == classSessionId);
 
         if (classSession == null) return false;
+
+        var isOwner = classSession.Booking != null && (
+            classSession.Booking.Parentid == userId ||
+            classSession.Booking.Studentid == userId ||
+            (classSession.Booking.Student != null && classSession.Booking.Student.Linkeduserid == userId));
+
+        if (!isOwner) return false;
         if (classSession.Status != Completed) return false;
 
         var existingFeedback = await _context.Feedbacks.AnyAsync(f => f.Classsessionid == classSessionId);
