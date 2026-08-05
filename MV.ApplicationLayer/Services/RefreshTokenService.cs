@@ -1,5 +1,7 @@
-﻿using Microsoft.Extensions.Configuration;
+﻿using Microsoft.Extensions.Caching.Distributed;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using MV.ApplicationLayer.Helpers;
 using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO.ResponseModel;
@@ -16,17 +18,20 @@ namespace MV.ApplicationLayer.Services
         private readonly IAuthenticationRepository _authenticationRepository;
         private readonly IConfiguration _configuration;
         private readonly ILogger<RefreshTokenService> _logger;
+        private readonly IDistributedCache _cache;
 
         public RefreshTokenService(
             IUnitOfWork unitOfWork,
             IAuthenticationRepository authenticationRepository,
             IConfiguration configuration,
-            ILogger<RefreshTokenService> logger)
+            ILogger<RefreshTokenService> logger,
+            IDistributedCache cache)
         {
             _unitOfWork = unitOfWork;
             _authenticationRepository = authenticationRepository;
             _configuration = configuration;
             _logger = logger;
+            _cache = cache;
         }
 
         public async Task<TokenResponse> RefreshAsync(string accessToken, string refreshToken)
@@ -145,6 +150,17 @@ namespace MV.ApplicationLayer.Services
                 storedToken.Replacedbytokenhash = newTokenHash;
                 await _unitOfWork.RefreshTokenRepository.CreateAsync(newRefreshToken);
                 await _unitOfWork.SaveChangesAsync();
+
+                // Nếu token đang rotate CHÍNH LÀ token đang được WebSessionTracker trỏ tới (tức
+                // đây là phiên web đang theo dõi), dời con trỏ sang token mới để phiên web vẫn
+                // được nhận diện đúng sau khi rotate. Nếu không khớp — token này là mobile, hoặc
+                // 1 phiên web cũ đã bị thay thế — bỏ qua, không đụng gì tới con trỏ. Không có
+                // bước nào ở đây cần biết token đang rotate là platform gì.
+                var currentWebTokenId = await WebSessionTracker.GetCurrentAsync(_cache, userId);
+                if (currentWebTokenId == storedToken.Id)
+                {
+                    await WebSessionTracker.SetAsync(_cache, userId, newRefreshToken.Id, TimeSpan.FromDays(expiryDays));
+                }
 
                 return new TokenResponse
                 {
