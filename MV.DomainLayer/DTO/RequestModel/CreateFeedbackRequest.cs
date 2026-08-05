@@ -1,22 +1,18 @@
 using System.ComponentModel.DataAnnotations;
-using MV.DomainLayer.Constants;
 
 namespace MV.DomainLayer.DTO.RequestModel;
 
 /// <summary>
-/// Request for parent/student to create feedback for tutor
+/// Request for parent/student to review a completed booking.
+/// Mỗi người chỉ đánh giá được một lần cho mỗi booking (ràng buộc UNIQUE(booking_id, from_user_id)).
 /// </summary>
 public class CreateFeedbackRequest
 {
     /// <summary>
-    /// ClassSession ID being reviewed
+    /// Booking ID being reviewed
     /// </summary>
-    public int? ClassSessionId { get; set; }
-
-    /// <summary>
-    /// Booking ID being reviewed (used for early termination feedback)
-    /// </summary>
-    public int? BookingId { get; set; }
+    [Required(ErrorMessage = "Vui lòng cung cấp BookingId để đánh giá")]
+    public int BookingId { get; set; }
 
     /// <summary>
     /// Rating from 1 to 5
@@ -26,15 +22,10 @@ public class CreateFeedbackRequest
     public int Rating { get; set; }
 
     /// <summary>
-    /// Comment about the classSession/tutor
+    /// Comment about the course/tutor
     /// </summary>
     [StringLength(1000, ErrorMessage = "Nhận xét không được vượt quá 1000 ký tự")]
     public string? Comment { get; set; }
-
-    /// <summary>
-    /// Feedback type: post_lesson, early_cancellation
-    /// </summary>
-    public string FeedbackType { get; set; } = MV.DomainLayer.Constants.FeedbackType.PostLesson;
 
     /// <summary>
     /// Initial learning goal
