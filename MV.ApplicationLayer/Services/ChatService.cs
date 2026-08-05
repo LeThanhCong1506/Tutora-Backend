@@ -1,5 +1,6 @@
 ﻿using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Logging;
+using MV.ApplicationLayer.Helpers;
 using MV.ApplicationLayer.Hubs;
 using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.Constants;
@@ -194,8 +195,11 @@ public class ChatService(
         var booking = await bookingRepo.FindWithStudentAsync(bookingId);
         if (booking == null) return;
 
+        var (payerId, payerIsStudent) = BookingPayerResolver.Resolve(booking);
         var channel = await chatRepo.FindChannelByParticipantsAsync(
-            booking.Tutorid!, booking.Parentid, null);
+            booking.Tutorid!,
+            payerIsStudent ? null : payerId,
+            payerIsStudent ? payerId : null);
         if (channel == null) return;
 
                 var senderId = booking.Tutorid ?? SystemActors.System;

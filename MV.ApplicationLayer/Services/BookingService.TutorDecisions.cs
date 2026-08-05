@@ -78,9 +78,11 @@ public partial class BookingService
             }
         }
 
+        var (counterpartId, counterpartIsStudent) = BookingPayerResolver.Resolve(booking);
+
         if (alreadyAccepted)
         {
-            var existingChannelId = await chatService.GetOrCreateChannelAsync(booking.Parentid!, tutorId);
+            var existingChannelId = await chatService.GetOrCreateChannelAsync(counterpartId!, tutorId, counterpartIsStudent);
             return new TutorDecisionResponse
             {
                 Booking = MapToResponse(booking, booking.Student, booking.Tutor, booking.Tutorsubjectgradeprice?.Subject),
@@ -96,7 +98,7 @@ public partial class BookingService
         var channelId = 0;
         try
         {
-            channelId = await chatService.GetOrCreateChannelAsync(booking.Parentid!, tutorId);
+            channelId = await chatService.GetOrCreateChannelAsync(counterpartId!, tutorId, counterpartIsStudent);
             await chatService.SendMessageAsync(tutorId, channelId, new ChatMessageCreateRequest
             {
                 Content = "✅ Gia sư đã chấp nhận yêu cầu đặt lịch",
@@ -183,9 +185,10 @@ public partial class BookingService
             throw;
         }
 
+        var (declineCounterpartId, declineCounterpartIsStudent) = BookingPayerResolver.Resolve(booking);
         try
         {
-            var channelId = await chatService.GetOrCreateChannelAsync(booking.Parentid!, tutorId);
+            var channelId = await chatService.GetOrCreateChannelAsync(declineCounterpartId!, tutorId, declineCounterpartIsStudent);
             await chatService.SendMessageAsync(tutorId, channelId, new ChatMessageCreateRequest
             {
                 Content = string.IsNullOrWhiteSpace(reason)
