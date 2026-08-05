@@ -7,8 +7,6 @@ using MV.DomainLayer.DTO.ResponseModel;
 using MV.DomainLayer.Entities;
 using MV.DomainLayer.Helpers;
 using MV.ApplicationLayer.Interfaces;
-using static MV.DomainLayer.Constants.ClassSessionStatus;
-using static MV.DomainLayer.Constants.PaymentStatus;
 
 namespace MV.ApplicationLayer.Services;
 
@@ -27,48 +25,44 @@ public class FeedbackService : IFeedbackService
     }
 
     /// <summary>
-    /// Create feedback for a classSession
+    /// Create the booking review. Người học đánh giá một lần cho cả khóa sau khi booking hoàn thành.
     /// </summary>
     public async Task<FeedbackListResponse> CreateFeedbackAsync(string fromUserId, CreateFeedbackRequest request)
     {
-        if (request.FeedbackType == FeedbackType.EarlyTermination)
-        {
-            return await CreateEarlyTerminationFeedbackAsync(fromUserId, request);
-        }
+        var bookingId = request.BookingId;
 
-        var classSession = await _context.ClassSessions
-            .Include(l => l.Booking)
-                .ThenInclude(b => b!.Student)
-            .FirstOrDefaultAsync(l => l.Classsessionid == request.ClassSessionId)
-            ?? throw new ArgumentException("Không tìm thấy buổi học hoặc bạn không có quyền truy cập");
+        var booking = await _context.Bookings
+            .Include(b => b.Student)
+            .FirstOrDefaultAsync(b => b.Bookingid == bookingId)
+            ?? throw new ArgumentException("Không tìm thấy khóa học");
 
-        var isOwner = classSession.Booking != null && (
-            classSession.Booking.Parentid == fromUserId ||
-            classSession.Booking.Studentid == fromUserId ||
-            (classSession.Booking.Student != null && classSession.Booking.Student.Linkeduserid == fromUserId));
+        if (!CanReviewBooking(booking, fromUserId))
+            throw new ArgumentException("Bạn không có quyền đánh giá khóa học này");
 
-        if (!isOwner)
-            throw new ArgumentException("Không tìm thấy buổi học hoặc bạn không có quyền truy cập");
+        if (booking.Status != BookingStatus.Completed)
+            throw new InvalidOperationException("Chỉ có thể đánh giá khi khóa học đã hoàn thành");
 
-        if (classSession.Status != Completed)
-            throw new InvalidOperationException("Chỉ có thể đánh giá cho buổi học đã hoàn thành");
-
-        // Check if feedback already exists
+        // Chặn theo booking chứ không theo người: một booking chỉ đóng góp đúng một điểm cho
+        // gia sư. Chặt hơn ràng buộc UNIQUE(booking_id, from_user_id) ở DB, đồng thời loại luôn
+        // trường hợp booking đã có đánh giá theo buổi từ dữ liệu cũ.
         var existingFeedback = await _context.Feedbacks
-            .AnyAsync(f => f.Classsessionid == request.ClassSessionId);
+            .AnyAsync(f => f.Bookingid == bookingId);
 
         if (existingFeedback)
-            throw new InvalidOperationException("Buổi học này đã được đánh giá rồi");
+            throw new InvalidOperationException("Khóa học này đã được đánh giá rồi");
 
         var feedback = new Feedback
         {
-            Classsessionid = request.ClassSessionId,
-            Bookingid = classSession.Bookingid,
+            Classsessionid = null,
+            Bookingid = bookingId,
             Fromuserid = fromUserId,
-            Touserid = classSession.Tutorid,
+            Touserid = booking.Tutorid,
             Rating = request.Rating,
             Comment = request.Comment,
-            Feedbacktype = string.IsNullOrEmpty(request.FeedbackType) ? FeedbackType.ParentToTutor : request.FeedbackType,
+            Feedbacktype = FeedbackType.BookingReview,
+            InitialGoal = request.InitialGoal,
+            ActualResult = request.ActualResult,
+            CourseDuration = request.CourseDuration,
             Isvisible = true,
             Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
         };
@@ -77,20 +71,24 @@ public class FeedbackService : IFeedbackService
         await _context.SaveChangesAsync();
 
         // Recalculate tutor rating
-        if (classSession.Tutorid != null)
+        if (booking.Tutorid != null)
         {
-            await RecalculateTutorRatingAsync(classSession.Tutorid);
+            await RecalculateTutorRatingAsync(booking.Tutorid);
         }
 
-        _logger.LogInformation("Parent {ParentId} created feedback {FeedbackId} for classSession {ClassSessionId}",
-            fromUserId, feedback.Feedbackid, request.ClassSessionId);
+        _logger.LogInformation("User {UserId} created booking review {FeedbackId} for booking {BookingId}",
+            fromUserId, feedback.Feedbackid, bookingId);
 
         return new FeedbackListResponse
         {
             FeedbackId = feedback.Feedbackid,
-            ClassSessionId = request.ClassSessionId,
+            BookingId = bookingId,
             Rating = request.Rating,
             Comment = request.Comment,
+            FeedbackType = FeedbackType.BookingReview,
+            InitialGoal = request.InitialGoal,
+            ActualResult = request.ActualResult,
+            CourseDuration = request.CourseDuration,
             ParentName = (await _context.Users.FindAsync(fromUserId))?.Fullname,
             IsVisible = true,
             CreatedAt = feedback.Createdat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
@@ -104,8 +102,6 @@ public class FeedbackService : IFeedbackService
     {
         var feedback = await _context.Feedbacks
             .Include(f => f.Fromuser)
-            .Include(f => f.ClassSession)
-                .ThenInclude(l => l!.Booking)
             .FirstOrDefaultAsync(f => f.Feedbackid == feedbackId && f.Touserid == tutorId)
             ?? throw new ArgumentException("Không tìm thấy đánh giá hoặc bạn không có quyền thực hiện");
 
@@ -140,11 +136,6 @@ public class FeedbackService : IFeedbackService
         var query = _context.Feedbacks
             .AsNoTracking()
             .Where(f => f.Touserid == tutorId && f.Isvisible == true)
-            .Include(f => f.Fromuser)
-            .Include(f => f.ClassSession)
-                .ThenInclude(l => l!.Booking)
-                    .ThenInclude(b => b!.Tutorsubjectgradeprice)
-                        .ThenInclude(p => p!.Subject)
             .OrderByDescending(f => f.Createdat);
 
         var totalCount = await query.CountAsync();
@@ -155,12 +146,19 @@ public class FeedbackService : IFeedbackService
             .Select(f => new
             {
                 f.Feedbackid,
+                f.Bookingid,
                 f.Classsessionid,
                 f.Rating,
                 f.Comment,
+                f.Feedbacktype,
                 ParentName = f.Fromuser!.Fullname,
                 ParentAvatarUrl = f.Fromuser.Avatarurl,
-                SubjectName = f.ClassSession!.Booking!.Tutorsubjectgradeprice!.Subject!.Subjectname,
+                // Lấy môn từ booking chứ không từ class session: đánh giá khóa học không gắn
+                // với buổi nào nên đi qua ClassSession sẽ luôn ra null.
+                SubjectName = f.Booking!.Tutorsubjectgradeprice!.Subject!.Subjectname,
+                f.InitialGoal,
+                f.ActualResult,
+                f.CourseDuration,
                 Reply = f.Replycomment,
                 RepliedAt = f.Repliedat,
                 IsVisible = f.Isvisible,
@@ -171,12 +169,17 @@ public class FeedbackService : IFeedbackService
         var feedbacks = rawFeedbacks.Select(f => new FeedbackListResponse
         {
             FeedbackId = f.Feedbackid,
+            BookingId = f.Bookingid,
             ClassSessionId = f.Classsessionid,
             Rating = f.Rating ?? 0,
             Comment = f.Comment,
+            FeedbackType = f.Feedbacktype,
             ParentName = f.ParentName,
             ParentAvatarUrl = f.ParentAvatarUrl,
             SubjectName = f.SubjectName,
+            InitialGoal = f.InitialGoal,
+            ActualResult = f.ActualResult,
+            CourseDuration = f.CourseDuration,
             Reply = f.Reply,
             RepliedAt = f.RepliedAt,
             IsVisible = f.IsVisible ?? true,
@@ -282,98 +285,9 @@ public class FeedbackService : IFeedbackService
     }
 
     /// <summary>
-    /// Check if user can leave feedback for classSession
+    /// Check if user can review a booking. Cùng bộ điều kiện với <see cref="CreateFeedbackAsync"/>
+    /// để nút đánh giá trên FE không bao giờ hiện ra rồi submit lỗi.
     /// </summary>
-    public async Task<bool> CanLeaveFeedbackAsync(int classSessionId, string userId)
-    {
-        var classSession = await _context.ClassSessions
-            .Include(l => l.Booking)
-                .ThenInclude(b => b!.Student)
-            .FirstOrDefaultAsync(l => l.Classsessionid == classSessionId);
-
-        if (classSession == null) return false;
-
-        var isOwner = classSession.Booking != null && (
-            classSession.Booking.Parentid == userId ||
-            classSession.Booking.Studentid == userId ||
-            (classSession.Booking.Student != null && classSession.Booking.Student.Linkeduserid == userId));
-
-        if (!isOwner) return false;
-        if (classSession.Status != Completed) return false;
-
-        var existingFeedback = await _context.Feedbacks.AnyAsync(f => f.Classsessionid == classSessionId);
-        return !existingFeedback;
-    }
-
-    private async Task<FeedbackListResponse> CreateEarlyTerminationFeedbackAsync(string fromUserId, CreateFeedbackRequest request)
-    {
-        if (!request.BookingId.HasValue)
-            throw new ArgumentException("Vui lòng cung cấp BookingId để đánh giá kết thúc sớm");
-
-        var bookingId = request.BookingId.Value;
-
-        var booking = await _context.Bookings
-            .Include(b => b.Student)
-            .FirstOrDefaultAsync(b => b.Bookingid == bookingId)
-            ?? throw new ArgumentException("Không tìm thấy booking");
-
-        var isOwner = booking.Parentid == fromUserId ||
-                      booking.Studentid == fromUserId ||
-                      (booking.Student != null && booking.Student.Linkeduserid == fromUserId);
-
-        if (!isOwner)
-            throw new ArgumentException("Bạn không có quyền đánh giá booking này");
-
-        if (booking.Status != BookingStatus.Cancelled && booking.Status != BookingStatus.Completed && booking.Status != BookingStatus.PaymentTimeout)
-            throw new InvalidOperationException("Booking phải ở trạng thái đã hủy, hoàn thành hoặc quá hạn thanh toán để đánh giá kết thúc sớm");
-
-        if (booking.Paymentstatus != Escrowed)
-            throw new InvalidOperationException("Booking phải được thanh toán (cọc hoặc đầy đủ) để có thể đánh giá");
-
-        var existingFeedback = await _context.Feedbacks
-            .AnyAsync(f => f.Bookingid == bookingId && f.Fromuserid == fromUserId && f.Feedbacktype == FeedbackType.EarlyTermination);
-
-        if (existingFeedback)
-            throw new InvalidOperationException("Bạn đã đánh giá kết thúc sớm cho booking này rồi");
-
-        var feedback = new Feedback
-        {
-            Classsessionid = null,
-            Bookingid = bookingId,
-            Fromuserid = fromUserId,
-            Touserid = booking.Tutorid,
-            Rating = request.Rating,
-            Comment = request.Comment,
-            Feedbacktype = FeedbackType.EarlyTermination,
-            InitialGoal = request.InitialGoal,
-            ActualResult = request.ActualResult,
-            CourseDuration = request.CourseDuration,
-            Isvisible = true,
-            Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
-        };
-
-        _context.Feedbacks.Add(feedback);
-        await _context.SaveChangesAsync();
-
-        if (booking.Tutorid != null)
-        {
-            await RecalculateTutorRatingAsync(booking.Tutorid);
-        }
-
-        _logger.LogInformation("User {UserId} created early termination feedback {FeedbackId} for booking {BookingId}",
-            fromUserId, feedback.Feedbackid, bookingId);
-
-        return new FeedbackListResponse
-        {
-            FeedbackId = feedback.Feedbackid,
-            Rating = request.Rating,
-            Comment = request.Comment,
-            ParentName = (await _context.Users.FindAsync(fromUserId))?.Fullname,
-            IsVisible = true,
-            CreatedAt = feedback.Createdat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
-        };
-    }
-
     public async Task<bool> CanLeaveBookingFeedbackAsync(int bookingId, string userId)
     {
         var booking = await _context.Bookings
@@ -382,21 +296,24 @@ public class FeedbackService : IFeedbackService
 
         if (booking == null) return false;
 
-        var isOwner = booking.Parentid == userId ||
-                      booking.Studentid == userId ||
-                      (booking.Student != null && booking.Student.Linkeduserid == userId);
+        if (!CanReviewBooking(booking, userId)) return false;
 
-        if (!isOwner) return false;
-
-        if (booking.Status != BookingStatus.Cancelled && booking.Status != BookingStatus.Completed && booking.Status != BookingStatus.PaymentTimeout)
-            return false;
-
-        if (booking.Paymentstatus != Escrowed)
-            return false;
+        if (booking.Status != BookingStatus.Completed) return false;
 
         var existingFeedback = await _context.Feedbacks
-            .AnyAsync(f => f.Bookingid == bookingId && f.Fromuserid == userId && f.Feedbacktype == FeedbackType.EarlyTermination);
+            .AnyAsync(f => f.Bookingid == bookingId);
 
         return !existingFeedback;
     }
+
+    /// <summary>
+    /// Ai được đánh giá booking. Mỗi booking chỉ sinh ra đúng một điểm cho gia sư, nên khi
+    /// booking có phụ huynh thì chỉ phụ huynh đánh giá — học sinh liên kết không đánh giá thêm
+    /// lần nữa. Booking do học sinh tự đăng ký đặt (<c>Parentid</c> null) thì chính học sinh đánh giá.
+    /// </summary>
+    private static bool CanReviewBooking(Booking booking, string userId)
+        => string.IsNullOrEmpty(booking.Parentid)
+            ? booking.Studentid == userId ||
+              (booking.Student != null && booking.Student.Linkeduserid == userId)
+            : booking.Parentid == userId;
 }

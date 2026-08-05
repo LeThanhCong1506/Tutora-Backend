@@ -25,7 +25,7 @@ public class FeedbackController : ControllerBase
     }
 
     /// <summary>
-    /// Create feedback for a classSession (parent)
+    /// Review a completed booking (parent/student). Mỗi người một đánh giá cho mỗi booking.
     /// </summary>
     [HttpPost]
     public async Task<ActionResult<APIResponse<FeedbackListResponse>>> CreateFeedback([FromBody] CreateFeedbackRequest request)
@@ -74,18 +74,7 @@ public class FeedbackController : ControllerBase
     }
 
     /// <summary>
-    /// Check if user can leave feedback for a classSession
-    /// </summary>
-    [HttpGet("eligibility/class-sessions/{id}")]
-    public async Task<ActionResult<APIResponse<bool>>> CanLeaveFeedback(int id)
-    {
-        var userId = UserHelper.GetUserId(User);
-        var result = await _feedbackService.CanLeaveFeedbackAsync(id, userId);
-        return Ok(APIResponse<bool>.Success(result, "Kiểm tra thành công."));
-    }
-
-    /// <summary>
-    /// Check if user can leave early termination feedback for a booking
+    /// Check if user can review a booking
     /// </summary>
     [HttpGet("eligibility/bookings/{id}")]
     public async Task<ActionResult<APIResponse<bool>>> CanLeaveBookingFeedback(int id)
