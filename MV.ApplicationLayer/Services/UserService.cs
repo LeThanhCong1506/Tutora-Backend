@@ -270,16 +270,30 @@ namespace MV.ApplicationLayer.Services
 
             var studentProfile = await _unitOfWork.StudentRepository.FindByStudentOrLinkedUserAsync(userId);
 
-            // Học sinh đã xác minh CCCD: ngày sinh lấy từ CCCD là nguồn chuẩn, không cho tự sửa
-            // (cùng quy tắc với StudentService.UpdateSelfProfileAsync).
-            var birthdateLocked = studentProfile != null && user.Isidentityverified == true;
+            // Đã xác minh CCCD (Student hoặc Tutor qua eKYC): họ tên & ngày sinh lấy từ CCCD là nguồn
+            // chuẩn, không cho tự sửa (cùng quy tắc với StudentService.UpdateSelfProfileAsync).
+            // Isidentityverified chỉ được set true bởi EkycService/StudentIdentityService nên không
+            // cần giới hạn theo role.
+            var identityLocked = user.Isidentityverified == true;
 
-            user.Fullname = request.Fullname;
+            if (!identityLocked)
+                user.Fullname = request.Fullname;
             user.Address = request.Address;
             user.Avatarurl = request.Avatarurl;
-            if (!birthdateLocked)
+            if (!identityLocked)
                 user.Birthdate = request.Birthdate;
             user.Gender = request.Gender;
+
+            if (!string.IsNullOrWhiteSpace(request.Email))
+            {
+                var email = request.Email.Trim();
+                if (!string.Equals(user.Email, email, StringComparison.OrdinalIgnoreCase))
+                {
+                    if (!await _unitOfWork.UserRepository.IsEmailUniqueAsync(email))
+                        throw new EmailAlreadyExistsException();
+                    user.Email = email;
+                }
+            }
 
             SyncStudentProfile(user, studentProfile);
 

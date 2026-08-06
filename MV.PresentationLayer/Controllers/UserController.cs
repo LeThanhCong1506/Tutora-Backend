@@ -74,6 +74,10 @@ namespace MV.PresentationLayer.Controllers
             {
                 return NotFound(APIResponse<object>.Fail(ApiMessages.UserNotFound, 404));
             }
+            catch (EmailAlreadyExistsException ex)
+            {
+                return BadRequest(APIResponse<object>.Fail(ex.Message, 400));
+            }
         }
 
         //[HttpPut("{id}/tutor-profile")]

@@ -16,9 +16,16 @@ public class TutorFinanceController(ITutorFinanceService financeService) : Contr
 {
     private string TutorId => User.FindFirstValue(ClaimTypes.NameIdentifier)!;
 
+    private void SetNoCacheResponseHeaders()
+    {
+        Response.Headers.CacheControl = "no-store, no-cache, max-age=0";
+        Response.Headers.Pragma = "no-cache";
+    }
+
     [HttpGet("finance/summary")]
     public async Task<IActionResult> GetSummary(CancellationToken ct)
     {
+        SetNoCacheResponseHeaders();
         try
         {
             var result = await financeService.GetSummaryAsync(TutorId, ct);
@@ -37,6 +44,7 @@ public class TutorFinanceController(ITutorFinanceService financeService) : Contr
         [FromQuery] DateTime? to = null,
         CancellationToken ct = default)
     {
+        SetNoCacheResponseHeaders();
         try
         {
             var result = await financeService.GetEarningsAsync(TutorId, period, from, to, ct);
@@ -57,6 +65,7 @@ public class TutorFinanceController(ITutorFinanceService financeService) : Contr
         [FromQuery] DateTime? to = null,
         CancellationToken ct = default)
     {
+        SetNoCacheResponseHeaders();
         try
         {
             var result = await financeService.GetTransactionsAsync(TutorId, page, pageSize, type, from, to, ct);
@@ -71,6 +80,7 @@ public class TutorFinanceController(ITutorFinanceService financeService) : Contr
     [HttpGet("finance/transactions/{id}")]
     public async Task<IActionResult> GetTransactionDetail(int id, CancellationToken ct)
     {
+        SetNoCacheResponseHeaders();
         try
         {
             var result = await financeService.GetTransactionDetailAsync(TutorId, id, ct);
@@ -85,6 +95,7 @@ public class TutorFinanceController(ITutorFinanceService financeService) : Contr
     [HttpGet("bank")]
     public async Task<IActionResult> GetBankInfo(CancellationToken ct)
     {
+        SetNoCacheResponseHeaders();
         try
         {
             var result = await financeService.GetBankInfoAsync(TutorId, ct);
@@ -148,6 +159,7 @@ public class TutorFinanceController(ITutorFinanceService financeService) : Contr
         [FromQuery] int pageSize = 20,
         CancellationToken ct = default)
     {
+        SetNoCacheResponseHeaders();
         try
         {
             var result = await financeService.GetWithdrawalsAsync(TutorId, page, pageSize, ct);
@@ -162,6 +174,7 @@ public class TutorFinanceController(ITutorFinanceService financeService) : Contr
     [HttpGet("withdrawals/{id}")]
     public async Task<IActionResult> GetWithdrawalDetail(int id, CancellationToken ct)
     {
+        SetNoCacheResponseHeaders();
         try
         {
             var result = await financeService.GetWithdrawalDetailAsync(TutorId, id, ct);
