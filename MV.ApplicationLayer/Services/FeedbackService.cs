@@ -98,6 +98,7 @@ public class FeedbackService : IFeedbackService
             ActualResult = request.ActualResult,
             CourseDuration = request.CourseDuration,
             ParentName = (await _context.Users.FindAsync(fromUserId))?.Fullname,
+            ReviewerRole = ReviewerRoleOf(booking.Parentid, fromUserId),
             IsVisible = true,
             CreatedAt = feedback.Createdat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
         };
@@ -217,8 +218,10 @@ public class FeedbackService : IFeedbackService
                 f.Rating,
                 f.Comment,
                 f.Feedbacktype,
+                f.Fromuserid,
                 ParentName = f.Fromuser!.Fullname,
                 ParentAvatarUrl = f.Fromuser.Avatarurl,
+                BookingParentId = f.Booking!.Parentid,
                 // Lấy môn từ booking chứ không từ class session: đánh giá khóa học không gắn
                 // với buổi nào nên đi qua ClassSession sẽ luôn ra null.
                 SubjectName = f.Booking!.Tutorsubjectgradeprice!.Subject!.Subjectname,
@@ -242,6 +245,7 @@ public class FeedbackService : IFeedbackService
             FeedbackType = f.Feedbacktype,
             ParentName = f.ParentName,
             ParentAvatarUrl = f.ParentAvatarUrl,
+            ReviewerRole = ReviewerRoleOf(f.BookingParentId, f.Fromuserid),
             SubjectName = f.SubjectName,
             InitialGoal = f.InitialGoal,
             ActualResult = f.ActualResult,
@@ -499,6 +503,7 @@ public class FeedbackService : IFeedbackService
             FeedbackType = feedback.Feedbacktype,
             ParentName = feedback.ParentName,
             ParentAvatarUrl = feedback.ParentAvatarUrl,
+            ReviewerRole = ReviewerRoleOf(booking.Parentid, feedback.Fromuserid),
             SubjectName = feedback.SubjectName,
             InitialGoal = feedback.InitialGoal,
             ActualResult = feedback.ActualResult,
@@ -608,8 +613,10 @@ public class FeedbackService : IFeedbackService
                 f.Rating,
                 f.Comment,
                 f.Feedbacktype,
+                f.Fromuserid,
                 ParentName = f.Fromuser!.Fullname,
                 ParentAvatarUrl = f.Fromuser.Avatarurl,
+                BookingParentId = f.Booking!.Parentid,
                 TutorName = f.Touser!.Fullname,
                 SubjectName = f.Booking!.Tutorsubjectgradeprice!.Subject!.Subjectname,
                 f.InitialGoal,
@@ -633,6 +640,7 @@ public class FeedbackService : IFeedbackService
             FeedbackType = f.Feedbacktype,
             ParentName = f.ParentName,
             ParentAvatarUrl = f.ParentAvatarUrl,
+            ReviewerRole = ReviewerRoleOf(f.BookingParentId, f.Fromuserid),
             TutorName = f.TutorName,
             HiddenReason = f.HiddenReason,
             HiddenAt = f.HiddenAt,
@@ -661,6 +669,15 @@ public class FeedbackService : IFeedbackService
     /// booking có phụ huynh thì chỉ phụ huynh đánh giá — học sinh liên kết không đánh giá thêm
     /// lần nữa. Booking do học sinh tự đăng ký đặt (<c>Parentid</c> null) thì chính học sinh đánh giá.
     /// </summary>
+    /// <summary>
+    /// Nhãn vai trò người viết đánh giá, để FE hiển thị "phụ huynh" hay "học viên" cho đúng.
+    /// Booking do học sinh tự đăng ký đặt không có <c>Parentid</c>.
+    /// </summary>
+    private static string ReviewerRoleOf(string? bookingParentId, string? fromUserId)
+        => !string.IsNullOrEmpty(bookingParentId) && bookingParentId == fromUserId
+            ? UserRole.Parent.ToLowerInvariant()
+            : UserRole.Student.ToLowerInvariant();
+
     private static bool CanReviewBooking(Booking booking, string userId)
         => string.IsNullOrEmpty(booking.Parentid)
             ? booking.Studentid == userId ||
