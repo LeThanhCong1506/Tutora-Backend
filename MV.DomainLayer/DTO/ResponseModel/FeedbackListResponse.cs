@@ -15,9 +15,16 @@ public class FeedbackListResponse
 
     public DateTime CreatedAt { get; set; }
 
-    // From user info
+    // From user info. Tên field giữ "Parent" vì lý do tương thích, nhưng người đánh giá có thể
+    // là học sinh tự đăng ký — xem <see cref="ReviewerRole"/> để hiển thị đúng nhãn.
     public string? ParentName { get; set; }
     public string? ParentAvatarUrl { get; set; }
+
+    /// <summary>
+    /// Ai viết đánh giá: <c>parent</c> khi trùng với người đặt lịch là phụ huynh,
+    /// <c>student</c> khi booking do học sinh tự đăng ký đặt.
+    /// </summary>
+    public string? ReviewerRole { get; set; }
 
     // Legacy compatibility
     public string? FromUserName => ParentName;

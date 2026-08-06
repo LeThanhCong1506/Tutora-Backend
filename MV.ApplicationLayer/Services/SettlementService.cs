@@ -269,7 +269,20 @@ public partial class SettlementService : ISettlementService
     /// </summary>
     private async Task NotifyBookingCompletedAsync(Booking booking)
     {
-        var recipientId = !string.IsNullOrEmpty(booking.Parentid) ? booking.Parentid : booking.Studentid;
+        var recipientId = booking.Parentid;
+
+        if (string.IsNullOrEmpty(recipientId) && !string.IsNullOrEmpty(booking.Studentid))
+        {
+            // Booking.Studentid trỏ tới studentprofiles.student_id, KHÔNG phải user id. Với học
+            // sinh tự đăng ký hai giá trị trùng nhau, nhưng hồ sơ do phụ huynh tạo thì student_id
+            // là mã sinh tự động — tra qua hồ sơ để lấy đúng tài khoản đăng nhập, khớp với
+            // FeedbackService.CanReviewBooking (Studentid hoặc Linkeduserid).
+            recipientId = await _context.Studentprofiles
+                .Where(s => s.Studentid == booking.Studentid)
+                .Select(s => s.Linkeduserid ?? s.Studentid)
+                .FirstOrDefaultAsync();
+        }
+
         if (string.IsNullOrEmpty(recipientId)) return;
 
         try
