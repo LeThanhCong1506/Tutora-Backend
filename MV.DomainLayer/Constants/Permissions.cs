@@ -37,6 +37,9 @@ public static class Permissions
     public const string WarningView = "warning.view";
     public const string SuspensionManage = "suspension.manage";
 
+    public const string FeedbackView = "feedback.view";
+    public const string FeedbackModerate = "feedback.moderate";
+
     public const string ExportData = "export.data";
 
     public const string NotificationSend = "notification.send";
@@ -72,6 +75,7 @@ public static class Permissions
         SystemAlertView, SystemAlertResolve,
         DisputeView, DisputeInvestigate, DisputeResolve,
         WarningCreate, WarningView, SuspensionManage,
+        FeedbackView, FeedbackModerate,
         ExportData,
         NotificationSend, NotificationView, NotificationDelete,
         LookupView, LookupCreate, LookupUpdate, LookupDelete,
@@ -134,6 +138,8 @@ public static class Permissions
         new(WarningView, "Xem lịch sử cảnh cáo và đình chỉ", "CMS / Nghiệp vụ", "Cảnh cáo & đình chỉ", "Xem"),
         new(WarningCreate, "Tạo cảnh cáo người dùng", "CMS / Nghiệp vụ", "Cảnh cáo & đình chỉ", "Thêm", WarningView),
         new(SuspensionManage, "Đình chỉ hoặc gỡ đình chỉ tài khoản", "CMS / Nghiệp vụ", "Cảnh cáo & đình chỉ", "Quản lý", WarningView),
+        new(FeedbackView, "Xem đánh giá gia sư", "CMS / Nghiệp vụ", "Đánh giá", "Xem"),
+        new(FeedbackModerate, "Ẩn hoặc hiện đánh giá", "CMS / Nghiệp vụ", "Đánh giá", "Kiểm duyệt", FeedbackView),
 
         new(NotificationView, "Xem thông báo hệ thống", "Khác", "Thông báo", "Xem"),
         new(NotificationSend, "Gửi thông báo", "Khác", "Thông báo", "Gửi", NotificationView),

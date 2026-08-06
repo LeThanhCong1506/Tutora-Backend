@@ -5,7 +5,9 @@ using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.DTO;
 using MV.DomainLayer.DTO.RequestModel;
 using MV.DomainLayer.DTO.ResponseModel;
+using MV.DomainLayer.DTO.ResponseModel.Admin;
 using MV.PresentationLayer.Helpers;
+using MV.PresentationLayer.Authorization;
 
 namespace MV.PresentationLayer.Controllers;
 
@@ -25,7 +27,7 @@ public class FeedbackController : ControllerBase
     }
 
     /// <summary>
-    /// Create feedback for a classSession (parent)
+    /// Review a completed booking (parent/student). Mỗi người một đánh giá cho mỗi booking.
     /// </summary>
     [HttpPost]
     public async Task<ActionResult<APIResponse<FeedbackListResponse>>> CreateFeedback([FromBody] CreateFeedbackRequest request)
@@ -33,6 +35,30 @@ public class FeedbackController : ControllerBase
         var parentId = UserHelper.GetUserId(User);
         var result = await _feedbackService.CreateFeedbackAsync(parentId, request);
         return Ok(APIResponse<FeedbackListResponse>.Success(result, "Tạo đánh giá thành công."));
+    }
+
+    /// <summary>
+    /// Sửa đánh giá đã gửi. Chỉ tác giả, và chỉ khi gia sư chưa phản hồi.
+    /// </summary>
+    [HttpPut("{id}")]
+    public async Task<ActionResult<APIResponse<FeedbackListResponse>>> UpdateFeedback(
+        int id,
+        [FromBody] UpdateFeedbackRequest request)
+    {
+        var userId = UserHelper.GetUserId(User);
+        var result = await _feedbackService.UpdateFeedbackAsync(id, userId, request);
+        return Ok(APIResponse<FeedbackListResponse>.Success(result, "Cập nhật đánh giá thành công."));
+    }
+
+    /// <summary>
+    /// Đánh giá của một booking, cho chính người đánh giá xem lại kèm phản hồi của gia sư.
+    /// </summary>
+    [HttpGet("bookings/{id}")]
+    public async Task<ActionResult<APIResponse<FeedbackListResponse?>>> GetBookingFeedback(int id)
+    {
+        var userId = UserHelper.GetUserId(User);
+        var result = await _feedbackService.GetBookingFeedbackAsync(id, userId);
+        return Ok(APIResponse<FeedbackListResponse?>.Success(result, "Lấy đánh giá thành công."));
     }
 
     /// <summary>
@@ -74,18 +100,7 @@ public class FeedbackController : ControllerBase
     }
 
     /// <summary>
-    /// Check if user can leave feedback for a classSession
-    /// </summary>
-    [HttpGet("eligibility/class-sessions/{id}")]
-    public async Task<ActionResult<APIResponse<bool>>> CanLeaveFeedback(int id)
-    {
-        var userId = UserHelper.GetUserId(User);
-        var result = await _feedbackService.CanLeaveFeedbackAsync(id, userId);
-        return Ok(APIResponse<bool>.Success(result, "Kiểm tra thành công."));
-    }
-
-    /// <summary>
-    /// Check if user can leave early termination feedback for a booking
+    /// Check if user can review a booking
     /// </summary>
     [HttpGet("eligibility/bookings/{id}")]
     public async Task<ActionResult<APIResponse<bool>>> CanLeaveBookingFeedback(int id)
@@ -96,14 +111,32 @@ public class FeedbackController : ControllerBase
     }
 
     /// <summary>
-    /// Toggle feedback visibility (admin)
+    /// Danh sách đánh giá cho CMS kiểm duyệt — gồm cả đánh giá đã bị ẩn.
+    /// </summary>
+    [HttpGet("admin")]
+    [RequirePermission(Permissions.FeedbackView)]
+    public async Task<ActionResult<APIResponse<AdminFeedbackListResponse>>> GetFeedbacksForAdmin(
+        [FromQuery] string? tutorId = null,
+        [FromQuery] int? rating = null,
+        [FromQuery] bool? isVisible = null,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20)
+    {
+        var result = await _feedbackService.GetFeedbacksForAdminAsync(tutorId, rating, isVisible, page, pageSize);
+        return Ok(APIResponse<AdminFeedbackListResponse>.Success(result, "Lấy danh sách đánh giá thành công."));
+    }
+
+    /// <summary>
+    /// Toggle feedback visibility (kiểm duyệt)
     /// </summary>
     [HttpPut("{id}/visibility")]
-    [Authorize(Roles = UserRole.Admin)]
-    public async Task<ActionResult<APIResponse<bool>>> ToggleVisibility(int id)
+    [RequirePermission(Permissions.FeedbackModerate)]
+    public async Task<ActionResult<APIResponse<bool>>> ToggleVisibility(
+        int id,
+        [FromBody] ToggleFeedbackVisibilityRequest? request = null)
     {
         var adminId = UserHelper.GetUserId(User);
-        var result = await _feedbackService.ToggleFeedbackVisibilityAsync(id, adminId);
+        var result = await _feedbackService.ToggleFeedbackVisibilityAsync(id, adminId, request?.Reason);
         return Ok(APIResponse<bool>.Success(result, "Đã thay đổi trạng thái hiển thị."));
     }
 }

@@ -16,6 +16,9 @@ namespace MV.DomainLayer.DTO.RequestModel
         [StringLength(255, ErrorMessage = "Address must not exceed 255 characters.")]
         public string? Address { get; set; }
 
+        [EmailAddress(ErrorMessage = "Invalid email format.")]
+        public string? Email { get; set; }
+
         [Required(ErrorMessage = "Gender must not be empty.")]
         [EnumDataType(typeof(Gender), ErrorMessage = "Gender value is invalid.")]
         public Gender? Gender { get; set; }

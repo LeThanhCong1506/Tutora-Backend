@@ -2,7 +2,6 @@
 using Microsoft.Extensions.Logging;
 using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.Constants;
-using MV.DomainLayer.DTO.RequestModel;
 using MV.DomainLayer.DTO.ResponseModel;
 using Google.Apis.Auth;
 using MV.DomainLayer.Configuration;
@@ -90,11 +89,5 @@ namespace MV.ApplicationLayer.Services
         }
 
         #endregion
-
-        public async Task<string> ChangePassword(string userId, ChangePasswordRequest request)
-        {
-            // Implementation preserved as per request
-            return string.Empty;
-        }
     }
 }

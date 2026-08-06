@@ -50,5 +50,22 @@ namespace MV.InfrastructureLayer.Repositories
                 token.Revokedat = now;
             }
         }
+
+        public async Task RevokeTokensAsync(IEnumerable<string> tokenIds)
+        {
+            var idSet = tokenIds as ICollection<string> ?? tokenIds.ToList();
+            if (idSet.Count == 0)
+                return;
+
+            var tokens = await _context.Refreshtokens
+                .Where(t => idSet.Contains(t.Id) && t.Revokedat == null)
+                .ToListAsync();
+
+            var now = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
+            foreach (var token in tokens)
+            {
+                token.Revokedat = now;
+            }
+        }
     }
 }

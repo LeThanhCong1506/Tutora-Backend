@@ -169,6 +169,9 @@ public partial class SettlementService
                 _logger.LogWarning(ex, "Failed to send finalize-early notifications for booking {BookingId}", bookingId);
             }
 
+            // Kết thúc sớm cũng cho ra status Completed nên khóa này vẫn đánh giá được.
+            await NotifyBookingCompletedAsync(booking);
+
             return true;
         }
         catch
