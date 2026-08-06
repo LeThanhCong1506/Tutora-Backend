@@ -255,7 +255,39 @@ public partial class SettlementService : ISettlementService
                 Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
             });
         }
+
+        await NotifyBookingCompletedAsync(booking);
+
         return release;
+    }
+
+    /// <summary>
+    /// Mời người học đánh giá khi khóa học hoàn thành. Người nhận theo đúng luật của
+    /// <c>FeedbackService.CanReviewBooking</c> — booking có phụ huynh thì phụ huynh đánh giá,
+    /// không thì học sinh tự đăng ký — để không nhắc nhầm người không đánh giá được.
+    /// Thông báo hỏng không được làm hỏng settlement, nên nuốt lỗi và chỉ ghi log.
+    /// </summary>
+    private async Task NotifyBookingCompletedAsync(Booking booking)
+    {
+        var recipientId = !string.IsNullOrEmpty(booking.Parentid) ? booking.Parentid : booking.Studentid;
+        if (string.IsNullOrEmpty(recipientId)) return;
+
+        try
+        {
+            await _notificationService.CreateNotificationAsync(new NotificationRequest
+            {
+                Userid = recipientId,
+                Title = "Khóa học đã hoàn thành",
+                Message = "Khóa học đã kết thúc. Hãy dành một phút đánh giá gia sư để giúp phụ huynh khác lựa chọn.",
+                Type = NotificationType.FeedbackRequest,
+                Referenceid = booking.Bookingid.ToString()
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to send feedback request notification for booking {BookingId}",
+                booking.Bookingid);
+        }
     }
 
     /// <summary>
@@ -626,6 +658,8 @@ public partial class SettlementService : ISettlementService
             _logger.LogInformation(
                 "FinalizeBookingEarly: booking {BookingId} finalized. Released {Amount} for {Completed}/{Total} completed classSessions.",
                 bookingId, releaseAmount, completedCount, totalSessions);
+
+            await NotifyBookingCompletedAsync(booking);
         }
         catch
         {

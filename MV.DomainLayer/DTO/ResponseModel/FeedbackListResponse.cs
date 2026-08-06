@@ -26,6 +26,15 @@ public class FeedbackListResponse
     // Subject info
     public string? SubjectName { get; set; }
 
+    /// <summary>Tên gia sư nhận đánh giá. Chỉ điền ở danh sách kiểm duyệt của CMS.</summary>
+    public string? TutorName { get; set; }
+
+    /// <summary>
+    /// Tác giả còn sửa được không — chỉ true khi người gọi là tác giả và gia sư chưa phản hồi.
+    /// FE dựa vào đây để hiện nút Sửa thay vì tự suy luận.
+    /// </summary>
+    public bool CanEdit { get; set; }
+
     // Reply info
     public string? Reply { get; set; }
     public DateTime? RepliedAt { get; set; }
@@ -35,6 +44,11 @@ public class FeedbackListResponse
 
     // Visibility (admin)
     public bool IsVisible { get; set; } = true;
+
+    /// <summary>Lý do bị ẩn — chỉ có giá trị khi <see cref="IsVisible"/> là false.</summary>
+    public string? HiddenReason { get; set; }
+
+    public DateTime? HiddenAt { get; set; }
 
     // Additional fields
     public string? InitialGoal { get; set; }

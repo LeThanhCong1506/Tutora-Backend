@@ -37,6 +37,14 @@ public partial class Feedback
     public string? CourseDuration { get; set; } // Mapping với course_duration
     // ---------------------------
 
+    // --- Kiểm duyệt: chỉ có giá trị khi đánh giá đang bị ẩn ---
+    public string? HiddenReason { get; set; }
+
+    public DateTime? HiddenAt { get; set; }
+
+    public string? HiddenBy { get; set; }
+    // ---------------------------
+
     public virtual Booking? Booking { get; set; }
 
     public virtual User? Fromuser { get; set; }
