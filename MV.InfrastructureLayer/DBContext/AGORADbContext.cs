@@ -151,6 +151,13 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
 
     public virtual DbSet<StaffPermission> StaffPermissions { get; set; }
 
+    /// <summary>
+    /// Chỉ dùng bên trong LINQ (.Where/.Select) — EF Core dịch lời gọi này sang
+    /// public.immutable_unaccent(...) trên Postgres. Gọi trực tiếp ngoài expression tree sẽ ném lỗi.
+    /// </summary>
+    public static string Unaccent(string value) =>
+        throw new NotSupportedException($"{nameof(Unaccent)} can only be used inside an EF Core LINQ query.");
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.HasPostgresExtension("pgcrypto");
@@ -3245,6 +3252,13 @@ entity.HasOne(d => d.Tutor).WithOne(p => p.Tutorprofile)
         });
 
         OnModelCreatingPartial(modelBuilder);
+
+        // ── Accent-insensitive search ─────────────────────────────────────────
+        // Ánh xạ tới public.immutable_unaccent (xem migrations/managed/V20260807__ensure_unaccent_search.sql)
+        // để LINQ .Where(...) có thể so khớp không phân biệt dấu tiếng Việt qua Unaccent(...).
+        modelBuilder.HasDbFunction(typeof(AgoraDbContext).GetMethod(nameof(Unaccent), [typeof(string)])!)
+            .HasSchema("public")
+            .HasName("immutable_unaccent");
 
         // ── UTC DateTime Convention ───────────────────────────────────────────
         // Vì DB dùng `timestamp without time zone` + EnableLegacyTimestampBehavior,
