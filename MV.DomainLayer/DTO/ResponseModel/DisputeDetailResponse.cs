@@ -98,7 +98,7 @@ public class DisputeClassSessionResponse
 
     public List<DisputeScheduleChangeAuditResponse> ScheduleChanges { get; set; } = new();
 
-    /// <summary>Trạng thái bản ghi video: available | processing | recording | none.</summary>
+    /// <summary>Trạng thái bản ghi video: available | processing | recording | failed | none.</summary>
     public string? RecordingStatus { get; set; }
 
     /// <summary>Link xem video buổi học (Google Drive) — chỉ có khi RecordingStatus = "available".</summary>
@@ -137,7 +137,10 @@ public class DisputeRecordingResponse
     public int DisputeId { get; set; }
     public int? ClassSessionId { get; set; }
 
-    /// <summary>available (có link xem) | processing (đang đẩy lên Drive) | recording (đang ghi) | none.</summary>
+    /// <summary>
+    /// available (có link xem) | processing (đang đẩy lên Drive) | recording (đang ghi) |
+    /// failed (đã ghi nhưng không ra file) | none.
+    /// </summary>
     public string Status { get; set; } = "none";
 
     /// <summary>Link xem video (Google Drive) — chỉ có khi Status = "available".</summary>
