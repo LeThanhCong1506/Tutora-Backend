@@ -1291,6 +1291,16 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
                 .HasColumnName("course_duration"); // Mapping với kiểu VARCHAR(50)
             // ----------------------------
 
+            // --- Kiểm duyệt ---
+            entity.Property(e => e.HiddenReason).HasColumnName("hidden_reason");
+            entity.Property(e => e.HiddenAt)
+                .HasColumnType("timestamp without time zone")
+                .HasColumnName("hidden_at");
+            entity.Property(e => e.HiddenBy)
+                .HasMaxLength(50)
+                .HasColumnName("hidden_by");
+            // ------------------
+
             entity.HasOne(d => d.Booking).WithMany(p => p.Feedbacks)
                 .HasForeignKey(d => d.Bookingid)
                 .HasConstraintName("feedbacks_bookingid_fkey");

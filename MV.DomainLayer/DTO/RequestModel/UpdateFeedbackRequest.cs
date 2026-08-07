@@ -3,17 +3,10 @@ using System.ComponentModel.DataAnnotations;
 namespace MV.DomainLayer.DTO.RequestModel;
 
 /// <summary>
-/// Request for parent/student to review a completed booking.
-/// Mỗi người chỉ đánh giá được một lần cho mỗi booking (ràng buộc UNIQUE(booking_id, from_user_id)).
+/// Sửa đánh giá khóa học đã gửi. Booking không đổi được nên không có BookingId ở đây.
 /// </summary>
-public class CreateFeedbackRequest
+public class UpdateFeedbackRequest
 {
-    /// <summary>
-    /// Booking ID being reviewed
-    /// </summary>
-    [Required(ErrorMessage = "Vui lòng cung cấp BookingId để đánh giá")]
-    public int BookingId { get; set; }
-
     /// <summary>
     /// Rating from 1 to 5
     /// </summary>

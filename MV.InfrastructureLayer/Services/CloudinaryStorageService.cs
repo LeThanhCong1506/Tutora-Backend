@@ -52,7 +52,9 @@ namespace MV.InfrastructureLayer.Services
 
             UploadResult uploadResult;
 
-            var publicId = $"{Guid.NewGuid()}_{Path.GetFileNameWithoutExtension(file.FileName)}";
+            // Trim: tên file gốc có thể kết thúc bằng khoảng trắng (vd "Bai tap .docx"),
+            // Cloudinary từ chối public_id kết thúc bằng khoảng trắng.
+            var publicId = $"{Guid.NewGuid()}_{Path.GetFileNameWithoutExtension(file.FileName).Trim()}";
 
             if (isImage)
             {
@@ -104,7 +106,7 @@ namespace MV.InfrastructureLayer.Services
 
             var folderPath = string.IsNullOrWhiteSpace(userId) ? bucketName : $"{bucketName}/{userId}";
             using var stream = new MemoryStream(bytes);
-            var publicId = $"{Guid.NewGuid()}_{Path.GetFileNameWithoutExtension(fileName)}";
+            var publicId = $"{Guid.NewGuid()}_{Path.GetFileNameWithoutExtension(fileName).Trim()}";
 
             var uploadResult = await _cloudinary.UploadAsync(new ImageUploadParams
             {
@@ -130,7 +132,9 @@ namespace MV.InfrastructureLayer.Services
             var folderPath = string.IsNullOrWhiteSpace(userId) ? bucketName : $"{bucketName}/{userId}";
 
             using var stream = file.OpenReadStream();
-            var publicId = $"{Guid.NewGuid()}_{Path.GetFileNameWithoutExtension(file.FileName)}";
+            // Trim: tên file gốc có thể kết thúc bằng khoảng trắng (vd "Bai tap .docx"),
+            // Cloudinary từ chối public_id kết thúc bằng khoảng trắng.
+            var publicId = $"{Guid.NewGuid()}_{Path.GetFileNameWithoutExtension(file.FileName).Trim()}";
 
             var uploadParams = new ImageUploadParams
             {

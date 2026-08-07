@@ -199,16 +199,23 @@ public class TutorClassSessionController : ControllerBase
     }
 
     /// <summary>
-    /// Get all disputes across the tutor's own classSessions.
+    /// Get all disputes across the tutor's own classSessions with filtering, sorting, and pagination.
     /// </summary>
     [HttpGet("/api/tutor/disputes")]
-    public async Task<ActionResult<APIResponse<PagedList<DisputeListResponse>>>> GetDisputes(
-        [FromQuery] int page = 1,
-        [FromQuery] int pageSize = 10)
+    public async Task<ActionResult<APIResponse<DisputeListPageResponse>>> GetDisputes(
+        [FromQuery] PortalDisputeQueryRequest query)
     {
         var tutorId = UserHelper.GetUserId(User);
-        var result = await _disputeService.GetTutorDisputesAsync(tutorId, page, pageSize);
-        return Ok(APIResponse<PagedList<DisputeListResponse>>.Success(result, "Lấy danh sách tranh chấp thành công."));
+        var result = await _disputeService.GetTutorDisputesAsync(tutorId, query);
+        var payload = new DisputeListPageResponse
+        {
+            Items = result.ToList(),
+            TotalCount = result.TotalCount,
+            Page = result.CurrentPage,
+            PageSize = result.PageSize
+        };
+
+        return Ok(APIResponse<DisputeListPageResponse>.Success(payload, "Lấy danh sách tranh chấp thành công."));
     }
 
     /// <summary>

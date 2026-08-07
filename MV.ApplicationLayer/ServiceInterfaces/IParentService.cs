@@ -31,7 +31,7 @@ public interface IParentService
     /// <summary>
     /// Get parent's/student's dispute history
     /// </summary>
-    Task<PagedList<DisputeListResponse>> GetParentDisputesAsync(string userId, string role, int page, int pageSize);
+    Task<PagedList<DisputeListResponse>> GetParentDisputesAsync(string userId, PortalDisputeQueryRequest query);
 
     /// <summary>
     /// Get calendar view

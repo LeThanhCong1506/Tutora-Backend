@@ -390,7 +390,7 @@ public partial class ClassSessionService
             classSession.Attendancenote = request.AttendanceNote;
             classSession.Status = PendingConfirmation;
             classSession.Submittedat = now;
-            classSession.Confirmdeadline = now.AddHours(24);
+            classSession.Confirmdeadline = now.AddHours(12);
 
             var report = new ClassSessionReport
             {
