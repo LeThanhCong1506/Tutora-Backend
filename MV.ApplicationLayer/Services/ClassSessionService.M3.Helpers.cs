@@ -1,6 +1,7 @@
-﻿using MV.DomainLayer.DTO.ResponseModel;
+﻿using MV.DomainLayer.DTO;
+using MV.DomainLayer.DTO.ResponseModel;
 using MV.DomainLayer.Entities;
-using System.Text.Json;
+using MV.DomainLayer.Helpers;
 namespace MV.ApplicationLayer.Services;
 
 public partial class ClassSessionService
@@ -9,6 +10,8 @@ public partial class ClassSessionService
 
     private static ClassSessionDetailResponse MapToClassSessionDetailResponse(ClassSession classSession)
     {
+        var attachments = ReportAttachmentSerializer.Deserialize(classSession.ClassSessionReport?.Attachments);
+
         return new ClassSessionDetailResponse
         {
             ClassSessionId = classSession.Classsessionid,
@@ -62,33 +65,11 @@ public partial class ClassSessionService
                 ContentCovered = classSession.ClassSessionReport.Contentcovered,
                 HomeworkAssigned = classSession.ClassSessionReport.Homeworkassigned,
                 StudentPerformanceRating = classSession.ClassSessionReport.Studentperformancerating,
-                Attachments = DeserializeAttachments(classSession.ClassSessionReport.Attachments),
+                Attachments = ReportAttachmentSerializer.ToUrls(attachments),
+                AttachmentDetails = attachments,
                 CreatedAt = classSession.ClassSessionReport.Createdat.HasValue ? classSession.ClassSessionReport.Createdat.Value : (DateTime?)null
             } : null
         };
     }
 
-    /// <summary>
-    /// Deserialize attachments from JSON array or legacy comma-separated format.
-    /// </summary>
-    private static List<string>? DeserializeAttachments(string? attachments)
-    {
-        if (string.IsNullOrWhiteSpace(attachments)) return null;
-
-        // Try JSON array first (new format)
-        if (attachments.TrimStart().StartsWith('['))
-        {
-            try
-            {
-                return JsonSerializer.Deserialize<List<string>>(attachments);
-            }
-            catch
-            {
-                // Fall through to legacy format
-            }
-        }
-
-        // Legacy comma-separated format
-        return attachments.Split(',', StringSplitOptions.RemoveEmptyEntries).ToList();
-    }
 }
