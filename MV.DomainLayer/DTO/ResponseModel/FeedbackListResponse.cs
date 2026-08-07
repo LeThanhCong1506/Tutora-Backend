@@ -15,9 +15,16 @@ public class FeedbackListResponse
 
     public DateTime CreatedAt { get; set; }
 
-    // From user info
+    // From user info. Tên field giữ "Parent" vì lý do tương thích, nhưng người đánh giá có thể
+    // là học sinh tự đăng ký — xem <see cref="ReviewerRole"/> để hiển thị đúng nhãn.
     public string? ParentName { get; set; }
     public string? ParentAvatarUrl { get; set; }
+
+    /// <summary>
+    /// Ai viết đánh giá: <c>parent</c> khi trùng với người đặt lịch là phụ huynh,
+    /// <c>student</c> khi booking do học sinh tự đăng ký đặt.
+    /// </summary>
+    public string? ReviewerRole { get; set; }
 
     // Legacy compatibility
     public string? FromUserName => ParentName;
@@ -25,6 +32,15 @@ public class FeedbackListResponse
 
     // Subject info
     public string? SubjectName { get; set; }
+
+    /// <summary>Tên gia sư nhận đánh giá. Chỉ điền ở danh sách kiểm duyệt của CMS.</summary>
+    public string? TutorName { get; set; }
+
+    /// <summary>
+    /// Tác giả còn sửa được không — chỉ true khi người gọi là tác giả và gia sư chưa phản hồi.
+    /// FE dựa vào đây để hiện nút Sửa thay vì tự suy luận.
+    /// </summary>
+    public bool CanEdit { get; set; }
 
     // Reply info
     public string? Reply { get; set; }
@@ -35,6 +51,11 @@ public class FeedbackListResponse
 
     // Visibility (admin)
     public bool IsVisible { get; set; } = true;
+
+    /// <summary>Lý do bị ẩn — chỉ có giá trị khi <see cref="IsVisible"/> là false.</summary>
+    public string? HiddenReason { get; set; }
+
+    public DateTime? HiddenAt { get; set; }
 
     // Additional fields
     public string? InitialGoal { get; set; }
