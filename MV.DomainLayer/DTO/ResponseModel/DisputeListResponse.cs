@@ -72,3 +72,14 @@ public class DisputeListResponse
         _ => "Chưa phân loại"
     };
 }
+
+/// <summary>
+/// Stable paged response contract for dispute list endpoints that expose pagination in the response body.
+/// </summary>
+public sealed class DisputeListPageResponse
+{
+    public IReadOnlyList<DisputeListResponse> Items { get; init; } = Array.Empty<DisputeListResponse>();
+    public int TotalCount { get; init; }
+    public int Page { get; init; }
+    public int PageSize { get; init; }
+}
