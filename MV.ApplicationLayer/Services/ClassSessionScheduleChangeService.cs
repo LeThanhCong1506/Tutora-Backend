@@ -236,7 +236,41 @@ public class ClassSessionScheduleChangeService(
 
         SessionScheduleConflictResponse? approvalConflict = null;
         if (change.Status == ScheduleChangeStatus.Approved)
+        {
             approvalConflict = await FindCurrentConflictAsync(classSessionId, now, cancellationToken);
+
+            // Dời buổi học ngay khi hai bên chốt, thay vì chờ tới lúc điểm danh. Trước đây chỉ
+            // đổi trạng thái của yêu cầu nên trang lịch vẫn hiển thị giờ cũ cho tới khi gia sư
+            // điểm danh — người dùng đồng ý xong nhìn lịch không thấy gì thay đổi.
+            // Không dời khi đang trùng lịch: để nguyên giờ cũ còn hơn đẩy buổi học vào chỗ kẹt.
+            if (approvalConflict == null && session.Status == ClassSessionStatus.Scheduled)
+            {
+                var adjustedStart = now;
+                var adjustedEnd = now.Add(change.Originalscheduledend - change.Originalscheduledstart);
+
+                // Nạp bản ghi có tracking rồi gán, không dùng ExecuteUpdateAsync: bộ test chạy
+                // trên provider InMemory và provider đó không hỗ trợ ExecuteUpdate.
+                var sessionRow = await db.ClassSessions
+                    .FirstOrDefaultAsync(
+                        x => x.Classsessionid == classSessionId && x.Status == ClassSessionStatus.Scheduled,
+                        cancellationToken);
+
+                if (sessionRow != null)
+                {
+                    sessionRow.Scheduledstart = adjustedStart;
+                    sessionRow.Scheduledend = adjustedEnd;
+
+                    change.Adjustedscheduledstart = adjustedStart;
+                    change.Adjustedscheduledend = adjustedEnd;
+                    change.Updatedat = now;
+                    await db.SaveChangesAsync(cancellationToken);
+
+                    // Map() đọc từ snapshot đã nạp trước khi dời, nên phải đồng bộ lại nếu không
+                    // response trả về ngay sau đó vẫn mang giờ cũ.
+                    session = session with { Scheduledstart = adjustedStart, Scheduledend = adjustedEnd };
+                }
+            }
+        }
 
         if (decisionTransaction != null)
             await decisionTransaction.CommitAsync(cancellationToken);
