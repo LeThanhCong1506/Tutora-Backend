@@ -590,6 +590,11 @@ namespace MV.ApplicationLayer.Services
                     return new TokenResponse { ErrorMessage = "Mã OTP không hợp lệ." };
                 }
 
+                if (_passwordRepository.VerifyPassword(request.NewPassword, user.Password))
+                {
+                    return new TokenResponse { ErrorMessage = "Mật khẩu mới không được trùng với mật khẩu cũ. Vui lòng chọn mật khẩu khác." };
+                }
+
                 user.Password = _passwordRepository.HashPassword(request.NewPassword);
                 await _unitOfWork.UserRepository.UpdateUserAsync(user);
                 await _unitOfWork.SaveChangesAsync();
