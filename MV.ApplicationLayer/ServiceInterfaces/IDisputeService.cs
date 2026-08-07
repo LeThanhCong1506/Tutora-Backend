@@ -84,9 +84,9 @@ public interface IDisputeService
     Task<DisputeDetailResponse?> GetTutorDisputeByClassSessionAsync(int classSessionId, string tutorId);
 
     /// <summary>
-    /// Get all disputes across a tutor's own classSessions.
+    /// Get all disputes across a tutor's own classSessions, with filtering, sorting, and pagination.
     /// </summary>
-    Task<PagedList<DisputeListResponse>> GetTutorDisputesAsync(string tutorId, int page, int pageSize);
+    Task<PagedList<DisputeListResponse>> GetTutorDisputesAsync(string tutorId, PortalDisputeQueryRequest query);
 
     /// <summary>
     /// Tutor submits a written rebuttal to a dispute raised against them.

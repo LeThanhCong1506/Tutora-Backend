@@ -249,20 +249,25 @@ public class ParentController : ControllerBase
     /// </summary>
     [HttpGet("disputes")]
     [Authorize(Roles = UserRole.ParentOrStudent)]
-    public async Task<ActionResult<APIResponse<PagedList<DisputeListResponse>>>> GetDisputes(
-        [FromQuery] int page = 1,
-        [FromQuery] int pageSize = 10)
+    public async Task<ActionResult<APIResponse<DisputeListPageResponse>>> GetDisputes(
+        [FromQuery] PortalDisputeQueryRequest query)
     {
         var userId = UserHelper.GetUserId(User);
-        var role = User.FindFirstValue(ClaimTypes.Role) ?? "";
         try
         {
-            var result = await _parentService.GetParentDisputesAsync(userId, role, page, pageSize);
-            return Ok(APIResponse<PagedList<DisputeListResponse>>.Success(result, "Lấy danh sách khiếu nại thành công."));
+            var result = await _parentService.GetParentDisputesAsync(userId, query);
+            var payload = new DisputeListPageResponse
+            {
+                Items = result.ToList(),
+                TotalCount = result.TotalCount,
+                Page = result.CurrentPage,
+                PageSize = result.PageSize
+            };
+            return Ok(APIResponse<DisputeListPageResponse>.Success(payload, "Lấy danh sách khiếu nại thành công."));
         }
         catch (Exception ex)
         {
-            return StatusCode(500, APIResponse<PagedList<DisputeListResponse>>.Fail($"Lỗi hệ thống: {ex.Message}", 500));
+            return StatusCode(500, APIResponse<DisputeListPageResponse>.Fail($"Lỗi hệ thống: {ex.Message}", 500));
         }
     }
 

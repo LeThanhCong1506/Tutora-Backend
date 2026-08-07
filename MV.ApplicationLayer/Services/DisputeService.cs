@@ -61,6 +61,8 @@ public class DisputeService : IDisputeService
 
     public async Task<PagedList<DisputeListResponse>> GetDisputesAsync(DisputeQueryRequest query)
     {
+        var page = Math.Max(1, query.Page);
+        var pageSize = Math.Clamp(query.PageSize, 1, 50);
         var q = _disputeRepo.GetBaseQuery();
 
         if (!string.IsNullOrWhiteSpace(query.Status))
@@ -84,16 +86,16 @@ public class DisputeService : IDisputeService
         if (query.ClassSessionId.HasValue)
             q = q.Where(d => d.Classsessionid == query.ClassSessionId.Value);
 
-        // Thứ tự phải quyết định ở đây vì danh sách phân trang ở server — sắp xếp
-        // sau khi đã cắt trang chỉ đảo được đúng trang đang xem.
-        q = ListSortDirection.IsAscending(query.SortDirection)
-            ? q.OrderBy(d => d.Createdat)
-            : q.OrderByDescending(d => d.Createdat);
+        q = q.ApplyDisputeSearch(query.Search, includeParticipantNames: true);
 
         var totalCount = await q.CountAsync();
+        var totalPages = Math.Max(1, (int)Math.Ceiling(totalCount / (double)pageSize));
+        page = Math.Min(page, totalPages);
+
         var rawDisputes = await q
-            .Skip((query.Page - 1) * query.PageSize)
-            .Take(query.PageSize)
+            .OrderForDisputeList(query.SortDirection)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
             .Select(d => new
             {
                 d.Disputeid,
@@ -127,7 +129,7 @@ public class DisputeService : IDisputeService
             CreatedAt = d.Createdat.HasValue ? d.Createdat.Value : (DateTime?)null
         }).ToList();
 
-        return new PagedList<DisputeListResponse>(disputes, totalCount, query.Page, query.PageSize);
+        return new PagedList<DisputeListResponse>(disputes, totalCount, page, pageSize);
     }
 
     public async Task<DisputeDetailResponse?> GetDisputeDetailAsync(int disputeId, string actorId)
@@ -645,16 +647,25 @@ public class DisputeService : IDisputeService
         return disputeId.HasValue ? await GetDisputeDetailAsync(disputeId.Value, tutorId) : null;
     }
 
-    public async Task<PagedList<DisputeListResponse>> GetTutorDisputesAsync(string tutorId, int page, int pageSize)
+    public async Task<PagedList<DisputeListResponse>> GetTutorDisputesAsync(
+        string tutorId,
+        PortalDisputeQueryRequest query)
     {
-        var query = _context.Disputes
+        var page = Math.Max(1, query.Page);
+        var pageSize = Math.Clamp(query.PageSize, 1, 50);
+
+        var disputesQuery = _context.Disputes
             .AsNoTracking()
-            .Where(d => d.ClassSession!.Tutorid == tutorId)
-            .OrderByDescending(d => d.Createdat);
+            .Where(d => d.ClassSession!.Tutorid == tutorId);
 
-        var totalCount = await query.CountAsync();
+        disputesQuery = disputesQuery.ApplyPortalFilters(query);
+        var orderedDisputes = disputesQuery.OrderForDisputeList(query.SortDirection);
 
-        var disputes = await query
+        var totalCount = await disputesQuery.CountAsync();
+        var totalPages = Math.Max(1, (int)Math.Ceiling(totalCount / (double)pageSize));
+        page = Math.Min(page, totalPages);
+
+        var disputes = await orderedDisputes
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
             .Select(d => new DisputeListResponse
