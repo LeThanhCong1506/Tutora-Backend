@@ -141,6 +141,10 @@ namespace MV.PresentationLayer.Controllers
             {
                 return NotFound(APIResponse<object>.Fail("Không tìm thấy hồ sơ học sinh.", 404));
             }
+            catch (BadRequestException ex)
+            {
+                return BadRequest(APIResponse<object>.Fail(ex.Message, 400));
+            }
         }
 
         /// <summary>

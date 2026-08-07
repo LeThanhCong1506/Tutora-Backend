@@ -1,4 +1,5 @@
 ﻿using Microsoft.EntityFrameworkCore;
+using MV.DomainLayer.DTO;
 using MV.DomainLayer.DTO.ResponseModel;
 using MV.DomainLayer.Entities;
 using MV.DomainLayer.Helpers;
@@ -293,7 +294,10 @@ public class ClassSessionRepository(AgoraDbContext context) : IClassSessionRepos
                 HomeworkAssigned = classSession.ClassSessionReport.Homeworkassigned,
                 TutorNotes       = classSession.Tutornotes,
                 StudentPerformanceRating = classSession.ClassSessionReport.Studentperformancerating,
-                Attachments      = DeserializeJsonList(classSession.ClassSessionReport.Attachments)
+                // Portal học sinh chỉ cần URL, nhưng vẫn phải đọc qua serializer chung vì cột này
+                // giờ lưu mảng object {url, description}.
+                Attachments      = ReportAttachmentSerializer.ToUrls(
+                    ReportAttachmentSerializer.Deserialize(classSession.ClassSessionReport.Attachments))
             },
             ScheduleChanges = scheduleChanges.Select(x => new DisputeScheduleChangeAuditResponse
             {

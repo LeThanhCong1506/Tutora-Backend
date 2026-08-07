@@ -113,6 +113,11 @@ public class ClassSessionReportResponse
     public string? ContentCovered { get; set; }
     public string? HomeworkAssigned { get; set; }
     public int? StudentPerformanceRating { get; set; }
+    /// <summary>URL các tệp đính kèm — giữ lại cho client cũ.</summary>
     public List<string>? Attachments { get; set; }
+
+    /// <summary>Tệp đính kèm kèm mô tả gia sư đặt; client mới nên đọc trường này.</summary>
+    public List<ReportAttachment>? AttachmentDetails { get; set; }
+
     public DateTime? CreatedAt { get; set; }
 }
