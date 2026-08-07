@@ -131,7 +131,30 @@ namespace MV.ApplicationLayer.Services
             var profile = await _unitOfWork.StudentRepository.FindByStudentOrLinkedUserAsync(studentUserId)
                 ?? throw new StudentNotFoundException();
 
-            profile.Parentphone = string.IsNullOrWhiteSpace(parentPhone) ? null : parentPhone.Trim();
+            var trimmed = string.IsNullOrWhiteSpace(parentPhone) ? null : parentPhone.Trim();
+
+            if (trimmed != null)
+            {
+                // SetParentPhoneRequest.[RegularExpression] đã đảm bảo trimmed khớp
+                // ^(0|\+84)(\d{9,10})$ trước khi ModelState hợp lệ, nên tách phần đầu số ra là an toàn.
+                var suffix = trimmed.StartsWith("+84") ? trimmed[3..] : trimmed[1..];
+                var localForm = "0" + suffix;
+                var e164Form = "+84" + suffix;
+
+                // Users.Phone không được chuẩn hóa lúc lưu (có thể là "0..." hoặc "+84..." tùy nơi
+                // nhập), nên phải thử cả hai dạng để không lọt số đã đăng ký ở dạng khác.
+                var owner = await _unitOfWork.UserRepository.GetUserByPhoneAsync(localForm)
+                    ?? await _unitOfWork.UserRepository.GetUserByPhoneAsync(e164Form);
+
+                if (owner != null)
+                {
+                    if (owner.Userid == studentUserId)
+                        throw new ParentPhoneMatchesOwnPhoneException();
+                    throw new ParentPhoneAlreadyRegisteredException();
+                }
+            }
+
+            profile.Parentphone = trimmed;
             await _unitOfWork.SaveChangesAsync();
 
             return profile.Parentphone;
