@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using MV.ApplicationLayer.Helpers;
 using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.Constants;
+using MV.DomainLayer.DTO;
 using MV.DomainLayer.DTO.RequestModel;
 using MV.DomainLayer.DTO.ResponseModel;
 using MV.DomainLayer.Entities;
@@ -188,7 +189,9 @@ public class ParentService : IParentService
                 ContentCovered = classSession.ClassSessionReport.Contentcovered,
                 HomeworkAssigned = classSession.ClassSessionReport.Homeworkassigned,
                 StudentPerformanceRating = classSession.ClassSessionReport.Studentperformancerating,
-                Attachments = DeserializeJsonList(classSession.ClassSessionReport.Attachments),
+                Attachments = ReportAttachmentSerializer.ToUrls(
+                    ReportAttachmentSerializer.Deserialize(classSession.ClassSessionReport.Attachments)),
+                AttachmentDetails = ReportAttachmentSerializer.Deserialize(classSession.ClassSessionReport.Attachments),
                 CreatedAt = classSession.ClassSessionReport.Createdat.HasValue ? classSession.ClassSessionReport.Createdat.Value : (DateTime?)null
             } : null,
             ScheduleChanges = scheduleChanges.Select(x => new DisputeScheduleChangeAuditResponse

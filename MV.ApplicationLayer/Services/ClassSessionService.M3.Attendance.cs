@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using MV.ApplicationLayer.Helpers;
 using MV.ApplicationLayer.Services.Agora;
 using MV.DomainLayer.Constants;
+using MV.DomainLayer.DTO;
 using MV.DomainLayer.DTO.RequestModel;
 using MV.DomainLayer.DTO.ResponseModel;
 using MV.DomainLayer.Entities;
@@ -399,7 +400,10 @@ public partial class ClassSessionService
                 Contentcovered = request.ContentCovered,
                 Homeworkassigned = request.HomeworkAssigned,
                 Studentperformancerating = request.StudentPerformanceRating,
-                Attachments = request.Attachments != null ? JsonSerializer.Serialize(request.Attachments) : null,
+                // Client mới gửi AttachmentDetails (có mô tả); client cũ chỉ gửi mảng URL.
+                Attachments = ReportAttachmentSerializer.Serialize(
+                    request.AttachmentDetails
+                    ?? request.Attachments?.Select(url => new ReportAttachment { Url = url })),
                 Createdat = now
             };
             _context.ClassSessionReports.Add(report);
