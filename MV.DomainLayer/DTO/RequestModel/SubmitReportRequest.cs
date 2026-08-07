@@ -49,7 +49,13 @@ public class SubmitReportRequest
     public string? AttendanceNote { get; set; }
 
     /// <summary>
-    /// List of attachment URLs (slides, exercises, etc.)
+    /// List of attachment URLs (slides, exercises, etc.).
+    /// Chỉ dùng cho client cũ — client mới gửi <see cref="AttachmentDetails"/> để kèm được mô tả.
     /// </summary>
     public List<string>? Attachments { get; set; }
+
+    /// <summary>
+    /// Tệp đính kèm kèm mô tả do gia sư đặt. Ưu tiên hơn <see cref="Attachments"/> khi cả hai cùng có.
+    /// </summary>
+    public List<ReportAttachment>? AttachmentDetails { get; set; }
 }
