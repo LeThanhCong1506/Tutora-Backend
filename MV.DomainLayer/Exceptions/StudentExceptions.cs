@@ -69,4 +69,16 @@ namespace MV.DomainLayer.Exceptions
         public StudentAlreadyHasParentException()
             : base("This student is already linked to a parent.") { }
     }
+
+    public class ParentPhoneMatchesOwnPhoneException : BadRequestException
+    {
+        public ParentPhoneMatchesOwnPhoneException()
+            : base("Số điện thoại phụ huynh không được trùng với số điện thoại của chính bạn.") { }
+    }
+
+    public class ParentPhoneAlreadyRegisteredException : BadRequestException
+    {
+        public ParentPhoneAlreadyRegisteredException()
+            : base("Số điện thoại này đã được đăng ký cho một tài khoản khác trên hệ thống.") { }
+    }
 }
