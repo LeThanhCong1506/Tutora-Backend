@@ -151,10 +151,6 @@ public partial class ClassSessionService
         // Ghi hình đang chạy khi đã có Sid (được TryStartRecordingAsync gán, hoặc nạp sẵn từ DB
         // nếu buổi record ở nhịp heartbeat trước). Tính sau khối auto check-in để bắt cả 2 trường hợp.
         var isRecording = !string.IsNullOrEmpty(classSession.Recordingsid) && !roomClosed;
-        // TODO(TEMP-DEV): revert trước khi merge. Cloud Recording thật chưa bật ở develop
-        // (Recordingsid luôn null) nên badge không bao giờ hiện. Dòng dưới coi buổi đã check-in
-        // là "đang ghi hình" để test chỉ báo bằng gia sư + học viên thật. Xoá dòng này khi bật record thật.
-        isRecording = isRecording || (isCheckedIn && !roomClosed);
 
         // Mốc hệ thống sẽ tự đóng phòng nếu chưa ai kết thúc — chỉ có ý nghĩa khi buổi đang
         // diễn ra thật (đã check-in) và chưa đóng. Dùng Scheduledend đã nạp (có thể vừa được
@@ -350,13 +346,25 @@ public partial class ClassSessionService
             }
             if (mp4Key == null && result.FileNames.Count > 0) mp4Key = result.FileNames[0];
 
+            // Stop trả về 2xx nhưng không có file nào (recorder đã tự thoát vì channel trống,
+            // hoặc không bắt được stream): bản ghi coi như hỏng. Không có gì để relay, và
+            // RecordingStatusResolver sẽ báo "failed" nhờ sid còn lại — phải log ở mức Error
+            // thì mới lần ra được, vì check-out vẫn thành công như thường.
+            if (mp4Key == null)
+            {
+                _logger.LogError(
+                    "Cloud Recording buổi học {ClassSessionId} dừng nhưng Agora không trả về file nào (sid={Sid}) — bản ghi coi như hỏng.",
+                    classSession.Classsessionid, classSession.Recordingsid);
+            }
+
             classSession.Recordings3key = mp4Key;            // job relay sẽ đẩy lên Drive rồi xóa file S3
             classSession.Recordingurl = result.PlaybackUrl;  // link S3 tạm (nếu có PublicUrlBase)
             await _context.SaveChangesAsync();
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Không thể dừng Cloud Recording cho buổi học {ClassSessionId}", classSession.Classsessionid);
+            // Nuốt lỗi để không hỏng check-out, nhưng đây là mất bản ghi thật sự → Error, không phải Warning.
+            _logger.LogError(ex, "Không thể dừng Cloud Recording cho buổi học {ClassSessionId}", classSession.Classsessionid);
         }
     }
 
