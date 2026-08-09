@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using MV.ApplicationLayer.Helpers;
 using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.Constants;
+using MV.DomainLayer.DTO;
 using MV.DomainLayer.DTO.RequestModel;
 using MV.DomainLayer.DTO.ResponseModel;
 using MV.DomainLayer.Entities;
@@ -188,7 +189,9 @@ public class ParentService : IParentService
                 ContentCovered = classSession.ClassSessionReport.Contentcovered,
                 HomeworkAssigned = classSession.ClassSessionReport.Homeworkassigned,
                 StudentPerformanceRating = classSession.ClassSessionReport.Studentperformancerating,
-                Attachments = DeserializeJsonList(classSession.ClassSessionReport.Attachments),
+                Attachments = ReportAttachmentSerializer.ToUrls(
+                    ReportAttachmentSerializer.Deserialize(classSession.ClassSessionReport.Attachments)),
+                AttachmentDetails = ReportAttachmentSerializer.Deserialize(classSession.ClassSessionReport.Attachments),
                 CreatedAt = classSession.ClassSessionReport.Createdat.HasValue ? classSession.ClassSessionReport.Createdat.Value : (DateTime?)null
             } : null,
             ScheduleChanges = scheduleChanges.Select(x => new DisputeScheduleChangeAuditResponse
@@ -475,53 +478,43 @@ public class ParentService : IParentService
     }
 
     /// <summary>
-    /// Get parent's dispute history
+    /// Get the signed-in parent/student's dispute history.
     /// </summary>
-    public async Task<PagedList<DisputeListResponse>> GetParentDisputesAsync(string userId, string role, int page, int pageSize)
+    public async Task<PagedList<DisputeListResponse>> GetParentDisputesAsync(
+        string userId,
+        PortalDisputeQueryRequest query)
     {
-        var query = _context.Disputes
+        var page = Math.Max(1, query.Page);
+        var pageSize = Math.Clamp(query.PageSize, 1, 50);
+
+        var disputesQuery = _context.Disputes
             .AsNoTracking()
-            .Where(d => d.Createdby == userId)
-            .OrderByDescending(d => d.Createdat);
+            .Where(dispute => dispute.Createdby == userId)
+            .ApplyPortalFilters(query);
 
-        var totalCount = await query.CountAsync();
+        var totalCount = await disputesQuery.CountAsync();
+        var totalPages = Math.Max(1, (int)Math.Ceiling(totalCount / (double)pageSize));
+        page = Math.Min(page, totalPages);
 
-        var rawDisputes = await query
+        var disputes = await disputesQuery
+            .OrderForDisputeList(query.SortDirection)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
-            .Include(d => d.ClassSession)
-                .ThenInclude(l => l!.Tutor)
-                    .ThenInclude(t => t!.Tutor)
-            .Select(d => new
+            .Select(dispute => new DisputeListResponse
             {
-                d.Disputeid,
-                d.Classsessionid,
-                d.Bookingid,
-                d.Disputetype,
-                d.Status,
-                d.Reason,
-                d.Priority,
-                d.Priorityreason,
-                TutorName = d.ClassSession!.Tutor!.Tutor!.Fullname,
-                ClassSessionPrice = d.ClassSession.Lessonprice,
-                d.Createdat
+                DisputeId = dispute.Disputeid,
+                ClassSessionId = dispute.Classsessionid,
+                BookingId = dispute.Bookingid,
+                DisputeType = dispute.Disputetype,
+                Status = dispute.Status,
+                Reason = dispute.Reason,
+                Priority = dispute.Priority,
+                PriorityReason = dispute.Priorityreason,
+                TutorName = dispute.ClassSession!.Tutor!.Tutor!.Fullname,
+                ClassSessionPrice = dispute.ClassSession.Lessonprice,
+                CreatedAt = dispute.Createdat
             })
             .ToListAsync();
-
-        var disputes = rawDisputes.Select(d => new DisputeListResponse
-        {
-            DisputeId = d.Disputeid,
-            ClassSessionId = d.Classsessionid,
-            BookingId = d.Bookingid,
-            DisputeType = d.Disputetype,
-            Status = d.Status,
-            Reason = d.Reason,
-            Priority = d.Priority,
-            PriorityReason = d.Priorityreason,
-            TutorName = d.TutorName,
-            ClassSessionPrice = d.ClassSessionPrice,
-            CreatedAt = d.Createdat.HasValue ? d.Createdat.Value : (DateTime?)null
-        }).ToList();
 
         return new PagedList<DisputeListResponse>(disputes, totalCount, page, pageSize);
     }

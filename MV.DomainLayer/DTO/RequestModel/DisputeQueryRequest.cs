@@ -31,6 +31,11 @@ public class DisputeQueryRequest
     public int? ClassSessionId { get; set; }
 
     /// <summary>
+    /// Search by dispute, booking, or class-session id, or by text in the dispute reason.
+    /// </summary>
+    public string? Search { get; set; }
+
+    /// <summary>
     /// Order by creation time: "asc" = oldest first, "desc" (default) = newest first.
     /// See <see cref="MV.DomainLayer.Constants.ListSortDirection"/>.
     /// </summary>

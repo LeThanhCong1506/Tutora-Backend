@@ -11,4 +11,5 @@ public static class ReferenceTable
     public const string Topup         = "topup";
     public const string Withdrawal    = "withdrawal";
     public const string TutorProfiles = "tutorprofiles";
+    public const string AdminWalletTransfer = "admin_wallet_transfers";
 }

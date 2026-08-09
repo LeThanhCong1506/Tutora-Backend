@@ -30,10 +30,17 @@ public class DisputeController : ControllerBase
     /// </summary>
     [RequirePermission(Permissions.DisputeView)]
     [HttpGet]
-    public async Task<ActionResult<APIResponse<PagedList<DisputeListResponse>>>> GetDisputes([FromQuery] DisputeQueryRequest query)
+    public async Task<ActionResult<APIResponse<DisputeListPageResponse>>> GetDisputes([FromQuery] DisputeQueryRequest query)
     {
         var result = await _disputeService.GetDisputesAsync(query);
-        return Ok(APIResponse<PagedList<DisputeListResponse>>.Success(result, "Lấy danh sách tranh chấp thành công."));
+        var payload = new DisputeListPageResponse
+        {
+            Items = result.ToList(),
+            TotalCount = result.TotalCount,
+            Page = result.CurrentPage,
+            PageSize = result.PageSize
+        };
+        return Ok(APIResponse<DisputeListPageResponse>.Success(payload, "Lấy danh sách tranh chấp thành công."));
     }
 
     /// <summary>

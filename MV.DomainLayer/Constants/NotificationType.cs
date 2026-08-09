@@ -25,4 +25,14 @@ public static class NotificationType
     public const string Message         = "message";
     public const string Warning         = "warning";
     public const string DisputeMessage  = "dispute_message";
+    /// <summary>Khóa học đã hoàn thành, mời người học đánh giá gia sư. Referenceid = bookingId.</summary>
+    public const string FeedbackRequest = "feedback_request";
+    /// <summary>Gia sư đã phản hồi đánh giá. Referenceid = bookingId.</summary>
+    public const string FeedbackReply   = "feedback_reply";
+    /// <summary>Gia sư vừa nhận được đánh giá mới từ người học. Referenceid = bookingId.</summary>
+    public const string FeedbackReceived = "feedback_received";
+    /// <summary>Admin đã ẩn hoặc hiện lại một đánh giá. Referenceid = bookingId.</summary>
+    public const string FeedbackModerated = "feedback_moderated";
+    /// <summary>Admin/staff vừa chuyển tiền chủ động vào ví. Referenceid = transferId.</summary>
+    public const string WalletTransferReceived = "wallet_transfer_received";
 }

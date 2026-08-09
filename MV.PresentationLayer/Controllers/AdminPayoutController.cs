@@ -197,6 +197,54 @@ public class AdminPayoutController(
         }
     }
 
+    /// <summary>
+    /// Chủ động chuyển tiền vào ví một user (gia sư/phụ huynh/học sinh), không gắn với yêu
+    /// cầu rút tiền nào. Cộng thẳng vào số dư ngay khi gọi — không có bước duyệt thứ hai.
+    /// </summary>
+    [RequirePermission(Permissions.PayoutTransfer)]
+    [HttpPost("transfers")]
+    public async Task<IActionResult> TransferToUser(
+        [FromBody] AdminWalletTransferRequest request,
+        CancellationToken ct)
+    {
+        try
+        {
+            if (string.IsNullOrEmpty(ActorUserId))
+                return Unauthorized(APIResponse<object>.Fail(ApiMessages.ActorUserIdNotFound, 401));
+
+            var result = await adminPayoutService.TransferToUserAsync(ActorUserId, request, ct);
+            return Ok(APIResponse<AdminWalletTransferResponse>.Success(result, "Chuyển tiền thành công."));
+        }
+        catch (Exception ex)
+        {
+            return HandleException(ex, "transferring to user");
+        }
+    }
+
+    /// <summary>
+    /// Lịch sử các lần chuyển tiền chủ động.
+    /// </summary>
+    [RequirePermission(Permissions.PayoutView)]
+    [HttpGet("transfers")]
+    public async Task<IActionResult> GetTransferHistory(
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        CancellationToken ct = default)
+    {
+        var validation = ValidatePagination(page, pageSize);
+        if (validation != null) return validation;
+
+        try
+        {
+            var result = await adminPayoutService.GetTransferHistoryAsync(page, pageSize, ct);
+            return Ok(APIResponse<AdminWalletTransferListResponse>.Success(result, "Lấy lịch sử chuyển tiền thành công."));
+        }
+        catch (Exception ex)
+        {
+            return HandleException(ex, "retrieving transfer history");
+        }
+    }
+
     [HttpGet("system-alerts")]
     [RequirePermission(Permissions.SystemAlertView)]
     public async Task<IActionResult> GetSystemAlerts(

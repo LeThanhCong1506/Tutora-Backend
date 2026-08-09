@@ -8,7 +8,10 @@ public class ClassSessionRecordingResponse
 {
     public int ClassSessionId { get; set; }
 
-    /// <summary>available (có thể xem) | processing (đang đẩy lên Drive) | recording (đang ghi) | none.</summary>
+    /// <summary>
+    /// available (có thể xem) | processing (đang đẩy lên Drive) | recording (đang ghi) |
+    /// failed (đã ghi nhưng không ra file) | none.
+    /// </summary>
     public string Status { get; set; } = "none";
 
     /// <summary>Link proxy để phát video — chỉ có khi Status = "available". Hết hạn sau ít phút.</summary>

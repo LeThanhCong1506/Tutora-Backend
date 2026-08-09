@@ -329,30 +329,30 @@ namespace MV.ApplicationLayer.Services
 
             var linkedUser = await _unitOfWork.UserRepository.GetUserByIdAsync(studentUserId);
 
-            // Đã xác minh độ tuổi → ngày sinh là nguồn chuẩn từ CCCD, KHÔNG cho tự sửa
-            var birthdateLocked = linkedUser?.Isidentityverified == true;
+            // Đã xác minh CCCD → họ tên & ngày sinh là nguồn chuẩn từ CCCD, KHÔNG cho tự sửa
+            var identityLocked = linkedUser?.Isidentityverified == true;
 
             // Cập nhật Studentprofile
-            student.Fullname = request.Fullname;
-            if (!birthdateLocked)
+            if (!identityLocked)
+                student.Fullname = request.Fullname;
+            if (!identityLocked)
                 student.Birthdate = request.Birthdate;
             student.School = request.School;
             student.Gradelevelid = request.GradeLevelId;
             student.Learninggoals = request.Learninggoals;
 
-            // Đồng bộ Fullname (+ Birthdate nếu chưa bị khóa) sang bảng Users
-            if (linkedUser != null)
+            // Đồng bộ Fullname/Birthdate (nếu chưa bị khóa) sang bảng Users
+            if (linkedUser != null && !identityLocked)
             {
                 linkedUser.Fullname = request.Fullname;
-                if (!birthdateLocked)
-                    linkedUser.Birthdate = request.Birthdate;
+                linkedUser.Birthdate = request.Birthdate;
             }
 
             // EF change tracking tự detect thay đổi — không cần gọi Update() thủ công
             await _unitOfWork.SaveChangesAsync();
 
             var resp = MapToResponse(student);
-            resp.IsIdentityVerified = birthdateLocked;
+            resp.IsIdentityVerified = identityLocked;
             return resp;
         }
 
