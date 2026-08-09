@@ -43,18 +43,18 @@ namespace MV.ApplicationLayer.Services
                 // 2. Verify old password
                 if (!_passwordRepository.VerifyPassword(oldPassword, user.Password))
                 {
-                    return (false, "Old password is incorrect.");
+                    return (false, "Mật khẩu cũ không đúng.");
                 }
 
                 // 3. Validate new password (optional: add more rules)
                 if (string.IsNullOrWhiteSpace(newPassword) || newPassword.Length < 6)
                 {
-                    return (false, "New password must be at least 6 characters.");
+                    return (false, "Mật khẩu mới phải có ít nhất 6 ký tự.");
                 }
 
                 if (oldPassword == newPassword)
                 {
-                    return (false, "New password must be different from old password.");
+                    return (false, "Mật khẩu mới không được trùng với mật khẩu cũ. Vui lòng chọn mật khẩu khác.");
                 }
 
                 // 4. Hash new password and update
@@ -84,7 +84,7 @@ namespace MV.ApplicationLayer.Services
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error changing password for user {UserId}.", userId);
-                return (false, "An error occurred while changing password.");
+                return (false, "Có lỗi xảy ra khi đổi mật khẩu.");
             }
         }
 

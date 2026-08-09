@@ -25,5 +25,12 @@ namespace MV.ApplicationLayer.RepositoryInterfaces
         Task<List<Studentprofile>> GetByLinkedUserIdAsync(string linkedUserId);
         Task<Studentprofile?> FindByStudentOrLinkedUserAsync(string userId);
         Task<List<string>> GetStudentIdsByParentIdAsync(string parentId);
+
+        /// <summary>
+        /// Given a set of user ids (student side of a relationship), returns the subset that has
+        /// an actual linked Parent (Studentprofile.Parentid != null). Matches on either
+        /// Studentid or Linkeduserid, mirroring <see cref="FindByStudentOrLinkedUserAsync"/>.
+        /// </summary>
+        Task<HashSet<string>> GetParentManagedUserIdsAsync(IEnumerable<string> userIds);
     }
 }

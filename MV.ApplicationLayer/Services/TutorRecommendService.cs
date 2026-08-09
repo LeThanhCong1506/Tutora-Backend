@@ -158,7 +158,8 @@ namespace MV.ApplicationLayer.Services
                             u.Status == 1 &&
                             u.Tutorprofile.Profilestatus != null &&
                             u.Tutorprofile.Profilestatus.ToLower() == TutorProfileStatus.Active &&
-                            u.Tutorprofile.Ispublic == true)
+                            u.Tutorprofile.Ispublic == true &&
+                            u.Tutorprofile.Isacceptingbookings == true)
                 .Select(u => new
                 {
                     u.Userid,
