@@ -33,4 +33,6 @@ public static class NotificationType
     public const string FeedbackReceived = "feedback_received";
     /// <summary>Admin đã ẩn hoặc hiện lại một đánh giá. Referenceid = bookingId.</summary>
     public const string FeedbackModerated = "feedback_moderated";
+    /// <summary>Admin/staff vừa chuyển tiền chủ động vào ví. Referenceid = transferId.</summary>
+    public const string WalletTransferReceived = "wallet_transfer_received";
 }
