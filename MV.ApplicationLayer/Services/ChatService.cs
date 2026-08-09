@@ -17,6 +17,7 @@ namespace MV.ApplicationLayer.Services;
 public class ChatService(
     IChatRepository chatRepo,
     IUserRepository userRepo,
+    IStudentRepository studentRepo,
     IBookingRepository bookingRepo,
     IHubContext<ChatHub> hubContext,
     INotificationService notificationService,
@@ -53,27 +54,50 @@ public class ChatService(
     public async Task<List<ChatChannelListItemResponse>> GetMyChannelsAsync(string userId)
     {
         var channels = await chatRepo.GetChannelsByUserAsync(userId);
-        var result = new List<ChatChannelListItemResponse>();
 
-        foreach (var channel in channels)
+        var resolved = channels.Select(channel =>
         {
             string otherUserId;
             string? otherUserName;
             string? otherUserAvatarUrl;
+            string otherUserRole;
 
             if (channel.Parentid == userId || channel.Studentid == userId)
             {
                 otherUserId = channel.Tutorid ?? string.Empty;
                 otherUserName = channel.Tutor?.Fullname;
                 otherUserAvatarUrl = channel.Tutor?.Avatarurl;
+                otherUserRole = UserRole.Tutor;
+            }
+            else if (channel.Studentid != null)
+            {
+                otherUserId = channel.Studentid;
+                otherUserName = channel.Student?.Fullname;
+                otherUserAvatarUrl = channel.Student?.Avatarurl;
+                otherUserRole = UserRole.Student;
             }
             else
             {
-                otherUserId = (channel.Studentid ?? channel.Parentid) ?? string.Empty;
-                otherUserName = channel.Student?.Fullname ?? channel.Parent?.Fullname;
-                otherUserAvatarUrl = channel.Student?.Avatarurl ?? channel.Parent?.Avatarurl;
+                otherUserId = channel.Parentid ?? string.Empty;
+                otherUserName = channel.Parent?.Fullname;
+                otherUserAvatarUrl = channel.Parent?.Avatarurl;
+                otherUserRole = UserRole.Parent;
             }
 
+            return (channel, otherUserId, otherUserName, otherUserAvatarUrl, otherUserRole);
+        }).ToList();
+
+        // Batch-resolve which "Student" other-users actually have a linked Parent account,
+        // so the label can distinguish self-registered students from parent-managed ones.
+        var studentIdsToCheck = resolved
+            .Where(r => r.otherUserRole == UserRole.Student)
+            .Select(r => r.otherUserId)
+            .ToList();
+        var parentManagedIds = await studentRepo.GetParentManagedUserIdsAsync(studentIdsToCheck);
+
+        var result = new List<ChatChannelListItemResponse>();
+        foreach (var (channel, otherUserId, otherUserName, otherUserAvatarUrl, otherUserRole) in resolved)
+        {
             var lastMessage = channel.Chatmessages.FirstOrDefault();
             var lastMessagePreview = lastMessage?.Content?.Length > 100
                 ? lastMessage.Content[..100]
@@ -90,6 +114,10 @@ public class ChatService(
                 OtherUserId = otherUserId,
                 OtherUserName = otherUserName,
                 OtherUserAvatarUrl = otherUserAvatarUrl,
+                OtherUserRole = otherUserRole,
+                IsOtherUserParentManaged = otherUserRole == UserRole.Student
+                    ? parentManagedIds.Contains(otherUserId)
+                    : null,
                 Status = channel.Status,
                 LastMessageAt = channel.Lastmessageat,
                 LastMessagePreview = lastMessagePreview,

@@ -95,6 +95,7 @@ namespace MV.ApplicationLayer.ServiceInterfaces
         Task<TutorPackageResponse?> UpdateTutorPackageAsync(string tutorId, int packageId, CreateTutorPackageRequest request);
 
         Task<bool> DeactivateTutorPackageAsync(string tutorId, int packageId);
+        Task<bool> ActivateTutorPackageAsync(string tutorId, int packageId);
 
         // ── Profile submission ─────────────────────────────────────────────
 

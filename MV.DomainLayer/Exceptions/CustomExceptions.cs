@@ -149,25 +149,25 @@ namespace MV.DomainLayer.Exceptions
     public class WalletNotFoundException : NotFoundException
     {
         public WalletNotFoundException()
-            : base("Wallet not found.") { }
+            : base("Không tìm thấy ví của bạn.") { }
     }
 
     public class InsufficientBalanceException : BadRequestException
     {
         public InsufficientBalanceException()
-            : base("Insufficient balance.") { }
+            : base("Số dư khả dụng không đủ để thực hiện giao dịch này.") { }
     }
 
     public class PendingWithdrawalException : BadRequestException
     {
         public PendingWithdrawalException()
-            : base("You have a pending withdrawal request.") { }
+            : base("Bạn đang có một yêu cầu rút tiền khác chưa được xử lý xong.") { }
     }
 
     public class BankInfoRequiredException : BadRequestException
     {
         public BankInfoRequiredException()
-            : base("Please update your bank information first.") { }
+            : base("Vui lòng cập nhật thông tin ngân hàng trước.") { }
     }
 
     public class ExternalApiException : Exception

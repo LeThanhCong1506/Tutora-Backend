@@ -78,17 +78,18 @@ namespace MV.InfrastructureLayer.Repositories
 
             // ==================== APPLY FILTERS ====================
 
-            // 1. Search Term (Fuzzy search with unaccent) - Only use ILIKE for search
+            // 1. Search Term (Fuzzy search with unaccent) - ILIKE trên cả hai vế đã bỏ dấu,
+            // để gõ không dấu ("Cong Khong Ngu") vẫn khớp được tên có dấu ("Công Không Ngủ").
             if (!string.IsNullOrWhiteSpace(parameters.SearchTerm))
             {
-                var searchTerm = parameters.SearchTerm.Trim().ToLower();
+                var searchPattern = $"%{parameters.SearchTerm.Trim().ToLower()}%";
                 query = query.Where(u =>
-                    EF.Functions.ILike(u.Fullname ?? "", $"%{searchTerm}%") ||
-                    EF.Functions.ILike(u.Tutorprofile!.Headline ?? "", $"%{searchTerm}%") ||
-                    EF.Functions.ILike(u.Tutorprofile!.Education ?? "", $"%{searchTerm}%") ||
+                    EF.Functions.ILike(AgoraDbContext.Unaccent(u.Fullname ?? ""), AgoraDbContext.Unaccent(searchPattern)) ||
+                    EF.Functions.ILike(AgoraDbContext.Unaccent(u.Tutorprofile!.Headline ?? ""), AgoraDbContext.Unaccent(searchPattern)) ||
+                    EF.Functions.ILike(AgoraDbContext.Unaccent(u.Tutorprofile!.Education ?? ""), AgoraDbContext.Unaccent(searchPattern)) ||
                     u.Tutorprofile.Tutorsubjectgradeprices.Any(ts =>
                         ts.Subject!.IsActive &&
-                        EF.Functions.ILike(ts.Subject!.Subjectname ?? "", $"%{searchTerm}%"))
+                        EF.Functions.ILike(AgoraDbContext.Unaccent(ts.Subject!.Subjectname ?? ""), AgoraDbContext.Unaccent(searchPattern)))
                 );
             }
 
