@@ -63,6 +63,22 @@ namespace MV.PresentationLayer.Controllers
         }
 
         /// <summary>
+        /// Lấy trạng thái nhận booking hiện tại của gia sư (không cache — luôn realtime,
+        /// khác với GET {id}/profile bên TutorController vốn cache 20 phút).
+        /// </summary>
+        [HttpGet("{id}/profile/accepting-bookings")]
+        public async Task<IActionResult> GetAcceptingBookings([FromRoute] string id)
+        {
+            var currentUserId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (currentUserId != id)
+                return StatusCode(403, APIResponse.Fail(ApiMessages.Forbidden, 403));
+
+            var profile = await _tutorService.GetTutorProfileAsync(id);
+            if (profile == null) return NotFound(APIResponse.Fail(ApiMessages.TutorProfileNotFound, 404));
+            return Ok(APIResponse<object>.Success(new { accepting = profile.IsAcceptingBookings }, "Lấy trạng thái nhận booking thành công."));
+        }
+
+        /// <summary>
         /// Tutor tự bật/tắt nhận booking mới (ẩn khỏi marketplace khi tắt).
         /// </summary>
         [HttpPut("{id}/profile/accepting-bookings")]
@@ -581,6 +597,27 @@ namespace MV.PresentationLayer.Controllers
             {
                 return Conflict(APIResponse.Fail(ex.Message, 409));
             }
+        }
+
+        /// <summary>
+        /// Bật lại (hiện lại trên marketplace) một package đã bị tắt trước đó.
+        /// </summary>
+        [HttpPut("{id}/profile/packages/{packageId:int}/activate")]
+        public async Task<IActionResult> ActivatePackage([FromRoute] string id, [FromRoute] int packageId)
+        {
+            var currentUserId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (currentUserId != id)
+            {
+                return StatusCode(403, APIResponse.Fail("Bạn chỉ có thể bật package của chính mình.", 403));
+            }
+
+            var result = await _tutorService.ActivateTutorPackageAsync(id, packageId);
+            if (!result)
+            {
+                return NotFound(APIResponse.Fail("Không tìm thấy package.", 404));
+            }
+
+            return Ok(APIResponse.Success("Đã hiện lại package thành công."));
         }
 
         /// <summary>

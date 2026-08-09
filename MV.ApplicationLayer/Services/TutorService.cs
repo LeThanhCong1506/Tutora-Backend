@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Http;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.Constants;
@@ -67,6 +68,43 @@ namespace MV.ApplicationLayer.Services
         private static bool RequiresApprovalForEdits(Tutorprofile profile) =>
             string.Equals(profile.Profilestatus, TutorProfileStatus.Active, StringComparison.OrdinalIgnoreCase);
 
+        /// <summary>
+        /// Báo cho mọi Admin biết có yêu cầu cập nhật hồ sơ đang chờ duyệt — không có "Admin phụ
+        /// trách" riêng cho từng tutor nên gửi cho tất cả, giống NotifyAdminsOfDisputeMessageAsync
+        /// (DisputeService) / tạo tranh chấp (ParentService). Chạy nền, không throw để không làm
+        /// hỏng thao tác lưu hồ sơ chính nếu có lỗi khi gửi thông báo.
+        /// </summary>
+        /// <param name="tutorId">Tutor vừa nộp thay đổi.</param>
+        /// <param name="sectionLabel">
+        /// Tên mục vừa sửa (vd "Thông tin cơ bản", "Video giới thiệu") — hiện trực tiếp trong nội
+        /// dung thông báo để Admin biết ngay vị trí cần xem, không phải đoán hay bấm vào mới rõ.
+        /// </param>
+        private async Task NotifyAdminsOfProfileUpdateAsync(string tutorId, string sectionLabel)
+        {
+            try
+            {
+                var admins = await _context.Users
+                    .Where(u => u.Primaryrole == UserRole.Admin)
+                    .Select(u => u.Userid)
+                    .ToListAsync();
+                if (admins.Count == 0) return;
+
+                var tutorName = (await _unitOfWork.UserRepository.GetUserByIdAsync(tutorId))?.Fullname ?? tutorId;
+
+                await _notificationService.CreateNotificationsAsync(admins.Select(adminId => new NotificationRequest
+                {
+                    Userid = adminId,
+                    Title = "Yêu cầu cập nhật hồ sơ gia sư",
+                    Message = $"Gia sư {tutorName} vừa sửa mục \"{sectionLabel}\", đang chờ duyệt.",
+                    Type = "tutor_profile_update"
+                }));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "NotifyAdminsOfProfileUpdateAsync failed for tutor {TutorId}", tutorId);
+            }
+        }
+
         // ─── Profile Queries ─────────────────────────────────────────────────
 
         public async Task<TutorProfileResponse?> GetTutorProfileAsync(string tutorId)
@@ -115,6 +153,7 @@ namespace MV.ApplicationLayer.Services
                     pending.TeachingAreaCity = request.TeachingAreaCity;
                     pending.TeachingAreaDistrict = request.TeachingAreaDistrict;
                 });
+                await NotifyAdminsOfProfileUpdateAsync(userId, "Thông tin cơ bản");
                 return true;
             }
 
@@ -170,6 +209,7 @@ namespace MV.ApplicationLayer.Services
                     pending.Gpa = request.Gpa;
                     pending.Experience = request.Experience;
                 });
+                await NotifyAdminsOfProfileUpdateAsync(userId, "Giới thiệu bản thân");
                 return true;
             }
 
@@ -236,6 +276,7 @@ namespace MV.ApplicationLayer.Services
                 {
                     pending.SubjectGradePrices = request.SubjectGradePrices;
                 });
+                await NotifyAdminsOfProfileUpdateAsync(tutorId, "Môn học & Bảng giá");
                 return true;
             }
 
@@ -384,6 +425,20 @@ namespace MV.ApplicationLayer.Services
                     "Không thể tắt gói này vì đang có buổi dạy được đặt và chưa hoàn tất. Vui lòng chờ hoàn tất hoặc hủy booking trước.");
 
             package.Isactive = false;
+            package.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
+            await _unitOfWork.SaveChangesAsync();
+            return true;
+        }
+
+        /// <summary>
+        /// Bật lại (hiện lại trên marketplace) một gói đã bị tắt trước đó.
+        /// </summary>
+        public async Task<bool> ActivateTutorPackageAsync(string tutorId, int packageId)
+        {
+            var package = await _unitOfWork.TutorRepository.GetTutorPackageAsync(tutorId, packageId);
+            if (package == null) return false;
+
+            package.Isactive = true;
             package.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
             await _unitOfWork.SaveChangesAsync();
             return true;

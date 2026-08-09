@@ -45,6 +45,7 @@ namespace MV.ApplicationLayer.Services
                 {
                     pending.VideoIntroUrl = trimmedUrl;
                 });
+                await NotifyAdminsOfProfileUpdateAsync(userId, "Video giới thiệu");
                 return true;
             }
 

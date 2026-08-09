@@ -401,13 +401,14 @@ public partial class BookingService(
 
         var cancelledByTutor = !string.IsNullOrWhiteSpace(booking.Tutorid) && booking.Tutorid == userId;
         var reasonSuffix = string.IsNullOrWhiteSpace(reason) ? "" : $" Lý do: {reason}";
+        var (payerId, payerIsStudent) = BookingPayerResolver.Resolve(booking);
 
-        if (!string.IsNullOrWhiteSpace(booking.Parentid) && !string.IsNullOrWhiteSpace(booking.Tutorid))
+        if (!string.IsNullOrWhiteSpace(payerId) && !string.IsNullOrWhiteSpace(booking.Tutorid))
         {
             try
             {
-                var senderId = cancelledByTutor ? booking.Tutorid! : booking.Parentid!;
-                var channelId = await chatService.GetOrCreateChannelAsync(booking.Parentid!, booking.Tutorid!);
+                var senderId = cancelledByTutor ? booking.Tutorid! : payerId!;
+                var channelId = await chatService.GetOrCreateChannelAsync(payerId!, booking.Tutorid!, payerIsStudent);
                 await chatService.SendMessageAsync(senderId, channelId, new ChatMessageCreateRequest
                 {
                     Content = $"🚫 Đặt lịch #{bookingId} đã bị hủy.{reasonSuffix}",
@@ -421,7 +422,7 @@ public partial class BookingService(
             }
         }
 
-        var counterpartId = cancelledByTutor ? booking.Parentid : booking.Tutorid;
+        var counterpartId = cancelledByTutor ? payerId : booking.Tutorid;
         if (!string.IsNullOrWhiteSpace(counterpartId))
         {
             try
@@ -462,13 +463,7 @@ public partial class BookingService(
     /// Yêu cầu booking đã được load kèm <c>Student</c> (FindWithRelationsForUpdateAsync).
     /// </summary>
     private static string? ResolveRefundRecipientId(Booking booking)
-    {
-        if (!string.IsNullOrWhiteSpace(booking.Parentid))
-            return booking.Parentid;
-        if (!string.IsNullOrWhiteSpace(booking.Student?.Linkeduserid))
-            return booking.Student!.Linkeduserid;
-        return booking.Studentid;
-    }
+        => BookingPayerResolver.Resolve(booking).Id;
 
     private static bool HasStartedOrSettledLesson(Booking booking, DateTime now)
     {

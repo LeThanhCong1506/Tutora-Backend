@@ -53,4 +53,18 @@ public interface IAdminPayoutService
     /// Reject a withdrawal request and refund the tutor's wallet.
     /// </summary>
     Task<RejectResult> RejectRequestAsync(int withdrawalId, string actorUserId, string reason, CancellationToken ct = default);
+
+    /// <summary>
+    /// Admin/staff chủ động cộng tiền vào ví một user (Tutor/Parent/Student), không gắn với
+    /// booking hay yêu cầu rút tiền nào. Cộng thẳng vào số dư ngay, không qua bước duyệt thứ hai.
+    /// </summary>
+    Task<AdminWalletTransferResponse> TransferToUserAsync(
+        string actorUserId,
+        AdminWalletTransferRequest request,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Lịch sử các lần chuyển tiền chủ động, mới nhất trước.
+    /// </summary>
+    Task<AdminWalletTransferListResponse> GetTransferHistoryAsync(int page, int pageSize, CancellationToken ct = default);
 }

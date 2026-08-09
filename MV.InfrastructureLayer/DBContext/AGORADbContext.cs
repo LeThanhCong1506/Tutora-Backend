@@ -17,6 +17,8 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
     {
     }
 
+    public virtual DbSet<AdminWalletTransfer> AdminWalletTransfers { get; set; }
+
     public virtual DbSet<BankAccount> BankAccounts { get; set; }
 
     public virtual DbSet<Booking> Bookings { get; set; }
@@ -151,12 +153,45 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
 
     public virtual DbSet<StaffPermission> StaffPermissions { get; set; }
 
+    /// <summary>
+    /// Chỉ dùng bên trong LINQ (.Where/.Select) — EF Core dịch lời gọi này sang
+    /// public.immutable_unaccent(...) trên Postgres. Gọi trực tiếp ngoài expression tree sẽ ném lỗi.
+    /// </summary>
+    public static string Unaccent(string value) =>
+        throw new NotSupportedException($"{nameof(Unaccent)} can only be used inside an EF Core LINQ query.");
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.HasPostgresExtension("pgcrypto");
 
         modelBuilder.Entity<Studentprofile>().HasQueryFilter(e => EF.Property<DateTime?>(e, "Deletedat") == null);
         modelBuilder.Entity<Tutorprofile>().HasQueryFilter(e => EF.Property<DateTime?>(e, "Deletedat") == null);
+
+        modelBuilder.Entity<AdminWalletTransfer>(entity =>
+        {
+            entity.HasKey(e => e.Transferid).HasName("admin_wallet_transfers_pkey");
+
+            entity.ToTable("admin_wallet_transfers");
+
+            entity.HasIndex(e => e.Recipientuserid, "idx_admin_wallet_transfers_recipient");
+
+            entity.Property(e => e.Transferid).HasColumnName("transfer_id");
+            entity.Property(e => e.Recipientuserid)
+                .HasMaxLength(50)
+                .HasColumnName("recipient_user_id");
+            entity.Property(e => e.Amount)
+                .HasPrecision(15, 2)
+                .HasColumnName("amount");
+            entity.Property(e => e.Reason).HasColumnName("reason");
+            entity.Property(e => e.Createdby)
+                .HasMaxLength(50)
+                .HasColumnName("created_by");
+            entity.Property(e => e.Wallettransactionid).HasColumnName("wallet_transaction_id");
+            entity.Property(e => e.Createdat)
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
+                .HasColumnType("timestamp without time zone")
+                .HasColumnName("created_at");
+        });
 
         modelBuilder.Entity<BankAccount>(entity =>
         {
@@ -3245,6 +3280,13 @@ entity.HasOne(d => d.Tutor).WithOne(p => p.Tutorprofile)
         });
 
         OnModelCreatingPartial(modelBuilder);
+
+        // ── Accent-insensitive search ─────────────────────────────────────────
+        // Ánh xạ tới public.immutable_unaccent (xem migrations/managed/V20260807__ensure_unaccent_search.sql)
+        // để LINQ .Where(...) có thể so khớp không phân biệt dấu tiếng Việt qua Unaccent(...).
+        modelBuilder.HasDbFunction(typeof(AgoraDbContext).GetMethod(nameof(Unaccent), [typeof(string)])!)
+            .HasSchema("public")
+            .HasName("immutable_unaccent");
 
         // ── UTC DateTime Convention ───────────────────────────────────────────
         // Vì DB dùng `timestamp without time zone` + EnableLegacyTimestampBehavior,

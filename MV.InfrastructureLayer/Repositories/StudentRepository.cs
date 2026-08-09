@@ -108,5 +108,26 @@ namespace MV.InfrastructureLayer.Repositories
                 .Where(sp => sp.Parentid == parentId && sp.Deletedat == null)
                 .Select(sp => sp.Studentid)
                 .ToListAsync();
+
+        public async Task<HashSet<string>> GetParentManagedUserIdsAsync(IEnumerable<string> userIds)
+        {
+            var ids = userIds.Distinct().ToList();
+            if (ids.Count == 0) return [];
+
+            var profiles = await _context.Studentprofiles
+                .AsNoTracking()
+                .Where(sp => sp.Parentid != null && sp.Deletedat == null &&
+                             (ids.Contains(sp.Studentid) || (sp.Linkeduserid != null && ids.Contains(sp.Linkeduserid))))
+                .Select(sp => new { sp.Studentid, sp.Linkeduserid })
+                .ToListAsync();
+
+            var result = new HashSet<string>();
+            foreach (var p in profiles)
+            {
+                if (ids.Contains(p.Studentid)) result.Add(p.Studentid);
+                if (p.Linkeduserid != null && ids.Contains(p.Linkeduserid)) result.Add(p.Linkeduserid);
+            }
+            return result;
+        }
     }
 }
