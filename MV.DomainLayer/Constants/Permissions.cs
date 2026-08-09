@@ -25,6 +25,12 @@ public static class Permissions
     public const string PayoutView = "payout.view";
     public const string PayoutApprove = "payout.approve";
     public const string PayoutReject = "payout.reject";
+    /// <summary>
+    /// Chuyển thẳng tiền từ hệ thống vào ví một user bất kỳ (không gắn với yêu cầu rút tiền
+    /// nào) — tách riêng khỏi PayoutApprove vì đây là quyền phát sinh tiền chủ động, rủi ro
+    /// cao hơn hẳn việc duyệt một yêu cầu do chính user tạo ra.
+    /// </summary>
+    public const string PayoutTransfer = "payout.transfer";
     public const string FraudLogView = "fraud_log.view";
     public const string SystemAlertView = "system_alert.view";
     public const string SystemAlertResolve = "system_alert.resolve";
@@ -71,7 +77,7 @@ public static class Permissions
         TutorProfileUpdateView, TutorProfileUpdateDecide,
         UserView, UserUpdate, UserDeactivate,
         DashboardView, FinancialView, BookingView, PaymentConfirm, PromotionManage,
-        PayoutView, PayoutApprove, PayoutReject, FraudLogView,
+        PayoutView, PayoutApprove, PayoutReject, PayoutTransfer, FraudLogView,
         SystemAlertView, SystemAlertResolve,
         DisputeView, DisputeInvestigate, DisputeResolve,
         WarningCreate, WarningView, SuspensionManage,
@@ -128,6 +134,7 @@ public static class Permissions
         new(PayoutView, "Xem yêu cầu rút tiền", "Tài chính", "Rút tiền", "Xem"),
         new(PayoutApprove, "Duyệt yêu cầu rút tiền", "Tài chính", "Rút tiền", "Duyệt", PayoutView),
         new(PayoutReject, "Từ chối yêu cầu rút tiền", "Tài chính", "Rút tiền", "Từ chối", PayoutView),
+        new(PayoutTransfer, "Chuyển tiền chủ động cho user", "Tài chính", "Rút tiền", "Chuyển tiền", PayoutView),
         new(FraudLogView, "Xem nhật ký gian lận (lịch sử)", "Tài chính", "Nhật ký gian lận", "Xem"),
         new(SystemAlertView, "Xem cảnh báo hệ thống", "Tài chính", "Cảnh báo hệ thống", "Xem"),
         new(SystemAlertResolve, "Xử lý cảnh báo hệ thống", "Tài chính", "Cảnh báo hệ thống", "Xử lý", SystemAlertView),

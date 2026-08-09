@@ -693,4 +693,146 @@ public class AdminPayoutService(
             throw;
         }
     }
+
+    private static readonly string[] TransferableRoles =
+    [
+        UserRole.Tutor,
+        UserRole.Parent,
+        UserRole.Student
+    ];
+
+    /// <summary>
+    /// Admin/staff chủ động cộng tiền vào ví một user. Không có bước duyệt thứ hai — số dư
+    /// được cộng ngay khi tạo — nên khác hẳn payout (chỉ ghi nhận, tiền đã bị trừ từ trước).
+    /// </summary>
+    public async Task<AdminWalletTransferResponse> TransferToUserAsync(
+        string actorUserId,
+        AdminWalletTransferRequest request,
+        CancellationToken ct = default)
+    {
+        var recipient = await context.Users
+            .AsNoTracking()
+            .FirstOrDefaultAsync(u => u.Userid == request.RecipientUserId, ct)
+            ?? throw new KeyNotFoundException("Không tìm thấy người nhận.");
+
+        if (recipient.Primaryrole == null || !TransferableRoles.Contains(recipient.Primaryrole))
+            throw new InvalidOperationException("Chỉ có thể chuyển tiền cho gia sư, phụ huynh hoặc học sinh.");
+
+        var reason = request.Reason.Trim();
+
+        await using var dbTransaction = await context.Database.BeginTransactionAsync(ct);
+        try
+        {
+            var wallet = await walletRepo.GetOrCreateForUpdateAsync(request.RecipientUserId, ct);
+
+            wallet.Balance = (wallet.Balance ?? 0) + request.Amount;
+            wallet.Lastupdated = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
+
+            var walletTransaction = new Wallettransaction
+            {
+                Walletid = wallet.Walletid,
+                Amount = request.Amount,
+                Transactiontype = TransactionType.AdminCredit,
+                Referencetable = ReferenceTable.AdminWalletTransfer,
+                Description = reason,
+                Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
+            };
+            walletRepo.AddTransaction(walletTransaction);
+            await walletRepo.SaveChangesAsync(ct);
+
+            var transfer = new AdminWalletTransfer
+            {
+                Recipientuserid = request.RecipientUserId,
+                Amount = request.Amount,
+                Reason = reason,
+                Createdby = actorUserId,
+                Wallettransactionid = walletTransaction.Transactionid,
+                Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
+            };
+            context.AdminWalletTransfers.Add(transfer);
+            await context.SaveChangesAsync(ct);
+
+            await dbTransaction.CommitAsync(ct);
+
+            logger.LogInformation(
+                "Actor {ActorId} transferred {Amount} to user {RecipientId}: {Reason}",
+                actorUserId, request.Amount, request.RecipientUserId, reason);
+
+            try
+            {
+                await notificationService.CreateNotificationAsync(new NotificationRequest
+                {
+                    Userid = request.RecipientUserId,
+                    Title = "Bạn vừa nhận được một khoản chuyển tiền",
+                    Message = $"Quản trị viên đã chuyển {request.Amount:N0}đ vào ví của bạn. Lý do: {reason}",
+                    Type = NotificationType.WalletTransferReceived,
+                    Referenceid = transfer.Transferid.ToString()
+                });
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Failed to send wallet transfer notification for transfer {TransferId}", transfer.Transferid);
+            }
+
+            var actor = await context.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Userid == actorUserId, ct);
+
+            return new AdminWalletTransferResponse
+            {
+                TransferId = transfer.Transferid,
+                RecipientUserId = request.RecipientUserId,
+                RecipientName = recipient.Fullname,
+                RecipientRole = recipient.Primaryrole,
+                Amount = request.Amount,
+                Reason = reason,
+                CreatedBy = actorUserId,
+                CreatedByName = actor?.Fullname,
+                CreatedAt = transfer.Createdat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow,
+                RecipientNewBalance = wallet.Balance
+            };
+        }
+        catch
+        {
+            await dbTransaction.RollbackAsync(ct);
+            throw;
+        }
+    }
+
+    public async Task<AdminWalletTransferListResponse> GetTransferHistoryAsync(int page, int pageSize, CancellationToken ct = default)
+    {
+        var query = context.AdminWalletTransfers.AsNoTracking().OrderByDescending(t => t.Createdat);
+
+        var totalCount = await query.CountAsync(ct);
+
+        var rows = await query
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync(ct);
+
+        var userIds = rows.Select(r => r.Recipientuserid).Concat(rows.Select(r => r.Createdby)).Distinct().ToList();
+        var users = await context.Users
+            .AsNoTracking()
+            .Where(u => userIds.Contains(u.Userid))
+            .ToDictionaryAsync(u => u.Userid, u => u, ct);
+
+        var items = rows.Select(r => new AdminWalletTransferResponse
+        {
+            TransferId = r.Transferid,
+            RecipientUserId = r.Recipientuserid,
+            RecipientName = users.GetValueOrDefault(r.Recipientuserid)?.Fullname,
+            RecipientRole = users.GetValueOrDefault(r.Recipientuserid)?.Primaryrole,
+            Amount = r.Amount,
+            Reason = r.Reason,
+            CreatedBy = r.Createdby,
+            CreatedByName = users.GetValueOrDefault(r.Createdby)?.Fullname,
+            CreatedAt = r.Createdat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
+        }).ToList();
+
+        return new AdminWalletTransferListResponse
+        {
+            Items = items,
+            TotalCount = totalCount,
+            Page = page,
+            PageSize = pageSize
+        };
+    }
 }

@@ -8,6 +8,7 @@ public interface IAppDbContext
 {
     DatabaseFacade Database { get; }
 
+    DbSet<AdminWalletTransfer> AdminWalletTransfers { get; }
     DbSet<BankAccount> BankAccounts { get; }
     DbSet<Booking> Bookings { get; }
     DbSet<FraudLog> Fraudlogs { get; }

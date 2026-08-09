@@ -19,4 +19,8 @@ public static class TransactionType
     public const string DepositPayment = "DepositPayment";
     public const string RemainingPayment = "RemainingPayment";
     public const string BankVerification = "BankVerification";
+
+    /// <summary>Admin/staff chủ động cộng tiền vào ví một user, không gắn với booking hay
+    /// yêu cầu rút tiền nào — xem <see cref="Entities.AdminWalletTransfer"/> để biết ai làm và vì sao.</summary>
+    public const string AdminCredit = "AdminCredit";
 }
