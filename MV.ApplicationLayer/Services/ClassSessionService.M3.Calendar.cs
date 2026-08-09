@@ -28,6 +28,7 @@ public partial class ClassSessionService
                     .ThenInclude(p => p!.Subject)
             .Include(l => l.Booking)
                 .ThenInclude(b => b!.Student)
+            .Include(l => l.RescheduleProposals)
             .OrderBy(l => l.Scheduledstart)
             .ToListAsync();
 
@@ -49,7 +50,8 @@ public partial class ClassSessionService
                     BookingStatus = l.Booking?.Status,
                     MeetingLink = l.Meetinglink,
                     CheckOutTime = l.Checkouttime,
-                    HasRecording = RecordingStatusResolver.Resolve(l.Recordingurl, l.Recordings3key, l.Recordingsid, l.Checkouttime.HasValue).Status == "available"
+                    HasRecording = RecordingStatusResolver.Resolve(l.Recordingurl, l.Recordings3key, l.Recordingsid, l.Checkouttime.HasValue).Status == "available",
+                    HasPendingReschedule = ResolveHasPendingReschedule(l.RescheduleProposals)
                 }).ToList()
             })
             .ToList();
@@ -87,6 +89,7 @@ public partial class ClassSessionService
                 .ThenInclude(b => b!.Tutor)
                     .ThenInclude(t => t!.Tutor)
             .Include(l => l.ScheduleChanges)
+            .Include(l => l.RescheduleProposals)
             .OrderBy(l => l.Scheduledstart)
             .ToListAsync();
 
@@ -108,7 +111,8 @@ public partial class ClassSessionService
                     MeetingLink = l.Meetinglink,
                     CheckOutTime = l.Checkouttime,
                     HasRecording = RecordingStatusResolver.Resolve(l.Recordingurl, l.Recordings3key, l.Recordingsid, l.Checkouttime.HasValue).Status == "available",
-                    ScheduleChangeStatus = ResolveActiveScheduleChangeStatus(l.ScheduleChanges)
+                    ScheduleChangeStatus = ResolveActiveScheduleChangeStatus(l.ScheduleChanges),
+                    HasPendingReschedule = ResolveHasPendingReschedule(l.RescheduleProposals)
                 }).ToList()
             })
             .ToList();
@@ -235,6 +239,13 @@ public partial class ClassSessionService
             .FirstOrDefaultAsync();
 
         if (classSession == null) return null;
-        return MapToClassSessionDetailResponse(classSession);
+        var response = MapToClassSessionDetailResponse(classSession);
+
+        var rescheduleProposals = await _rescheduleProposalService.GetProposalHistoryAsync(classSessionId);
+        response.RescheduleProposals = rescheduleProposals;
+        response.PendingRescheduleProposal = rescheduleProposals
+            .FirstOrDefault(x => x.Status == RescheduleProposalStatus.Pending);
+
+        return response;
     }
 }

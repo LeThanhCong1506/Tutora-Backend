@@ -35,13 +35,14 @@ public class ClassSessionRepository(AgoraDbContext context) : IClassSessionRepos
             .Include(l => l.Booking).ThenInclude(b => b!.Tutorsubjectgradeprice).ThenInclude(p => p!.Gradelevel)
             .Include(l => l.Booking).ThenInclude(b => b!.Student)
             .Include(l => l.Tutor).ThenInclude(t => t!.Tutor)
+            .Include(l => l.RescheduleProposals)
             .AsQueryable();
 
         if (fromDate.HasValue)
         {
             // Normalize timezone: nếu UTC thì giữ nguyên, nếu Unspecified thì coi như user time
-            var fromUtc = fromDate.Value.Kind == DateTimeKind.Utc 
-                ? fromDate.Value 
+            var fromUtc = fromDate.Value.Kind == DateTimeKind.Utc
+                ? fromDate.Value
                 : DateTime.SpecifyKind(fromDate.Value, DateTimeKind.Utc);
             q = q.Where(l => l.Scheduledstart >= fromUtc);
         }
@@ -67,6 +68,7 @@ public class ClassSessionRepository(AgoraDbContext context) : IClassSessionRepos
             .Include(l => l.Booking).ThenInclude(b => b!.Student)
             .Include(l => l.Tutor).ThenInclude(t => t!.Tutor)
             .Include(l => l.ScheduleChanges)
+            .Include(l => l.RescheduleProposals)
             .AsQueryable();
 
         if (fromDate.HasValue)

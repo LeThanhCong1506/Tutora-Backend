@@ -19,11 +19,16 @@ public class TutorClassSessionController : ControllerBase
 {
     private readonly IClassSessionService _classSessionService;
     private readonly IDisputeService _disputeService;
+    private readonly IClassSessionRescheduleProposalService _rescheduleProposalService;
 
-    public TutorClassSessionController(IClassSessionService classSessionService, IDisputeService disputeService)
+    public TutorClassSessionController(
+        IClassSessionService classSessionService,
+        IDisputeService disputeService,
+        IClassSessionRescheduleProposalService rescheduleProposalService)
     {
         _classSessionService = classSessionService;
         _disputeService = disputeService;
+        _rescheduleProposalService = rescheduleProposalService;
     }
 
     /// <summary>
@@ -134,6 +139,67 @@ public class TutorClassSessionController : ControllerBase
         var tutorId = UserHelper.GetUserId(User);
         var result = await _classSessionService.UploadAttachmentAsync(id, tutorId, file);
         return Ok(APIResponse<string>.Success(result, "Tải tệp đính kèm thành công."));
+    }
+
+    /// <summary>
+    /// Gia sư đề xuất dời buổi học sang giờ khác. Gửi thông báo cho bên học và chờ đồng ý.
+    /// </summary>
+    [HttpPost("{id}/reschedule-proposal")]
+    [Authorize(Roles = UserRole.Tutor)]
+    public async Task<ActionResult<APIResponse<ClassSessionRescheduleProposalResponse>>> ProposeReschedule(
+        int id,
+        [FromBody] CreateRescheduleProposalRequest request)
+    {
+        var tutorId = UserHelper.GetUserId(User);
+        try
+        {
+            var result = await _rescheduleProposalService.ProposeAsync(
+                id, tutorId, UserRole.Tutor, request.ProposedScheduledStart, request.Reason);
+            return Ok(APIResponse<ClassSessionRescheduleProposalResponse>.Success(result, "Đã gửi đề xuất đổi lịch."));
+        }
+        catch (KeyNotFoundException ex)
+        {
+            return NotFound(APIResponse<object>.Fail(ex.Message, 404));
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(403, APIResponse<object>.Fail(ex.Message, 403));
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(APIResponse<object>.Fail(ex.Message, 400));
+        }
+    }
+
+    /// <summary>
+    /// Gia sư đồng ý/từ chối đề xuất đổi lịch đang chờ do bên học gửi.
+    /// </summary>
+    [HttpPost("{id}/reschedule-proposal/respond")]
+    [Authorize(Roles = UserRole.Tutor)]
+    public async Task<ActionResult<APIResponse<ClassSessionRescheduleProposalResponse>>> RespondToReschedule(
+        int id,
+        [FromBody] RescheduleProposalDecisionRequest request)
+    {
+        var tutorId = UserHelper.GetUserId(User);
+        try
+        {
+            var result = await _rescheduleProposalService.RespondAsync(id, tutorId, UserRole.Tutor, request.Accepted);
+            return Ok(APIResponse<ClassSessionRescheduleProposalResponse>.Success(
+                result,
+                request.Accepted ? "Đã đồng ý đổi lịch học." : "Đã từ chối đổi lịch học."));
+        }
+        catch (KeyNotFoundException ex)
+        {
+            return NotFound(APIResponse<object>.Fail(ex.Message, 404));
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(403, APIResponse<object>.Fail(ex.Message, 403));
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(APIResponse<object>.Fail(ex.Message, 400));
+        }
     }
 
     /// <summary>
