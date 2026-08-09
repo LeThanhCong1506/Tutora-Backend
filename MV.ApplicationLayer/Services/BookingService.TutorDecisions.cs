@@ -129,7 +129,7 @@ public partial class BookingService
         {
             await notificationService.CreateNotificationAsync(new NotificationRequest
             {
-                Userid = booking.Parentid!,
+                Userid = counterpartId!,
                 Title = "Gia sư đã chấp nhận lịch học",
                 Message = $"Gia sư đã chấp nhận yêu cầu đặt lịch #{bookingId}. Buổi học đã được lên lịch.",
                 Type = NotificationType.BookingAccepted,
