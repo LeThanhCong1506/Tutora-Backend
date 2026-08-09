@@ -1,5 +1,6 @@
 ﻿using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Logging;
+using MV.ApplicationLayer.Helpers;
 using MV.ApplicationLayer.Hubs;
 using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.Constants;
@@ -222,8 +223,11 @@ public class ChatService(
         var booking = await bookingRepo.FindWithStudentAsync(bookingId);
         if (booking == null) return;
 
+        var (payerId, payerIsStudent) = BookingPayerResolver.Resolve(booking);
         var channel = await chatRepo.FindChannelByParticipantsAsync(
-            booking.Tutorid!, booking.Parentid, null);
+            booking.Tutorid!,
+            payerIsStudent ? null : payerId,
+            payerIsStudent ? payerId : null);
         if (channel == null) return;
 
                 var senderId = booking.Tutorid ?? SystemActors.System;
@@ -294,13 +298,18 @@ public class ChatService(
                 "Không tìm thấy booking hoặc bạn không có quyền truy cập.",
                 404);
 
-        if (string.IsNullOrWhiteSpace(booking.Parentid) || string.IsNullOrWhiteSpace(booking.Tutorid))
+        // booking.Parentid is null for a self-managed student's own booking — resolve the real
+        // counterpart (parent, or the student's own login) the same way Accept/Decline/Cancel do,
+        // instead of requiring Parentid directly.
+        var (payerId, isStudent) = BookingPayerResolver.Resolve(booking);
+
+        if (string.IsNullOrWhiteSpace(payerId) || string.IsNullOrWhiteSpace(booking.Tutorid))
             throw new BookingException(
                 BookingErrorCodes.InvalidBookingStatus,
-                "Booking chưa có đủ thông tin phụ huynh và gia sư để tạo cuộc trò chuyện.",
+                "Booking chưa có đủ thông tin người đặt lịch và gia sư để tạo cuộc trò chuyện.",
                 400);
 
-        return await GetOrCreateChannelAsync(booking.Parentid, booking.Tutorid);
+        return await GetOrCreateChannelAsync(payerId, booking.Tutorid, isStudent);
     }
 
     public Task<int> GetUnreadTotalCountAsync(string userId)
