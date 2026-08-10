@@ -329,6 +329,8 @@ builder.Services.AddSingleton<IEncryptionService, AesEncryptionService>();
 builder.Services.AddScoped<ISimpleAuthService, SimpleAuthService>();
 // ZNS OTP dùng số điện thoại đã được xác thực của tài khoản.
 builder.Services.AddScoped<IOtpSender, ZnsOtpSender>();
+// OTP xác thực giao dịch lớn (học sinh tự đăng ký, gửi tới SĐT phụ huynh) — độc lập với OTP đăng nhập ở trên.
+builder.Services.AddScoped<ILargeTransactionOtpService, LargeTransactionOtpService>();
 builder.Services.AddScoped<ISocialRegistrationService, SocialRegistrationService>();
 builder.Services.AddScoped<IZaloAuthService, ZaloAuthService>();
 builder.Services.AddScoped<IRefreshTokenService, RefreshTokenService>();

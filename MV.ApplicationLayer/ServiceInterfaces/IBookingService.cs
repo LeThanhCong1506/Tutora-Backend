@@ -106,4 +106,15 @@ public interface IBookingService
     /// Used by FE to disable/gray-out occupied slots before the user submits a booking.
     /// </summary>
     Task<List<BookedSlotResponse>> GetTutorBookedSlotsAsync(string tutorId, DateTime startDate, DateTime endDate);
+
+    /// <summary>
+    /// Gửi OTP xác thực giao dịch lớn (&gt;= ngưỡng) tới SĐT phụ huynh của booking (chỉ áp dụng
+    /// cho học sinh tự đăng ký — booking không có Parentid). Ném
+    /// <see cref="MV.DomainLayer.Exceptions.ParentPhoneRequiredForLargeTransactionException"/>
+    /// nếu chưa có SĐT phụ huynh.
+    /// </summary>
+    Task SendPaymentOtpAsync(int bookingId, string userId, string phase);
+
+    /// <summary>Xác thực mã OTP giao dịch lớn đã gửi cho booking + phase này.</summary>
+    Task VerifyPaymentOtpAsync(int bookingId, string userId, string phase, string code);
 }

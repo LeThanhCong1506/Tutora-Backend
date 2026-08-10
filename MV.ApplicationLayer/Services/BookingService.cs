@@ -25,6 +25,7 @@ public partial class BookingService(
     IChatService chatService,
     ISettlementService settlementService,
     IAiCreditService aiCreditService,
+    ILargeTransactionOtpService largeTransactionOtpService,
     ILogger<BookingService> logger) : IBookingService
 {
     private const int AvailabilityValidDays = 30;

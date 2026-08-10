@@ -281,4 +281,75 @@ public class BookingController : ControllerBase
             return StatusCode(500, APIResponse<object>.Fail($"Lỗi hệ thống: {ex.Message}", 500));
         }
     }
+
+    /// <summary>
+    /// POST /api/bookings/{id}/payment-otp/send — Gửi OTP xác thực giao dịch lớn (chỉ áp dụng
+    /// cho booking của học sinh tự đăng ký) tới SĐT phụ huynh. `errorCode = PARENT_PHONE_REQUIRED`
+    /// là tín hiệu để FE điều hướng người dùng sang trang hồ sơ thay vì hiện lỗi thông thường.
+    /// </summary>
+    [HttpPost("bookings/{id}/payment-otp/send")]
+    [Authorize(Roles = UserRole.Student)]
+    public async Task<IActionResult> SendPaymentOtp(int id, [FromBody] SendPaymentOtpRequest request)
+    {
+        var userId = UserId;
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(APIResponse.Fail(ApiMessages.Unauthorized, 401));
+
+        try
+        {
+            await _bookingService.SendPaymentOtpAsync(id, userId, request.Phase);
+            return Ok(APIResponse<object>.Success(new { }, "Đã gửi mã OTP tới số điện thoại phụ huynh."));
+        }
+        catch (ParentPhoneRequiredForLargeTransactionException ex)
+        {
+            return BadRequest(new { errorCode = "PARENT_PHONE_REQUIRED", message = ex.Message });
+        }
+        catch (OtpCooldownActiveException ex)
+        {
+            return BadRequest(new { errorCode = "OTP_COOLDOWN_ACTIVE", message = ex.Message, retryAfterSeconds = ex.RetryAfterSeconds });
+        }
+        catch (OtpDailyLimitExceededException ex)
+        {
+            return BadRequest(new { errorCode = "OTP_DAILY_LIMIT_EXCEEDED", message = ex.Message });
+        }
+        catch (BookingException ex)
+        {
+            return StatusCode(ex.HttpStatus, new { errorCode = ex.ErrorCode, message = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// POST /api/bookings/{id}/payment-otp/verify — Xác thực mã OTP giao dịch lớn. Đúng thì
+    /// ghi cờ đã duyệt để BE cho phép trừ ví / tạo link PayOS cho booking + phase này.
+    /// </summary>
+    [HttpPost("bookings/{id}/payment-otp/verify")]
+    [Authorize(Roles = UserRole.Student)]
+    public async Task<IActionResult> VerifyPaymentOtp(int id, [FromBody] VerifyPaymentOtpRequest request)
+    {
+        var userId = UserId;
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(APIResponse.Fail(ApiMessages.Unauthorized, 401));
+
+        try
+        {
+            await _bookingService.VerifyPaymentOtpAsync(id, userId, request.Phase, request.Code);
+            return Ok(APIResponse<object>.Success(new { }, "Xác thực OTP thành công."));
+        }
+        catch (OtpExpiredException ex)
+        {
+            return BadRequest(new { errorCode = "OTP_EXPIRED", message = ex.Message });
+        }
+        catch (OtpInvalidException ex)
+        {
+            return BadRequest(new { errorCode = "OTP_INVALID", message = ex.Message });
+        }
+        catch (OtpTooManyAttemptsException ex)
+        {
+            return BadRequest(new { errorCode = "OTP_TOO_MANY_ATTEMPTS", message = ex.Message });
+        }
+        catch (BookingException ex)
+        {
+            return StatusCode(ex.HttpStatus, new { errorCode = ex.ErrorCode, message = ex.Message });
+        }
+    }
 }
