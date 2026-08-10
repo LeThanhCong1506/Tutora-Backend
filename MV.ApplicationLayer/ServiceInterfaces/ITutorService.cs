@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Http;
+using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO.RequestModel;
 using MV.DomainLayer.DTO.ResponseModel;
 
@@ -24,8 +25,10 @@ namespace MV.ApplicationLayer.ServiceInterfaces
 
         /// <summary>
         /// Update basic tutor info: headline, teaching area, teaching mode.
+        /// Returns <see cref="ProfileUpdateOutcome.PendingApproval"/> instead of applying the change
+        /// directly when the profile is already Active (needs Admin re-approval — see RequiresApprovalForEdits).
         /// </summary>
-        Task<bool> UpdateTutorBasicInfoAsync(string userId, UpdateTutorBasicInfoRequest request);
+        Task<ProfileUpdateOutcome> UpdateTutorBasicInfoAsync(string userId, UpdateTutorBasicInfoRequest request);
 
         /// <summary>
         /// Replace the tutor's subject list in one call.
@@ -39,8 +42,10 @@ namespace MV.ApplicationLayer.ServiceInterfaces
 
         /// <summary>
         /// Update tutor bio, education, GPA, and experience sections.
+        /// Returns <see cref="ProfileUpdateOutcome.PendingApproval"/> instead of applying the change
+        /// directly when the profile is already Active (needs Admin re-approval — see RequiresApprovalForEdits).
         /// </summary>
-        Task<bool> UpdateTutorIntroductionAsync(string userId, UpdateTutorIntroductionRequest request);
+        Task<ProfileUpdateOutcome> UpdateTutorIntroductionAsync(string userId, UpdateTutorIntroductionRequest request);
 
         // ── Certificates ──────────────────────────────────────────────────
 
@@ -78,8 +83,10 @@ namespace MV.ApplicationLayer.ServiceInterfaces
 
         /// <summary>
         /// Update tutor pricing fields.
+        /// Returns <see cref="ProfileUpdateOutcome.PendingApproval"/> instead of applying the change
+        /// directly when the profile is already Active (needs Admin re-approval — see RequiresApprovalForEdits).
         /// </summary>
-        Task<bool> UpdateTutorPricingAsync(string tutorId, UpdateTutorPricingRequest request);
+        Task<ProfileUpdateOutcome> UpdateTutorPricingAsync(string tutorId, UpdateTutorPricingRequest request);
 
         /// <summary>
         /// Add a single subject-grade-price entry for tutor.
