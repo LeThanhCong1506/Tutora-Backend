@@ -51,11 +51,16 @@ public interface IDisputeService
     /// <summary>
     /// Runs AI (Groq) priority classification for a dispute and persists the result. Used both as the
     /// Hangfire job body enqueued right after dispute creation, and as a manual admin re-classify/backfill action.
-    /// Returns null if the dispute doesn't exist; leaves Priority/PriorityReason unset (not an error) if the
-    /// AI call itself fails or is unavailable. <paramref name="actorId"/> scopes the returned response's
+    /// Returns null if the dispute doesn't exist. <paramref name="actorId"/> scopes the returned response's
     /// recording stream token — pass "system" from the background trigger, where the response is discarded.
     /// </summary>
-    Task<DisputeDetailResponse?> ClassifyDisputePriorityAsync(int disputeId, string actorId);
+    /// <param name="swallowClassificationFailure">
+    /// True for the Hangfire background trigger: leaves Priority/PriorityReason unset (not an error) if the AI
+    /// call fails, so the job completes successfully instead of being retried and eventually marked permanently
+    /// Failed by Hangfire (which would leave the dispute unclassified forever with no automatic retry). False
+    /// (default) for the manual admin action, where the caller needs the exception to report a real failure.
+    /// </param>
+    Task<DisputeDetailResponse?> ClassifyDisputePriorityAsync(int disputeId, string actorId, bool swallowClassificationFailure = false);
 
     /// <summary>
     /// Get dispute statistics for admin dashboard
