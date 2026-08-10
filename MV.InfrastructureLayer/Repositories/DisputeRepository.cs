@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using MV.ApplicationLayer.Helpers;
 using MV.DomainLayer.Constants;
 using MV.DomainLayer.Entities;
 using MV.InfrastructureLayer.DBContext;
@@ -55,13 +56,29 @@ public class DisputeRepository(AgoraDbContext context) : IDisputeRepository
 
     public async Task<int?> GetChannelIdForBookingAsync(int bookingId)
     {
+        // Chatchannel.Bookingid không bao giờ được ghi khi tạo kênh chat thật (ChatService tạo/tra
+        // kênh theo cặp gia sư + phụ huynh/học sinh, xem GetOrCreateChannelForBookingAsync) — join
+        // thẳng theo Bookingid ở đây sẽ luôn ra null. Phải tự resolve cùng cặp định danh đó.
+        var booking = await context.Bookings
+            .AsNoTracking()
+            .Include(b => b.Student)
+            .FirstOrDefaultAsync(b => b.Bookingid == bookingId);
+        if (booking?.Tutorid == null) return null;
+
+        var (payerId, isStudent) = BookingPayerResolver.Resolve(booking);
+        if (string.IsNullOrWhiteSpace(payerId)) return null;
+
         var channel = await context.Chatchannels
             .AsNoTracking()
-            .FirstOrDefaultAsync(c => c.Bookingid == bookingId);
+            .FirstOrDefaultAsync(c => c.Tutorid == booking.Tutorid
+                && (isStudent ? c.Studentid == payerId : c.Parentid == payerId));
         return channel?.Channelid;
     }
 
-    public Task<List<Chatmessage>> GetChannelMessagesAsync(int channelId, int limit = 100)
+    // Admin xem lại toàn bộ chat để điều tra tranh chấp — không phải giao diện chat cuộn vô hạn
+    // của tutor/student/parent, nên không cắt bớt như GetMessagesPagedAsync. limit chỉ để chặn
+    // trường hợp cực đoan, không phải giới hạn hiển thị bình thường.
+    public Task<List<Chatmessage>> GetChannelMessagesAsync(int channelId, int limit = 2000)
         => context.Chatmessages
             .AsNoTracking()
             .Where(m => m.Channelid == channelId)

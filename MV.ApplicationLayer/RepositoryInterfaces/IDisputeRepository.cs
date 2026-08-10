@@ -20,7 +20,7 @@ public interface IDisputeRepository
 
     // Chat for dispute
     Task<int?> GetChannelIdForBookingAsync(int bookingId);
-    Task<List<Chatmessage>> GetChannelMessagesAsync(int channelId, int limit = 100);
+    Task<List<Chatmessage>> GetChannelMessagesAsync(int channelId, int limit = 2000);
 
     // Mutations
     void Add(Dispute dispute);
