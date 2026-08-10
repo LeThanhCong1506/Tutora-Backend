@@ -1,3 +1,4 @@
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO;
@@ -161,8 +162,54 @@ namespace MV.ApplicationLayer.Services
                 ProposedExperience = pending.Experience,
                 CurrentVideoIntroUrl = profile.Videointrourl,
                 ProposedVideoIntroUrl = pending.VideoIntroUrl,
-                HasProposedSubjectGradePrices = pending.SubjectGradePrices != null
+                HasProposedSubjectGradePrices = pending.SubjectGradePrices != null,
+                CurrentSubjectGradePrices = profile.Tutorsubjectgradeprices
+                    .Select(MapSubjectGradePriceResponse)
+                    .ToList(),
+                ProposedSubjectGradePrices = await MapPendingSubjectGradePricesAsync(pending.SubjectGradePrices)
             };
+        }
+
+        /// <summary>
+        /// Bảng giá ĐỀ XUẤT chỉ có Id trần (SubjectId/GradeLevelId, xem <see cref="PendingTutorProfileUpdate"/>
+        /// — JSON lưu Redis, không phải EF entity nên không có navigation Subject/Gradelevel như bản
+        /// sống). Tra tên môn/khối lớp riêng ở đây để FE hiển thị được, không phải đoán qua ID.
+        /// </summary>
+        private async Task<List<TutorSubjectGradePriceResponse>> MapPendingSubjectGradePricesAsync(
+            List<TutorSubjectGradePriceRequest>? prices)
+        {
+            if (prices == null || prices.Count == 0)
+                return new List<TutorSubjectGradePriceResponse>();
+
+            var subjectIds = prices.Select(p => p.SubjectId).Distinct().ToList();
+            var gradeLevelIds = prices.Select(p => p.GradeLevelId).Distinct().ToList();
+
+            var subjects = await _context.Subjects
+                .Where(s => subjectIds.Contains(s.Subjectid))
+                .ToDictionaryAsync(s => s.Subjectid);
+            var gradeLevels = await _context.Gradelevels
+                .Where(g => gradeLevelIds.Contains(g.Gradelevelid))
+                .ToDictionaryAsync(g => g.Gradelevelid);
+
+            return prices.Select(p =>
+            {
+                subjects.TryGetValue(p.SubjectId, out var subject);
+                gradeLevels.TryGetValue(p.GradeLevelId, out var gradeLevel);
+                return new TutorSubjectGradePriceResponse
+                {
+                    SubjectId = p.SubjectId,
+                    SubjectName = subject?.Subjectname,
+                    GradeLevelId = p.GradeLevelId,
+                    GradeLevelName = gradeLevel?.Gradename,
+                    PricePerHour = p.PricePerHour,
+                    DurationMinutesPerSession = p.DurationMinutesPerSession,
+                    SessionsPerWeek = p.SessionsPerWeek,
+                    Currency = string.IsNullOrWhiteSpace(p.Currency) ? "VND" : p.Currency!,
+                    IsActive = p.IsActive,
+                    SubjectIsActive = subject?.IsActive ?? true,
+                    GradeLevelIsActive = gradeLevel?.IsActive ?? true
+                };
+            }).ToList();
         }
 
         public async Task<ReviewProfileUpdateResponse> ReviewProfileUpdateRequestAsync(

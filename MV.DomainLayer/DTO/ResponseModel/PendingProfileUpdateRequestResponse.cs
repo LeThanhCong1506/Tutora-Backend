@@ -36,5 +36,14 @@ namespace MV.DomainLayer.DTO.ResponseModel
 
         /// <summary>true nếu tutor có đề xuất thay đổi môn học/bảng giá ở lần nộp này.</summary>
         public bool HasProposedSubjectGradePrices { get; set; }
+
+        /// <summary>Bảng giá theo môn/lớp ĐANG SỐNG (hiển thị Marketplace) — luôn có, để FE vẽ diff.</summary>
+        public List<TutorSubjectGradePriceResponse> CurrentSubjectGradePrices { get; set; } = new();
+
+        /// <summary>
+        /// Bảng giá theo môn/lớp ĐỀ XUẤT ở lần nộp này. Rỗng nếu tutor không đụng tới phần này
+        /// (khác <see cref="HasProposedSubjectGradePrices"/> = false).
+        /// </summary>
+        public List<TutorSubjectGradePriceResponse> ProposedSubjectGradePrices { get; set; } = new();
     }
 }
