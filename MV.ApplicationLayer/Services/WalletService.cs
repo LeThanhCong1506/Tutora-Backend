@@ -407,18 +407,15 @@ public class WalletService(
     }
 
     /// <summary>
-    /// Parent (or any wallet owner with no saved BankAccount) withdrawal creation — the bank
-    /// destination always comes straight from the request, never from a saved account, and is
+    /// Parent/Student withdrawal creation — bank destination is the requester's saved
+    /// BankAccount (same as Tutor's own flow, see TutorFinanceService.CreateWithdrawalAsync),
     /// snapshotted onto the withdrawal row so it survives later bank-account edits/deletes.
+    /// Typing bank details per-withdrawal was removed; saving/changing the payout destination
+    /// now always goes through the OTP-gated bank-account flow (BankAccountController).
     /// </summary>
     public async Task<WithdrawalDetailResponse> CreateWithdrawalAsync(
         string userId, CreateWithdrawalRequest request, CancellationToken ct = default)
     {
-        if (string.IsNullOrWhiteSpace(request.BankName)
-            || string.IsNullOrWhiteSpace(request.AccountNumber)
-            || string.IsNullOrWhiteSpace(request.AccountHolderName))
-            throw new BankInfoRequiredException();
-
         await using var transaction = await context.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, ct);
         var committed = false;
 
@@ -444,6 +441,16 @@ public class WalletService(
             if (pendingWithdrawal)
                 throw new PendingWithdrawalException();
 
+            var bankAccount = await context.BankAccounts
+                .AsNoTracking()
+                .FirstOrDefaultAsync(b => b.Userid == userId, ct);
+
+            if (bankAccount == null
+                || string.IsNullOrEmpty(bankAccount.Bankname)
+                || string.IsNullOrEmpty(bankAccount.Accountnumber)
+                || string.IsNullOrEmpty(bankAccount.Accountholdername))
+                throw new BankInfoRequiredException();
+
             if (request.Amount < MinWithdrawalAmount)
                 throw new WithdrawalAmountTooLowException(MinWithdrawalAmount);
 
@@ -455,9 +462,9 @@ public class WalletService(
                 Userid = userId,
                 Walletid = wallet.Walletid,
                 Amount = request.Amount,
-                Bankname = request.BankName.Trim(),
-                Accountnumber = request.AccountNumber.Trim(),
-                Accountholdername = request.AccountHolderName.Trim(),
+                Bankname = bankAccount.Bankname,
+                Accountnumber = bankAccount.Accountnumber,
+                Accountholdername = bankAccount.Accountholdername,
                 Status = WithdrawalStatus.PendingReview,
                 Decision = TrustScoringConstants.Decisions.ManualReview,
                 Requestedat = TimeZoneHelper.UtcNow

@@ -92,48 +92,8 @@ public class TutorFinanceController(ITutorFinanceService financeService) : Contr
         }
     }
 
-    [HttpGet("bank")]
-    public async Task<IActionResult> GetBankInfo(CancellationToken ct)
-    {
-        SetNoCacheResponseHeaders();
-        try
-        {
-            var result = await financeService.GetBankInfoAsync(TutorId, ct);
-            return Ok(APIResponse<object>.Success(result));
-        }
-        catch (NotFoundException ex)
-        {
-            return NotFound(APIResponse.Fail(ex.Message, 404));
-        }
-    }
-
-    [HttpPut("bank")]
-    public async Task<IActionResult> UpdateBankInfo([FromBody] UpdateTutorBankInfoRequest request, CancellationToken ct)
-    {
-        try
-        {
-            var result = await financeService.UpdateBankInfoAsync(TutorId, request, ct);
-            return Ok(APIResponse<object>.Success(result, "Cập nhật thông tin ngân hàng thành công."));
-        }
-        catch (NotFoundException ex)
-        {
-            return NotFound(APIResponse.Fail(ex.Message, 404));
-        }
-    }
-
-    [HttpDelete("bank")]
-    public async Task<IActionResult> DeleteBankInfo(CancellationToken ct)
-    {
-        try
-        {
-            await financeService.DeleteBankInfoAsync(TutorId, ct);
-            return Ok(APIResponse.Success("Xóa tài khoản ngân hàng thành công."));
-        }
-        catch (NotFoundException ex)
-        {
-            return NotFound(APIResponse.Fail(ex.Message, 404));
-        }
-    }
+    // GET/PUT/DELETE bank — moved to BankAccountController (api/bank-account), shared with
+    // Parent/Student, now OTP-gated.
 
     [HttpPost("withdrawals")]
     public async Task<IActionResult> CreateWithdrawal([FromBody] CreateWithdrawalRequest request, CancellationToken ct)
@@ -142,6 +102,10 @@ public class TutorFinanceController(ITutorFinanceService financeService) : Contr
         {
             var result = await financeService.CreateWithdrawalAsync(TutorId, request, ct);
             return Ok(APIResponse<object>.Success(result, "Tạo yêu cầu rút tiền thành công."));
+        }
+        catch (BankInfoRequiredException ex)
+        {
+            return BadRequest(new { errorCode = "BANK_ACCOUNT_REQUIRED", message = ex.Message });
         }
         catch (BadRequestException ex)
         {

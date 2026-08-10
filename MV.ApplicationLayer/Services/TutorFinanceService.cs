@@ -199,88 +199,10 @@ public class TutorFinanceService(
         };
     }
 
-    public async Task<TutorBankInfoResponse> GetBankInfoAsync(string userId, CancellationToken ct = default)
-    {
-        var userExists = await context.Users
-            .AsNoTracking()
-            .AnyAsync(u => u.Userid == userId, ct);
+    // Bank account CRUD (GetBankInfoAsync/UpdateBankInfoAsync/DeleteBankInfoAsync) moved to the
+    // shared BankAccountService/BankAccountController (api/bank-account) — Parent/Student now
+    // need the same feature, and it now requires OTP verification on every write.
 
-        if (!userExists)
-            throw new UserNotFoundException(userId);
-
-        var bankAccount = await context.BankAccounts
-            .AsNoTracking()
-            .FirstOrDefaultAsync(b => b.Userid == userId, ct);
-
-        return new TutorBankInfoResponse
-        {
-            BankName = bankAccount?.Bankname,
-            AccountNumber = bankAccount?.Accountnumber,
-            AccountHolderName = bankAccount?.Accountholdername,
-            BankChangedAt = bankAccount?.Updatedat
-        };
-    }
-
-    public async Task<TutorBankInfoResponse> UpdateBankInfoAsync(
-        string userId,
-        UpdateTutorBankInfoRequest request,
-        CancellationToken ct = default)
-    {
-        var userExists = await context.Users
-            .AsNoTracking()
-            .AnyAsync(u => u.Userid == userId, ct);
-        if (!userExists)
-            throw new UserNotFoundException(userId);
-
-        var now = TimeZoneHelper.UtcNow;
-        var bankAccount = await context.BankAccounts
-            .FirstOrDefaultAsync(b => b.Userid == userId, ct);
-
-        if (bankAccount == null)
-        {
-            bankAccount = new BankAccount
-            {
-                Userid = userId,
-                Createdat = now
-            };
-            context.BankAccounts.Add(bankAccount);
-        }
-
-        bankAccount.Bankname = request.BankName.Trim();
-        bankAccount.Accountnumber = request.AccountNumber.Trim();
-        bankAccount.Accountholdername = request.AccountHolderName.Trim();
-        bankAccount.Updatedat = now;
-
-        await context.SaveChangesAsync(ct);
-
-        logger.LogInformation("Updated bank info for user {UserId}", userId);
-
-        return new TutorBankInfoResponse
-        {
-            BankName = bankAccount.Bankname,
-            AccountNumber = bankAccount.Accountnumber,
-            AccountHolderName = bankAccount.Accountholdername,
-            BankChangedAt = bankAccount.Updatedat
-        };
-    }
-
-    public async Task DeleteBankInfoAsync(string userId, CancellationToken ct = default)
-    {
-        var userExists = await context.Users
-            .AsNoTracking()
-            .AnyAsync(u => u.Userid == userId, ct);
-        if (!userExists)
-            throw new UserNotFoundException(userId);
-
-        var deleted = await context.BankAccounts
-            .Where(b => b.Userid == userId)
-            .ExecuteDeleteAsync(ct);
-
-        logger.LogInformation(
-            "Deleted {DeletedCount} saved bank account(s) for user {UserId}",
-            deleted,
-            userId);
-    }
     public async Task<WithdrawalDetailResponse> CreateWithdrawalAsync(string tutorId, CreateWithdrawalRequest request, CancellationToken ct = default)
     {
         await using var transaction = await context.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, ct);

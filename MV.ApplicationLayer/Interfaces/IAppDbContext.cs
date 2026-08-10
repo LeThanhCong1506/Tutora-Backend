@@ -10,6 +10,7 @@ public interface IAppDbContext
 
     DbSet<AdminWalletTransfer> AdminWalletTransfers { get; }
     DbSet<BankAccount> BankAccounts { get; }
+    DbSet<BankAccountAuditLog> BankAccountAuditLogs { get; }
     DbSet<Booking> Bookings { get; }
     DbSet<FraudLog> Fraudlogs { get; }
     DbSet<LoginHistory> Loginhistories { get; }

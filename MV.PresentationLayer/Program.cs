@@ -365,6 +365,10 @@ builder.Services.AddSingleton<IRecordingAccessTokenService, RecordingAccessToken
 builder.Services.AddScoped<IRecordingRelayService, RecordingRelayService>();
 builder.Services.AddHostedService<MV.PresentationLayer.BackgroundServices.RecordingRelayHostedService>();
 builder.Services.AddScoped<ITutorFinanceService, TutorFinanceService>();
+// Tài khoản ngân hàng dùng chung Tutor/Parent/Student — mọi lần lưu/xoá đều cần OTP riêng
+// (không tái dùng SimpleAuthService/LargeTransactionOtpService).
+builder.Services.AddScoped<IBankAccountOtpService, BankAccountOtpService>();
+builder.Services.AddScoped<IBankAccountService, BankAccountService>();
 builder.Services.AddScoped<ILearningMaterialService, LearningMaterialService>();
 
 builder.Services.AddHttpContextAccessor();
