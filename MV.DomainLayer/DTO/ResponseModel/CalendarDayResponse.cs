@@ -56,6 +56,9 @@ public class CalendarClassSessionResponse
     /// </summary>
     public string? ScheduleChangeStatus { get; set; }
 
+    /// <summary>True nếu buổi này đang có đề xuất đổi lịch (tính năng chủ động chọn giờ mới) chờ phản hồi.</summary>
+    public bool HasPendingReschedule { get; set; }
+
     /// <summary>
     /// Color code based on status for UI rendering
     /// </summary>

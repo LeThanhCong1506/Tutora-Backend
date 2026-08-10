@@ -25,6 +25,7 @@ public class ParentService : IParentService
     private readonly INotificationService _notificationService;
     private readonly IFileStorageService _storageService;
     private readonly IBackgroundJobClient _backgroundJobClient;
+    private readonly IClassSessionRescheduleProposalService _rescheduleProposalService;
     private readonly ILogger<ParentService> _logger;
 
     public ParentService(
@@ -33,6 +34,7 @@ public class ParentService : IParentService
         INotificationService notificationService,
         IFileStorageService storageService,
         IBackgroundJobClient backgroundJobClient,
+        IClassSessionRescheduleProposalService rescheduleProposalService,
         ILogger<ParentService> logger)
     {
         _context = context;
@@ -40,6 +42,7 @@ public class ParentService : IParentService
         _notificationService = notificationService;
         _storageService = storageService;
         _backgroundJobClient = backgroundJobClient;
+        _rescheduleProposalService = rescheduleProposalService;
         _logger = logger;
     }
 
@@ -111,6 +114,8 @@ public class ParentService : IParentService
             .FirstOrDefaultAsync();
 
         if (classSession == null) return null;
+
+        var rescheduleProposals = await _rescheduleProposalService.GetProposalHistoryAsync(classSessionId);
 
         // Lịch sử dời lịch (nếu có) — mirror của DisputeService.GetDisputeDetailAsync.
         var scheduleChanges = await _context.ClassSessionScheduleChanges
@@ -210,7 +215,10 @@ public class ParentService : IParentService
                 RequestedAt = x.Requestedat,
                 ApprovedAt = x.Approvedat,
                 AppliedAt = x.Appliedat
-            }).ToList()
+            }).ToList(),
+            RescheduleProposals = rescheduleProposals,
+            PendingRescheduleProposal = rescheduleProposals
+                .FirstOrDefault(x => x.Status == RescheduleProposalStatus.Pending)
         };
     }
 
@@ -522,6 +530,17 @@ public class ParentService : IParentService
     /// <summary>
     /// Get parent calendar view
     /// </summary>
+    /// <summary>
+    /// True nếu buổi này có đề xuất đổi lịch (tính năng chủ động chọn giờ mới) đang Pending và
+    /// chưa hết hạn. Nhân bản có chủ đích từ helper cùng tên trong <c>ClassSessionService</c> —
+    /// 2 class khác nhau, không chia sẻ được private static method.
+    /// </summary>
+    private static bool ResolveHasPendingReschedule(IEnumerable<ClassSessionRescheduleProposal> proposals)
+    {
+        var now = TimeZoneHelper.UtcNow;
+        return proposals.Any(x => x.Status == RescheduleProposalStatus.Pending && x.Expiresat > now);
+    }
+
     public async Task<List<CalendarDayResponse>> GetParentCalendarAsync(string userId, string role, DateTime startDate, DateTime endDate)
     {
         try
@@ -552,6 +571,7 @@ public class ParentService : IParentService
                 .Include(l => l.Booking)
                     .ThenInclude(b => b!.Tutor)
                         .ThenInclude(t => t!.Tutor)
+                .Include(l => l.RescheduleProposals)
                 .OrderBy(l => l.Scheduledstart)
                 .ToListAsync();
 
@@ -573,7 +593,8 @@ public class ParentService : IParentService
                         BookingStatus = l.Booking?.Status,
                         MeetingLink = l.Meetinglink,
                         CheckOutTime = l.Checkouttime,
-                        HasRecording = RecordingStatusResolver.Resolve(l.Recordingurl, l.Recordings3key, l.Recordingsid, l.Checkouttime.HasValue).Status == "available"
+                        HasRecording = RecordingStatusResolver.Resolve(l.Recordingurl, l.Recordings3key, l.Recordingsid, l.Checkouttime.HasValue).Status == "available",
+                        HasPendingReschedule = ResolveHasPendingReschedule(l.RescheduleProposals)
                     }).ToList()
                 })
                 .ToList();

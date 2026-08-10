@@ -450,6 +450,50 @@ public class RemainingPaymentTriggerJob : BackgroundService
 }
 
 /// <summary>
+/// Quét các đề xuất đổi lịch đang chờ đã quá hạn (24h kể từ lúc tạo, hoặc 2h trước giờ học gốc —
+/// cái nào tới trước) và chuyển sang Expired, báo người đề xuất.
+/// Runs every 10 minutes.
+/// </summary>
+public class ClassSessionRescheduleProposalExpiryJob : BackgroundService
+{
+    private readonly IServiceProvider _serviceProvider;
+    private readonly ILogger<ClassSessionRescheduleProposalExpiryJob> _logger;
+    private readonly TimeSpan _interval = TimeSpan.FromMinutes(10);
+
+    public ClassSessionRescheduleProposalExpiryJob(IServiceProvider serviceProvider, ILogger<ClassSessionRescheduleProposalExpiryJob> logger)
+    {
+        _serviceProvider = serviceProvider;
+        _logger = logger;
+    }
+
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        _logger.LogInformation("ClassSessionRescheduleProposalExpiryJob đã bắt đầu.");
+        await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken);
+
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            try
+            {
+                using var scope = _serviceProvider.CreateScope();
+                var rescheduleProposalService = scope.ServiceProvider.GetRequiredService<IClassSessionRescheduleProposalService>();
+                var expiredCount = await rescheduleProposalService.ExpireOverdueProposalsAsync(stoppingToken);
+                if (expiredCount > 0)
+                    _logger.LogInformation("ClassSessionRescheduleProposalExpiryJob: Đã hết hạn {Count} đề xuất đổi lịch.", expiredCount);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi trong ClassSessionRescheduleProposalExpiryJob.");
+            }
+
+            await Task.Delay(_interval, stoppingToken);
+        }
+
+        _logger.LogInformation("ClassSessionRescheduleProposalExpiryJob đã dừng.");
+    }
+}
+
+/// <summary>
 /// Tự động đóng phòng học trực tuyến (RTC) khi đã quá giờ kết thúc dự kiến +
 /// <see cref="MV.ApplicationLayer.Services.ClassSessionService.LiveSessionAutoEndGraceMinutes"/> phút
 /// mà gia sư chưa tự bấm "Kết thúc buổi học". Cả gia sư lẫn học viên/phụ huynh sẽ cùng bị đưa ra

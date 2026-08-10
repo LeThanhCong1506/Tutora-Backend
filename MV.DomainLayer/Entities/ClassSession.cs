@@ -90,6 +90,8 @@ public partial class ClassSession
 
     public virtual ICollection<ClassSessionScheduleChange> ScheduleChanges { get; set; } = new List<ClassSessionScheduleChange>();
 
+    public virtual ICollection<ClassSessionRescheduleProposal> RescheduleProposals { get; set; } = new List<ClassSessionRescheduleProposal>();
+
     public virtual ICollection<ClassSession> InverseOriginalsession { get; set; } = new List<ClassSession>();
 
     public virtual ClassSessionReport? ClassSessionReport { get; set; }

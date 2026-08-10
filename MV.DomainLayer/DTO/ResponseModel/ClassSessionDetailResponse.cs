@@ -69,6 +69,12 @@ public class ClassSessionDetailResponse
     /// <summary>Lịch sử dời lịch (nếu có) — bao gồm cả yêu cầu đã áp dụng, đang chờ, hoặc bị từ chối.</summary>
     public List<DisputeScheduleChangeAuditResponse> ScheduleChanges { get; set; } = new();
 
+    /// <summary>Đề xuất đổi lịch đang chờ phản hồi (nếu có), null nếu không có đề xuất nào đang chờ.</summary>
+    public ClassSessionRescheduleProposalResponse? PendingRescheduleProposal { get; set; }
+
+    /// <summary>Toàn bộ lịch sử đề xuất đổi lịch (đã đồng ý/từ chối/hết hạn), mới nhất trước.</summary>
+    public List<ClassSessionRescheduleProposalResponse> RescheduleProposals { get; set; } = new();
+
     // Time calculations (so sánh với giờ VN vì ScheduledStart/ConfirmDeadline đã là giờ VN)
     public TimeSpan? TimeUntilStart => ScheduledStart > TimeZoneHelper.UtcNow
         ? ScheduledStart - TimeZoneHelper.UtcNow

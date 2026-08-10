@@ -7,6 +7,13 @@ public class SessionScheduleChangeResponse
     public bool CanCurrentUserConfirm { get; set; }
     public bool CurrentUserConfirmed { get; set; }
     public bool AdmissionAllowed { get; set; }
+    /// <summary>
+    /// True nếu buổi học đang có một đề xuất đổi lịch (tính năng chủ động chọn giờ mới,
+    /// <c>ClassSessionRescheduleProposal</c>) đang chờ phản hồi — cổng xác nhận vào học ngoài giờ
+    /// bị khoá hoàn toàn cho tới khi đề xuất đó được xử lý xong, để 2 cơ chế đổi giờ không đụng độ.
+    /// Khi true, FE không được cho vào phòng dù <see cref="RequiresConfirmation"/> là false.
+    /// </summary>
+    public bool RescheduleProposalPending { get; set; }
     public string? Status { get; set; }
     public string? TutorUserId { get; set; }
     public string? LearnerApproverUserId { get; set; }
