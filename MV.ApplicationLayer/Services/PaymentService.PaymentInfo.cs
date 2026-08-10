@@ -232,6 +232,15 @@ public partial class PaymentService
         DateTime? expiresAt,
         string description)
     {
+        // Chặn TRƯỚC khi tạo link/QR PayOS — một khi có link thì không kiểm soát được việc
+        // chuyển khoản ngân hàng nữa. Cùng điều kiện với PayWithWalletCoreAsync.
+        if (string.IsNullOrWhiteSpace(booking.Parentid) && amount >= LargeTransactionPolicy.ThresholdAmount)
+        {
+            var approved = await largeTransactionOtpService.IsApprovedAsync(booking.Bookingid, phase);
+            if (!approved)
+                throw new LargeTransactionOtpRequiredException(phase);
+        }
+
         var lockKey = $"{booking.Bookingid}:{phase}";
         var gate = PaymentRequestCreationLocks.GetOrAdd(
             lockKey,
