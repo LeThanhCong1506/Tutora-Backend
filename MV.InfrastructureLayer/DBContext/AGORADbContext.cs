@@ -21,6 +21,8 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
 
     public virtual DbSet<BankAccount> BankAccounts { get; set; }
 
+    public virtual DbSet<BankAccountAuditLog> BankAccountAuditLogs { get; set; }
+
     public virtual DbSet<Booking> Bookings { get; set; }
 
     public virtual DbSet<FraudLog> Fraudlogs { get; set; }
@@ -228,6 +230,59 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
                 .HasForeignKey<BankAccount>(d => d.Userid)
                 .OnDelete(DeleteBehavior.Cascade)
                 .HasConstraintName("bank_accounts_userid_fkey");
+        });
+        modelBuilder.Entity<BankAccountAuditLog>(entity =>
+        {
+            entity.HasKey(e => e.Bankaccountauditlogid).HasName("bank_account_audit_logs_pkey");
+
+            entity.ToTable("bank_account_audit_logs");
+
+            entity.HasIndex(e => new { e.Userid, e.Changedat }, "idx_bank_account_audit_logs_user_changed_at");
+
+            entity.Property(e => e.Bankaccountauditlogid).HasColumnName("bank_account_audit_log_id");
+            entity.Property(e => e.Userid)
+                .HasMaxLength(50)
+                .HasColumnName("user_id");
+            entity.Property(e => e.Bankaccountid).HasColumnName("bank_account_id");
+            entity.Property(e => e.Action)
+                .HasMaxLength(20)
+                .HasColumnName("action");
+            entity.Property(e => e.Oldbankname)
+                .HasMaxLength(100)
+                .HasColumnName("old_bank_name");
+            entity.Property(e => e.Oldaccountnumber)
+                .HasMaxLength(50)
+                .HasColumnName("old_account_number");
+            entity.Property(e => e.Oldaccountholdername)
+                .HasMaxLength(100)
+                .HasColumnName("old_account_holder_name");
+            entity.Property(e => e.Newbankname)
+                .HasMaxLength(100)
+                .HasColumnName("new_bank_name");
+            entity.Property(e => e.Newaccountnumber)
+                .HasMaxLength(50)
+                .HasColumnName("new_account_number");
+            entity.Property(e => e.Newaccountholdername)
+                .HasMaxLength(100)
+                .HasColumnName("new_account_holder_name");
+            entity.Property(e => e.Changedat)
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
+                .HasColumnType("timestamp without time zone")
+                .HasColumnName("changed_at");
+            entity.Property(e => e.Ipaddress)
+                .HasMaxLength(45)
+                .HasColumnName("ip_address");
+            entity.Property(e => e.Useragent).HasColumnName("user_agent");
+
+            entity.HasOne(d => d.User).WithMany()
+                .HasForeignKey(d => d.Userid)
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("bank_account_audit_logs_user_id_fkey");
+
+            entity.HasOne(d => d.BankAccount).WithMany()
+                .HasForeignKey(d => d.Bankaccountid)
+                .OnDelete(DeleteBehavior.SetNull)
+                .HasConstraintName("bank_account_audit_logs_bank_account_id_fkey");
         });
         modelBuilder.Entity<FraudLog>(entity =>
         {

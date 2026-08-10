@@ -95,6 +95,10 @@ public class WalletController(IWalletService walletService) : ControllerBase
             var result = await walletService.CreateWithdrawalAsync(userId, request, ct);
             return Ok(APIResponse<WithdrawalDetailResponse>.Success(result, "Tạo yêu cầu rút tiền thành công."));
         }
+        catch (BankInfoRequiredException ex)
+        {
+            return BadRequest(new { errorCode = "BANK_ACCOUNT_REQUIRED", message = ex.Message });
+        }
         catch (BadRequestException ex)
         {
             return BadRequest(APIResponse.Fail(ex.Message));

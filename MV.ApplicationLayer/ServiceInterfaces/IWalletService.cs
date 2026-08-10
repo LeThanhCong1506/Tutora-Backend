@@ -33,8 +33,9 @@ public interface IWalletService
         CancellationToken ct = default);
 
     /// <summary>
-    /// Submit a withdrawal request for a wallet owner who has no saved bank account on file
-    /// (e.g. a parent) — the bank destination is snapshotted directly from the request.
+    /// Submit a withdrawal request for a Parent/Student wallet owner — the bank destination is
+    /// the requester's saved BankAccount (see BankAccountController), snapshotted onto the
+    /// withdrawal row. Throws BankInfoRequiredException if no bank account is saved yet.
     /// </summary>
     Task<WithdrawalDetailResponse> CreateWithdrawalAsync(string userId, CreateWithdrawalRequest request, CancellationToken ct = default);
 
