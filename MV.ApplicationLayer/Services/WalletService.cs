@@ -185,8 +185,7 @@ public class WalletService(
         };
     }
 
-    public async Task<TransactionHistoryPagedResponse> GetTransactionHistoryAsync(
-        string userId, int page = 1, int pageSize = 20, string? type = null, DateTime? from = null, DateTime? to = null)
+    public async Task<TransactionHistoryPagedResponse> GetTransactionHistoryAsync(string userId, int page = 1, int pageSize = 20)
     {
         var w = await context.Wallets.AsNoTracking()
             .FirstOrDefaultAsync(w => w.Userid == userId);
@@ -201,30 +200,11 @@ public class WalletService(
             };
 
         var query = context.Wallettransactions.AsNoTracking()
-            .Where(t => t.Walletid == w.Walletid);
+            .Where(t => t.Walletid == w.Walletid)
+            .OrderByDescending(t => t.Createdat);
 
-        if (!string.IsNullOrEmpty(type))
-            query = query.Where(t => t.Transactiontype == type);
-
-        if (from.HasValue)
-        {
-            var fromUtc = from.Value.Kind == DateTimeKind.Utc
-                ? from.Value
-                : DateTime.SpecifyKind(from.Value, DateTimeKind.Utc);
-            query = query.Where(t => t.Createdat >= fromUtc);
-        }
-        if (to.HasValue)
-        {
-            var toUtc = to.Value.Kind == DateTimeKind.Utc
-                ? to.Value
-                : DateTime.SpecifyKind(to.Value, DateTimeKind.Utc);
-            query = query.Where(t => t.Createdat <= toUtc);
-        }
-
-        var orderedQuery = query.OrderByDescending(t => t.Createdat);
-
-        var total = await orderedQuery.CountAsync();
-        var rawTxs = await orderedQuery
+        var total = await query.CountAsync();
+        var rawTxs = await query
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
             .Select(t => new { t.Transactionid, t.Amount, t.Transactiontype, t.Description, t.Referenceid, t.Referencetable, t.Createdat })

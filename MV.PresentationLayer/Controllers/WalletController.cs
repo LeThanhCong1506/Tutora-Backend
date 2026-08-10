@@ -37,9 +37,7 @@ public class WalletController(IWalletService walletService) : ControllerBase
 
     [HttpGet("transactions")]
     [Authorize(Roles = UserRole.ParentOrStudentOrTutor)]
-    public async Task<IActionResult> GetTransactions(
-        [FromQuery] int page = 1, [FromQuery] int pageSize = 20,
-        [FromQuery] string? type = null, [FromQuery] DateTime? from = null, [FromQuery] DateTime? to = null)
+    public async Task<IActionResult> GetTransactions([FromQuery] int page = 1, [FromQuery] int pageSize = 20)
     {
         var userId = UserId;
         if (string.IsNullOrEmpty(userId))
@@ -47,7 +45,7 @@ public class WalletController(IWalletService walletService) : ControllerBase
 
         try
         {
-            var result = await walletService.GetTransactionHistoryAsync(userId, page, pageSize, type, from, to);
+            var result = await walletService.GetTransactionHistoryAsync(userId, page, pageSize);
             return Ok(APIResponse<TransactionHistoryPagedResponse>.Success(result, ApiMessages.Success));
         }
         catch (BookingException ex)
