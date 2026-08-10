@@ -43,4 +43,8 @@ public static class NotificationType
     public const string FeedbackModerated = "feedback_moderated";
     /// <summary>Admin/staff vừa chuyển tiền chủ động vào ví. Referenceid = transferId.</summary>
     public const string WalletTransferReceived = "wallet_transfer_received";
+    /// <summary>Tripwire: tài khoản ngân hàng của chính người dùng vừa được thêm/sửa.</summary>
+    public const string BankAccountUpdated = "bank_account_updated";
+    /// <summary>Tripwire: tài khoản ngân hàng của chính người dùng vừa bị xoá.</summary>
+    public const string BankAccountDeleted = "bank_account_deleted";
 }

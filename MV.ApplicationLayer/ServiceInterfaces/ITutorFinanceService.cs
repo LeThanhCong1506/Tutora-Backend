@@ -25,18 +25,8 @@ public interface ITutorFinanceService
     /// </summary>
     Task<TransactionHistoryResponse> GetTransactionDetailAsync(string tutorId, int transactionId, CancellationToken ct = default);
 
-    /// <summary>
-    /// Tutor's registered bank account info for withdrawal.
-    /// </summary>
-    Task<TutorBankInfoResponse> GetBankInfoAsync(string tutorId, CancellationToken ct = default);
-
-    /// <summary>
-    /// Update (or add) the tutor's bank account details.
-    /// </summary>
-    Task<TutorBankInfoResponse> UpdateBankInfoAsync(string tutorId, UpdateTutorBankInfoRequest request, CancellationToken ct = default);
-
-    /// <summary>Delete the authenticated user's saved bank account.</summary>
-    Task DeleteBankInfoAsync(string userId, CancellationToken ct = default);
+    // Bank account CRUD moved to IBankAccountService (api/bank-account, shared with Parent/Student,
+    // now OTP-gated).
 
     /// <summary>
     /// Submit a withdrawal request; runs fraud detection and trust scoring before queuing.
