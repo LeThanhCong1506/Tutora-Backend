@@ -20,17 +20,20 @@ namespace MV.PresentationLayer.Controllers
         private readonly IClassSessionService _classSessionService;
         private readonly IStudentRepository _studentRepository;
         private readonly IClassSessionScheduleChangeService _scheduleChangeService;
+        private readonly IClassSessionRescheduleProposalService _rescheduleProposalService;
 
         public StudentClassSessionController(
             ISettlementService settlementService,
             IClassSessionService classSessionService,
             IStudentRepository studentRepository,
-            IClassSessionScheduleChangeService scheduleChangeService)
+            IClassSessionScheduleChangeService scheduleChangeService,
+            IClassSessionRescheduleProposalService rescheduleProposalService)
         {
             _settlementService = settlementService;
             _classSessionService = classSessionService;
             _studentRepository = studentRepository;
             _scheduleChangeService = scheduleChangeService;
+            _rescheduleProposalService = rescheduleProposalService;
         }
 
         private string? UserId => User.FindFirstValue(ClaimTypes.NameIdentifier);
@@ -61,6 +64,12 @@ namespace MV.PresentationLayer.Controllers
 
             var classSession = await _classSessionService.GetStudentClassSessionDetailAsync(id, studentId);
             if (classSession == null) return NotFound(APIResponse<object>.Fail(ApiMessages.ClassSessionNotFound, 404));
+
+            var rescheduleProposals = await _rescheduleProposalService.GetProposalHistoryAsync(id);
+            classSession.RescheduleProposals = rescheduleProposals;
+            classSession.PendingRescheduleProposal = rescheduleProposals
+                .FirstOrDefault(x => x.Status == RescheduleProposalStatus.Pending);
+
             return Ok(APIResponse<object>.Success(classSession));
         }
 
@@ -150,6 +159,65 @@ namespace MV.PresentationLayer.Controllers
                 return Ok(APIResponse<SessionScheduleChangeResponse>.Success(
                     result,
                     request.Confirmed ? "Đã xác nhận đổi lịch học." : "Đã từ chối đổi lịch học."));
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(APIResponse<object>.Fail(ex.Message, 404));
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return StatusCode(403, APIResponse<object>.Fail(ex.Message, 403));
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(APIResponse<object>.Fail(ex.Message, 400));
+            }
+        }
+
+        /// <summary>
+        /// Học sinh tự quản lý đề xuất dời buổi học sang giờ khác.
+        /// </summary>
+        [HttpPost("class-sessions/{id}/reschedule-proposal")]
+        public async Task<ActionResult<APIResponse<ClassSessionRescheduleProposalResponse>>> ProposeReschedule(
+            int id,
+            [FromBody] CreateRescheduleProposalRequest request)
+        {
+            var userId = UserHelper.GetUserId(User);
+            try
+            {
+                var result = await _rescheduleProposalService.ProposeAsync(
+                    id, userId, UserRole.Student, request.ProposedScheduledStart, request.Reason);
+                return Ok(APIResponse<ClassSessionRescheduleProposalResponse>.Success(result, "Đã gửi đề xuất đổi lịch."));
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(APIResponse<object>.Fail(ex.Message, 404));
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return StatusCode(403, APIResponse<object>.Fail(ex.Message, 403));
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(APIResponse<object>.Fail(ex.Message, 400));
+            }
+        }
+
+        /// <summary>
+        /// Học sinh tự quản lý đồng ý/từ chối đề xuất đổi lịch đang chờ do gia sư gửi.
+        /// </summary>
+        [HttpPost("class-sessions/{id}/reschedule-proposal/respond")]
+        public async Task<ActionResult<APIResponse<ClassSessionRescheduleProposalResponse>>> RespondToReschedule(
+            int id,
+            [FromBody] RescheduleProposalDecisionRequest request)
+        {
+            var userId = UserHelper.GetUserId(User);
+            try
+            {
+                var result = await _rescheduleProposalService.RespondAsync(id, userId, UserRole.Student, request.Accepted);
+                return Ok(APIResponse<ClassSessionRescheduleProposalResponse>.Success(
+                    result,
+                    request.Accepted ? "Đã đồng ý đổi lịch học." : "Đã từ chối đổi lịch học."));
             }
             catch (KeyNotFoundException ex)
             {

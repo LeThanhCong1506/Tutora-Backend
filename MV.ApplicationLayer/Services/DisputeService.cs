@@ -255,12 +255,11 @@ public class DisputeService : IDisputeService
     }
 
     /// <summary>
-    /// Runs AI (Groq) priority classification for a dispute and persists the result. Never throws on
-    /// classification failure — the dispute simply stays unclassified so it can be retried later.
-    /// actorId scopes the returned DisputeDetailResponse's recording stream token; pass "system" for
-    /// the background (Hangfire) trigger, where the response is discarded anyway.
+    /// Runs AI (Groq) priority classification for a dispute and persists the result. actorId scopes the
+    /// returned DisputeDetailResponse's recording stream token; pass "system" for the background
+    /// (Hangfire) trigger, where the response is discarded anyway.
     /// </summary>
-    public async Task<DisputeDetailResponse?> ClassifyDisputePriorityAsync(int disputeId, string actorId)
+    public async Task<DisputeDetailResponse?> ClassifyDisputePriorityAsync(int disputeId, string actorId, bool swallowClassificationFailure = false)
     {
         var dispute = await _disputeRepo.FindWithClassSessionAsync(disputeId);
         if (dispute == null)
@@ -271,11 +270,23 @@ public class DisputeService : IDisputeService
 
         _logger.LogInformation("ClassifyDisputePriorityAsync started for dispute {DisputeId} (type={DisputeType})", disputeId, dispute.Disputetype);
 
-        var classification = await _classificationService.ClassifyAsync(dispute.Disputetype ?? "", dispute.Reason ?? "");
-        dispute.Priority = classification.Priority;
-        dispute.Priorityreason = classification.Reason;
-        await _disputeRepo.SaveChangesAsync();
-        _logger.LogInformation("Dispute {DisputeId} classified as priority {Priority}", disputeId, classification.Priority);
+        try
+        {
+            var classification = await _classificationService.ClassifyAsync(dispute.Disputetype ?? "", dispute.Reason ?? "");
+            dispute.Priority = classification.Priority;
+            dispute.Priorityreason = classification.Reason;
+            await _disputeRepo.SaveChangesAsync();
+            _logger.LogInformation("Dispute {DisputeId} classified as priority {Priority}", disputeId, classification.Priority);
+        }
+        catch (Exception ex) when (swallowClassificationFailure)
+        {
+            // Chỉ nuốt lỗi cho nhánh Hangfire (background): không được để lỗi gọi AI (key sai/thiếu,
+            // Groq lỗi, response không hợp lệ) làm job fail — Hangfire fail vĩnh viễn sau vài lần retry
+            // và không có gì tự enqueue lại, khiến Priority treo NULL mãi mãi ("CHƯA PHÂN LOẠI" không
+            // bao giờ hết). Nhánh admin phân loại tay (swallowClassificationFailure=false) vẫn phải throw
+            // để controller trả lỗi rõ ràng thay vì báo thành công giả.
+            _logger.LogError(ex, "Không thể phân loại ưu tiên cho tranh chấp {DisputeId} — giữ nguyên chưa phân loại.", disputeId);
+        }
 
         return await GetDisputeDetailAsync(disputeId, actorId);
     }
@@ -325,6 +336,8 @@ public class DisputeService : IDisputeService
             MessageId = m.Messageid,
             ChannelId = m.Channelid ?? 0,
             SenderId = m.Senderid ?? string.Empty,
+            SenderName = m.Sender?.Fullname,
+            SenderAvatarUrl = m.Sender?.Avatarurl,
             Content = m.Content ?? string.Empty,
             MessageType = m.Messagetype ?? ChatMessageType.Text,
             CreatedAt = m.Createdat.HasValue ? m.Createdat.Value : (DateTime?)null

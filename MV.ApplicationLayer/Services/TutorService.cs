@@ -129,10 +129,10 @@ namespace MV.ApplicationLayer.Services
 
         // ─── Profile Updates ─────────────────────────────────────────────────
 
-        public async Task<bool> UpdateTutorBasicInfoAsync(string userId, UpdateTutorBasicInfoRequest request)
+        public async Task<ProfileUpdateOutcome> UpdateTutorBasicInfoAsync(string userId, UpdateTutorBasicInfoRequest request)
         {
             var profile = await _unitOfWork.TutorRepository.GetTutorProfileByIdAsync(userId);
-            if (profile == null) return false;
+            if (profile == null) return ProfileUpdateOutcome.NotFound;
 
             // Text moderation — Headline
             if (!string.IsNullOrWhiteSpace(request.Headline))
@@ -154,7 +154,7 @@ namespace MV.ApplicationLayer.Services
                     pending.TeachingAreaDistrict = request.TeachingAreaDistrict;
                 });
                 await NotifyAdminsOfProfileUpdateAsync(userId, "Thông tin cơ bản");
-                return true;
+                return ProfileUpdateOutcome.PendingApproval;
             }
 
             profile.Headline = request.Headline;
@@ -164,13 +164,13 @@ namespace MV.ApplicationLayer.Services
 
             await _unitOfWork.SaveChangesAsync();
             await AutoSubmitIfCompleteAsync(userId);
-            return true;
+            return ProfileUpdateOutcome.Applied;
         }
 
-        public async Task<bool> UpdateTutorIntroductionAsync(string userId, UpdateTutorIntroductionRequest request)
+        public async Task<ProfileUpdateOutcome> UpdateTutorIntroductionAsync(string userId, UpdateTutorIntroductionRequest request)
         {
             var profile = await _unitOfWork.TutorRepository.GetTutorProfileByIdAsync(userId);
-            if (profile == null) return false;
+            if (profile == null) return ProfileUpdateOutcome.NotFound;
 
             if (request.Gpa > request.GpaScale)
             {
@@ -210,7 +210,7 @@ namespace MV.ApplicationLayer.Services
                     pending.Experience = request.Experience;
                 });
                 await NotifyAdminsOfProfileUpdateAsync(userId, "Giới thiệu bản thân");
-                return true;
+                return ProfileUpdateOutcome.PendingApproval;
             }
 
             profile.Bio = request.Bio;
@@ -223,7 +223,7 @@ namespace MV.ApplicationLayer.Services
             await _unitOfWork.SaveChangesAsync();
             await AutoSubmitIfCompleteAsync(userId);
             _embedQueue.Enqueue(userId);   // bio/education/experience đổi → re-embed nền
-            return true;
+            return ProfileUpdateOutcome.Applied;
         }
 
         public async Task<bool> UpdateTutorSubjectsAsync(string userId, UpdateTutorSubjectsRequest request)
@@ -258,10 +258,10 @@ namespace MV.ApplicationLayer.Services
             };
         }
 
-        public async Task<bool> UpdateTutorPricingAsync(string tutorId, UpdateTutorPricingRequest request)
+        public async Task<ProfileUpdateOutcome> UpdateTutorPricingAsync(string tutorId, UpdateTutorPricingRequest request)
         {
             var profile = await _unitOfWork.TutorRepository.GetTutorProfileByIdAsync(tutorId);
-            if (profile == null) return false;
+            if (profile == null) return ProfileUpdateOutcome.NotFound;
 
             if (!request.SubjectGradePrices.Any())
             {
@@ -277,7 +277,7 @@ namespace MV.ApplicationLayer.Services
                     pending.SubjectGradePrices = request.SubjectGradePrices;
                 });
                 await NotifyAdminsOfProfileUpdateAsync(tutorId, "Môn học & Bảng giá");
-                return true;
+                return ProfileUpdateOutcome.PendingApproval;
             }
 
             profile.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
@@ -289,7 +289,7 @@ namespace MV.ApplicationLayer.Services
             await _unitOfWork.SaveChangesAsync();
             await AutoSubmitIfCompleteAsync(tutorId);
             _embedQueue.Enqueue(tutorId);   // giá đổi → refresh metadata vector nền
-            return true;
+            return ProfileUpdateOutcome.Applied;
         }
 
         public async Task<TutorSubjectGradePriceResponse> AddSubjectGradePriceAsync(string tutorId, TutorSubjectGradePriceRequest request)

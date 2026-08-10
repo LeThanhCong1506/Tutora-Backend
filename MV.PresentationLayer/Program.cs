@@ -329,6 +329,8 @@ builder.Services.AddSingleton<IEncryptionService, AesEncryptionService>();
 builder.Services.AddScoped<ISimpleAuthService, SimpleAuthService>();
 // ZNS OTP dùng số điện thoại đã được xác thực của tài khoản.
 builder.Services.AddScoped<IOtpSender, ZnsOtpSender>();
+// OTP xác thực giao dịch lớn (học sinh tự đăng ký, gửi tới SĐT phụ huynh) — độc lập với OTP đăng nhập ở trên.
+builder.Services.AddScoped<ILargeTransactionOtpService, LargeTransactionOtpService>();
 builder.Services.AddScoped<ISocialRegistrationService, SocialRegistrationService>();
 builder.Services.AddScoped<IZaloAuthService, ZaloAuthService>();
 builder.Services.AddScoped<IRefreshTokenService, RefreshTokenService>();
@@ -350,6 +352,7 @@ builder.Services.AddScoped<IAiCreditService, AiCreditService>();
 builder.Services.AddScoped<IClassSessionService, ClassSessionService>();
 builder.Services.AddScoped<ISessionLogService, SessionLogService>();
 builder.Services.AddScoped<IClassSessionScheduleChangeService, ClassSessionScheduleChangeService>();
+builder.Services.AddScoped<IClassSessionRescheduleProposalService, ClassSessionRescheduleProposalService>();
 builder.Services.AddScoped<IAgoraRTCService, AgoraRTCService>();
 builder.Services.AddSingleton<ILiveSessionDeviceLeaseService, LiveSessionDeviceLeaseService>();
 // Presence in-memory (Singleton): theo dõi ai đang trong phòng học để auto check-in khi đủ cả 2.
@@ -454,6 +457,7 @@ builder.Services.AddHostedService<TutorResponseTimeoutJob>();
 builder.Services.AddHostedService<AutoConfirmClassSessionJob>();
 builder.Services.AddHostedService<AutoUnsuspendJob>();
 builder.Services.AddHostedService<ClassSessionReminderJob>();
+builder.Services.AddHostedService<ClassSessionRescheduleProposalExpiryJob>();
 builder.Services.AddHostedService<RemainingPaymentTriggerJob>();
 builder.Services.AddHostedService<AutoEndLiveSessionJob>();
 builder.Services.AddHostedService<GhostUserCleanupJob>();

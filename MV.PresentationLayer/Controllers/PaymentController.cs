@@ -38,6 +38,10 @@ public class PaymentController(
             var result = await paymentService.GetPaymentInfoAsync(id, userId);
             return Ok(APIResponse<PaymentInfoResponse>.Success(result, "Tạo link thanh toán thành công."));
         }
+        catch (LargeTransactionOtpRequiredException ex)
+        {
+            return BadRequest(new { errorCode = "OTP_REQUIRED", message = ex.Message, phase = ex.Phase });
+        }
         catch (BookingException ex)
         {
             return StatusCode(ex.HttpStatus, new { errorCode = ex.ErrorCode, message = ex.Message });
@@ -177,6 +181,10 @@ public class PaymentController(
         {
             await paymentService.PayWithWalletAsync(id, userId, HttpContext.RequestAborted);
             return Ok(APIResponse.Success("Thanh toán thành công."));
+        }
+        catch (LargeTransactionOtpRequiredException ex)
+        {
+            return BadRequest(new { errorCode = "OTP_REQUIRED", message = ex.Message, phase = ex.Phase });
         }
         catch (BookingException ex)
         {

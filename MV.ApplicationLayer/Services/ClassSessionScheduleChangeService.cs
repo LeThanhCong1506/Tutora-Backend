@@ -90,6 +90,21 @@ public class ClassSessionScheduleChangeService(
             return Map(session, latest, userId, false, true);
         }
 
+        // Ngoài khung giờ bình thường — nếu đang có đề xuất đổi lịch (tính năng chủ động chọn giờ
+        // mới, ClassSessionRescheduleProposal) chờ phản hồi, khoá hẳn cổng xác nhận vào học ngoài
+        // giờ: không tạo request off-schedule mới, không cho vào phòng qua đường này. Tránh 2 cơ
+        // chế đổi giờ (đề xuất mới + xác nhận ngoài giờ cũ) chạy song song rồi ghi đè lẫn nhau.
+        var hasPendingReschedule = await db.ClassSessionRescheduleProposals
+            .AnyAsync(x => x.Classsessionid == classSessionId
+                && x.Status == RescheduleProposalStatus.Pending
+                && x.Expiresat > now, cancellationToken);
+        if (hasPendingReschedule)
+        {
+            var blockedResponse = Map(session, latest, userId, false, false);
+            blockedResponse.RescheduleProposalPending = true;
+            return blockedResponse;
+        }
+
         if (latest != null
             && (latest.Status == ScheduleChangeStatus.Pending
                 || latest.Status == ScheduleChangeStatus.Approved

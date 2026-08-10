@@ -99,6 +99,17 @@ public partial class PaymentService
         if (amount <= 0)
             throw new BookingException(BookingErrorCodes.InvalidInput, "Số tiền booking không hợp lệ", 400);
 
+        // Học sinh tự đăng ký (không có Parentid) trả từ ngưỡng LargeTransactionPolicy trở lên
+        // phải xác thực OTP gửi tới SĐT phụ huynh trước — xem BookingController.SendPaymentOtp/
+        // VerifyPaymentOtp. Phụ huynh (booking có Parentid) không bao giờ đi qua chặn này.
+        if (string.IsNullOrWhiteSpace(booking.Parentid) && amount >= LargeTransactionPolicy.ThresholdAmount)
+        {
+            var phase = isDepositPhase ? PaymentPhase.Deposit : PaymentPhase.Remaining;
+            var approved = await largeTransactionOtpService.IsApprovedAsync(bookingId, phase);
+            if (!approved)
+                throw new LargeTransactionOtpRequiredException(phase);
+        }
+
         var txType = isDepositPhase ? TransactionType.DepositPayment : TransactionType.RemainingPayment;
         var description = isDepositPhase
             ? $"Deposit for booking #{bookingId}"

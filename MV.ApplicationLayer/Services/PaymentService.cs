@@ -25,6 +25,7 @@ public partial class PaymentService(
     [FromKeyedServices(ServiceKeys.PayOS.Checkout)] PayOSClient payOS,
     INotificationService notificationService,
     IBankListService bankListService,
+    ILargeTransactionOtpService largeTransactionOtpService,
     ILogger<PaymentService> logger) : IPaymentService
 {
     //fix link

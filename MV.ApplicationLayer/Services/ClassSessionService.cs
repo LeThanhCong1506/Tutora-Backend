@@ -31,6 +31,7 @@ public partial class ClassSessionService : IClassSessionService
     private readonly IWarningService _warningService;
     private readonly IRecordingAccessTokenService _recordingAccessTokenService;
     private readonly IBackgroundJobClient _backgroundJobClient;
+    private readonly IClassSessionRescheduleProposalService _rescheduleProposalService;
     private readonly ILogger<ClassSessionService> _logger;
 
     // Retained for transaction management only (BeginTransactionAsync)
@@ -53,6 +54,7 @@ public partial class ClassSessionService : IClassSessionService
         IWarningService warningService,
         IRecordingAccessTokenService recordingAccessTokenService,
         IBackgroundJobClient backgroundJobClient,
+        IClassSessionRescheduleProposalService rescheduleProposalService,
         ILogger<ClassSessionService> logger)
     {
         _classSessionRepo = classSessionRepo;
@@ -69,6 +71,7 @@ public partial class ClassSessionService : IClassSessionService
         _warningService = warningService;
         _recordingAccessTokenService = recordingAccessTokenService;
         _backgroundJobClient = backgroundJobClient;
+        _rescheduleProposalService = rescheduleProposalService;
         _logger = logger;
     }
 
@@ -321,6 +324,17 @@ public partial class ClassSessionService : IClassSessionService
         return isActive ? latest.Status : null;
     }
 
+    /// <summary>
+    /// True nếu buổi này có đề xuất đổi lịch (tính năng chủ động chọn giờ mới, tách biệt hoàn toàn
+    /// với <see cref="ResolveActiveScheduleChangeStatus"/>) đang ở trạng thái Pending và chưa hết hạn.
+    /// Đòi hỏi <paramref name="proposals"/> đã được nạp qua .Include(l => l.RescheduleProposals).
+    /// </summary>
+    private static bool ResolveHasPendingReschedule(IEnumerable<ClassSessionRescheduleProposal> proposals)
+    {
+        var now = TimeZoneHelper.UtcNow;
+        return proposals.Any(x => x.Status == RescheduleProposalStatus.Pending && x.Expiresat > now);
+    }
+
     private static ClassSessionResponse MapToClassSessionResponse(ClassSession classSession)
     {
         var booking = classSession.Booking;
@@ -329,6 +343,7 @@ public partial class ClassSessionService : IClassSessionService
         return new ClassSessionResponse
         {
             ScheduleChangeStatus = ResolveActiveScheduleChangeStatus(classSession.ScheduleChanges),
+            HasPendingReschedule = ResolveHasPendingReschedule(classSession.RescheduleProposals),
             ClassSessionId = classSession.Classsessionid,
             BookingId = classSession.Bookingid ?? 0,
             TutorId = classSession.Tutorid,

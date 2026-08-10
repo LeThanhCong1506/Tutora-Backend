@@ -208,13 +208,7 @@ namespace MV.PresentationLayer.Controllers
             try
             {
                 var result = await _tutorService.UpdateTutorBasicInfoAsync(id, request);
-
-                if (!result)
-                {
-                    return NotFound(APIResponse.Fail(ApiMessages.TutorProfileNotFound, 404));
-                }
-
-                return Ok(APIResponse.Success("Cập nhật thông tin cơ bản thành công."));
+                return BuildProfileUpdateResponse(result, "Cập nhật thông tin cơ bản thành công.");
             }
             catch (ArgumentException ex)
             {
@@ -237,18 +231,30 @@ namespace MV.PresentationLayer.Controllers
             try
             {
                 var result = await _tutorService.UpdateTutorIntroductionAsync(id, request);
-
-                if (!result)
-                {
-                    return NotFound(APIResponse.Fail(ApiMessages.TutorProfileNotFound, 404));
-                }
-
-                return Ok(APIResponse.Success("Cập nhật phần giới thiệu thành công."));
+                return BuildProfileUpdateResponse(result, "Cập nhật phần giới thiệu thành công.");
             }
             catch (ArgumentException ex)
             {
                 return BadRequest(APIResponse.Fail(ex.Message, 400));
             }
+        }
+
+        /// <summary>
+        /// Chuẩn hoá response cho các mục hồ sơ có thể bị "chờ Admin duyệt" thay vì lưu thẳng
+        /// (Thông tin cơ bản / Giới thiệu / Môn học & giá — xem RequiresApprovalForEdits ở TutorService).
+        /// Luôn kèm cờ <c>pendingApproval</c> để FE phân biệt, tránh báo "đã lưu" khi thực ra
+        /// thay đổi mới chỉ nằm trong hàng chờ duyệt, chưa áp dụng.
+        /// </summary>
+        private IActionResult BuildProfileUpdateResponse(ProfileUpdateOutcome outcome, string appliedMessage)
+        {
+            return outcome switch
+            {
+                ProfileUpdateOutcome.NotFound => NotFound(APIResponse.Fail(ApiMessages.TutorProfileNotFound, 404)),
+                ProfileUpdateOutcome.PendingApproval => Ok(APIResponse<object>.Success(
+                    new { pendingApproval = true },
+                    "Hồ sơ của bạn đã được duyệt trước đó nên thay đổi này cần Admin xác nhận lại. Yêu cầu đã được gửi và đang chờ duyệt.")),
+                _ => Ok(APIResponse<object>.Success(new { pendingApproval = false }, appliedMessage)),
+            };
         }
 
         /// <summary>
@@ -433,13 +439,7 @@ namespace MV.PresentationLayer.Controllers
             try
             {
                 var result = await _tutorService.UpdateTutorPricingAsync(id, request);
-
-                if (!result)
-                {
-                    return NotFound(APIResponse.Fail(ApiMessages.TutorProfileNotFound, 404));
-                }
-
-                return Ok(APIResponse.Success("Cập nhật thông tin giá thành công."));
+                return BuildProfileUpdateResponse(result, "Cập nhật thông tin giá thành công.");
             }
             catch (ArgumentException ex)
             {

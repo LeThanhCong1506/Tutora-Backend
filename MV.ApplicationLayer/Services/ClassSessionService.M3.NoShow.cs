@@ -115,7 +115,7 @@ public partial class ClassSessionService
         try
         {
             var jobId = _backgroundJobClient.Enqueue<IDisputeService>(
-                s => s.ClassifyDisputePriorityAsync(dispute.Disputeid, "system"));
+                s => s.ClassifyDisputePriorityAsync(dispute.Disputeid, "system", true));
             _logger.LogInformation(
                 "Enqueued Hangfire job {JobId} to classify priority for dispute {DisputeId}",
                 jobId,

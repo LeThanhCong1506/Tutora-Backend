@@ -30,6 +30,8 @@ public class ClassSessionResponse
     /// đang hiệu lực. Dùng để hiện badge riêng trên danh sách buổi học, KHÔNG liên quan tới Status.
     /// </summary>
     public string? ScheduleChangeStatus { get; set; }
+    /// <summary>True nếu buổi này đang có đề xuất đổi lịch (tính năng chủ động chọn giờ mới) chờ phản hồi.</summary>
+    public bool HasPendingReschedule { get; set; }
     public StudentMiniResponse? Student { get; set; }
     public SubjectResponse? Subject { get; set; }
     public TutorMiniResponse? Tutor { get; set; }
