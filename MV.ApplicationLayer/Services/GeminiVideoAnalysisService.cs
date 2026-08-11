@@ -129,13 +129,17 @@ public class GeminiVideoAnalysisService : IGeminiVideoAnalysisService
     {
         const string prompt = """
             Bạn là trợ lý xử lý video buổi học 1-kèm-1 giữa gia sư và học sinh. Hãy xem kỹ video và trả về đúng
-            2 nội dung sau, viết bằng tiếng Việt:
-            - summary: Bản tóm tắt dễ hiểu cho học sinh đọc lại, gồm nội dung chính đã học/dạy, các điểm quan
-              trọng/công thức/kết luận đáng nhớ, và bài tập về nhà (nếu có). Viết mạch lạc, chia đoạn rõ ràng,
-              không chào hỏi mở đầu, không lặp lại nguyên văn lời nói.
+            2 nội dung sau, viết bằng tiếng Việt, giọng văn gần gũi như đang giải thích lại cho học sinh chứ
+            không phải liệt kê khô khan:
+            - summary: Bản tóm tắt dễ đọc, dùng markdown (tiêu đề phụ "##", in đậm "**...**" cho từ khoá/công
+              thức quan trọng, gạch đầu dòng "-" cho danh sách). Gồm: nội dung chính đã học/dạy (giải thích
+              ngắn gọn ý nghĩa, không chỉ liệt kê tên chủ đề), các điểm quan trọng/công thức/kết luận đáng nhớ,
+              và bài tập về nhà (nếu có). Không chào hỏi mở đầu, không lặp lại nguyên văn lời nói.
             - transcript: Bản chép lời (transcript) đầy đủ, theo sát những gì gia sư và học sinh thực sự nói
-              trong video, theo đúng trình tự thời gian. Mỗi câu/đoạn ghi rõ người nói ("Gia sư:" hoặc
-              "Học sinh:") ở đầu dòng. Không tóm lược, không bỏ sót đoạn hội thoại quan trọng.
+              trong video, theo đúng trình tự thời gian. BẮT BUỘC mỗi lượt nói là 1 đoạn riêng biệt, cách nhau
+              bằng 1 dòng trống, định dạng "**Gia sư:** nội dung" hoặc "**Học sinh:** nội dung" — tuyệt đối
+              không gộp nhiều lượt nói của 2 người vào chung 1 đoạn liền mạch. Không tóm lược, không bỏ sót
+              đoạn hội thoại quan trọng.
             """;
 
         var schema = new GeminiSchema
@@ -149,13 +153,9 @@ public class GeminiVideoAnalysisService : IGeminiVideoAnalysisService
             Required = ["summary", "transcript"]
         };
 
-        var requestBody = BuildGenerateContentRequest(fileUri, mimeType, prompt, schema);
+        var requestBody = BuildGenerateContentRequest(fileUri, mimeType, prompt, schema, _settings.TranscriptMaxOutputTokens);
         var text = await SendGenerateContentAsync(requestBody, ct);
-
-        var parsed = JsonSerializer.Deserialize<StudentAnalysisJson>(text, CamelCaseOptions);
-        if (parsed?.Summary is null || parsed.Transcript is null)
-            throw new GeminiResponseParseException("Gemini trả về tóm tắt/transcript không hợp lệ.");
-        return new GeminiVideoStudentAnalysis(parsed.Summary.Trim(), parsed.Transcript.Trim());
+        return ParseStudentAnalysis(text);
     }
 
     public async Task<GeminiVideoStudentAnalysis> VerifyStudentAnalysisAsync(
@@ -168,6 +168,8 @@ public class GeminiVideoAnalysisService : IGeminiVideoAnalysisService
             chi tiết nào ghi sai không.
             - Nếu bản nháp đã đầy đủ và chính xác: giữ nguyên, trả lại đúng như cũ.
             - Nếu thiếu hoặc sai: bổ sung/sửa lại rồi trả về bản đã hoàn thiện.
+            Giữ nguyên định dạng markdown của bản nháp: summary dùng "##"/"**...**"/"-"; transcript mỗi lượt
+            nói là 1 đoạn riêng "**Gia sư:**"/"**Học sinh:**" cách nhau 1 dòng trống, không gộp chung.
             Trả về đúng 2 field summary/transcript (bản CUỐI CÙNG, không phải phần nhận xét về bản nháp).
 
             BẢN NHÁP - summary:
@@ -188,12 +190,29 @@ public class GeminiVideoAnalysisService : IGeminiVideoAnalysisService
             Required = ["summary", "transcript"]
         };
 
-        var requestBody = BuildGenerateContentRequest(fileUri, mimeType, prompt, schema);
+        var requestBody = BuildGenerateContentRequest(fileUri, mimeType, prompt, schema, _settings.TranscriptMaxOutputTokens);
         var text = await SendGenerateContentAsync(requestBody, ct);
+        return ParseStudentAnalysis(text);
+    }
 
-        var parsed = JsonSerializer.Deserialize<StudentAnalysisJson>(text, CamelCaseOptions);
+    /// <summary>Parse JSON {summary, transcript} — nếu bị cắt giữa chừng do vượt maxOutputTokens (buổi học quá
+    /// dài), JSON sẽ dở dang và ném lỗi rõ ràng thay vì để JsonException thô lộ ra ngoài.</summary>
+    private GeminiVideoStudentAnalysis ParseStudentAnalysis(string text)
+    {
+        StudentAnalysisJson? parsed;
+        try
+        {
+            parsed = JsonSerializer.Deserialize<StudentAnalysisJson>(text, CamelCaseOptions);
+        }
+        catch (JsonException ex)
+        {
+            _logger.LogError(ex, "Gemini trả về JSON tóm tắt/transcript dở dang (khả năng bị cắt do vượt maxOutputTokens).");
+            throw new GeminiResponseParseException(
+                "Buổi học quá dài, Gemini không viết kịp hết tóm tắt/hội thoại trong giới hạn cho phép. Vui lòng thử lại.");
+        }
+
         if (parsed?.Summary is null || parsed.Transcript is null)
-            throw new GeminiResponseParseException("Gemini trả về bản kiểm tra lại không hợp lệ.");
+            throw new GeminiResponseParseException("Gemini trả về tóm tắt/hội thoại không hợp lệ.");
         return new GeminiVideoStudentAnalysis(parsed.Summary.Trim(), parsed.Transcript.Trim());
     }
 
@@ -250,10 +269,15 @@ public class GeminiVideoAnalysisService : IGeminiVideoAnalysisService
                 {
                     new
                     {
-                        text = "Bạn là trợ lý trả lời câu hỏi của học sinh về buổi học, dựa trên bản tóm tắt sau đây. " +
-                            "Chỉ trả lời trong phạm vi nội dung tóm tắt, nếu câu hỏi ngoài phạm vi thì nói rõ là " +
-                            "không có thông tin trong buổi học này. Trả lời ngắn gọn, bằng tiếng Việt.\n\n" +
-                            $"TÓM TẮT BUỔI HỌC:\n{summaryText}"
+                        text = "Bạn là trợ lý trả lời câu hỏi của học sinh về buổi học đã diễn ra, dựa trên nội dung " +
+                            "buổi học dưới đây. Trả lời bằng tiếng Việt, giọng thân thiện như một gia sư đang giải " +
+                            "thích lại — đừng chỉ nêu đáp án khô khan, hãy giải thích ngắn gọn tại sao/như thế nào " +
+                            "khi câu hỏi cần điều đó. Chỉ trả lời trong phạm vi nội dung buổi học, nếu câu hỏi ngoài " +
+                            "phạm vi thì nói rõ là không có thông tin trong buổi học này (không bịa). Được dùng " +
+                            "markdown (in đậm, gạch đầu dòng) khi giúp câu trả lời dễ đọc hơn. Kết thúc câu trả lời " +
+                            "bằng 1 câu ngắn gợi ý học sinh có thể hỏi thêm gì liên quan (nếu còn nội dung đáng hỏi " +
+                            "trong buổi học), không cần gợi ý nếu câu hỏi đã bao quát hết.\n\n" +
+                            $"NỘI DUNG BUỔI HỌC:\n{summaryText}"
                     }
                 }
             },
@@ -269,19 +293,21 @@ public class GeminiVideoAnalysisService : IGeminiVideoAnalysisService
         return text.Trim();
     }
 
-    private object BuildGenerateContentRequest(string fileUri, string mimeType, string prompt, GeminiSchema? jsonSchema)
+    private object BuildGenerateContentRequest(
+        string fileUri, string mimeType, string prompt, GeminiSchema? jsonSchema, int? maxOutputTokens = null)
     {
+        var tokenLimit = maxOutputTokens ?? _settings.MaxOutputTokens;
         var generationConfig = jsonSchema is null
             ? new Dictionary<string, object?>
             {
                 ["temperature"] = _settings.Temperature,
-                ["maxOutputTokens"] = _settings.MaxOutputTokens,
+                ["maxOutputTokens"] = tokenLimit,
                 ["mediaResolution"] = _settings.MediaResolution
             }
             : new Dictionary<string, object?>
             {
                 ["temperature"] = _settings.Temperature,
-                ["maxOutputTokens"] = _settings.MaxOutputTokens,
+                ["maxOutputTokens"] = tokenLimit,
                 ["mediaResolution"] = _settings.MediaResolution,
                 ["responseMimeType"] = "application/json",
                 ["responseSchema"] = jsonSchema
