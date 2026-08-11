@@ -65,6 +65,7 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
 
     public virtual DbSet<ClassSessionScheduleChange> ClassSessionScheduleChanges { get; set; }
     public virtual DbSet<ClassSessionRescheduleProposal> ClassSessionRescheduleProposals { get; set; }
+    public virtual DbSet<ClassSessionAiJob> ClassSessionAiJobs { get; set; }
 
     public virtual DbSet<SessionEngagementSample> SessionEngagementSamples { get; set; }
 
@@ -890,6 +891,8 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
                 .HasMaxLength(30)
                 .HasDefaultValueSql("'homework'::character varying")
                 .HasColumnName("session_type");
+            entity.Property(e => e.ClassSessionId)
+                .HasColumnName("class_session_id");
             entity.Property(e => e.Title)
                 .HasMaxLength(255)
                 .HasColumnName("title");
@@ -911,11 +914,17 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
 
             entity.HasIndex(e => e.UserId, "idx_chat_sessions_user_id");
             entity.HasIndex(e => e.SessionType, "idx_chat_sessions_type");
+            entity.HasIndex(e => e.ClassSessionId, "idx_chat_sessions_class_session");
 
             entity.HasOne(d => d.User).WithMany()
                 .HasForeignKey(d => d.UserId)
                 .OnDelete(DeleteBehavior.Cascade)
                 .HasConstraintName("fk_chat_sessions_user");
+
+            entity.HasOne<ClassSession>().WithMany()
+                .HasForeignKey(d => d.ClassSessionId)
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("chat_sessions_class_session_fkey");
         });
 
         modelBuilder.Entity<QuestionNote>(entity =>
@@ -1738,6 +1747,35 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
                 .HasForeignKey(e => e.Classsessionid)
                 .OnDelete(DeleteBehavior.Cascade)
                 .HasConstraintName("class_session_reschedule_proposals_session_fkey");
+        });
+
+        modelBuilder.Entity<ClassSessionAiJob>(entity =>
+        {
+            entity.HasKey(e => e.JobId).HasName("class_session_ai_jobs_pkey");
+            entity.ToTable("class_session_ai_jobs");
+            entity.HasIndex(e => new { e.Classsessionid, e.Jobtype }, "idx_class_session_ai_jobs_session");
+
+            entity.Property(e => e.JobId).HasDefaultValueSql("gen_random_uuid()").HasColumnName("job_id");
+            entity.Property(e => e.Classsessionid).HasColumnName("class_session_id");
+            entity.Property(e => e.Jobtype).HasMaxLength(30).HasColumnName("job_type");
+            entity.Property(e => e.Requestedbyuserid).HasMaxLength(50).HasColumnName("requested_by_user_id");
+            entity.Property(e => e.Status).HasMaxLength(20).HasColumnName("status");
+            entity.Property(e => e.Stage).HasColumnName("stage");
+            entity.Property(e => e.Resulttext).HasColumnName("result_text");
+            entity.Property(e => e.Transcripttext).HasColumnName("transcript_text");
+            entity.Property(e => e.Resultjson).HasColumnType("jsonb").HasColumnName("result_json");
+            entity.Property(e => e.Geminifileuri).HasColumnName("gemini_file_uri");
+            entity.Property(e => e.Geminifilename).HasColumnName("gemini_file_name");
+            entity.Property(e => e.Geminifileexpiresat).HasColumnType("timestamp without time zone").HasColumnName("gemini_file_expires_at");
+            entity.Property(e => e.Errormessage).HasColumnName("error_message");
+            entity.Property(e => e.Createdat).HasColumnType("timestamp without time zone").HasColumnName("created_at");
+            entity.Property(e => e.Completedat).HasColumnType("timestamp without time zone").HasColumnName("completed_at");
+
+            entity.HasOne(e => e.ClassSession)
+                .WithMany(e => e.AiJobs)
+                .HasForeignKey(e => e.Classsessionid)
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("class_session_ai_jobs_session_fkey");
         });
         modelBuilder.Entity<Notification>(entity =>
         {

@@ -5,6 +5,7 @@ using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO;
 using MV.DomainLayer.DTO.RequestModel;
 using MV.DomainLayer.DTO.ResponseModel;
+using MV.DomainLayer.Exceptions;
 using MV.PresentationLayer.Helpers;
 
 namespace MV.PresentationLayer.Controllers;
@@ -20,15 +21,18 @@ public class TutorClassSessionController : ControllerBase
     private readonly IClassSessionService _classSessionService;
     private readonly IDisputeService _disputeService;
     private readonly IClassSessionRescheduleProposalService _rescheduleProposalService;
+    private readonly IClassSessionVideoAiService _videoAiService;
 
     public TutorClassSessionController(
         IClassSessionService classSessionService,
         IDisputeService disputeService,
-        IClassSessionRescheduleProposalService rescheduleProposalService)
+        IClassSessionRescheduleProposalService rescheduleProposalService,
+        IClassSessionVideoAiService videoAiService)
     {
         _classSessionService = classSessionService;
         _disputeService = disputeService;
         _rescheduleProposalService = rescheduleProposalService;
+        _videoAiService = videoAiService;
     }
 
     /// <summary>
@@ -125,6 +129,41 @@ public class TutorClassSessionController : ControllerBase
         var tutorId = UserHelper.GetUserId(User);
         var result = await _classSessionService.SubmitReportAsync(id, tutorId, request);
         return Ok(APIResponse<ClassSessionDetailResponse>.Success(result, "Gửi báo cáo buổi học thành công."));
+    }
+
+    /// <summary>
+    /// Gia sư yêu cầu Gemini đọc video buổi học và gợi ý nội dung điền vào báo cáo (nội dung đã
+    /// dạy/bài tập/ghi chú). FE tự quyết định field nào áp dụng vào form — endpoint chỉ sinh kết quả.
+    /// </summary>
+    [HttpPost("{id}/report/ai-fill")]
+    public async Task<ActionResult<APIResponse<ClassSessionAiJobResponse>>> TriggerReportAiFill(int id)
+    {
+        var tutorId = UserHelper.GetUserId(User);
+        try
+        {
+            var result = await _videoAiService.TriggerTutorReportFillAsync(id, tutorId);
+            return Ok(APIResponse<ClassSessionAiJobResponse>.Success(result, "Đã gửi yêu cầu gợi ý báo cáo."));
+        }
+        catch (NotFoundException ex) { return NotFound(APIResponse.Fail(ex.Message, 404)); }
+        catch (KeyNotFoundException ex) { return NotFound(APIResponse.Fail(ex.Message, 404)); }
+        catch (UnauthorizedAccessException ex) { return StatusCode(403, APIResponse.Fail(ex.Message, 403)); }
+        catch (BadRequestException ex) { return BadRequest(APIResponse.Fail(ex.Message, 400)); }
+        catch (InvalidOperationException ex) { return BadRequest(APIResponse.Fail(ex.Message, 400)); }
+    }
+
+    /// <summary>Poll trạng thái/kết quả gợi ý báo cáo bằng AI.</summary>
+    [HttpGet("{id}/report/ai-fill")]
+    public async Task<ActionResult<APIResponse<ClassSessionAiJobResponse>>> GetReportAiFillStatus(int id)
+    {
+        var tutorId = UserHelper.GetUserId(User);
+        try
+        {
+            var result = await _videoAiService.GetTutorReportFillStatusAsync(id, tutorId);
+            return Ok(APIResponse<ClassSessionAiJobResponse>.Success(result, "Lấy trạng thái gợi ý báo cáo thành công."));
+        }
+        catch (NotFoundException ex) { return NotFound(APIResponse.Fail(ex.Message, 404)); }
+        catch (KeyNotFoundException ex) { return NotFound(APIResponse.Fail(ex.Message, 404)); }
+        catch (UnauthorizedAccessException ex) { return StatusCode(403, APIResponse.Fail(ex.Message, 403)); }
     }
 
     /// <summary>

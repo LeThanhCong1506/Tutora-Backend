@@ -21,6 +21,10 @@ public class AiChatRepository(AgoraDbContext context) : IAiChatRepository
             .AsNoTracking()
             .ToListAsync();
 
+    public Task<ChatSession?> FindSessionByUserAndClassSessionAsync(string userId, string sessionType, int classSessionId)
+        => context.ChatSessions
+            .FirstOrDefaultAsync(s => s.UserId == userId && s.SessionType == sessionType && s.ClassSessionId == classSessionId);
+
     public void AddSession(ChatSession session)
         => context.ChatSessions.Add(session);
 
