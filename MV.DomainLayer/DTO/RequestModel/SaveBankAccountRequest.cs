@@ -2,7 +2,7 @@ using System.ComponentModel.DataAnnotations;
 
 namespace MV.DomainLayer.DTO.RequestModel;
 
-public class UpdateTutorBankInfoRequest
+public class SaveBankAccountRequest
 {
     [Required]
     public string BankName { get; set; } = string.Empty;

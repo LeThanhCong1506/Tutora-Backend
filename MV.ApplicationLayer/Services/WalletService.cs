@@ -185,7 +185,8 @@ public class WalletService(
         };
     }
 
-    public async Task<TransactionHistoryPagedResponse> GetTransactionHistoryAsync(string userId, int page = 1, int pageSize = 20)
+    public async Task<TransactionHistoryPagedResponse> GetTransactionHistoryAsync(
+        string userId, int page = 1, int pageSize = 20, string? type = null, DateTime? from = null, DateTime? to = null)
     {
         var w = await context.Wallets.AsNoTracking()
             .FirstOrDefaultAsync(w => w.Userid == userId);
@@ -200,11 +201,30 @@ public class WalletService(
             };
 
         var query = context.Wallettransactions.AsNoTracking()
-            .Where(t => t.Walletid == w.Walletid)
-            .OrderByDescending(t => t.Createdat);
+            .Where(t => t.Walletid == w.Walletid);
 
-        var total = await query.CountAsync();
-        var rawTxs = await query
+        if (!string.IsNullOrEmpty(type))
+            query = query.Where(t => t.Transactiontype == type);
+
+        if (from.HasValue)
+        {
+            var fromUtc = from.Value.Kind == DateTimeKind.Utc
+                ? from.Value
+                : DateTime.SpecifyKind(from.Value, DateTimeKind.Utc);
+            query = query.Where(t => t.Createdat >= fromUtc);
+        }
+        if (to.HasValue)
+        {
+            var toUtc = to.Value.Kind == DateTimeKind.Utc
+                ? to.Value
+                : DateTime.SpecifyKind(to.Value, DateTimeKind.Utc);
+            query = query.Where(t => t.Createdat <= toUtc);
+        }
+
+        var orderedQuery = query.OrderByDescending(t => t.Createdat);
+
+        var total = await orderedQuery.CountAsync();
+        var rawTxs = await orderedQuery
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
             .Select(t => new { t.Transactionid, t.Amount, t.Transactiontype, t.Description, t.Referenceid, t.Referencetable, t.Createdat })
@@ -407,18 +427,15 @@ public class WalletService(
     }
 
     /// <summary>
-    /// Parent (or any wallet owner with no saved BankAccount) withdrawal creation — the bank
-    /// destination always comes straight from the request, never from a saved account, and is
+    /// Parent/Student withdrawal creation — bank destination is the requester's saved
+    /// BankAccount (same as Tutor's own flow, see TutorFinanceService.CreateWithdrawalAsync),
     /// snapshotted onto the withdrawal row so it survives later bank-account edits/deletes.
+    /// Typing bank details per-withdrawal was removed; saving/changing the payout destination
+    /// now always goes through the OTP-gated bank-account flow (BankAccountController).
     /// </summary>
     public async Task<WithdrawalDetailResponse> CreateWithdrawalAsync(
         string userId, CreateWithdrawalRequest request, CancellationToken ct = default)
     {
-        if (string.IsNullOrWhiteSpace(request.BankName)
-            || string.IsNullOrWhiteSpace(request.AccountNumber)
-            || string.IsNullOrWhiteSpace(request.AccountHolderName))
-            throw new BankInfoRequiredException();
-
         await using var transaction = await context.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, ct);
         var committed = false;
 
@@ -444,6 +461,16 @@ public class WalletService(
             if (pendingWithdrawal)
                 throw new PendingWithdrawalException();
 
+            var bankAccount = await context.BankAccounts
+                .AsNoTracking()
+                .FirstOrDefaultAsync(b => b.Userid == userId, ct);
+
+            if (bankAccount == null
+                || string.IsNullOrEmpty(bankAccount.Bankname)
+                || string.IsNullOrEmpty(bankAccount.Accountnumber)
+                || string.IsNullOrEmpty(bankAccount.Accountholdername))
+                throw new BankInfoRequiredException();
+
             if (request.Amount < MinWithdrawalAmount)
                 throw new WithdrawalAmountTooLowException(MinWithdrawalAmount);
 
@@ -455,9 +482,9 @@ public class WalletService(
                 Userid = userId,
                 Walletid = wallet.Walletid,
                 Amount = request.Amount,
-                Bankname = request.BankName.Trim(),
-                Accountnumber = request.AccountNumber.Trim(),
-                Accountholdername = request.AccountHolderName.Trim(),
+                Bankname = bankAccount.Bankname,
+                Accountnumber = bankAccount.Accountnumber,
+                Accountholdername = bankAccount.Accountholdername,
                 Status = WithdrawalStatus.PendingReview,
                 Decision = TrustScoringConstants.Decisions.ManualReview,
                 Requestedat = TimeZoneHelper.UtcNow

@@ -1,6 +1,6 @@
 namespace MV.DomainLayer.DTO.ResponseModel;
 
-public class TutorBankInfoResponse
+public class BankAccountResponse
 {
     public string? BankName { get; set; }
     public string? AccountNumber { get; set; }

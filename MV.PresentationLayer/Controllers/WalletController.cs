@@ -37,7 +37,9 @@ public class WalletController(IWalletService walletService) : ControllerBase
 
     [HttpGet("transactions")]
     [Authorize(Roles = UserRole.ParentOrStudentOrTutor)]
-    public async Task<IActionResult> GetTransactions([FromQuery] int page = 1, [FromQuery] int pageSize = 20)
+    public async Task<IActionResult> GetTransactions(
+        [FromQuery] int page = 1, [FromQuery] int pageSize = 20,
+        [FromQuery] string? type = null, [FromQuery] DateTime? from = null, [FromQuery] DateTime? to = null)
     {
         var userId = UserId;
         if (string.IsNullOrEmpty(userId))
@@ -45,7 +47,7 @@ public class WalletController(IWalletService walletService) : ControllerBase
 
         try
         {
-            var result = await walletService.GetTransactionHistoryAsync(userId, page, pageSize);
+            var result = await walletService.GetTransactionHistoryAsync(userId, page, pageSize, type, from, to);
             return Ok(APIResponse<TransactionHistoryPagedResponse>.Success(result, ApiMessages.Success));
         }
         catch (BookingException ex)
@@ -94,6 +96,10 @@ public class WalletController(IWalletService walletService) : ControllerBase
         {
             var result = await walletService.CreateWithdrawalAsync(userId, request, ct);
             return Ok(APIResponse<WithdrawalDetailResponse>.Success(result, "Tạo yêu cầu rút tiền thành công."));
+        }
+        catch (BankInfoRequiredException ex)
+        {
+            return BadRequest(new { errorCode = "BANK_ACCOUNT_REQUIRED", message = ex.Message });
         }
         catch (BadRequestException ex)
         {

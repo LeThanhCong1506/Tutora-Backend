@@ -22,6 +22,14 @@ public static class NotificationType
     public const string LessonConfirmDeadline = "lesson_confirm_deadline";
     public const string LessonNoShow    = "lesson_no_show";
     public const string LessonScheduleChange = "lesson_schedule_change";
+    /// <summary>Có đề xuất dời giờ học mới, gửi cho người đối ứng cần phản hồi. Referenceid = classSessionId.</summary>
+    public const string RescheduleProposed = "reschedule_proposed";
+    /// <summary>Đề xuất dời giờ học đã được đối ứng đồng ý, giờ học đã cập nhật. Referenceid = classSessionId.</summary>
+    public const string RescheduleAccepted = "reschedule_accepted";
+    /// <summary>Đề xuất dời giờ học đã bị đối ứng từ chối. Referenceid = classSessionId.</summary>
+    public const string RescheduleRejected = "reschedule_rejected";
+    /// <summary>Đề xuất dời giờ học đã hết hạn do không ai phản hồi kịp. Referenceid = classSessionId.</summary>
+    public const string RescheduleExpired = "reschedule_expired";
     public const string Message         = "message";
     public const string Warning         = "warning";
     public const string DisputeMessage  = "dispute_message";
@@ -35,4 +43,8 @@ public static class NotificationType
     public const string FeedbackModerated = "feedback_moderated";
     /// <summary>Admin/staff vừa chuyển tiền chủ động vào ví. Referenceid = transferId.</summary>
     public const string WalletTransferReceived = "wallet_transfer_received";
+    /// <summary>Tripwire: tài khoản ngân hàng của chính người dùng vừa được thêm/sửa.</summary>
+    public const string BankAccountUpdated = "bank_account_updated";
+    /// <summary>Tripwire: tài khoản ngân hàng của chính người dùng vừa bị xoá.</summary>
+    public const string BankAccountDeleted = "bank_account_deleted";
 }

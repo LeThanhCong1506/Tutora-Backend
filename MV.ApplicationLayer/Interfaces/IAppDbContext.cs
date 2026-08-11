@@ -10,6 +10,7 @@ public interface IAppDbContext
 
     DbSet<AdminWalletTransfer> AdminWalletTransfers { get; }
     DbSet<BankAccount> BankAccounts { get; }
+    DbSet<BankAccountAuditLog> BankAccountAuditLogs { get; }
     DbSet<Booking> Bookings { get; }
     DbSet<FraudLog> Fraudlogs { get; }
     DbSet<LoginHistory> Loginhistories { get; }
@@ -30,6 +31,7 @@ public interface IAppDbContext
     DbSet<ClassSession> ClassSessions { get; }
     DbSet<ClassSessionReport> ClassSessionReports { get; }
     DbSet<ClassSessionScheduleChange> ClassSessionScheduleChanges { get; }
+    DbSet<ClassSessionRescheduleProposal> ClassSessionRescheduleProposals { get; }
     DbSet<SessionEngagementSample> SessionEngagementSamples { get; }
     DbSet<AgoraChannelEvent> AgoraChannelEvents { get; }
     DbSet<SessionParticipant> SessionParticipants { get; }

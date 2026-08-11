@@ -21,6 +21,8 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
 
     public virtual DbSet<BankAccount> BankAccounts { get; set; }
 
+    public virtual DbSet<BankAccountAuditLog> BankAccountAuditLogs { get; set; }
+
     public virtual DbSet<Booking> Bookings { get; set; }
 
     public virtual DbSet<FraudLog> Fraudlogs { get; set; }
@@ -62,6 +64,7 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
     public virtual DbSet<ClassSessionReport> ClassSessionReports { get; set; }
 
     public virtual DbSet<ClassSessionScheduleChange> ClassSessionScheduleChanges { get; set; }
+    public virtual DbSet<ClassSessionRescheduleProposal> ClassSessionRescheduleProposals { get; set; }
 
     public virtual DbSet<SessionEngagementSample> SessionEngagementSamples { get; set; }
 
@@ -227,6 +230,59 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
                 .HasForeignKey<BankAccount>(d => d.Userid)
                 .OnDelete(DeleteBehavior.Cascade)
                 .HasConstraintName("bank_accounts_userid_fkey");
+        });
+        modelBuilder.Entity<BankAccountAuditLog>(entity =>
+        {
+            entity.HasKey(e => e.Bankaccountauditlogid).HasName("bank_account_audit_logs_pkey");
+
+            entity.ToTable("bank_account_audit_logs");
+
+            entity.HasIndex(e => new { e.Userid, e.Changedat }, "idx_bank_account_audit_logs_user_changed_at");
+
+            entity.Property(e => e.Bankaccountauditlogid).HasColumnName("bank_account_audit_log_id");
+            entity.Property(e => e.Userid)
+                .HasMaxLength(50)
+                .HasColumnName("user_id");
+            entity.Property(e => e.Bankaccountid).HasColumnName("bank_account_id");
+            entity.Property(e => e.Action)
+                .HasMaxLength(20)
+                .HasColumnName("action");
+            entity.Property(e => e.Oldbankname)
+                .HasMaxLength(100)
+                .HasColumnName("old_bank_name");
+            entity.Property(e => e.Oldaccountnumber)
+                .HasMaxLength(50)
+                .HasColumnName("old_account_number");
+            entity.Property(e => e.Oldaccountholdername)
+                .HasMaxLength(100)
+                .HasColumnName("old_account_holder_name");
+            entity.Property(e => e.Newbankname)
+                .HasMaxLength(100)
+                .HasColumnName("new_bank_name");
+            entity.Property(e => e.Newaccountnumber)
+                .HasMaxLength(50)
+                .HasColumnName("new_account_number");
+            entity.Property(e => e.Newaccountholdername)
+                .HasMaxLength(100)
+                .HasColumnName("new_account_holder_name");
+            entity.Property(e => e.Changedat)
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
+                .HasColumnType("timestamp without time zone")
+                .HasColumnName("changed_at");
+            entity.Property(e => e.Ipaddress)
+                .HasMaxLength(45)
+                .HasColumnName("ip_address");
+            entity.Property(e => e.Useragent).HasColumnName("user_agent");
+
+            entity.HasOne(d => d.User).WithMany()
+                .HasForeignKey(d => d.Userid)
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("bank_account_audit_logs_user_id_fkey");
+
+            entity.HasOne(d => d.BankAccount).WithMany()
+                .HasForeignKey(d => d.Bankaccountid)
+                .OnDelete(DeleteBehavior.SetNull)
+                .HasConstraintName("bank_account_audit_logs_bank_account_id_fkey");
         });
         modelBuilder.Entity<FraudLog>(entity =>
         {
@@ -1649,6 +1705,39 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
                 .HasForeignKey(e => e.Classsessionid)
                 .OnDelete(DeleteBehavior.Cascade)
                 .HasConstraintName("class_session_schedule_changes_session_fkey");
+        });
+
+        modelBuilder.Entity<ClassSessionRescheduleProposal>(entity =>
+        {
+            entity.HasKey(e => e.Rescheduleproposalid).HasName("class_session_reschedule_proposals_pkey");
+            entity.ToTable("class_session_reschedule_proposals");
+            entity.HasIndex(e => e.Classsessionid, "idx_reschedule_proposals_session");
+            entity.HasIndex(e => new { e.Classsessionid, e.Status }, "idx_reschedule_proposals_active");
+
+            entity.Property(e => e.Rescheduleproposalid).HasColumnName("reschedule_proposal_id");
+            entity.Property(e => e.Classsessionid).HasColumnName("class_session_id");
+            entity.Property(e => e.Proposedbyuserid).HasMaxLength(50).HasColumnName("proposed_by_user_id");
+            entity.Property(e => e.Proposedbyrole).HasMaxLength(20).HasColumnName("proposed_by_role");
+            entity.Property(e => e.Counterpartuserid).HasMaxLength(50).HasColumnName("counterpart_user_id");
+            entity.Property(e => e.Counterpartrole).HasMaxLength(20).HasColumnName("counterpart_role");
+            entity.Property(e => e.Originalscheduledstart).HasColumnType("timestamp without time zone").HasColumnName("original_scheduled_start");
+            entity.Property(e => e.Originalscheduledend).HasColumnType("timestamp without time zone").HasColumnName("original_scheduled_end");
+            entity.Property(e => e.Proposedscheduledstart).HasColumnType("timestamp without time zone").HasColumnName("proposed_scheduled_start");
+            entity.Property(e => e.Proposedscheduledend).HasColumnType("timestamp without time zone").HasColumnName("proposed_scheduled_end");
+            entity.Property(e => e.Reason).HasMaxLength(500).HasColumnName("reason");
+            entity.Property(e => e.Status).HasMaxLength(20).HasColumnName("status");
+            entity.Property(e => e.Requestedat).HasColumnType("timestamp without time zone").HasColumnName("requested_at");
+            entity.Property(e => e.Expiresat).HasColumnType("timestamp without time zone").HasColumnName("expires_at");
+            entity.Property(e => e.Respondedat).HasColumnType("timestamp without time zone").HasColumnName("responded_at");
+            entity.Property(e => e.Respondedby).HasMaxLength(50).HasColumnName("responded_by");
+            entity.Property(e => e.Createdat).HasColumnType("timestamp without time zone").HasColumnName("created_at");
+            entity.Property(e => e.Updatedat).HasColumnType("timestamp without time zone").HasColumnName("updated_at");
+
+            entity.HasOne(e => e.ClassSession)
+                .WithMany(e => e.RescheduleProposals)
+                .HasForeignKey(e => e.Classsessionid)
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("class_session_reschedule_proposals_session_fkey");
         });
         modelBuilder.Entity<Notification>(entity =>
         {
