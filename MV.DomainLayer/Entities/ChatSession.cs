@@ -15,6 +15,9 @@ public partial class ChatSession
 
     public string SessionType { get; set; } = null!;
 
+    /// <summary>Chỉ set khi SessionType = video_summary — buổi học mà phiên chat này đang bàn về.</summary>
+    public int? ClassSessionId { get; set; }
+
     public string? Title { get; set; }
 
     public bool? IsActive { get; set; }
