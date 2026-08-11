@@ -47,6 +47,9 @@ public static class NotificationType
     public const string BankAccountUpdated = "bank_account_updated";
     /// <summary>Tripwire: tài khoản ngân hàng của chính người dùng vừa bị xoá.</summary>
     public const string BankAccountDeleted = "bank_account_deleted";
+    /// <summary>Video buổi học đã relay xong lên Drive, xem lại được (và học sinh/gia sư có thể dùng AI).
+    /// Referenceid = classSessionId.</summary>
+    public const string LessonRecordingReady = "lesson_recording_ready";
     /// <summary>Gemini đã tóm tắt xong video buổi học, học sinh có thể xem lại. Referenceid = classSessionId.</summary>
     public const string LessonVideoSummaryReady = "lesson_video_summary_ready";
     /// <summary>Gemini đã điền xong nội dung báo cáo gợi ý cho gia sư. Referenceid = classSessionId.</summary>
