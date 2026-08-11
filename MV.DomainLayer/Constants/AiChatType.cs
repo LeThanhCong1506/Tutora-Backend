@@ -7,6 +7,8 @@ public static class ChatSessionType
 {
     public const string Homework = "homework";
     public const string TutorMatching = "tutor_matching";
+    /// <summary>Chat hỏi tiếp về tóm tắt video buổi học — gắn với đúng 1 ClassSessionId.</summary>
+    public const string VideoSummary = "video_summary";
 }
 
 /// <summary>
