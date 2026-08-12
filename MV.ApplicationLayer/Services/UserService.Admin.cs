@@ -389,14 +389,14 @@ namespace MV.ApplicationLayer.Services
             await _unitOfWork.SaveChangesAsync();
         }
 
-        // ─── Admin: xem ảnh CCCD (signed URL, có hiệu lực 10 phút) ──────────────
+        // ─── Admin: xem ảnh CCCD (signed URL, có hiệu lực 15 phút) — dùng chung Tutor/Student ──────────────
 
-        public async Task<TutorCccdUrlsResponse> GetTutorCccdUrlsAsync(string tutorId)
+        public async Task<UserCccdUrlsResponse> GetUserCccdUrlsAsync(string userId)
         {
-            var user = await _unitOfWork.UserRepository.GetUserByIdAsync(tutorId)
-                ?? throw new UserNotFoundException(tutorId);
+            var user = await _unitOfWork.UserRepository.GetUserByIdAsync(userId)
+                ?? throw new UserNotFoundException(userId);
 
-            // URL lưu trong DB là authenticated (private). Phải tạo signed URL mới xem được.
+            // URL lưu trong DB là private. Phải tạo signed URL mới xem được.
             var frontSigned = !string.IsNullOrEmpty(user.Idcardfronturl)
                 ? _storage.GenerateSignedUrl(user.Idcardfronturl)
                 : null;
@@ -405,10 +405,10 @@ namespace MV.ApplicationLayer.Services
                 ? _storage.GenerateSignedUrl(user.Idcardbackurl)
                 : null;
 
-            return new TutorCccdUrlsResponse
+            return new UserCccdUrlsResponse
             {
-                TutorId            = user.Userid,
-                TutorFullName      = user.Fullname,
+                UserId             = user.Userid,
+                UserFullName       = user.Fullname,
                 FrontImageUrl      = frontSigned,
                 BackImageUrl       = backSigned,
                 IsIdentityVerified = user.Isidentityverified ?? false

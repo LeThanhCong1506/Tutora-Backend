@@ -137,32 +137,6 @@ namespace MV.PresentationLayer.Controllers
         }
 
         /// <summary>
-        /// GET /api/admin/tutors/{id}/cccd
-        /// Admin xem ảnh CCCD của gia sư. Trả về signed URL (yêu cầu chữ ký backend để truy cập).
-        /// Chỉ Admin mới được gọi (không áp dụng cho Staff).
-        /// </summary>
-        [RequirePermission(Permissions.TutorCccdView)]
-        [HttpGet("tutors/{id}/cccd")]
-        public async Task<IActionResult> GetTutorCccdUrls(string id)
-        {
-            try
-            {
-                var result = await _userService.GetTutorCccdUrlsAsync(id);
-                return Ok(APIResponse<TutorCccdUrlsResponse>.Success(
-                    result,
-                    "Lấy link xem CCCD thành công."));
-            }
-            catch (UserNotFoundException ex)
-            {
-                return NotFound(APIResponse<object>.Fail(ex.Message, 404));
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, APIResponse<object>.Fail(ApiMessages.GenericErrorPrefix + ex.Message, 500));
-            }
-        }
-
-        /// <summary>
         /// PUT /api/admin/tutors/{tutorId}/certificates/{certId}/verify
         /// Admin hoặc Staff duyệt hoặc từ chối một chứng chỉ của gia sư — cùng quyền với
         /// GetPendingTutors/ApproveTutor/GetAdminCertificates (đều nằm trên trang Vetting).
