@@ -288,6 +288,14 @@ builder.Services.AddHttpClient<IDisputeClassificationService, DisputeClassificat
     client.Timeout = TimeSpan.FromSeconds(10);
 });
 
+// 4. Đăng ký HttpClient cho GeminiVideoAnalysisService (Gemini phân tích video buổi học).
+// Timeout dài: video 2-4h upload + xử lý có thể mất vài phút, chạy trong Hangfire job nền.
+builder.Services.AddHttpClient<IGeminiVideoAnalysisService, GeminiVideoAnalysisService>(client =>
+{
+    client.BaseAddress = new Uri("https://generativelanguage.googleapis.com");
+    client.Timeout = TimeSpan.FromMinutes(15);
+});
+
 // Repo injection
 builder.Services.AddScoped<IAuthenticationRepository, AuthenticationRepository>();
 builder.Services.AddScoped<IPasswordRepository, PasswordRepository>();
@@ -353,6 +361,7 @@ builder.Services.AddScoped<IClassSessionService, ClassSessionService>();
 builder.Services.AddScoped<ISessionLogService, SessionLogService>();
 builder.Services.AddScoped<IClassSessionScheduleChangeService, ClassSessionScheduleChangeService>();
 builder.Services.AddScoped<IClassSessionRescheduleProposalService, ClassSessionRescheduleProposalService>();
+builder.Services.AddScoped<IClassSessionVideoAiService, ClassSessionVideoAiService>();
 builder.Services.AddScoped<IAgoraRTCService, AgoraRTCService>();
 builder.Services.AddSingleton<ILiveSessionDeviceLeaseService, LiveSessionDeviceLeaseService>();
 // Presence in-memory (Singleton): theo dõi ai đang trong phòng học để auto check-in khi đủ cả 2.

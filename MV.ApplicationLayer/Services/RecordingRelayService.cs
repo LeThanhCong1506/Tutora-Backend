@@ -11,6 +11,8 @@ using Microsoft.Extensions.Options;
 using MV.ApplicationLayer.Interfaces;
 using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.Configuration;
+using MV.DomainLayer.Constants;
+using MV.DomainLayer.DTO.RequestModel;
 
 namespace MV.ApplicationLayer.Services;
 
@@ -28,17 +30,20 @@ public class RecordingRelayService : IRecordingRelayService
 
     private readonly IAppDbContext _context;
     private readonly IGoogleDriveService _drive;
+    private readonly INotificationService _notificationService;
     private readonly AgoraRecordingSettings _rec;
     private readonly ILogger<RecordingRelayService> _logger;
 
     public RecordingRelayService(
         IAppDbContext context,
         IGoogleDriveService drive,
+        INotificationService notificationService,
         IOptions<AgoraRecordingSettings> rec,
         ILogger<RecordingRelayService> logger)
     {
         _context = context;
         _drive = drive;
+        _notificationService = notificationService;
         _rec = rec.Value;
         _logger = logger;
     }
@@ -56,7 +61,14 @@ public class RecordingRelayService : IRecordingRelayService
             {
                 ClassSession = s,
                 TutorName = s.Tutor != null && s.Tutor.Tutor != null ? s.Tutor.Tutor.Fullname : null,
-                StudentName = s.Student != null ? s.Student.Fullname : null
+                StudentName = s.Student != null ? s.Student.Fullname : null,
+                // Studentid là mã hồ sơ ("STU-xxxx"), không phải Userid để đăng nhập/nhận thông báo khi
+                // tài khoản do phụ huynh tạo — khi đó Linkeduserid mới là Userid thật (tự đăng ký thì
+                // Linkeduserid = Studentid = chính họ, nên fallback về Studentid vẫn đúng).
+                StudentNotifyUserId = s.Student != null && !string.IsNullOrEmpty(s.Student.Linkeduserid)
+                    ? s.Student.Linkeduserid
+                    : s.Studentid,
+                ParentUserId = s.Student != null ? s.Student.Parentid : null
             })
             .ToListAsync(ct);
 
@@ -111,6 +123,10 @@ public class RecordingRelayService : IRecordingRelayService
 
                 _logger.LogInformation(
                     "Relayed recording: session={Session} → Drive fileId={FileId}", session.Classsessionid, fileId);
+
+                // Video vừa ghi xong không thể xem/dùng AI ngay (RTC record → S3 → Drive mất vài phút) —
+                // báo chủ động cho học sinh/gia sư khi đã thật sự sẵn sàng, khỏi phải tự bấm kiểm tra lại.
+                await NotifyRecordingReadyAsync(session.Classsessionid, item.StudentNotifyUserId, session.Tutorid, item.ParentUserId);
             }
             catch (Exception ex)
             {
@@ -118,6 +134,52 @@ public class RecordingRelayService : IRecordingRelayService
                 _logger.LogWarning(ex,
                     "Relay recording session {Session} thất bại, sẽ thử lại vòng sau", session.Classsessionid);
             }
+        }
+    }
+
+    private async Task NotifyRecordingReadyAsync(int classSessionId, string? studentId, string? tutorId, string? parentId)
+    {
+        try
+        {
+            if (!string.IsNullOrWhiteSpace(studentId))
+            {
+                await _notificationService.CreateNotificationAsync(new NotificationRequest
+                {
+                    Userid = studentId,
+                    Title = "Video buổi học đã sẵn sàng",
+                    Message = $"Video buổi học #{classSessionId} đã xem lại được. Vào chi tiết buổi học để xem hoặc dùng AI tóm tắt.",
+                    Type = NotificationType.LessonRecordingReady,
+                    Referenceid = classSessionId.ToString()
+                });
+            }
+            if (!string.IsNullOrWhiteSpace(tutorId))
+            {
+                await _notificationService.CreateNotificationAsync(new NotificationRequest
+                {
+                    Userid = tutorId,
+                    Title = "Video buổi học đã sẵn sàng",
+                    Message = $"Video buổi học #{classSessionId} đã xem lại được. Vào chi tiết buổi học để xem hoặc dùng AI hỗ trợ điền báo cáo.",
+                    Type = NotificationType.LessonRecordingReady,
+                    Referenceid = classSessionId.ToString()
+                });
+            }
+            // Chỉ có giá trị với hồ sơ học sinh do phụ huynh quản lý (Studentprofile.Parentid) — học
+            // sinh tự đăng ký thì null, tự bỏ qua.
+            if (!string.IsNullOrWhiteSpace(parentId))
+            {
+                await _notificationService.CreateNotificationAsync(new NotificationRequest
+                {
+                    Userid = parentId,
+                    Title = "Video buổi học đã sẵn sàng",
+                    Message = $"Video buổi học #{classSessionId} của con bạn đã xem lại được. Vào chi tiết buổi học để xem.",
+                    Type = NotificationType.LessonRecordingReady,
+                    Referenceid = classSessionId.ToString()
+                });
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Không gửi được thông báo video sẵn sàng cho classSession {ClassSessionId}", classSessionId);
         }
     }
 
