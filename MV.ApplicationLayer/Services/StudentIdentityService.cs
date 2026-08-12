@@ -108,8 +108,21 @@ namespace MV.ApplicationLayer.Services
                 await _storageService.DeleteFileAsync(CccdBucket, user.Userid, previousBackUrl);
 
             user.Isidentityverified = true;
-            user.Birthdate = dob;
             user.Identitynumber = encryptedId;
+
+            // Điền hồ sơ từ CCCD. Ba trường họ tên / ngày sinh / giới tính bị KHOÁ trên giao diện sau
+            // khi xác minh và gắn nhãn "đã xác minh qua CCCD", nên phải GHI ĐÈ bằng dữ liệu trên thẻ —
+            // nếu chỉ điền khi trống thì không bao giờ chạy, vì học sinh bắt buộc nhập họ tên lúc hoàn
+            // tất hồ sơ trước đó, dẫn tới hiển thị tên tự gõ nhưng lại dán nhãn là đã xác minh.
+            // Địa chỉ thì ngược lại: giao diện vẫn cho sửa nên chỉ điền khi còn trống, tránh đè mất
+            // địa chỉ hiện tại người dùng tự nhập bằng địa chỉ thường trú trên thẻ.
+            user.Birthdate = dob;
+            if (!string.IsNullOrWhiteSpace(ocrResult.Name))
+                user.Fullname = ocrResult.Name;
+            if (GenderHelper.FromEkycSex(ocrResult.Sex) is { } gender)
+                user.Gender = gender;
+            if (string.IsNullOrWhiteSpace(user.Address) && !string.IsNullOrWhiteSpace(ocrResult.Address))
+                user.Address = ocrResult.Address;
 
             return new EkycVerificationResult
             {
