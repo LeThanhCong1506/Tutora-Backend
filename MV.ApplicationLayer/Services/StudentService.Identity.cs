@@ -28,13 +28,16 @@ namespace MV.ApplicationLayer.Services
 
             await _unitOfWork.UserRepository.UpdateUserAsync(user);
 
-            // Đồng bộ ngày sinh sang Studentprofile để 2 bảng nhất quán.
+            // Đồng bộ ngày sinh + họ tên sang Studentprofile để 2 bảng nhất quán.
+            // Họ tên phải đồng bộ cả khi Studentprofile đã có sẵn giá trị: users.full_name vừa được
+            // ghi đè theo CCCD, nếu ở đây chỉ điền-khi-trống thì trang Hồ sơ (đọc student_profiles)
+            // và trang Tài khoản (đọc users) sẽ hiện hai cái tên khác nhau.
             var profile = await _unitOfWork.StudentRepository.FindByStudentOrLinkedUserAsync(studentUserId);
             if (profile != null)
             {
                 if (result.DateOfBirth != null)
                     profile.Birthdate = result.DateOfBirth;
-                if (string.IsNullOrWhiteSpace(profile.Fullname))
+                if (!string.IsNullOrWhiteSpace(user.Fullname))
                     profile.Fullname = user.Fullname;
             }
 
