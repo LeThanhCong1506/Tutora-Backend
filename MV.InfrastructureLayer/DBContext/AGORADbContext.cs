@@ -65,6 +65,7 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
 
     public virtual DbSet<ClassSessionScheduleChange> ClassSessionScheduleChanges { get; set; }
     public virtual DbSet<ClassSessionRescheduleProposal> ClassSessionRescheduleProposals { get; set; }
+    public virtual DbSet<ClassSessionAiJob> ClassSessionAiJobs { get; set; }
 
     public virtual DbSet<SessionEngagementSample> SessionEngagementSamples { get; set; }
 
@@ -113,6 +114,8 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
     public virtual DbSet<Studentprofile> Studentprofiles { get; set; }
 
     public virtual DbSet<Subject> Subjects { get; set; }
+
+    public virtual DbSet<PolicyDocument> PolicyDocuments { get; set; }
 
     public virtual DbSet<Systemconfig> Systemconfigs { get; set; }
 
@@ -890,6 +893,8 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
                 .HasMaxLength(30)
                 .HasDefaultValueSql("'homework'::character varying")
                 .HasColumnName("session_type");
+            entity.Property(e => e.ClassSessionId)
+                .HasColumnName("class_session_id");
             entity.Property(e => e.Title)
                 .HasMaxLength(255)
                 .HasColumnName("title");
@@ -911,11 +916,17 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
 
             entity.HasIndex(e => e.UserId, "idx_chat_sessions_user_id");
             entity.HasIndex(e => e.SessionType, "idx_chat_sessions_type");
+            entity.HasIndex(e => e.ClassSessionId, "idx_chat_sessions_class_session");
 
             entity.HasOne(d => d.User).WithMany()
                 .HasForeignKey(d => d.UserId)
                 .OnDelete(DeleteBehavior.Cascade)
                 .HasConstraintName("fk_chat_sessions_user");
+
+            entity.HasOne<ClassSession>().WithMany()
+                .HasForeignKey(d => d.ClassSessionId)
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("chat_sessions_class_session_fkey");
         });
 
         modelBuilder.Entity<QuestionNote>(entity =>
@@ -1739,6 +1750,35 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
                 .OnDelete(DeleteBehavior.Cascade)
                 .HasConstraintName("class_session_reschedule_proposals_session_fkey");
         });
+
+        modelBuilder.Entity<ClassSessionAiJob>(entity =>
+        {
+            entity.HasKey(e => e.JobId).HasName("class_session_ai_jobs_pkey");
+            entity.ToTable("class_session_ai_jobs");
+            entity.HasIndex(e => new { e.Classsessionid, e.Jobtype }, "idx_class_session_ai_jobs_session");
+
+            entity.Property(e => e.JobId).HasDefaultValueSql("gen_random_uuid()").HasColumnName("job_id");
+            entity.Property(e => e.Classsessionid).HasColumnName("class_session_id");
+            entity.Property(e => e.Jobtype).HasMaxLength(30).HasColumnName("job_type");
+            entity.Property(e => e.Requestedbyuserid).HasMaxLength(50).HasColumnName("requested_by_user_id");
+            entity.Property(e => e.Status).HasMaxLength(20).HasColumnName("status");
+            entity.Property(e => e.Stage).HasColumnName("stage");
+            entity.Property(e => e.Resulttext).HasColumnName("result_text");
+            entity.Property(e => e.Transcripttext).HasColumnName("transcript_text");
+            entity.Property(e => e.Resultjson).HasColumnType("jsonb").HasColumnName("result_json");
+            entity.Property(e => e.Geminifileuri).HasColumnName("gemini_file_uri");
+            entity.Property(e => e.Geminifilename).HasColumnName("gemini_file_name");
+            entity.Property(e => e.Geminifileexpiresat).HasColumnType("timestamp without time zone").HasColumnName("gemini_file_expires_at");
+            entity.Property(e => e.Errormessage).HasColumnName("error_message");
+            entity.Property(e => e.Createdat).HasColumnType("timestamp without time zone").HasColumnName("created_at");
+            entity.Property(e => e.Completedat).HasColumnType("timestamp without time zone").HasColumnName("completed_at");
+
+            entity.HasOne(e => e.ClassSession)
+                .WithMany(e => e.AiJobs)
+                .HasForeignKey(e => e.Classsessionid)
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("class_session_ai_jobs_session_fkey");
+        });
         modelBuilder.Entity<Notification>(entity =>
         {
             entity.HasKey(e => e.Notificationid).HasName("notifications_pkey");
@@ -2027,6 +2067,51 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
                 .OnDelete(DeleteBehavior.Restrict);
         });
 
+        modelBuilder.Entity<PolicyDocument>(entity =>
+        {
+            entity.HasKey(e => e.Policydocumentid).HasName("policy_documents_pkey");
+
+            entity.ToTable("policy_documents");
+
+            entity.HasIndex(e => e.Slug, "policy_documents_slug_key").IsUnique();
+            entity.HasIndex(e => new { e.Status, e.Displayorder }, "idx_policy_documents_status_order");
+
+            entity.Property(e => e.Policydocumentid).HasColumnName("policy_document_id");
+            entity.Property(e => e.Slug).HasMaxLength(80).HasColumnName("slug");
+            entity.Property(e => e.Title).HasMaxLength(200).HasColumnName("title");
+            entity.Property(e => e.Summary).HasMaxLength(500).HasColumnName("summary");
+            entity.Property(e => e.Contentmarkdown).HasColumnName("content_markdown");
+            entity.Property(e => e.Version)
+                .HasMaxLength(20)
+                .HasDefaultValueSql("'1.0'::character varying")
+                .HasColumnName("version");
+            entity.Property(e => e.Effectivedate).HasColumnName("effective_date");
+            entity.Property(e => e.Status)
+                .HasMaxLength(20)
+                .HasDefaultValueSql("'draft'::character varying")
+                .HasColumnName("status");
+            entity.Property(e => e.Displayorder).HasDefaultValue(0).HasColumnName("display_order");
+            entity.Property(e => e.Publishedat)
+                .HasColumnType("timestamp without time zone")
+                .HasColumnName("published_at");
+            entity.Property(e => e.Createdat)
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
+                .HasColumnType("timestamp without time zone")
+                .HasColumnName("created_at");
+            entity.Property(e => e.Updatedat)
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
+                .HasColumnType("timestamp without time zone")
+                .HasColumnName("updated_at");
+            entity.Property(e => e.Updatedby).HasMaxLength(50).HasColumnName("updated_by");
+
+            // WithMany() không tham chiếu navigation ngược — khỏi phải thêm collection vào User
+            // chỉ để phục vụ một cột "ai sửa gần nhất".
+            entity.HasOne(d => d.UpdatedbyNavigation).WithMany()
+                .HasForeignKey(d => d.Updatedby)
+                .OnDelete(DeleteBehavior.SetNull)
+                .HasConstraintName("policy_documents_updated_by_fkey");
+        });
+
         modelBuilder.Entity<Systemconfig>(entity =>
         {
             entity.HasKey(e => e.Configid).HasName("systemconfigs_pkey");
@@ -2117,6 +2202,9 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
             entity.Property(e => e.Certificatefileurl)
                 .HasMaxLength(2000)
                 .HasColumnName("certificate_file_url");
+            entity.Property(e => e.Thumbnailurl)
+                .HasMaxLength(2000)
+                .HasColumnName("thumbnail_url");
             entity.Property(e => e.Certificatename)
                 .HasMaxLength(200)
                 .HasColumnName("certificate_name");

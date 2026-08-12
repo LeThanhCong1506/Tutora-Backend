@@ -92,6 +92,8 @@ public partial class ClassSession
 
     public virtual ICollection<ClassSessionRescheduleProposal> RescheduleProposals { get; set; } = new List<ClassSessionRescheduleProposal>();
 
+    public virtual ICollection<ClassSessionAiJob> AiJobs { get; set; } = new List<ClassSessionAiJob>();
+
     public virtual ICollection<ClassSession> InverseOriginalsession { get; set; } = new List<ClassSession>();
 
     public virtual ClassSessionReport? ClassSessionReport { get; set; }

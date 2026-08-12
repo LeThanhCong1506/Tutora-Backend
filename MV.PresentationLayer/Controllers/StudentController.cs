@@ -17,14 +17,17 @@ namespace MV.PresentationLayer.Controllers
     {
         private readonly IStudentService _studentService;
         private readonly ITutorSuggestionService _tutorSuggestionService;
+        private readonly IUserService _userService;
 
         public StudentController(
             IStudentService studentService,
-            ITutorSuggestionService tutorSuggestionService)
+            ITutorSuggestionService tutorSuggestionService,
+            IUserService userService)
         {
             _studentService = studentService ?? throw new ArgumentNullException(nameof(studentService));
             _tutorSuggestionService = tutorSuggestionService
                 ?? throw new ArgumentNullException(nameof(tutorSuggestionService));
+            _userService = userService ?? throw new ArgumentNullException(nameof(userService));
         }
 
         private string GetStudentUserId() => User.FindFirstValue(ClaimTypes.NameIdentifier)!;
@@ -120,6 +123,24 @@ namespace MV.PresentationLayer.Controllers
             {
                 // Ảnh mờ/giả, tên không khớp, chưa đủ 16 tuổi, số CCCD trùng...
                 return UnprocessableEntity(APIResponse<object>.Fail(ex.Message, 422));
+            }
+        }
+
+        /// <summary>
+        /// Học sinh tự xem lại ảnh CCCD mình đã upload — signed URL, hết hạn sau 15 phút.
+        /// Không nhận id từ client — luôn lấy đúng userId từ JWT của người gọi.
+        /// </summary>
+        [HttpGet("me/cccd")]
+        public async Task<IActionResult> GetOwnCccd()
+        {
+            try
+            {
+                var result = await _userService.GetUserCccdUrlsAsync(GetStudentUserId());
+                return Ok(APIResponse<UserCccdUrlsResponse>.Success(result, "Lấy link xem CCCD thành công."));
+            }
+            catch (UserNotFoundException)
+            {
+                return NotFound(APIResponse<object>.Fail("Không tìm thấy hồ sơ học sinh.", 404));
             }
         }
 

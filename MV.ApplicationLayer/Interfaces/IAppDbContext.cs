@@ -32,6 +32,7 @@ public interface IAppDbContext
     DbSet<ClassSessionReport> ClassSessionReports { get; }
     DbSet<ClassSessionScheduleChange> ClassSessionScheduleChanges { get; }
     DbSet<ClassSessionRescheduleProposal> ClassSessionRescheduleProposals { get; }
+    DbSet<ClassSessionAiJob> ClassSessionAiJobs { get; }
     DbSet<SessionEngagementSample> SessionEngagementSamples { get; }
     DbSet<AgoraChannelEvent> AgoraChannelEvents { get; }
     DbSet<SessionParticipant> SessionParticipants { get; }
@@ -54,6 +55,8 @@ public interface IAppDbContext
     DbSet<Subject> Subjects { get; }
     DbSet<Chapter> Chapters { get; }
     DbSet<QuestionType> QuestionTypes { get; }
+    DbSet<PolicyDocument> PolicyDocuments { get; }
+
     DbSet<Systemconfig> Systemconfigs { get; }
     DbSet<AiCreditPackage> AiCreditPackages { get; }
     DbSet<Topuprequest> Topuprequests { get; }

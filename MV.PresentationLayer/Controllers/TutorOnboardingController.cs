@@ -5,6 +5,7 @@ using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO;
 using MV.DomainLayer.DTO.RequestModel;
 using MV.DomainLayer.DTO.ResponseModel;
+using MV.DomainLayer.Exceptions;
 using System.Security.Claims;
 
 namespace MV.PresentationLayer.Controllers
@@ -17,15 +18,18 @@ namespace MV.PresentationLayer.Controllers
         private readonly ITutorVerificationService _verificationService;
         private readonly ITutorService _tutorService;
         private readonly ITutorProfileUpdateStagingService _updateStaging;
+        private readonly IUserService _userService;
 
         public TutorOnboardingController(
             ITutorVerificationService verificationService,
             ITutorService tutorService,
-            ITutorProfileUpdateStagingService updateStaging)
+            ITutorProfileUpdateStagingService updateStaging,
+            IUserService userService)
         {
             _verificationService = verificationService;
             _tutorService = tutorService;
             _updateStaging = updateStaging;
+            _userService = userService;
         }
 
         /// <summary>
@@ -121,6 +125,28 @@ namespace MV.PresentationLayer.Controllers
             catch (ArgumentException ex)
             {
                 return BadRequest(APIResponse.Fail(ex.Message, 400));
+            }
+        }
+
+        /// <summary>
+        /// Gia sư tự xem lại ảnh CCCD mình đã upload — signed URL, hết hạn sau 15 phút.
+        /// Chỉ xem được CCCD của chính mình (so khớp userId từ JWT, không nhận id người khác).
+        /// </summary>
+        [HttpGet("{id}/profile/cccd")]
+        public async Task<IActionResult> GetOwnCccd([FromRoute] string id)
+        {
+            var currentUserId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (currentUserId != id)
+                return StatusCode(403, APIResponse.Fail("Bạn chỉ có thể xem CCCD của chính mình.", 403));
+
+            try
+            {
+                var result = await _userService.GetUserCccdUrlsAsync(id);
+                return Ok(APIResponse<UserCccdUrlsResponse>.Success(result, "Lấy link xem CCCD thành công."));
+            }
+            catch (UserNotFoundException ex)
+            {
+                return NotFound(APIResponse<object>.Fail(ex.Message, 404));
             }
         }
 
