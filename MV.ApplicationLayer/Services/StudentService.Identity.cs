@@ -33,13 +33,27 @@ namespace MV.ApplicationLayer.Services
             // ghi đè theo CCCD, nếu ở đây chỉ điền-khi-trống thì trang Hồ sơ (đọc student_profiles)
             // và trang Tài khoản (đọc users) sẽ hiện hai cái tên khác nhau.
             var profile = await _unitOfWork.StudentRepository.FindByStudentOrLinkedUserAsync(studentUserId);
-            if (profile != null)
+            if (profile == null)
             {
-                if (result.DateOfBirth != null)
-                    profile.Birthdate = result.DateOfBirth;
-                if (!string.IsNullOrWhiteSpace(user.Fullname))
-                    profile.Fullname = user.Fullname;
+                // Có tài khoản học sinh nhưng thiếu hẳn dòng trong student_profiles (dữ liệu lệch từ
+                // trước). Trước đây đoạn này lặng lẽ bỏ qua nên trang Hồ sơ trống trơn và bấm "Lưu hồ sơ"
+                // còn văng lỗi không tìm thấy học sinh. Tạo bù theo đúng khuôn học sinh tự đăng ký.
+                profile = new Studentprofile
+                {
+                    Studentid = studentUserId,
+                    Linkeduserid = studentUserId,
+                    Parentid = null,
+                    Createdat = TimeZoneHelper.UtcNow
+                };
+                await _unitOfWork.StudentRepository.CreateAsync(profile);
+                _logger.LogWarning(
+                    "Student {UserId} thiếu Studentprofile, đã tạo bù trong lúc xác minh CCCD.", studentUserId);
             }
+
+            if (result.DateOfBirth != null)
+                profile.Birthdate = result.DateOfBirth;
+            if (!string.IsNullOrWhiteSpace(user.Fullname))
+                profile.Fullname = user.Fullname;
 
             // Xác minh tuổi xong → tạo ví cho học sinh (KHÁC phụ huynh: phụ huynh có ví ngay khi tạo tài khoản,
             // học sinh chỉ có ví sau khi đủ điều kiện đặt lịch).
