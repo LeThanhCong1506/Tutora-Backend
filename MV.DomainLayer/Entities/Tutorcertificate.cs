@@ -23,6 +23,9 @@ public partial class Tutorcertificate
 
     public string Certificatefileurl { get; set; } = null!;
 
+    /// <summary>Ảnh trang 1 (JPG) tự render lúc upload — chỉ có khi Certificatefileurl là PDF. Null thì FE tự fallback icon.</summary>
+    public string? Thumbnailurl { get; set; }
+
     /// <summary>
     /// Certificate verification status: "verified", "pending_review", "rejected"
     /// </summary>

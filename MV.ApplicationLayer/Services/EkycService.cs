@@ -8,6 +8,7 @@ using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.DTO;
 using MV.DomainLayer.DTO.RequestModel;
 using MV.DomainLayer.DTO.ResponseModel;
+using MV.DomainLayer.Constants;
 using MV.DomainLayer.Entities;
 using MV.DomainLayer.Helpers;
 using MV.DomainLayer.Utilities;
@@ -22,21 +23,25 @@ namespace MV.ApplicationLayer.Services
     {
         private const double MinConfidence = 90.0;       // < 90% → ảnh mờ/giả
         private const double NameMatchThreshold = 0.80;  // ngưỡng khớp tên (fuzzy)
+        private const string CccdBucket = StorageBucket.CccdFiles;
 
         private readonly IFptAiService _fptAiService;
         private readonly IEncryptionService _encryption;
         private readonly IUnitOfWork _unitOfWork;
+        private readonly IFileStorageService _storageService;
         private readonly ILogger<EkycService> _logger;
 
         public EkycService(
             IFptAiService fptAiService,
             IEncryptionService encryption,
             IUnitOfWork unitOfWork,
+            IFileStorageService storageService,
             ILogger<EkycService> logger)
         {
             _fptAiService = fptAiService ?? throw new ArgumentNullException(nameof(fptAiService));
             _encryption = encryption ?? throw new ArgumentNullException(nameof(encryption));
             _unitOfWork = unitOfWork ?? throw new ArgumentNullException(nameof(unitOfWork));
+            _storageService = storageService ?? throw new ArgumentNullException(nameof(storageService));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         }
 
@@ -109,9 +114,20 @@ namespace MV.ApplicationLayer.Services
                 }
             }
 
-            // 7. Không lưu ảnh — chỉ giữ dữ liệu đã mã hóa (AES-256).
-            user.Idcardfronturl = null;
-            user.Idcardbackurl = null;
+            // 7. Lưu ảnh CCCD private (chỉ xem được qua signed URL, admin dùng để đối chiếu định danh).
+            // Upload ảnh mới TRƯỚC rồi mới xoá ảnh cũ: nếu upload lỗi giữa chừng, DB vẫn trỏ tới ảnh cũ
+            // còn nguyên trên đĩa thay vì trỏ tới file vừa bị xoá mất.
+            var previousFrontUrl = user.Idcardfronturl;
+            var previousBackUrl = user.Idcardbackurl;
+
+            user.Idcardfronturl = await _storageService.UploadPrivateFileAsync(CccdBucket, user.Userid, request.FrontImage);
+            user.Idcardbackurl = await _storageService.UploadPrivateFileAsync(CccdBucket, user.Userid, request.BackImage);
+
+            // Ảnh cũ (nếu là lần re-upload) không còn ai trỏ tới — xoá cho khỏi rác đĩa.
+            if (!string.IsNullOrEmpty(previousFrontUrl))
+                await _storageService.DeleteFileAsync(CccdBucket, user.Userid, previousFrontUrl);
+            if (!string.IsNullOrEmpty(previousBackUrl))
+                await _storageService.DeleteFileAsync(CccdBucket, user.Userid, previousBackUrl);
 
             var verified = false;
             if (ocrResult != null)
