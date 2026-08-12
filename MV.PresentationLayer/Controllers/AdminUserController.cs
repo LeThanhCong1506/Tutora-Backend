@@ -103,6 +103,30 @@ public class AdminUserController : ControllerBase
         }
     }
 
+    /// <summary>
+    /// GET /api/admin/users/{id}/cccd
+    /// Admin xem ảnh CCCD của người dùng (Tutor hoặc Student — cùng cột DB). Trả về signed URL
+    /// (yêu cầu chữ ký backend để truy cập, hết hạn sau 15 phút). Chỉ Admin mới được gọi.
+    /// </summary>
+    [RequirePermission(Permissions.TutorCccdView)]
+    [HttpGet("{id}/cccd")]
+    public async Task<IActionResult> GetUserCccdUrls(string id)
+    {
+        try
+        {
+            var result = await _userService.GetUserCccdUrlsAsync(id);
+            return Ok(APIResponse<UserCccdUrlsResponse>.Success(result, "Lấy link xem CCCD thành công."));
+        }
+        catch (UserNotFoundException ex)
+        {
+            return NotFound(APIResponse<object>.Fail(ex.Message, 404));
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(500, APIResponse<object>.Fail(ApiMessages.GenericErrorPrefix + ex.Message, 500));
+        }
+    }
+
     [RequirePermission(Permissions.UserUpdate)]
     [HttpPut("{id}")]
     public async Task<IActionResult> UpdateUser(string id, [FromBody] AdminUpdateUserRequest request)

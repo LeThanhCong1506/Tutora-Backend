@@ -27,6 +27,7 @@ namespace MV.ApplicationLayer.Services
 
             var certificateFileUrl = await _storageService.UploadFileAsync(
                 CertificateBucket, tutorId, request.CertificateFile);
+            var thumbnailUrl = await TryGeneratePdfThumbnailAsync(request.CertificateFile, tutorId);
 
             var certificate = new Tutorcertificate
             {
@@ -39,6 +40,7 @@ namespace MV.ApplicationLayer.Services
                 Credentialid        = request.CredentialId,
                 Credentialurl       = request.CredentialUrl,
                 Certificatefileurl  = certificateFileUrl,
+                Thumbnailurl        = thumbnailUrl,
                 Verificationstatus  = CertificateStatus.PendingReview,
                 Createdat           = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow,
                 Updatedat           = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
@@ -91,6 +93,9 @@ namespace MV.ApplicationLayer.Services
                 ValidateCertificateFile(request.CertificateFile);
                 var newFileUrl = await _storageService.UploadFileAsync(CertificateBucket, tutorId, request.CertificateFile);
                 certificate.Certificatefileurl = newFileUrl;
+                // File mới thay thế hoàn toàn file cũ — thumbnail cũ (nếu có) không còn khớp nữa,
+                // luôn tính lại (null nếu file mới không phải PDF, đúng ý nghĩa "không có thumbnail").
+                certificate.Thumbnailurl = await TryGeneratePdfThumbnailAsync(request.CertificateFile, tutorId);
             }
 
             certificate.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
@@ -131,6 +136,39 @@ namespace MV.ApplicationLayer.Services
             }
         }
 
+        /// <summary>Render trang 1 của chứng chỉ PDF thành ảnh JPG (thay cho Cloudinary transformation cũ,
+        /// giờ tự lưu file nên phải tự làm). Ảnh thường (jpg/png) thì bỏ qua, trả null luôn.
+        /// Lỗi render (PDF hỏng...) không được làm hỏng cả việc upload chứng chỉ — chỉ log cảnh báo,
+        /// FE đã có fallback icon khi không có thumbnail.</summary>
+        private async Task<string?> TryGeneratePdfThumbnailAsync(IFormFile file, string tutorId)
+        {
+            if (!string.Equals(Path.GetExtension(file.FileName), ".pdf", StringComparison.OrdinalIgnoreCase))
+                return null;
+
+            try
+            {
+                byte[] pdfBytes;
+                using (var stream = file.OpenReadStream())
+                using (var ms = new MemoryStream())
+                {
+                    await stream.CopyToAsync(ms);
+                    pdfBytes = ms.ToArray();
+                }
+
+                using var bitmap = PDFtoImage.Conversion.ToImage(pdfBytes, page: 0);
+                using var image = SkiaSharp.SKImage.FromBitmap(bitmap);
+                using var jpegData = image.Encode(SkiaSharp.SKEncodedImageFormat.Jpeg, 85);
+
+                var thumbFileName = $"{Path.GetFileNameWithoutExtension(file.FileName)}_thumb.jpg";
+                return await _storageService.UploadImageBytesAsync(CertificateBucket, tutorId, jpegData.ToArray(), thumbFileName);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Không tạo được thumbnail cho chứng chỉ PDF của tutor {TutorId}", tutorId);
+                return null;
+            }
+        }
+
         private static CertificateResponse MapToCertificateResponse(Tutorcertificate certificate)
         {
             return new CertificateResponse
@@ -143,6 +181,7 @@ namespace MV.ApplicationLayer.Services
                 CredentialId = certificate.Credentialid,
                 CredentialUrl = certificate.Credentialurl,
                 CertificateFileUrl = certificate.Certificatefileurl,
+                ThumbnailUrl = certificate.Thumbnailurl,
                 CreatedAt = certificate.Createdat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow,
                 VerificationStatus = certificate.Verificationstatus,
                 VerificationNote = certificate.Verificationnote

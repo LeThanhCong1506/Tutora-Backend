@@ -10,6 +10,8 @@ namespace MV.DomainLayer.DTO.ResponseModel
         public string? CredentialId { get; set; }
         public string? CredentialUrl { get; set; }
         public string CertificateFileUrl { get; set; } = string.Empty;
+        /// <summary>Ảnh trang 1 (JPG) — chỉ có khi CertificateFileUrl là PDF. Null thì FE tự fallback icon.</summary>
+        public string? ThumbnailUrl { get; set; }
         public DateTime CreatedAt { get; set; }
 
         /// <summary>Trạng thái duyệt: "pending_review" | "verified" | "rejected"</summary>

@@ -7,33 +7,38 @@ using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.DTO;
 using MV.DomainLayer.DTO.RequestModel;
 using MV.DomainLayer.DTO.ResponseModel;
+using MV.DomainLayer.Constants;
 using MV.DomainLayer.Entities;
 using MV.DomainLayer.Helpers;
 
 namespace MV.ApplicationLayer.Services
 {
     /// <summary>
-    /// CHỈ dùng ngày sinh để chứng minh đủ 16 tuổi, KHÔNG lưu ảnh.
+    /// Dùng ngày sinh để chứng minh đủ 16 tuổi; ảnh CCCD lưu private (chỉ Admin xem được qua signed URL).
     /// Có lưu số CCCD (mã hóa AES) DUY NHẤT để chống 1 CCCD dùng cho nhiều tài khoản né gate tuổi.
     /// </summary>
     public class StudentIdentityService : IStudentIdentityService
     {
         private const double MinConfidence = 90.0;       // < 90% → ảnh mờ/giả
+        private const string CccdBucket = StorageBucket.CccdFiles;
 
         private readonly IFptAiService _fptAiService;
         private readonly IEncryptionService _encryption;
         private readonly IUnitOfWork _unitOfWork;
+        private readonly IFileStorageService _storageService;
         private readonly ILogger<StudentIdentityService> _logger;
 
         public StudentIdentityService(
             IFptAiService fptAiService,
             IEncryptionService encryption,
             IUnitOfWork unitOfWork,
+            IFileStorageService storageService,
             ILogger<StudentIdentityService> logger)
         {
             _fptAiService = fptAiService ?? throw new ArgumentNullException(nameof(fptAiService));
             _encryption = encryption ?? throw new ArgumentNullException(nameof(encryption));
             _unitOfWork = unitOfWork ?? throw new ArgumentNullException(nameof(unitOfWork));
+            _storageService = storageService ?? throw new ArgumentNullException(nameof(storageService));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         }
 
@@ -88,7 +93,20 @@ namespace MV.ApplicationLayer.Services
                         "CCCD này đã được sử dụng bởi tài khoản khác. Vui lòng liên hệ hỗ trợ nếu đây là nhầm lẫn.");
             }
 
-            // 6. Đủ tuổi + CCCD hợp lệ → đánh dấu đã xác minh, ghi ngày sinh
+            // 6. Đủ tuổi + CCCD hợp lệ → đánh dấu đã xác minh, ghi ngày sinh.
+            // Lưu ảnh CCCD private (chỉ xem được qua signed URL). Upload mới TRƯỚC rồi mới xoá ảnh cũ:
+            // nếu upload lỗi giữa chừng, DB vẫn trỏ tới ảnh cũ còn nguyên thay vì file vừa bị xoá mất.
+            var previousFrontUrl = user.Idcardfronturl;
+            var previousBackUrl = user.Idcardbackurl;
+
+            user.Idcardfronturl = await _storageService.UploadPrivateFileAsync(CccdBucket, user.Userid, request.FrontImage);
+            user.Idcardbackurl = await _storageService.UploadPrivateFileAsync(CccdBucket, user.Userid, request.BackImage);
+
+            if (!string.IsNullOrEmpty(previousFrontUrl))
+                await _storageService.DeleteFileAsync(CccdBucket, user.Userid, previousFrontUrl);
+            if (!string.IsNullOrEmpty(previousBackUrl))
+                await _storageService.DeleteFileAsync(CccdBucket, user.Userid, previousBackUrl);
+
             user.Isidentityverified = true;
             user.Birthdate = dob;
             user.Identitynumber = encryptedId;

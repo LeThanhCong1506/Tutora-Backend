@@ -104,7 +104,7 @@ public static class Permissions
         new(TutorApprovalDecide, "Duyệt hoặc từ chối hồ sơ gia sư", "Chuyên môn", "Duyệt gia sư", "Duyệt", TutorApprovalView),
         new(CertificateView, "Xem chứng chỉ chờ duyệt", "Chuyên môn", "Chứng chỉ", "Xem"),
         new(CertificateVerify, "Xác minh chứng chỉ gia sư", "Chuyên môn", "Chứng chỉ", "Duyệt", CertificateView),
-        new(TutorCccdView, "Xem ảnh CCCD gia sư", "Chuyên môn", "Định danh gia sư", "Xem"),
+        new(TutorCccdView, "Xem ảnh CCCD người dùng", "Chuyên môn", "Định danh gia sư", "Xem"),
         new(TutorProfileUpdateView, "Xem yêu cầu cập nhật hồ sơ gia sư", "Chuyên môn", "Cập nhật hồ sơ gia sư", "Xem"),
         new(TutorProfileUpdateDecide, "Duyệt hoặc từ chối cập nhật hồ sơ gia sư", "Chuyên môn", "Cập nhật hồ sơ gia sư", "Duyệt", TutorProfileUpdateView),
 

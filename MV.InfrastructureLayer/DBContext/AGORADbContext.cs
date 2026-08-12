@@ -2202,6 +2202,9 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
             entity.Property(e => e.Certificatefileurl)
                 .HasMaxLength(2000)
                 .HasColumnName("certificate_file_url");
+            entity.Property(e => e.Thumbnailurl)
+                .HasMaxLength(2000)
+                .HasColumnName("thumbnail_url");
             entity.Property(e => e.Certificatename)
                 .HasMaxLength(200)
                 .HasColumnName("certificate_name");

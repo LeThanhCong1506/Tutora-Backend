@@ -26,6 +26,11 @@ services:
     restart: unless-stopped
     ports:
       - "5000:8080"
+    # File upload (avatar, tài liệu, ảnh CCCD...) do LocalFileStorageService ghi thẳng ra đĩa.
+    # Deploy dùng --force-recreate nên không mount ra host là mất sạch file sau mỗi lần deploy.
+    # Mount trùng đường dẫn để LocalStorage__PublicRoot/PrivateRoot trong .env giữ nguyên.
+    volumes:
+      - /www/tutora-uploads:/www/tutora-uploads
     extra_hosts:
       - "host.docker.internal:host-gateway"
     env_file:
