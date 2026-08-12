@@ -46,6 +46,9 @@ public static class Permissions
     public const string FeedbackView = "feedback.view";
     public const string FeedbackModerate = "feedback.moderate";
 
+    public const string PolicyView = "policy.view";
+    public const string PolicyManage = "policy.manage";
+
     public const string ExportData = "export.data";
 
     public const string NotificationSend = "notification.send";
@@ -82,6 +85,7 @@ public static class Permissions
         DisputeView, DisputeInvestigate, DisputeResolve,
         WarningCreate, WarningView, SuspensionManage,
         FeedbackView, FeedbackModerate,
+        PolicyView, PolicyManage,
         ExportData,
         NotificationSend, NotificationView, NotificationDelete,
         LookupView, LookupCreate, LookupUpdate, LookupDelete,
@@ -147,6 +151,8 @@ public static class Permissions
         new(SuspensionManage, "Đình chỉ hoặc gỡ đình chỉ tài khoản", "CMS / Nghiệp vụ", "Cảnh cáo & đình chỉ", "Quản lý", WarningView),
         new(FeedbackView, "Xem đánh giá gia sư", "CMS / Nghiệp vụ", "Đánh giá", "Xem"),
         new(FeedbackModerate, "Ẩn hoặc hiện đánh giá", "CMS / Nghiệp vụ", "Đánh giá", "Kiểm duyệt", FeedbackView),
+        new(PolicyView, "Xem văn bản chính sách", "CMS / Nội dung", "Chính sách", "Xem"),
+        new(PolicyManage, "Tạo, sửa, xuất bản văn bản chính sách", "CMS / Nội dung", "Chính sách", "Quản lý", PolicyView),
 
         new(NotificationView, "Xem thông báo hệ thống", "Khác", "Thông báo", "Xem"),
         new(NotificationSend, "Gửi thông báo", "Khác", "Thông báo", "Gửi", NotificationView),
