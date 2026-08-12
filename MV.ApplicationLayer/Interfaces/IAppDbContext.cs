@@ -54,6 +54,8 @@ public interface IAppDbContext
     DbSet<Subject> Subjects { get; }
     DbSet<Chapter> Chapters { get; }
     DbSet<QuestionType> QuestionTypes { get; }
+    DbSet<PolicyDocument> PolicyDocuments { get; }
+
     DbSet<Systemconfig> Systemconfigs { get; }
     DbSet<AiCreditPackage> AiCreditPackages { get; }
     DbSet<Topuprequest> Topuprequests { get; }

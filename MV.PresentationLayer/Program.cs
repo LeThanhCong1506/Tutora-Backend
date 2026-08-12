@@ -382,6 +382,7 @@ builder.Services.AddScoped<IFeedbackService, FeedbackService>();
 builder.Services.AddScoped<IQuestionService, QuestionService>();
 builder.Services.AddScoped<ISourceDocumentService, SourceDocumentService>();
 builder.Services.AddScoped<IKnowledgeBaseService, KnowledgeBaseService>();
+builder.Services.AddScoped<IPolicyService, PolicyService>();
 
 builder.Services.AddScoped<IBankListService, BankListService>();
 builder.Services.AddScoped<PayOSWebhookService>();

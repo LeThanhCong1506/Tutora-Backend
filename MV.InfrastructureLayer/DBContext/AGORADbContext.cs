@@ -114,6 +114,8 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
 
     public virtual DbSet<Subject> Subjects { get; set; }
 
+    public virtual DbSet<PolicyDocument> PolicyDocuments { get; set; }
+
     public virtual DbSet<Systemconfig> Systemconfigs { get; set; }
 
     public virtual DbSet<Topuprequest> Topuprequests { get; set; }
@@ -2025,6 +2027,51 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
             entity.HasOne(d => d.MaxGradeLevel).WithMany()
                 .HasForeignKey(d => d.MaxGradeLevelId)
                 .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<PolicyDocument>(entity =>
+        {
+            entity.HasKey(e => e.Policydocumentid).HasName("policy_documents_pkey");
+
+            entity.ToTable("policy_documents");
+
+            entity.HasIndex(e => e.Slug, "policy_documents_slug_key").IsUnique();
+            entity.HasIndex(e => new { e.Status, e.Displayorder }, "idx_policy_documents_status_order");
+
+            entity.Property(e => e.Policydocumentid).HasColumnName("policy_document_id");
+            entity.Property(e => e.Slug).HasMaxLength(80).HasColumnName("slug");
+            entity.Property(e => e.Title).HasMaxLength(200).HasColumnName("title");
+            entity.Property(e => e.Summary).HasMaxLength(500).HasColumnName("summary");
+            entity.Property(e => e.Contentmarkdown).HasColumnName("content_markdown");
+            entity.Property(e => e.Version)
+                .HasMaxLength(20)
+                .HasDefaultValueSql("'1.0'::character varying")
+                .HasColumnName("version");
+            entity.Property(e => e.Effectivedate).HasColumnName("effective_date");
+            entity.Property(e => e.Status)
+                .HasMaxLength(20)
+                .HasDefaultValueSql("'draft'::character varying")
+                .HasColumnName("status");
+            entity.Property(e => e.Displayorder).HasDefaultValue(0).HasColumnName("display_order");
+            entity.Property(e => e.Publishedat)
+                .HasColumnType("timestamp without time zone")
+                .HasColumnName("published_at");
+            entity.Property(e => e.Createdat)
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
+                .HasColumnType("timestamp without time zone")
+                .HasColumnName("created_at");
+            entity.Property(e => e.Updatedat)
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
+                .HasColumnType("timestamp without time zone")
+                .HasColumnName("updated_at");
+            entity.Property(e => e.Updatedby).HasMaxLength(50).HasColumnName("updated_by");
+
+            // WithMany() không tham chiếu navigation ngược — khỏi phải thêm collection vào User
+            // chỉ để phục vụ một cột "ai sửa gần nhất".
+            entity.HasOne(d => d.UpdatedbyNavigation).WithMany()
+                .HasForeignKey(d => d.Updatedby)
+                .OnDelete(DeleteBehavior.SetNull)
+                .HasConstraintName("policy_documents_updated_by_fkey");
         });
 
         modelBuilder.Entity<Systemconfig>(entity =>
