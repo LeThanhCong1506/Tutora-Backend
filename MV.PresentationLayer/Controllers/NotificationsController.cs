@@ -247,6 +247,9 @@ namespace MV.PresentationLayer.Controllers
                 return Unauthorized();
 
             var result = await _notificationService.MarkAllAsReadAsync(userId);
+            if (result.Status == NotificationStatus.Failed)
+                return BadRequest(result);
+
             return Ok(result);
         }
 
