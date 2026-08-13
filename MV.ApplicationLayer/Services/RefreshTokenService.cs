@@ -14,6 +14,12 @@ namespace MV.ApplicationLayer.Services
 {
     public class RefreshTokenService : IRefreshTokenService
     {
+        // Reuse 1 refresh token vừa bị revoke trong khoảng này được coi là race vô hại (2 tab,
+        // hoặc 2 nơi trên FE cùng tự refresh gần như đồng thời) chứ không phải bị đánh cắp —
+        // xem RefreshAsync bước 3. Ngắn để không mở rộng đáng kể cửa sổ cho kẻ tấn công thật
+        // (round-trip + xử lý của 1 race hợp lệ thường dưới vài giây).
+        private static readonly TimeSpan ReuseGracePeriod = TimeSpan.FromSeconds(10);
+
         private readonly IUnitOfWork _unitOfWork;
         private readonly IAuthenticationRepository _authenticationRepository;
         private readonly IConfiguration _configuration;
@@ -60,14 +66,30 @@ namespace MV.ApplicationLayer.Services
                     return new TokenResponse { ErrorMessage = "Refresh token không tồn tại." };
                 }
 
-                // 3. Reuse detection: token đã bị revoke → có thể bị đánh cắp → revoke toàn bộ family
+                // 3. Reuse detection: token đã bị revoke → có thể bị đánh cắp → revoke toàn bộ family.
+                // Ngoại lệ: nếu vừa bị revoke trong ReuseGracePeriod, nhiều khả năng đây chỉ là 1 race
+                // vô hại (VD 2 tab cùng 1 tài khoản, hoặc FE tự bắn 2 lần refresh gần như đồng thời) —
+                // request thắng đã rotate xong, request thua tới sau dùng đúng token vừa bị thay thế.
+                // Không thể trả lại y hệt token mà request thắng đã nhận (server chỉ lưu hash, không
+                // lưu raw), nên thay vào đó cấp tiếp 1 cặp token mới cho request này luôn (coi như 1
+                // lần rotate hợp lệ khác của cùng family), thay vì huỷ sạch mọi phiên đang hoạt động.
                 if (storedToken.Revokedat.HasValue)
                 {
-                    _logger.LogWarning("[RefreshToken] Reuse attack detected for family {Family}, userId {UserId}",
+                    var withinGracePeriod =
+                        MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow - storedToken.Revokedat.Value <= ReuseGracePeriod;
+
+                    if (!withinGracePeriod)
+                    {
+                        _logger.LogWarning("[RefreshToken] Reuse attack detected for family {Family}, userId {UserId}",
+                            storedToken.Tokenfamily, userId);
+                        await _unitOfWork.RefreshTokenRepository.RevokeAllByFamilyAsync(storedToken.Tokenfamily);
+                        await _unitOfWork.SaveChangesAsync();
+                        return new TokenResponse { ErrorMessage = "Refresh token đã bị thu hồi. Vui lòng đăng nhập lại." };
+                    }
+
+                    _logger.LogInformation(
+                        "[RefreshToken] Benign reuse within grace period for family {Family}, userId {UserId} — treating as concurrent refresh, not an attack.",
                         storedToken.Tokenfamily, userId);
-                    await _unitOfWork.RefreshTokenRepository.RevokeAllByFamilyAsync(storedToken.Tokenfamily);
-                    await _unitOfWork.SaveChangesAsync();
-                    return new TokenResponse { ErrorMessage = "Refresh token đã bị thu hồi. Vui lòng đăng nhập lại." };
                 }
 
                 // 4. Kiểm tra hết hạn
