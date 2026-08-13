@@ -4,5 +4,4 @@ namespace MV.DomainLayer.Constants;
 public static class ClassSessionAiJobStage
 {
     public const string Analyzing = "analyzing";
-    public const string Verifying = "verifying";
 }
