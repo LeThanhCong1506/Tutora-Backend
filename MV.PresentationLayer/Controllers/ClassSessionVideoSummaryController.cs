@@ -17,6 +17,11 @@ namespace MV.PresentationLayer.Controllers;
 [ApiController]
 [Route("api/student/class-sessions/{id}/video-summary")]
 [Authorize(Roles = UserRole.Student)]
+// Trạng thái job đổi liên tục (pending → processing → completed) trong lúc FE poll mỗi 8s —
+// từng bị 1 tầng cache ngoài ứng dụng (nginx/CDN, không nằm trong repo, thấy qua header
+// "X-Cache: HIT" trên production) trả lại response cũ, làm học sinh thấy tóm tắt "biến mất"
+// dù đã xong từ lâu. NoStore báo tường minh cho MỌI tầng cache trung gian không được lưu.
+[ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
 public class ClassSessionVideoSummaryController(IClassSessionVideoAiService videoAiService) : ControllerBase
 {
     [HttpPost]
