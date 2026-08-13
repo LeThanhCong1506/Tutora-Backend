@@ -18,8 +18,7 @@ namespace MV.PresentationLayer.Controllers
         }
 
         // tutora-mobile gửi header này ở mọi request (xem api_client.dart); web/Zalo Mini
-        // App không gửi gì → mặc định coi là web. Dùng để loại app mobile khỏi luật
-        // "chỉ 1 phiên web active tại 1 thời điểm" (xem SimpleAuthService.KickOtherWebSessionsAsync).
+        // App không gửi gì → mặc định coi là web.
         private string? ClientPlatform => Request.Headers["X-Client-Platform"].ToString() is { Length: > 0 } value ? value : null;
 
         /// <summary>
