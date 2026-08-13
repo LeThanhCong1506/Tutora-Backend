@@ -268,6 +268,14 @@ public class GeminiVideoAnalysisService : IGeminiVideoAnalysisService
     // là "minimal"). Xem https://ai.google.dev/gemini-api/docs/thinking.
     private static readonly Dictionary<string, object?> MinimalThinkingConfig = new() { ["thinkingLevel"] = "minimal" };
 
+    // Gemini mặc định lấy mẫu video ở 1 khung hình/giây — với video buổi học dài 1-2 tiếng, riêng
+    // phần hình ảnh đã tốn hàng trăm nghìn token, và việc "nạp" khối token đó vào model tốn thời
+    // gian thật, tách biệt hoàn toàn với thinking. Docs Google khuyến nghị hạ FPS cho video ít
+    // chuyển động (bài giảng) — buổi học 1-kèm-1 (chủ yếu nói chuyện/màn hình chia sẻ) khớp đúng
+    // trường hợp này. 0.5 = 1 khung hình mỗi 2 giây, giảm ~50% token hình ảnh so với mặc định.
+    // Xem https://ai.google.dev/gemini-api/docs/video-understanding.
+    private const double VideoFramesPerSecond = 0.5;
+
     private object BuildGenerateContentRequest(
         string fileUri, string mimeType, string prompt, GeminiSchema? jsonSchema, int? maxOutputTokens = null)
     {
@@ -299,7 +307,11 @@ public class GeminiVideoAnalysisService : IGeminiVideoAnalysisService
                     role = "user",
                     parts = new object[]
                     {
-                        new { fileData = new { mimeType, fileUri } },
+                        new
+                        {
+                            fileData = new { mimeType, fileUri },
+                            videoMetadata = new { fps = VideoFramesPerSecond }
+                        },
                         new { text = prompt }
                     }
                 }
