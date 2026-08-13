@@ -1,3 +1,6 @@
+using FFMpegCore;
+using FFMpegCore.Enums;
+using FFMpegCore.Pipes;
 using Hangfire;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -26,7 +29,10 @@ public class ClassSessionVideoAiService(
     IBackgroundJobClient backgroundJobClient,
     ILogger<ClassSessionVideoAiService> logger) : IClassSessionVideoAiService
 {
-    private const string VideoMimeType = "video/mp4";
+    // Chỉ gửi audio cho Gemini, không gửi hình — cắt phần lớn token/thời gian xử lý so với gửi
+    // nguyên video (đổi lại mất nội dung chỉ hiện trên màn hình mà không nói ra, đã xác nhận với
+    // người yêu cầu tính năng là chấp nhận được cho buổi học 1-kèm-1 chủ yếu qua lời nói).
+    private const string AudioMimeType = "audio/mp3";
     private const long MaxFileSizeBytes = 2_000_000_000;
 
     // ── Học sinh: tóm tắt ──────────────────────────────────────────────
@@ -193,7 +199,7 @@ public class ClassSessionVideoAiService(
             var file = await EnsureUploadedFileAsync(job, CancellationToken.None);
             // Bỏ lượt xem lại video lần 2 để tự soát (VerifyStudentAnalysisAsync) — tốn gần gấp đôi
             // thời gian chờ cho một bước cải thiện nhỏ, đổi lấy UX nhanh hơn rõ rệt.
-            var analysis = await geminiService.AnalyzeVideoForStudentAsync(file.Uri, VideoMimeType, CancellationToken.None);
+            var analysis = await geminiService.AnalyzeVideoForStudentAsync(file.Uri, AudioMimeType, CancellationToken.None);
 
             job.Resulttext = analysis.Summary;
             job.Transcripttext = analysis.Transcript;
@@ -250,7 +256,7 @@ public class ClassSessionVideoAiService(
             await db.SaveChangesAsync();
 
             var file = await EnsureUploadedFileAsync(job, CancellationToken.None);
-            var result = await geminiService.GenerateTutorReportFieldsAsync(file.Uri, VideoMimeType, CancellationToken.None);
+            var result = await geminiService.GenerateTutorReportFieldsAsync(file.Uri, AudioMimeType, CancellationToken.None);
 
             job.Resultjson = JsonSerializer.Serialize(result);
             job.Status = ClassSessionAiJobStatus.Completed;
@@ -290,13 +296,25 @@ public class ClassSessionVideoAiService(
             ?? throw new GeminiFileProcessingException("Buổi học chưa có video để phân tích.");
 
         GeminiUploadedFile uploaded;
+        string audioPath;
         using (var media = await driveService.GetMediaAsync(fileId, null, ct))
         {
             if (media.ContentLength is { } size && size > MaxFileSizeBytes)
                 throw new GeminiVideoTooLargeException();
 
+            audioPath = await ExtractAudioToTempFileAsync(media.Content, job.Classsessionid, ct);
+        }
+
+        try
+        {
+            await using var audioStream = File.OpenRead(audioPath);
+            var audioLength = new FileInfo(audioPath).Length;
             uploaded = await geminiService.UploadVideoAsync(
-                media.Content, media.ContentLength ?? 0, VideoMimeType, $"class-session-{job.Classsessionid}.mp4", ct);
+                audioStream, audioLength, AudioMimeType, $"class-session-{job.Classsessionid}.mp3", ct);
+        }
+        finally
+        {
+            File.Delete(audioPath);
         }
         await geminiService.WaitForFileActiveAsync(uploaded.Name, ct);
 
@@ -307,6 +325,28 @@ public class ClassSessionVideoAiService(
         await db.SaveChangesAsync(ct);
 
         return uploaded;
+    }
+
+    /// <summary>Tách track audio khỏi video buổi học (stream thẳng từ Drive qua ffmpeg, không ghi video gốc
+    /// ra đĩa) — chỉ file audio kết quả (nhỏ hơn nhiều) mới được ghi tạm, xoá ngay sau khi upload xong.</summary>
+    private async Task<string> ExtractAudioToTempFileAsync(Stream videoStream, int classSessionId, CancellationToken ct)
+    {
+        var tempPath = Path.Combine(Path.GetTempPath(), $"class-session-audio-{Guid.NewGuid():N}.mp3");
+        try
+        {
+            await FFMpegArguments
+                .FromPipeInput(new StreamPipeSource(videoStream))
+                .OutputToFile(tempPath, overwrite: true, options => options
+                    .WithAudioCodec("libmp3lame")
+                    .DisableChannel(Channel.Video))
+                .ProcessAsynchronously();
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Tách audio khỏi video buổi học {ClassSessionId} thất bại.", classSessionId);
+            throw new GeminiFileProcessingException("Không thể tách âm thanh từ video buổi học.");
+        }
+        return tempPath;
     }
 
     private async Task MarkJobFailedAsync(ClassSessionAiJob job, Exception ex)

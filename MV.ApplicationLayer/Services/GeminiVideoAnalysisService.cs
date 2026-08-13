@@ -128,15 +128,15 @@ public class GeminiVideoAnalysisService : IGeminiVideoAnalysisService
     public async Task<GeminiVideoStudentAnalysis> AnalyzeVideoForStudentAsync(string fileUri, string mimeType, CancellationToken ct = default)
     {
         const string prompt = """
-            Bạn là trợ lý xử lý video buổi học 1-kèm-1 giữa gia sư và học sinh. Hãy xem kỹ video và trả về đúng
+            Bạn là trợ lý xử lý bản ghi âm buổi học 1-kèm-1 giữa gia sư và học sinh. Hãy nghe kỹ và trả về đúng
             2 nội dung sau, viết bằng tiếng Việt, giọng văn gần gũi như đang giải thích lại cho học sinh chứ
             không phải liệt kê khô khan:
             - summary: Bản tóm tắt dễ đọc, dùng markdown (tiêu đề phụ "##", in đậm "**...**" cho từ khoá/công
               thức quan trọng, gạch đầu dòng "-" cho danh sách). Gồm: nội dung chính đã học/dạy (giải thích
               ngắn gọn ý nghĩa, không chỉ liệt kê tên chủ đề), các điểm quan trọng/công thức/kết luận đáng nhớ,
               và bài tập về nhà (nếu có). Không chào hỏi mở đầu, không lặp lại nguyên văn lời nói.
-            - transcript: Bản chép lời (transcript) đầy đủ, theo sát những gì gia sư và học sinh thực sự nói
-              trong video, theo đúng trình tự thời gian. BẮT BUỘC mỗi lượt nói là 1 đoạn riêng biệt, cách nhau
+            - transcript: Bản chép lời (transcript) đầy đủ, theo sát những gì gia sư và học sinh thực sự nói,
+              theo đúng trình tự thời gian. BẮT BUỘC mỗi lượt nói là 1 đoạn riêng biệt, cách nhau
               bằng 1 dòng trống, định dạng "**Gia sư:** nội dung" hoặc "**Học sinh:** nội dung" — tuyệt đối
               không gộp nhiều lượt nói của 2 người vào chung 1 đoạn liền mạch. Không tóm lược, không bỏ sót
               đoạn hội thoại quan trọng.
@@ -182,8 +182,8 @@ public class GeminiVideoAnalysisService : IGeminiVideoAnalysisService
     public async Task<TutorReportAiFillResult> GenerateTutorReportFieldsAsync(string fileUri, string mimeType, CancellationToken ct = default)
     {
         const string prompt = """
-            Bạn là trợ lý giúp gia sư viết báo cáo sau buổi học 1-kèm-1, dựa trên video ghi lại buổi học.
-            Hãy xem video và trả về đúng 3 nội dung sau, viết bằng tiếng Việt, ở góc nhìn của gia sư viết cho phụ huynh/học sinh đọc:
+            Bạn là trợ lý giúp gia sư viết báo cáo sau buổi học 1-kèm-1, dựa trên bản ghi âm buổi học.
+            Hãy nghe kỹ và trả về đúng 3 nội dung sau, viết bằng tiếng Việt, ở góc nhìn của gia sư viết cho phụ huynh/học sinh đọc:
             - lessonContent: Nội dung đã dạy trong buổi học.
             - homework: Bài tập về nhà đã giao cho học sinh (để trống nếu không có).
             - tutorNotes: Ghi chú thêm của gia sư về buổi học (thái độ học, điểm cần cải thiện...).
@@ -268,14 +268,9 @@ public class GeminiVideoAnalysisService : IGeminiVideoAnalysisService
     // là "minimal"). Xem https://ai.google.dev/gemini-api/docs/thinking.
     private static readonly Dictionary<string, object?> MinimalThinkingConfig = new() { ["thinkingLevel"] = "minimal" };
 
-    // Gemini mặc định lấy mẫu video ở 1 khung hình/giây — với video buổi học dài 1-2 tiếng, riêng
-    // phần hình ảnh đã tốn hàng trăm nghìn token, và việc "nạp" khối token đó vào model tốn thời
-    // gian thật, tách biệt hoàn toàn với thinking. Docs Google khuyến nghị hạ FPS cho video ít
-    // chuyển động (bài giảng) — buổi học 1-kèm-1 (chủ yếu nói chuyện/màn hình chia sẻ) khớp đúng
-    // trường hợp này. 0.5 = 1 khung hình mỗi 2 giây, giảm ~50% token hình ảnh so với mặc định.
-    // Xem https://ai.google.dev/gemini-api/docs/video-understanding.
-    private const double VideoFramesPerSecond = 0.5;
-
+    // Chỉ gửi audio (đã tách khỏi video trước khi upload — xem ClassSessionVideoAiService), không
+    // còn frame hình ảnh nào để cấu hình mediaResolution/fps nữa — cắt phần lớn token so với gửi
+    // nguyên video, nhanh hơn rõ rệt, đổi lại mất mọi nội dung chỉ hiện trên màn hình mà không nói ra.
     private object BuildGenerateContentRequest(
         string fileUri, string mimeType, string prompt, GeminiSchema? jsonSchema, int? maxOutputTokens = null)
     {
@@ -285,14 +280,12 @@ public class GeminiVideoAnalysisService : IGeminiVideoAnalysisService
             {
                 ["temperature"] = _settings.Temperature,
                 ["maxOutputTokens"] = tokenLimit,
-                ["mediaResolution"] = _settings.MediaResolution,
                 ["thinkingConfig"] = MinimalThinkingConfig
             }
             : new Dictionary<string, object?>
             {
                 ["temperature"] = _settings.Temperature,
                 ["maxOutputTokens"] = tokenLimit,
-                ["mediaResolution"] = _settings.MediaResolution,
                 ["thinkingConfig"] = MinimalThinkingConfig,
                 ["responseMimeType"] = "application/json",
                 ["responseSchema"] = jsonSchema
@@ -307,11 +300,7 @@ public class GeminiVideoAnalysisService : IGeminiVideoAnalysisService
                     role = "user",
                     parts = new object[]
                     {
-                        new
-                        {
-                            fileData = new { mimeType, fileUri },
-                            videoMetadata = new { fps = VideoFramesPerSecond }
-                        },
+                        new { fileData = new { mimeType, fileUri } },
                         new { text = prompt }
                     }
                 }
