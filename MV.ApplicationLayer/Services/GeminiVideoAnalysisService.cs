@@ -341,13 +341,15 @@ public class GeminiVideoAnalysisService : IGeminiVideoAnalysisService
         return text;
     }
 
-    /// <summary>Retry ngắn cho lỗi tạm thời (mạng chập chờn, Gemini quá tải/5xx) — video đã tốn công
+    /// <summary>Retry cho lỗi tạm thời (mạng chập chờn, Gemini quá tải/5xx) — video đã tốn công
     /// upload + chờ xử lý xong mới tới bước này, để cả job "chết" vì 1 lần trục trặc thoáng qua thì
     /// người dùng phải tóm tắt lại từ đầu, đắt hơn nhiều so với thử lại ngay tại đây. Không retry lỗi
-    /// 4xx (request sai, bị chặn an toàn...) vì thử lại cũng vô ích.</summary>
+    /// 4xx (request sai, bị chặn an toàn...) vì thử lại cũng vô ích.
+    /// 5 lần / backoff 3s-6s-12s-24s (tổng ~45s chờ giữa các lần) — tăng từ 3 lần/~9s sau khi log
+    /// production cho thấy có đợt Gemini 503 (quá tải) kéo dài hơn tổng thời gian của 3 lần thử.</summary>
     private async Task<string> PostGenerateContentWithRetryAsync(string json, CancellationToken ct)
     {
-        const int maxAttempts = 3;
+        const int maxAttempts = 5;
         var delay = TimeSpan.FromSeconds(3);
 
         for (var attempt = 1; ; attempt++)
