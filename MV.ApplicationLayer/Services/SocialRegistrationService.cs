@@ -1,13 +1,10 @@
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.RegularExpressions;
-using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
-using MV.ApplicationLayer.Helpers;
-using MV.ApplicationLayer.Hubs;
 using MV.ApplicationLayer.Interfaces;
 using MV.ApplicationLayer.RepositoryInterfaces;
 using MV.ApplicationLayer.ServiceInterfaces;
@@ -44,7 +41,6 @@ public class SocialRegistrationService : ISocialRegistrationService
     private readonly IConfiguration _configuration;
     private readonly ILogger<SocialRegistrationService> _logger;
     private readonly IDistributedCache _cache;
-    private readonly IHubContext<NotificationHub> _hubContext;
 
     public SocialRegistrationService(
         IUnitOfWork unitOfWork,
@@ -53,8 +49,7 @@ public class SocialRegistrationService : ISocialRegistrationService
         IOtpSender otpSender,
         IConfiguration configuration,
         ILogger<SocialRegistrationService> logger,
-        IDistributedCache cache,
-        IHubContext<NotificationHub> hubContext)
+        IDistributedCache cache)
     {
         _unitOfWork = unitOfWork;
         _passwordRepository = passwordRepository;
@@ -63,7 +58,6 @@ public class SocialRegistrationService : ISocialRegistrationService
         _configuration = configuration;
         _logger = logger;
         _cache = cache;
-        _hubContext = hubContext;
     }
 
     public async Task<TokenResponse> BeginAsync(
@@ -456,27 +450,6 @@ public class SocialRegistrationService : ISocialRegistrationService
         };
         await _unitOfWork.RefreshTokenRepository.CreateAsync(refreshTokenEntity);
         await _unitOfWork.SaveChangesAsync();
-
-        // Đăng nhập Google/Zalo luôn qua trình duyệt (OAuth redirect) — không có đường nào cho
-        // app Flutter tới đây, nên đây luôn là 1 "phiên web". Chỉ theo dõi ĐÚNG 1 con trỏ phiên
-        // web hiện tại của user trong Redis (WebSessionTracker) — không kiểm tra platform của
-        // bất kỳ token nào khác, không liên quan gì tới mobile.
-        var previousWebTokenId = await WebSessionTracker.GetCurrentAsync(_cache, user.Userid);
-        if (!string.IsNullOrEmpty(previousWebTokenId) && previousWebTokenId != refreshTokenEntity.Id)
-        {
-            await _unitOfWork.RefreshTokenRepository.RevokeTokensAsync(new[] { previousWebTokenId });
-            await _unitOfWork.SaveChangesAsync();
-        }
-        await WebSessionTracker.SetAsync(_cache, user.Userid, refreshTokenEntity.Id, TimeSpan.FromDays(expiryDays));
-
-        try
-        {
-            await _hubContext.Clients.Group($"user:{user.Userid}").SendAsync("ForceLogout", new { reason = "new_login" });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Could not push ForceLogout for user {UserId}", user.Userid);
-        }
 
         return new TokenResponse
         {

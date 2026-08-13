@@ -1,8 +1,6 @@
-using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Microsoft.IdentityModel.Tokens;
-using MV.ApplicationLayer.Hubs;
 using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.Constants;
 using MV.ApplicationLayer.Interfaces;
@@ -17,16 +15,14 @@ namespace MV.ApplicationLayer.Services
         private readonly IPasswordRepository _passwordRepository;
         private readonly IConfiguration _configuration;
         private readonly ILogger<PasswordService> _logger;
-        private readonly IHubContext<NotificationHub> _hubContext;
 
         public PasswordService(IUnitOfWork unitOfWork, IPasswordRepository passwordRepository,
-            IConfiguration configuration, ILogger<PasswordService> logger, IHubContext<NotificationHub> hubContext)
+            IConfiguration configuration, ILogger<PasswordService> logger)
         {
             _unitOfWork = unitOfWork;
             _passwordRepository = passwordRepository;
             _configuration = configuration;
             _logger = logger;
-            _hubContext = hubContext;
         }
 
         public async Task<(bool Success, string? ErrorMessage)> ChangePasswordAsync(string userId, string oldPassword, string newPassword)
@@ -63,21 +59,6 @@ namespace MV.ApplicationLayer.Services
 
                 await _unitOfWork.UserRepository.UpdateUserAsync(user);
                 await _unitOfWork.SaveChangesAsync();
-
-                // Đổi mật khẩu → thu hồi MỌI phiên (web + mobile), không loại trừ platform
-                // nào — khác với luật 1-phiên-web ở đăng nhập, đổi mật khẩu là hành động an
-                // ninh mạnh hơn, phải đăng nhập lại ở tất cả thiết bị.
-                await _unitOfWork.RefreshTokenRepository.RevokeAllByUserIdAsync(userId);
-                await _unitOfWork.SaveChangesAsync();
-                try
-                {
-                    await _hubContext.Clients.Group($"user:{userId}").SendAsync(
-                        "ForceLogout", new { reason = "password_changed" });
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Could not push ForceLogout for user {UserId}", userId);
-                }
 
                 return (true, null);
             }
