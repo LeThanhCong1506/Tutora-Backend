@@ -191,13 +191,9 @@ public class ClassSessionVideoAiService(
             await db.SaveChangesAsync();
 
             var file = await EnsureUploadedFileAsync(job, CancellationToken.None);
-            var draft = await geminiService.AnalyzeVideoForStudentAsync(file.Uri, VideoMimeType, CancellationToken.None);
-
-            job.Stage = ClassSessionAiJobStage.Verifying;
-            await db.SaveChangesAsync();
-
-            // Xem lại video 1 lần nữa để tự soát bản nháp — bù thiếu sót nếu có trước khi trả cho học sinh.
-            var analysis = await geminiService.VerifyStudentAnalysisAsync(file.Uri, VideoMimeType, draft, CancellationToken.None);
+            // Bỏ lượt xem lại video lần 2 để tự soát (VerifyStudentAnalysisAsync) — tốn gần gấp đôi
+            // thời gian chờ cho một bước cải thiện nhỏ, đổi lấy UX nhanh hơn rõ rệt.
+            var analysis = await geminiService.AnalyzeVideoForStudentAsync(file.Uri, VideoMimeType, CancellationToken.None);
 
             job.Resulttext = analysis.Summary;
             job.Transcripttext = analysis.Transcript;
