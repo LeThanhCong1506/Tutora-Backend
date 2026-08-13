@@ -507,10 +507,10 @@ builder.Services.AddAuthentication(options =>
         IssuerSigningKey = new SymmetricSecurityKey(keyBytes),
 
         ValidateIssuer = true,
-        ValidIssuers = new[] { jwtIssuer, "https://api.tutora.vn", "https://localhost:7203" },
+        ValidIssuer = jwtIssuer,
 
         ValidateAudience = true,
-        ValidAudiences = new[] { jwtAudience, "https://api.tutora.vn", "https://localhost:7203" },
+        ValidAudience = jwtAudience,
 
         ValidateLifetime = true,
         ClockSkew = TimeSpan.Zero,
