@@ -146,7 +146,7 @@ public partial class BookingService(
             Remainingamount = remainingAmount,
             Status = BookingStatus.PendingPayment,
             Paymentstatus = PaymentStatus.Pending,
-            Paymentdueat = TimeZoneHelper.UtcNow.AddMinutes(30),
+            Paymentdueat = TimeZoneHelper.UtcNow.AddMinutes(10),
             Locationcity = dto.LocationCity,
             Locationdistrict = dto.LocationDistrict,
             Locationward = dto.LocationWard,
