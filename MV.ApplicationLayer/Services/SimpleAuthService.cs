@@ -1,12 +1,9 @@
 using System.Security.Cryptography;
 using System.Text.Json;
-using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
-using MV.ApplicationLayer.Helpers;
-using MV.ApplicationLayer.Hubs;
 using MV.ApplicationLayer.Interfaces;
 using MV.ApplicationLayer.RepositoryInterfaces;
 using MV.ApplicationLayer.ServiceInterfaces;
@@ -31,7 +28,6 @@ namespace MV.ApplicationLayer.Services
         private readonly ILogger<SimpleAuthService> _logger;
         private readonly IDistributedCache _cache;
         private readonly IAiCreditService _aiCreditService;
-        private readonly IHubContext<NotificationHub> _hubContext;
 
         private const int OtpExpiryMinutes = 5;
         private const int MaxOtpAttempts = 5;
@@ -66,8 +62,7 @@ namespace MV.ApplicationLayer.Services
             IConfiguration configuration,
             ILogger<SimpleAuthService> logger,
             IDistributedCache cache,
-            IAiCreditService aiCreditService,
-            IHubContext<NotificationHub> hubContext)
+            IAiCreditService aiCreditService)
         {
             _unitOfWork = unitOfWork;
             _passwordRepository = passwordRepository;
@@ -77,43 +72,6 @@ namespace MV.ApplicationLayer.Services
             _logger = logger;
             _cache = cache;
             _aiCreditService = aiCreditService;
-            _hubContext = hubContext;
-        }
-
-        // "mobile" (từ header X-Client-Platform của tutora-mobile) là platform DUY NHẤT
-        // được loại khỏi luật 1-phiên-web; mọi giá trị khác (kể cả thiếu header, tức web
-        // thường/Zalo Mini App) đều coi là web và có thể bị đá / đá phiên web khác.
-        private const string MobilePlatform = "mobile";
-
-        private async Task KickOtherWebSessionsAsync(string userId, string newTokenId, string? platform, int expiryDays)
-        {
-            // App Flutter (mobile) không đọc/ghi gì ở đây — dừng ngay, không liên quan gì tới
-            // cơ chế "1 phiên web" bên dưới, kể cả gián tiếp qua Redis.
-            if (string.Equals(platform, MobilePlatform, StringComparison.OrdinalIgnoreCase))
-                return;
-
-            // Chỉ theo dõi ĐÚNG 1 con trỏ "phiên web hiện tại" của user trong Redis — không quét
-            // hay kiểm tra platform của bất kỳ token nào khác. Nếu có phiên web cũ, đá nó; rồi
-            // ghi đè con trỏ bằng token vừa tạo.
-            var previousWebTokenId = await WebSessionTracker.GetCurrentAsync(_cache, userId);
-            if (!string.IsNullOrEmpty(previousWebTokenId) && previousWebTokenId != newTokenId)
-            {
-                await _unitOfWork.RefreshTokenRepository.RevokeTokensAsync(new[] { previousWebTokenId });
-                await _unitOfWork.SaveChangesAsync();
-            }
-
-            await WebSessionTracker.SetAsync(_cache, userId, newTokenId, TimeSpan.FromDays(expiryDays));
-
-            try
-            {
-                await _hubContext.Clients.Group($"user:{userId}").SendAsync(
-                    "ForceLogout",
-                    new { reason = "new_login" });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Could not push ForceLogout for user {UserId}", userId);
-            }
         }
 
         public async Task<TokenResponse> SimpleLoginAsync(SimpleLoginRequest request, string? platform = null)
@@ -598,20 +556,6 @@ namespace MV.ApplicationLayer.Services
                 await _unitOfWork.SaveChangesAsync();
                 await RemoveOtpAsync(PhoneResetKey(phone));
 
-                // Đặt lại mật khẩu qua OTP → cùng mức an ninh với đổi mật khẩu khi đã đăng
-                // nhập: thu hồi MỌI phiên (web + mobile), không loại trừ platform nào.
-                await _unitOfWork.RefreshTokenRepository.RevokeAllByUserIdAsync(user.Userid);
-                await _unitOfWork.SaveChangesAsync();
-                try
-                {
-                    await _hubContext.Clients.Group($"user:{user.Userid}").SendAsync(
-                        "ForceLogout", new { reason = "password_changed" });
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Could not push ForceLogout for user {UserId}", user.Userid);
-                }
-
                 return new TokenResponse { ErrorMessage = string.Empty };
             }
             catch (Exception ex)
@@ -696,10 +640,6 @@ namespace MV.ApplicationLayer.Services
 
             await _unitOfWork.RefreshTokenRepository.CreateAsync(refreshToken);
             await _unitOfWork.SaveChangesAsync();
-
-            // Đăng nhập mới (không phải refresh-rotation) → chỉ giữ 1 phiên web/Zalo Mini
-            // App active; app Flutter (platform == "mobile") không đá ai và không bị đá.
-            await KickOtherWebSessionsAsync(userId, refreshToken.Id, platform, expiryDays);
 
             return rawToken;
         }
