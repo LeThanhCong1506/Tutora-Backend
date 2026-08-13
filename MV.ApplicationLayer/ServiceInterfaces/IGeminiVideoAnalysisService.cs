@@ -20,11 +20,6 @@ namespace MV.ApplicationLayer.ServiceInterfaces
         /// (Gemini đã phải "nghe" hết video để tóm tắt, nên xin luôn bản chép lời không tốn thêm 1 lượt phân tích).</summary>
         Task<GeminiVideoStudentAnalysis> AnalyzeVideoForStudentAsync(string fileUri, string mimeType, CancellationToken ct = default);
 
-        /// <summary>Xem lại video 1 lần nữa, đối chiếu với bản nháp tóm tắt/transcript để kiểm tra có thiếu sót gì
-        /// quan trọng không, trả về bản đã chỉnh sửa (nếu bản nháp đã đủ thì trả về nguyên vẹn).</summary>
-        Task<GeminiVideoStudentAnalysis> VerifyStudentAnalysisAsync(
-            string fileUri, string mimeType, GeminiVideoStudentAnalysis draft, CancellationToken ct = default);
-
         /// <summary>Sinh nội dung báo cáo có cấu trúc (structured JSON output) cho gia sư.</summary>
         Task<TutorReportAiFillResult> GenerateTutorReportFieldsAsync(string fileUri, string mimeType, CancellationToken ct = default);
 
