@@ -27,6 +27,7 @@ using MV.InfrastructureLayer.DBContext;
 using MV.InfrastructureLayer.ExternalServices;
 using MV.InfrastructureLayer.Repositories;
 using MV.InfrastructureLayer.Services;
+using Microsoft.Extensions.FileProviders;
 using MV.ApplicationLayer.RepositoryInterfaces;
 using Npgsql;
 using Pgvector.Npgsql;
@@ -61,6 +62,7 @@ builder.Services.Configure<WhiteboardSettings>(builder.Configuration.GetSection(
 builder.Services.Configure<VietQRSettings>(builder.Configuration.GetSection(VietQRSettings.SectionName));
 builder.Services.Configure<ZaloOAConfig>(builder.Configuration.GetSection(ConfigurationKeys.ZaloOA.SectionName));
 builder.Services.Configure<CloudinarySettings>(builder.Configuration.GetSection("Cloudinary"));
+builder.Services.Configure<LocalStorageSettings>(builder.Configuration.GetSection(LocalStorageSettings.SectionName));
 builder.Services.Configure<TutorAiSettings>(builder.Configuration.GetSection(TutorAiSettings.SectionName));
 // builder.Services.Configure<InternalApiSettings>(builder.Configuration.GetSection(InternalApiSettings.SectionName));
 
@@ -332,7 +334,7 @@ builder.Services.AddScoped<INotificationService, NotificationService>();
 builder.Services.AddScoped<IExportService, ExportService>();
 builder.Services.AddScoped<IPasswordService, PasswordService>();
 builder.Services.AddScoped<IUserTestService, UserTestService>();
-builder.Services.AddScoped<IFileStorageService, CloudinaryStorageService>();
+builder.Services.AddScoped<IFileStorageService, LocalFileStorageService>();
 builder.Services.AddSingleton<IEncryptionService, AesEncryptionService>();
 builder.Services.AddScoped<ISimpleAuthService, SimpleAuthService>();
 // ZNS OTP dùng số điện thoại đã được xác thực của tài khoản.
@@ -391,6 +393,7 @@ builder.Services.AddScoped<IFeedbackService, FeedbackService>();
 builder.Services.AddScoped<IQuestionService, QuestionService>();
 builder.Services.AddScoped<ISourceDocumentService, SourceDocumentService>();
 builder.Services.AddScoped<IKnowledgeBaseService, KnowledgeBaseService>();
+builder.Services.AddScoped<IPolicyService, PolicyService>();
 
 builder.Services.AddScoped<IBankListService, BankListService>();
 builder.Services.AddScoped<PayOSWebhookService>();
@@ -709,6 +712,38 @@ app.UseSwagger();
 app.UseSwaggerUI();
 
 app.UseStaticFiles();
+
+// LocalFileStorageService là nơi lưu MỌI file (avatar, tài liệu, CCCD...) nên thiếu cấu hình là hỏng
+// toàn bộ tính năng file — fail nhanh lúc khởi động thay vì để lỗi âm thầm lúc chạy. Đặc biệt SigningKey:
+// để rỗng thì chữ ký HMAC của signed URL ai cũng tự tính được → file private (CCCD!) hết bảo mật.
+var localStorageSettings = app.Configuration.GetSection(LocalStorageSettings.SectionName).Get<LocalStorageSettings>()
+    ?? throw new InvalidOperationException(
+        $"Thiếu cấu hình '{LocalStorageSettings.SectionName}' trong appsettings — xem LocalStorageSettings.cs để biết các khoá cần điền.");
+
+var missingLocalStorageKeys = new List<string>();
+if (string.IsNullOrWhiteSpace(localStorageSettings.PublicRoot)) missingLocalStorageKeys.Add(nameof(LocalStorageSettings.PublicRoot));
+if (string.IsNullOrWhiteSpace(localStorageSettings.PrivateRoot)) missingLocalStorageKeys.Add(nameof(LocalStorageSettings.PrivateRoot));
+if (string.IsNullOrWhiteSpace(localStorageSettings.PublicBaseUrl)) missingLocalStorageKeys.Add(nameof(LocalStorageSettings.PublicBaseUrl));
+if (string.IsNullOrWhiteSpace(localStorageSettings.SigningKey)) missingLocalStorageKeys.Add(nameof(LocalStorageSettings.SigningKey));
+if (missingLocalStorageKeys.Count > 0)
+    throw new InvalidOperationException(
+        $"Cấu hình '{LocalStorageSettings.SectionName}' thiếu: {string.Join(", ", missingLocalStorageKeys)}.");
+
+// PrivateRoot nằm trong PublicRoot thì file private (CCCD) sẽ bị static files phục vụ công khai.
+var publicRootFull = Path.GetFullPath(localStorageSettings.PublicRoot);
+var privateRootFull = Path.GetFullPath(localStorageSettings.PrivateRoot);
+if (privateRootFull.StartsWith(publicRootFull + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
+    || string.Equals(privateRootFull, publicRootFull, StringComparison.OrdinalIgnoreCase))
+    throw new InvalidOperationException(
+        $"'{LocalStorageSettings.SectionName}:PrivateRoot' không được nằm bên trong PublicRoot — file private sẽ bị lộ qua static files.");
+
+Directory.CreateDirectory(publicRootFull);
+Directory.CreateDirectory(privateRootFull);
+app.UseStaticFiles(new StaticFileOptions
+{
+    FileProvider = new PhysicalFileProvider(publicRootFull),
+    RequestPath = localStorageSettings.PublicRequestPath
+});
 
 app.UseAuthentication();
 app.UseAuthorization();
