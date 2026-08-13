@@ -14,8 +14,5 @@ namespace MV.DomainLayer.Configuration
         /// không đóng được nên parse lỗi (đã gặp thực tế: JsonException "Expected end of string").</summary>
         public int TranscriptMaxOutputTokens { get; set; } = 65536;
         public float Temperature { get; set; } = 0.7f;
-        /// <summary>MEDIA_RESOLUTION_LOW kéo dài thời lượng video xử lý được (buổi học có thể 2-4 tiếng)
-        /// bằng cách giảm token/frame — đổi lại ít chi tiết hình ảnh hơn, chấp nhận được cho tóm tắt nội dung.</summary>
-        public string MediaResolution { get; set; } = "MEDIA_RESOLUTION_LOW";
     }
 }

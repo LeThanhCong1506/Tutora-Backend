@@ -24,5 +24,8 @@ RUN dotnet publish "MV.PresentationLayer.csproj" -c Release -o /app/publish /p:U
 # Sử dụng ASP.NET runtime image, nhẹ hơn rất nhiều so với SDK image
 FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS final
 WORKDIR /app
+# ffmpeg: tách audio khỏi video buổi học trước khi gửi Gemini (ClassSessionVideoAiService) —
+# FFMpegCore chỉ là wrapper, cần binary ffmpeg thật có sẵn trên máy chạy.
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg && rm -rf /var/lib/apt/lists/*
 COPY --from=publish /app/publish .
 ENTRYPOINT ["dotnet", "MV.PresentationLayer.dll"]
