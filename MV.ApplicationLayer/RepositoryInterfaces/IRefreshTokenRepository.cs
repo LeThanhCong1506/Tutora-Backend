@@ -9,7 +9,7 @@ namespace MV.ApplicationLayer.RepositoryInterfaces
         Task RevokeAllByFamilyAsync(string tokenFamily);
         Task RevokeAllByUserIdAsync(string userId);
 
-        /// <summary>Thu hồi đúng tập token theo Id (dùng để đá 1 phiên web cụ thể — xem WebSessionTracker).</summary>
+        /// <summary>Thu hồi đúng tập token theo Id.</summary>
         Task RevokeTokensAsync(IEnumerable<string> tokenIds);
     }
 }
