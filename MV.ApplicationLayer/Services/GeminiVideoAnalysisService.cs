@@ -156,10 +156,18 @@ public class GeminiVideoAnalysisService : IGeminiVideoAnalysisService
     {
         const string prompt = """
             Bạn là trợ lý chép lời bản ghi âm buổi học 1-kèm-1 giữa gia sư và học sinh. Hãy nghe kỹ và chép
-            lại bằng tiếng Việt bản hội thoại đầy đủ, theo sát những gì gia sư và học sinh thực sự nói, theo
-            đúng trình tự thời gian. BẮT BUỘC mỗi lượt nói là 1 đoạn riêng biệt, cách nhau bằng 1 dòng trống,
-            định dạng "**Gia sư:** nội dung" hoặc "**Học sinh:** nội dung" — tuyệt đối không gộp nhiều lượt
-            nói của 2 người vào chung 1 đoạn liền mạch. Không tóm lược, không bỏ sót đoạn hội thoại quan trọng.
+            lại bằng tiếng Việt toàn bộ hội thoại, theo sát những gì từng người thực sự nói, đúng trình tự
+            thời gian. Không tóm lược, không bỏ sót đoạn nào.
+
+            QUY TẮC ĐỊNH DẠNG — bắt buộc tuân thủ tuyệt đối, không có ngoại lệ:
+            - MỌI đoạn văn đều phải mở đầu bằng nhãn người nói: "**Gia sư:** " hoặc "**Học sinh:** ".
+              Không được để bất kỳ đoạn nào thiếu nhãn.
+            - Khi CÙNG một người nói liên tiếp nhiều đoạn, từng đoạn vẫn phải lặp lại nhãn của người đó.
+              Không được chỉ ghi nhãn ở đoạn đầu rồi bỏ trống các đoạn sau.
+            - Mỗi đoạn cách nhau bằng 1 dòng trống. Không gộp lời của 2 người vào chung 1 đoạn.
+            - Không xác định được ai đang nói thì ghi "**Không rõ:** ".
+            - Nếu cả buổi chỉ có 1 người nói (ví dụ gia sư thử mic, học sinh chưa vào), vẫn phải gắn nhãn
+              cho từng đoạn đúng như trên.
             """;
 
         var schema = new GeminiSchema
