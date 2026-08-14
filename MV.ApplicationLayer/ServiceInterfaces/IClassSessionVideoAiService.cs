@@ -20,6 +20,10 @@ public interface IClassSessionVideoAiService
     /// <summary>Hangfire job target. swallowFailure=true cho nhánh chạy nền (không để lỗi AI làm job fail vĩnh viễn).</summary>
     Task RunStudentSummaryJobAsync(Guid jobId, bool swallowFailure);
 
+    /// <summary>Hangfire job target — chép lời chạy nền, do RunStudentSummaryJobAsync xếp hàng sau khi
+    /// tóm tắt đã trả cho học sinh.</summary>
+    Task RunStudentTranscriptJobAsync(Guid jobId, bool swallowFailure);
+
     /// <summary>Hangfire job target. swallowFailure=true cho nhánh chạy nền.</summary>
     Task RunTutorReportFillJobAsync(Guid jobId, bool swallowFailure);
 }

@@ -125,58 +125,74 @@ public class GeminiVideoAnalysisService : IGeminiVideoAnalysisService
         }
     }
 
-    public async Task<GeminiVideoStudentAnalysis> AnalyzeVideoForStudentAsync(string fileUri, string mimeType, CancellationToken ct = default)
+    public async Task<string> SummarizeVideoForStudentAsync(string fileUri, string mimeType, CancellationToken ct = default)
     {
         const string prompt = """
-            Bạn là trợ lý xử lý bản ghi âm buổi học 1-kèm-1 giữa gia sư và học sinh. Hãy nghe kỹ và trả về đúng
-            2 nội dung sau, viết bằng tiếng Việt, giọng văn gần gũi như đang giải thích lại cho học sinh chứ
-            không phải liệt kê khô khan:
-            - summary: Bản tóm tắt dễ đọc, dùng markdown (tiêu đề phụ "##", in đậm "**...**" cho từ khoá/công
-              thức quan trọng, gạch đầu dòng "-" cho danh sách). Gồm: nội dung chính đã học/dạy (giải thích
-              ngắn gọn ý nghĩa, không chỉ liệt kê tên chủ đề), các điểm quan trọng/công thức/kết luận đáng nhớ,
-              và bài tập về nhà (nếu có). Không chào hỏi mở đầu, không lặp lại nguyên văn lời nói.
-            - transcript: Bản chép lời (transcript) đầy đủ, theo sát những gì gia sư và học sinh thực sự nói,
-              theo đúng trình tự thời gian. BẮT BUỘC mỗi lượt nói là 1 đoạn riêng biệt, cách nhau
-              bằng 1 dòng trống, định dạng "**Gia sư:** nội dung" hoặc "**Học sinh:** nội dung" — tuyệt đối
-              không gộp nhiều lượt nói của 2 người vào chung 1 đoạn liền mạch. Không tóm lược, không bỏ sót
-              đoạn hội thoại quan trọng.
+            Bạn là trợ lý xử lý bản ghi âm buổi học 1-kèm-1 giữa gia sư và học sinh. Hãy nghe kỹ rồi viết bản
+            tóm tắt bằng tiếng Việt, giọng văn gần gũi như đang giải thích lại cho học sinh chứ không phải
+            liệt kê khô khan. Dùng markdown (tiêu đề phụ "##", in đậm "**...**" cho từ khoá/công thức quan
+            trọng, gạch đầu dòng "-" cho danh sách). Gồm: nội dung chính đã học/dạy (giải thích ngắn gọn ý
+            nghĩa, không chỉ liệt kê tên chủ đề), các điểm quan trọng/công thức/kết luận đáng nhớ, và bài tập
+            về nhà (nếu có). Không chào hỏi mở đầu, không lặp lại nguyên văn lời nói.
             """;
 
         var schema = new GeminiSchema
         {
             Type = "OBJECT",
-            Properties = new Dictionary<string, GeminiSchema>
-            {
-                ["summary"] = new() { Type = "STRING" },
-                ["transcript"] = new() { Type = "STRING" }
-            },
-            Required = ["summary", "transcript"]
+            Properties = new Dictionary<string, GeminiSchema> { ["summary"] = new() { Type = "STRING" } },
+            Required = ["summary"]
+        };
+
+        var requestBody = BuildGenerateContentRequest(fileUri, mimeType, prompt, schema);
+        var text = await SendGenerateContentAsync(requestBody, _settings.Model, ct);
+
+        var parsed = ParseOrThrow<SummaryJson>(text, "tóm tắt");
+        if (parsed.Summary is null)
+            throw new GeminiResponseParseException("Gemini trả về tóm tắt không hợp lệ.");
+        return parsed.Summary.Trim();
+    }
+
+    public async Task<string> TranscribeVideoAsync(string fileUri, string mimeType, CancellationToken ct = default)
+    {
+        const string prompt = """
+            Bạn là trợ lý chép lời bản ghi âm buổi học 1-kèm-1 giữa gia sư và học sinh. Hãy nghe kỹ và chép
+            lại bằng tiếng Việt bản hội thoại đầy đủ, theo sát những gì gia sư và học sinh thực sự nói, theo
+            đúng trình tự thời gian. BẮT BUỘC mỗi lượt nói là 1 đoạn riêng biệt, cách nhau bằng 1 dòng trống,
+            định dạng "**Gia sư:** nội dung" hoặc "**Học sinh:** nội dung" — tuyệt đối không gộp nhiều lượt
+            nói của 2 người vào chung 1 đoạn liền mạch. Không tóm lược, không bỏ sót đoạn hội thoại quan trọng.
+            """;
+
+        var schema = new GeminiSchema
+        {
+            Type = "OBJECT",
+            Properties = new Dictionary<string, GeminiSchema> { ["transcript"] = new() { Type = "STRING" } },
+            Required = ["transcript"]
         };
 
         var requestBody = BuildGenerateContentRequest(fileUri, mimeType, prompt, schema, _settings.TranscriptMaxOutputTokens);
-        var text = await SendGenerateContentAsync(requestBody, ct);
-        return ParseStudentAnalysis(text);
+        var text = await SendGenerateContentAsync(requestBody, _settings.TranscriptModel, ct);
+
+        var parsed = ParseOrThrow<TranscriptJson>(text, "hội thoại");
+        if (parsed.Transcript is null)
+            throw new GeminiResponseParseException("Gemini trả về hội thoại không hợp lệ.");
+        return parsed.Transcript.Trim();
     }
 
-    /// <summary>Parse JSON {summary, transcript} — nếu bị cắt giữa chừng do vượt maxOutputTokens (buổi học quá
-    /// dài), JSON sẽ dở dang và ném lỗi rõ ràng thay vì để JsonException thô lộ ra ngoài.</summary>
-    private GeminiVideoStudentAnalysis ParseStudentAnalysis(string text)
+    /// <summary>Nếu Gemini bị cắt giữa chừng do vượt maxOutputTokens (buổi học quá dài), JSON trả về sẽ dở
+    /// dang — ném lỗi có nghĩa cho người dùng thay vì để JsonException thô lộ ra ngoài.</summary>
+    private T ParseOrThrow<T>(string text, string label) where T : class
     {
-        StudentAnalysisJson? parsed;
         try
         {
-            parsed = JsonSerializer.Deserialize<StudentAnalysisJson>(text, CamelCaseOptions);
+            return JsonSerializer.Deserialize<T>(text, CamelCaseOptions)
+                ?? throw new GeminiResponseParseException($"Gemini trả về {label} không hợp lệ.");
         }
         catch (JsonException ex)
         {
-            _logger.LogError(ex, "Gemini trả về JSON tóm tắt/transcript dở dang (khả năng bị cắt do vượt maxOutputTokens).");
+            _logger.LogError(ex, "Gemini trả về JSON {Label} dở dang (khả năng bị cắt do vượt maxOutputTokens).", label);
             throw new GeminiResponseParseException(
-                "Buổi học quá dài, Gemini không viết kịp hết tóm tắt/hội thoại trong giới hạn cho phép. Vui lòng thử lại.");
+                $"Buổi học quá dài, Gemini không viết kịp hết {label} trong giới hạn cho phép. Vui lòng thử lại.");
         }
-
-        if (parsed?.Summary is null || parsed.Transcript is null)
-            throw new GeminiResponseParseException("Gemini trả về tóm tắt/hội thoại không hợp lệ.");
-        return new GeminiVideoStudentAnalysis(parsed.Summary.Trim(), parsed.Transcript.Trim());
     }
 
     public async Task<TutorReportAiFillResult> GenerateTutorReportFieldsAsync(string fileUri, string mimeType, CancellationToken ct = default)
@@ -202,7 +218,7 @@ public class GeminiVideoAnalysisService : IGeminiVideoAnalysisService
         };
 
         var requestBody = BuildGenerateContentRequest(fileUri, mimeType, prompt, schema);
-        var text = await SendGenerateContentAsync(requestBody, ct);
+        var text = await SendGenerateContentAsync(requestBody, _settings.Model, ct);
 
         var parsed = JsonSerializer.Deserialize<TutorReportAiFillResult>(text, CamelCaseOptions);
         if (parsed is null)
@@ -252,7 +268,7 @@ public class GeminiVideoAnalysisService : IGeminiVideoAnalysisService
             }
         };
 
-        var text = await SendGenerateContentAsync(requestBody, ct);
+        var text = await SendGenerateContentAsync(requestBody, _settings.Model, ct);
         return text.Trim();
     }
 
@@ -309,12 +325,12 @@ public class GeminiVideoAnalysisService : IGeminiVideoAnalysisService
         };
     }
 
-    private async Task<string> SendGenerateContentAsync(object requestBody, CancellationToken ct)
+    private async Task<string> SendGenerateContentAsync(object requestBody, string model, CancellationToken ct)
     {
         EnsureConfigured();
 
         var json = JsonSerializer.Serialize(requestBody, CamelCaseOptions);
-        var responseBody = await PostGenerateContentWithRetryAsync(json, ct);
+        var responseBody = await PostGenerateContentWithRetryAsync(json, model, ct);
 
         var parsed = JsonSerializer.Deserialize<GeminiGenerateContentResponse>(responseBody, CamelCaseOptions);
         var candidate = parsed?.Candidates?.FirstOrDefault();
@@ -334,8 +350,8 @@ public class GeminiVideoAnalysisService : IGeminiVideoAnalysisService
         if (parsed?.UsageMetadata is { } usage)
         {
             _logger.LogInformation(
-                "Gemini usage: thoughtsTokens={ThoughtsTokens}, outputTokens={OutputTokens}, totalTokens={TotalTokens}",
-                usage.ThoughtsTokenCount, usage.CandidatesTokenCount, usage.TotalTokenCount);
+                "Gemini usage ({Model}): thoughtsTokens={ThoughtsTokens}, outputTokens={OutputTokens}, totalTokens={TotalTokens}",
+                model, usage.ThoughtsTokenCount, usage.CandidatesTokenCount, usage.TotalTokenCount);
         }
 
         return text;
@@ -347,7 +363,7 @@ public class GeminiVideoAnalysisService : IGeminiVideoAnalysisService
     /// 4xx (request sai, bị chặn an toàn...) vì thử lại cũng vô ích.
     /// 5 lần / backoff 3s-6s-12s-24s (tổng ~45s chờ giữa các lần) — tăng từ 3 lần/~9s sau khi log
     /// production cho thấy có đợt Gemini 503 (quá tải) kéo dài hơn tổng thời gian của 3 lần thử.</summary>
-    private async Task<string> PostGenerateContentWithRetryAsync(string json, CancellationToken ct)
+    private async Task<string> PostGenerateContentWithRetryAsync(string json, string model, CancellationToken ct)
     {
         const int maxAttempts = 5;
         var delay = TimeSpan.FromSeconds(3);
@@ -355,7 +371,7 @@ public class GeminiVideoAnalysisService : IGeminiVideoAnalysisService
         for (var attempt = 1; ; attempt++)
         {
             using var request = new HttpRequestMessage(
-                HttpMethod.Post, $"/v1beta/models/{_settings.Model}:generateContent?key={_settings.ApiKey}")
+                HttpMethod.Post, $"/v1beta/models/{model}:generateContent?key={_settings.ApiKey}")
             {
                 Content = new StringContent(json, Encoding.UTF8, "application/json")
             };
@@ -406,9 +422,13 @@ public class GeminiVideoAnalysisService : IGeminiVideoAnalysisService
 
     #region Response Models
 
-    private class StudentAnalysisJson
+    private class SummaryJson
     {
         public string? Summary { get; set; }
+    }
+
+    private class TranscriptJson
+    {
         public string? Transcript { get; set; }
     }
 
