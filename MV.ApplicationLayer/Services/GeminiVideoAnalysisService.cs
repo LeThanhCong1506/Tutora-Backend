@@ -236,6 +236,13 @@ public class GeminiVideoAnalysisService : IGeminiVideoAnalysisService
         var parsed = JsonSerializer.Deserialize<TutorReportAiFillResult>(text, CamelCaseOptions);
         if (parsed is null)
             throw new GeminiResponseParseException("Gemini trả về nội dung báo cáo không hợp lệ.");
+
+        // Buổi học không giao bài thì Gemini trả chuỗi rỗng theo đúng prompt, nhưng đây là field của
+        // form báo cáo gửi phụ huynh — để trống trông như gia sư quên điền, nên ghi rõ là không có.
+        // Chuẩn hoá ở đây thay vì dặn trong prompt: prompt thì model có thể bỏ qua, code thì không.
+        if (string.IsNullOrWhiteSpace(parsed.Homework))
+            parsed.Homework = "Không có.";
+
         return parsed;
     }
 
