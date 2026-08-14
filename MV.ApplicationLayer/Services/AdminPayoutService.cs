@@ -723,6 +723,21 @@ public class AdminPayoutService(
         await using var dbTransaction = await context.Database.BeginTransactionAsync(ct);
         try
         {
+            // Khoá đúng dòng quỹ hệ thống trước — đây là nguồn DUY NHẤT tính năng này được
+            // trừ vào; không đủ thì chặn ngay, không cộng ví, không ghi gì cả. Khoá trước ví
+            // người nhận để tránh deadlock nếu 2 lần chuyển cùng lúc khoá theo thứ tự khác nhau.
+            var fund = await context.SystemFunds
+                .FromSqlRaw("SELECT * FROM public.system_fund WHERE fund_id = 1 FOR UPDATE")
+                .FirstOrDefaultAsync(ct)
+                ?? throw new InvalidOperationException("Không tìm thấy quỹ hệ thống.");
+
+            if (fund.Balance < request.Amount)
+                throw new InvalidOperationException(
+                    $"Quỹ hệ thống không đủ (còn {fund.Balance:N0}đ). Vui lòng nạp thêm quỹ trước khi chuyển.");
+
+            fund.Balance -= request.Amount;
+            fund.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
+
             var wallet = await walletRepo.GetOrCreateForUpdateAsync(request.RecipientUserId, ct);
 
             wallet.Balance = (wallet.Balance ?? 0) + request.Amount;
@@ -828,6 +843,114 @@ public class AdminPayoutService(
         }).ToList();
 
         return new AdminWalletTransferListResponse
+        {
+            Items = items,
+            TotalCount = totalCount,
+            Page = page,
+            PageSize = pageSize
+        };
+    }
+
+    public async Task<SystemFundResponse> GetFundBalanceAsync(CancellationToken ct = default)
+    {
+        var fund = await context.SystemFunds.AsNoTracking().FirstOrDefaultAsync(f => f.Fundid == 1, ct)
+            ?? throw new InvalidOperationException("Không tìm thấy quỹ hệ thống.");
+
+        return new SystemFundResponse
+        {
+            Balance = fund.Balance,
+            UpdatedAt = fund.Updatedat
+        };
+    }
+
+    public async Task<SystemFundTopupResponse> TopUpFundAsync(
+        string actorUserId,
+        SystemFundTopupRequest request,
+        CancellationToken ct = default)
+    {
+        var reason = request.Reason.Trim();
+        var proofImagePath = await fileStorageService.UploadPrivateFileAsync(
+            StorageBucket.SystemFundProofs, actorUserId, request.ProofImage);
+
+        await using var dbTransaction = await context.Database.BeginTransactionAsync(ct);
+        try
+        {
+            var fund = await context.SystemFunds
+                .FromSqlRaw("SELECT * FROM public.system_fund WHERE fund_id = 1 FOR UPDATE")
+                .FirstOrDefaultAsync(ct)
+                ?? throw new InvalidOperationException("Không tìm thấy quỹ hệ thống.");
+
+            fund.Balance += request.Amount;
+            fund.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
+
+            var topup = new SystemFundTopup
+            {
+                Amount = request.Amount,
+                Reason = reason,
+                Proofimagepath = proofImagePath,
+                Createdby = actorUserId,
+                Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
+            };
+            context.SystemFundTopups.Add(topup);
+            await context.SaveChangesAsync(ct);
+
+            await dbTransaction.CommitAsync(ct);
+
+            logger.LogInformation(
+                "Actor {ActorId} topped up system fund by {Amount}: {Reason}",
+                actorUserId, request.Amount, reason);
+
+            var actor = await context.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Userid == actorUserId, ct);
+
+            return new SystemFundTopupResponse
+            {
+                TopupId = topup.Topupid,
+                Amount = topup.Amount,
+                Reason = topup.Reason,
+                ProofImageUrl = fileStorageService.GenerateSignedUrl(proofImagePath),
+                CreatedBy = actorUserId,
+                CreatedByName = actor?.Fullname,
+                CreatedAt = topup.Createdat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow,
+                FundBalanceAfter = fund.Balance
+            };
+        }
+        catch
+        {
+            await dbTransaction.RollbackAsync(ct);
+            await fileStorageService.DeleteFileAsync(StorageBucket.SystemFundProofs, actorUserId, proofImagePath);
+            throw;
+        }
+    }
+
+    public async Task<SystemFundTopupListResponse> GetFundTopupHistoryAsync(int page, int pageSize, CancellationToken ct = default)
+    {
+        var query = context.SystemFundTopups.AsNoTracking().OrderByDescending(t => t.Topupid);
+
+        var totalCount = await query.CountAsync(ct);
+
+        var rows = await query
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync(ct);
+
+        var userIds = rows.Select(r => r.Createdby).Distinct().ToList();
+        var users = await context.Users
+            .AsNoTracking()
+            .Where(u => userIds.Contains(u.Userid))
+            .ToDictionaryAsync(u => u.Userid, u => u, ct);
+
+        var items = rows.Select(r => new SystemFundTopupResponse
+        {
+            TopupId = r.Topupid,
+            Amount = r.Amount,
+            Reason = r.Reason,
+            ProofImageUrl = fileStorageService.GenerateSignedUrl(r.Proofimagepath),
+            CreatedBy = r.Createdby,
+            CreatedByName = users.GetValueOrDefault(r.Createdby)?.Fullname,
+            CreatedAt = r.Createdat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
+        }).ToList();
+
+        return new SystemFundTopupListResponse
         {
             Items = items,
             TotalCount = totalCount,
