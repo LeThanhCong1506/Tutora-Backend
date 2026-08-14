@@ -128,55 +128,18 @@ public class GeminiVideoAnalysisService : IGeminiVideoAnalysisService
     public async Task<GeminiVideoStudentAnalysis> AnalyzeVideoForStudentAsync(string fileUri, string mimeType, CancellationToken ct = default)
     {
         const string prompt = """
-            Bạn là trợ lý xử lý video buổi học 1-kèm-1 giữa gia sư và học sinh. Hãy xem kỹ video và trả về đúng
+            Bạn là trợ lý xử lý bản ghi âm buổi học 1-kèm-1 giữa gia sư và học sinh. Hãy nghe kỹ và trả về đúng
             2 nội dung sau, viết bằng tiếng Việt, giọng văn gần gũi như đang giải thích lại cho học sinh chứ
             không phải liệt kê khô khan:
             - summary: Bản tóm tắt dễ đọc, dùng markdown (tiêu đề phụ "##", in đậm "**...**" cho từ khoá/công
               thức quan trọng, gạch đầu dòng "-" cho danh sách). Gồm: nội dung chính đã học/dạy (giải thích
               ngắn gọn ý nghĩa, không chỉ liệt kê tên chủ đề), các điểm quan trọng/công thức/kết luận đáng nhớ,
               và bài tập về nhà (nếu có). Không chào hỏi mở đầu, không lặp lại nguyên văn lời nói.
-            - transcript: Bản chép lời (transcript) đầy đủ, theo sát những gì gia sư và học sinh thực sự nói
-              trong video, theo đúng trình tự thời gian. BẮT BUỘC mỗi lượt nói là 1 đoạn riêng biệt, cách nhau
+            - transcript: Bản chép lời (transcript) đầy đủ, theo sát những gì gia sư và học sinh thực sự nói,
+              theo đúng trình tự thời gian. BẮT BUỘC mỗi lượt nói là 1 đoạn riêng biệt, cách nhau
               bằng 1 dòng trống, định dạng "**Gia sư:** nội dung" hoặc "**Học sinh:** nội dung" — tuyệt đối
               không gộp nhiều lượt nói của 2 người vào chung 1 đoạn liền mạch. Không tóm lược, không bỏ sót
               đoạn hội thoại quan trọng.
-            """;
-
-        var schema = new GeminiSchema
-        {
-            Type = "OBJECT",
-            Properties = new Dictionary<string, GeminiSchema>
-            {
-                ["summary"] = new() { Type = "STRING" },
-                ["transcript"] = new() { Type = "STRING" }
-            },
-            Required = ["summary", "transcript"]
-        };
-
-        var requestBody = BuildGenerateContentRequest(fileUri, mimeType, prompt, schema, _settings.TranscriptMaxOutputTokens);
-        var text = await SendGenerateContentAsync(requestBody, ct);
-        return ParseStudentAnalysis(text);
-    }
-
-    public async Task<GeminiVideoStudentAnalysis> VerifyStudentAnalysisAsync(
-        string fileUri, string mimeType, GeminiVideoStudentAnalysis draft, CancellationToken ct = default)
-    {
-        var prompt = $"""
-            Bạn vừa xem video buổi học 1-kèm-1 này và tạo ra bản nháp tóm tắt + transcript dưới đây. Hãy xem lại
-            VIDEO một lần nữa thật kỹ, đối chiếu với bản nháp, kiểm tra xem có bỏ sót nội dung quan trọng nào
-            không (kiến thức đã dạy, công thức, kết luận, bài tập về nhà, đoạn hội thoại đáng chú ý...) hoặc có
-            chi tiết nào ghi sai không.
-            - Nếu bản nháp đã đầy đủ và chính xác: giữ nguyên, trả lại đúng như cũ.
-            - Nếu thiếu hoặc sai: bổ sung/sửa lại rồi trả về bản đã hoàn thiện.
-            Giữ nguyên định dạng markdown của bản nháp: summary dùng "##"/"**...**"/"-"; transcript mỗi lượt
-            nói là 1 đoạn riêng "**Gia sư:**"/"**Học sinh:**" cách nhau 1 dòng trống, không gộp chung.
-            Trả về đúng 2 field summary/transcript (bản CUỐI CÙNG, không phải phần nhận xét về bản nháp).
-
-            BẢN NHÁP - summary:
-            {draft.Summary}
-
-            BẢN NHÁP - transcript:
-            {draft.Transcript}
             """;
 
         var schema = new GeminiSchema
@@ -219,8 +182,8 @@ public class GeminiVideoAnalysisService : IGeminiVideoAnalysisService
     public async Task<TutorReportAiFillResult> GenerateTutorReportFieldsAsync(string fileUri, string mimeType, CancellationToken ct = default)
     {
         const string prompt = """
-            Bạn là trợ lý giúp gia sư viết báo cáo sau buổi học 1-kèm-1, dựa trên video ghi lại buổi học.
-            Hãy xem video và trả về đúng 3 nội dung sau, viết bằng tiếng Việt, ở góc nhìn của gia sư viết cho phụ huynh/học sinh đọc:
+            Bạn là trợ lý giúp gia sư viết báo cáo sau buổi học 1-kèm-1, dựa trên bản ghi âm buổi học.
+            Hãy nghe kỹ và trả về đúng 3 nội dung sau, viết bằng tiếng Việt, ở góc nhìn của gia sư viết cho phụ huynh/học sinh đọc:
             - lessonContent: Nội dung đã dạy trong buổi học.
             - homework: Bài tập về nhà đã giao cho học sinh (để trống nếu không có).
             - tutorNotes: Ghi chú thêm của gia sư về buổi học (thái độ học, điểm cần cải thiện...).
@@ -293,6 +256,21 @@ public class GeminiVideoAnalysisService : IGeminiVideoAnalysisService
         return text.Trim();
     }
 
+    // Cả 3 tác vụ dùng chung builder này (tóm tắt học sinh, soát lại, auto-fill báo cáo gia sư) đều
+    // chỉ "đọc và tường thuật lại" video, không cần suy luận sâu — hạ thinking xuống mức thấp nhất để
+    // trả lời nhanh hơn mức mặc định. AskFollowUpAsync (chat hỏi tiếp) KHÔNG dùng builder này, cố tình
+    // giữ nguyên thinking mặc định vì trả lời câu hỏi tự do cần suy luận thật.
+    //
+    // Gemini 3.x đổi hẳn cách cấu hình thinking so với 2.5: không còn "thinkingBudget" (số, 0 = tắt
+    // hẳn) mà dùng "thinkingLevel" (chuỗi enum minimal/low/medium/high) — thinkingBudget vẫn được
+    // chấp nhận "để tương thích ngược" nhưng Google cảnh báo có thể gây hành vi không như mong đợi
+    // trên model 3.x, và dòng Flash 3.x không hỗ trợ tắt hẳn thinking (không có mức "off", thấp nhất
+    // là "minimal"). Xem https://ai.google.dev/gemini-api/docs/thinking.
+    private static readonly Dictionary<string, object?> MinimalThinkingConfig = new() { ["thinkingLevel"] = "minimal" };
+
+    // Chỉ gửi audio (đã tách khỏi video trước khi upload — xem ClassSessionVideoAiService), không
+    // còn frame hình ảnh nào để cấu hình mediaResolution/fps nữa — cắt phần lớn token so với gửi
+    // nguyên video, nhanh hơn rõ rệt, đổi lại mất mọi nội dung chỉ hiện trên màn hình mà không nói ra.
     private object BuildGenerateContentRequest(
         string fileUri, string mimeType, string prompt, GeminiSchema? jsonSchema, int? maxOutputTokens = null)
     {
@@ -302,13 +280,13 @@ public class GeminiVideoAnalysisService : IGeminiVideoAnalysisService
             {
                 ["temperature"] = _settings.Temperature,
                 ["maxOutputTokens"] = tokenLimit,
-                ["mediaResolution"] = _settings.MediaResolution
+                ["thinkingConfig"] = MinimalThinkingConfig
             }
             : new Dictionary<string, object?>
             {
                 ["temperature"] = _settings.Temperature,
                 ["maxOutputTokens"] = tokenLimit,
-                ["mediaResolution"] = _settings.MediaResolution,
+                ["thinkingConfig"] = MinimalThinkingConfig,
                 ["responseMimeType"] = "application/json",
                 ["responseSchema"] = jsonSchema
             };
@@ -336,20 +314,7 @@ public class GeminiVideoAnalysisService : IGeminiVideoAnalysisService
         EnsureConfigured();
 
         var json = JsonSerializer.Serialize(requestBody, CamelCaseOptions);
-        using var request = new HttpRequestMessage(
-            HttpMethod.Post, $"/v1beta/models/{_settings.Model}:generateContent?key={_settings.ApiKey}")
-        {
-            Content = new StringContent(json, Encoding.UTF8, "application/json")
-        };
-
-        using var response = await _httpClient.SendAsync(request, ct);
-        var responseBody = await response.Content.ReadAsStringAsync(ct);
-
-        if (!response.IsSuccessStatusCode)
-        {
-            _logger.LogError("Gemini generateContent lỗi: {StatusCode} - {Body}", response.StatusCode, responseBody);
-            throw new GeminiApiException((int)response.StatusCode, "Gemini không thể xử lý yêu cầu này.");
-        }
+        var responseBody = await PostGenerateContentWithRetryAsync(json, ct);
 
         var parsed = JsonSerializer.Deserialize<GeminiGenerateContentResponse>(responseBody, CamelCaseOptions);
         var candidate = parsed?.Candidates?.FirstOrDefault();
@@ -363,7 +328,71 @@ public class GeminiVideoAnalysisService : IGeminiVideoAnalysisService
         if (string.IsNullOrWhiteSpace(text))
             throw new GeminiResponseParseException("Gemini trả về nội dung rỗng.");
 
+        // Số liệu thật để xác nhận thinking có đang chiếm phần lớn thời gian không, thay vì đoán —
+        // xem lại log này nếu sau khi tắt thinkingConfig vẫn còn chậm (model mới, chưa chắc field
+        // thinkingBudget=0 có tác dụng như kỳ vọng).
+        if (parsed?.UsageMetadata is { } usage)
+        {
+            _logger.LogInformation(
+                "Gemini usage: thoughtsTokens={ThoughtsTokens}, outputTokens={OutputTokens}, totalTokens={TotalTokens}",
+                usage.ThoughtsTokenCount, usage.CandidatesTokenCount, usage.TotalTokenCount);
+        }
+
         return text;
+    }
+
+    /// <summary>Retry cho lỗi tạm thời (mạng chập chờn, Gemini quá tải/5xx) — video đã tốn công
+    /// upload + chờ xử lý xong mới tới bước này, để cả job "chết" vì 1 lần trục trặc thoáng qua thì
+    /// người dùng phải tóm tắt lại từ đầu, đắt hơn nhiều so với thử lại ngay tại đây. Không retry lỗi
+    /// 4xx (request sai, bị chặn an toàn...) vì thử lại cũng vô ích.
+    /// 5 lần / backoff 3s-6s-12s-24s (tổng ~45s chờ giữa các lần) — tăng từ 3 lần/~9s sau khi log
+    /// production cho thấy có đợt Gemini 503 (quá tải) kéo dài hơn tổng thời gian của 3 lần thử.</summary>
+    private async Task<string> PostGenerateContentWithRetryAsync(string json, CancellationToken ct)
+    {
+        const int maxAttempts = 5;
+        var delay = TimeSpan.FromSeconds(3);
+
+        for (var attempt = 1; ; attempt++)
+        {
+            using var request = new HttpRequestMessage(
+                HttpMethod.Post, $"/v1beta/models/{_settings.Model}:generateContent?key={_settings.ApiKey}")
+            {
+                Content = new StringContent(json, Encoding.UTF8, "application/json")
+            };
+
+            HttpResponseMessage response;
+            try
+            {
+                response = await _httpClient.SendAsync(request, ct);
+            }
+            catch (HttpRequestException ex) when (attempt < maxAttempts)
+            {
+                _logger.LogWarning(ex, "Gemini generateContent lỗi mạng, thử lại lần {Attempt}/{Max}.", attempt, maxAttempts);
+                await Task.Delay(delay, ct);
+                delay += delay;
+                continue;
+            }
+
+            using (response)
+            {
+                var body = await response.Content.ReadAsStringAsync(ct);
+                if (response.IsSuccessStatusCode)
+                    return body;
+
+                var isTransient = (int)response.StatusCode >= 500 || (int)response.StatusCode == 429;
+                if (isTransient && attempt < maxAttempts)
+                {
+                    _logger.LogWarning("Gemini generateContent lỗi tạm thời {StatusCode}, thử lại lần {Attempt}/{Max}.",
+                        response.StatusCode, attempt, maxAttempts);
+                    await Task.Delay(delay, ct);
+                    delay += delay;
+                    continue;
+                }
+
+                _logger.LogError("Gemini generateContent lỗi: {StatusCode} - {Body}", response.StatusCode, body);
+                throw new GeminiApiException((int)response.StatusCode, "Gemini không thể xử lý yêu cầu này.");
+            }
+        }
     }
 
     private void EnsureConfigured()
@@ -405,6 +434,14 @@ public class GeminiVideoAnalysisService : IGeminiVideoAnalysisService
     private class GeminiGenerateContentResponse
     {
         public List<GeminiCandidate>? Candidates { get; set; }
+        public GeminiUsageMetadata? UsageMetadata { get; set; }
+    }
+
+    private class GeminiUsageMetadata
+    {
+        public int? ThoughtsTokenCount { get; set; }
+        public int? CandidatesTokenCount { get; set; }
+        public int? TotalTokenCount { get; set; }
     }
 
     private class GeminiCandidate

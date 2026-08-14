@@ -50,6 +50,22 @@ public partial class ClassSessionService
         var isCheckedIn = classSession.Checkintime.HasValue;
         var blockedByPayment = false;
         SessionScheduleConflictResponse? scheduleConflict = null;
+        var now = TimeZoneHelper.UtcNow;
+
+        // A delayed/reconnected heartbeat must never start an old scheduled
+        // session. Keep the record scheduled so the normal no-show/dispute
+        // workflow remains available, but tell both clients that its room is closed.
+        if (classSession.Status == Scheduled
+            && classSession.Scheduledend <= now.AddMinutes(-LiveSessionAutoEndGraceMinutes))
+        {
+            return new SessionPresenceStatus(
+                TutorPresent: tutorPresent,
+                StudentPresent: studentPresent,
+                IsCheckedIn: false,
+                RoomClosed: true,
+                BlockedByPayment: false,
+                IsRecording: false);
+        }
 
         if (classSession.Status == Scheduled && tutorPresent && studentPresent && !roomClosed)
         {
@@ -60,7 +76,6 @@ public partial class ClassSessionService
             }
             else
             {
-                var now = TimeZoneHelper.UtcNow;
                 var approvedChange = await _context.ClassSessionScheduleChanges
                     .Where(x => x.Classsessionid == classSessionId
                         && x.Status == ScheduleChangeStatus.Approved
@@ -276,7 +291,6 @@ public partial class ClassSessionService
 
         var expiredSessions = await _context.ClassSessions
             .Where(l => l.Status == InProgress
-                && l.Checkintime.HasValue
                 && l.Checkouttime == null
                 && l.Scheduledend <= cutoff)
             .ToListAsync(ct);
