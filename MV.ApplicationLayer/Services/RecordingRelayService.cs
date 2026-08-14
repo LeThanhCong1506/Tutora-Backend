@@ -31,7 +31,6 @@ public class RecordingRelayService : IRecordingRelayService
     private readonly IAppDbContext _context;
     private readonly IGoogleDriveService _drive;
     private readonly INotificationService _notificationService;
-    private readonly IClassSessionVideoAiService _videoAiService;
     private readonly AgoraRecordingSettings _rec;
     private readonly ILogger<RecordingRelayService> _logger;
 
@@ -39,14 +38,12 @@ public class RecordingRelayService : IRecordingRelayService
         IAppDbContext context,
         IGoogleDriveService drive,
         INotificationService notificationService,
-        IClassSessionVideoAiService videoAiService,
         IOptions<AgoraRecordingSettings> rec,
         ILogger<RecordingRelayService> logger)
     {
         _context = context;
         _drive = drive;
         _notificationService = notificationService;
-        _videoAiService = videoAiService;
         _rec = rec.Value;
         _logger = logger;
     }
@@ -130,24 +127,6 @@ public class RecordingRelayService : IRecordingRelayService
                 // Video vừa ghi xong không thể xem/dùng AI ngay (RTC record → S3 → Drive mất vài phút) —
                 // báo chủ động cho học sinh/gia sư khi đã thật sự sẵn sàng, khỏi phải tự bấm kiểm tra lại.
                 await NotifyRecordingReadyAsync(session.Classsessionid, item.StudentNotifyUserId, session.Tutorid, item.ParentUserId);
-
-                // Tự động xếp hàng tóm tắt AI ngay khi có video, không đợi học sinh vào trang bấm nút —
-                // TriggerStudentSummaryAsync tự chống trùng (bỏ qua nếu đã có job pending/processing) nên
-                // gọi ở đây an toàn dù relay có chạy lại. Học sinh sẽ nhận thông báo "Tóm tắt đã sẵn sàng"
-                // (RunStudentSummaryJobAsync) ngay khi Gemini xử lý xong, không cần chủ động yêu cầu trước.
-                // Try/catch riêng: lỗi ở đây không được làm mất bản ghi/link Drive đã lưu thành công ở trên.
-                if (!string.IsNullOrWhiteSpace(item.StudentNotifyUserId))
-                {
-                    try
-                    {
-                        await _videoAiService.TriggerStudentSummaryAsync(session.Classsessionid, item.StudentNotifyUserId!, ct);
-                    }
-                    catch (Exception aiEx)
-                    {
-                        _logger.LogWarning(aiEx,
-                            "Không tự động xếp hàng tóm tắt AI cho classSession {ClassSessionId}", session.Classsessionid);
-                    }
-                }
             }
             catch (Exception ex)
             {

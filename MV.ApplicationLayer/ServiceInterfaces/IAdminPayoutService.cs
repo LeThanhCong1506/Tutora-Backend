@@ -67,4 +67,21 @@ public interface IAdminPayoutService
     /// Lịch sử các lần chuyển tiền chủ động, mới nhất trước.
     /// </summary>
     Task<AdminWalletTransferListResponse> GetTransferHistoryAsync(int page, int pageSize, CancellationToken ct = default);
+
+    /// <summary>Số dư hiện tại của quỹ hệ thống.</summary>
+    Task<SystemFundResponse> GetFundBalanceAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// Admin nạp tiền thật (kèm ảnh chứng minh) vào quỹ hệ thống — nguồn duy nhất mà
+    /// <see cref="TransferToUserAsync"/> được phép trừ vào.
+    /// </summary>
+    Task<SystemFundTopupResponse> TopUpFundAsync(
+        string actorUserId,
+        SystemFundTopupRequest request,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Lịch sử các lần nạp quỹ, mới nhất trước.
+    /// </summary>
+    Task<SystemFundTopupListResponse> GetFundTopupHistoryAsync(int page, int pageSize, CancellationToken ct = default);
 }

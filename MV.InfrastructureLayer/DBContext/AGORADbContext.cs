@@ -18,6 +18,8 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
     }
 
     public virtual DbSet<AdminWalletTransfer> AdminWalletTransfers { get; set; }
+    public virtual DbSet<SystemFund> SystemFunds { get; set; }
+    public virtual DbSet<SystemFundTopup> SystemFundTopups { get; set; }
 
     public virtual DbSet<BankAccount> BankAccounts { get; set; }
 
@@ -197,6 +199,50 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnType("timestamp without time zone")
                 .HasColumnName("created_at");
+        });
+
+        modelBuilder.Entity<SystemFund>(entity =>
+        {
+            entity.HasKey(e => e.Fundid).HasName("system_fund_pkey");
+
+            entity.ToTable("system_fund");
+
+            entity.Property(e => e.Fundid).HasColumnName("fund_id");
+            entity.Property(e => e.Balance)
+                .HasPrecision(15, 2)
+                .HasColumnName("balance");
+            entity.Property(e => e.Updatedat)
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
+                .HasColumnType("timestamp without time zone")
+                .HasColumnName("updated_at");
+        });
+
+        modelBuilder.Entity<SystemFundTopup>(entity =>
+        {
+            entity.HasKey(e => e.Topupid).HasName("system_fund_topups_pkey");
+
+            entity.ToTable("system_fund_topups");
+
+            entity.HasIndex(e => e.Createdby, "idx_system_fund_topups_created_by");
+
+            entity.Property(e => e.Topupid).HasColumnName("topup_id");
+            entity.Property(e => e.Amount)
+                .HasPrecision(15, 2)
+                .HasColumnName("amount");
+            entity.Property(e => e.Reason).HasColumnName("reason");
+            entity.Property(e => e.Proofimagepath).HasColumnName("proof_image_path");
+            entity.Property(e => e.Createdby)
+                .HasMaxLength(50)
+                .HasColumnName("created_by");
+            entity.Property(e => e.Createdat)
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
+                .HasColumnType("timestamp without time zone")
+                .HasColumnName("created_at");
+
+            entity.HasOne(d => d.CreatedbyNavigation).WithMany()
+                .HasForeignKey(d => d.Createdby)
+                .OnDelete(DeleteBehavior.Restrict)
+                .HasConstraintName("system_fund_topups_created_by_fkey");
         });
 
         modelBuilder.Entity<BankAccount>(entity =>
