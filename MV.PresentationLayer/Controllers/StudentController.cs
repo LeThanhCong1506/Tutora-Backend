@@ -121,7 +121,7 @@ namespace MV.PresentationLayer.Controllers
             }
             catch (InvalidOperationException ex)
             {
-                // Ảnh mờ/giả, tên không khớp, chưa đủ 16 tuổi, số CCCD trùng...
+                // Ảnh mờ/giả, chưa đủ 16 tuổi, số CCCD trùng...
                 return UnprocessableEntity(APIResponse<object>.Fail(ex.Message, 422));
             }
         }

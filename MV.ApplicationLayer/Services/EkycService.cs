@@ -22,7 +22,6 @@ namespace MV.ApplicationLayer.Services
     public class EkycService : IEkycService
     {
         private const double MinConfidence = 90.0;       // < 90% → ảnh mờ/giả
-        private const double NameMatchThreshold = 0.80;  // ngưỡng khớp tên (fuzzy)
         private const string CccdBucket = StorageBucket.CccdFiles;
 
         private readonly IFptAiService _fptAiService;
@@ -91,20 +90,7 @@ namespace MV.ApplicationLayer.Services
                             $"Bạn chưa đủ {options.MinAgeRequired.Value} tuổi nên chưa thể xác minh CCCD để đặt lịch học.");
                 }
 
-                // 5. Khớp tên trên CCCD với hồ sơ (nếu cả hai đều có) bằng Fuzzy Matching.
-                if (!string.IsNullOrWhiteSpace(ocrResult.Name) && !string.IsNullOrWhiteSpace(user.Fullname))
-                {
-                    var (isMatch, similarity) = StringSimilarity.CompareNames(ocrResult.Name, user.Fullname, NameMatchThreshold);
-                    _logger.LogInformation(
-                        "CCCD name match for user {UserId}: OCR='{OcrName}' Profile='{ProfileName}' Similarity={Sim:F2} Match={Match}",
-                        user.Userid, ocrResult.Name, user.Fullname, similarity, isMatch);
-
-                    if (!isMatch)
-                        throw new InvalidOperationException(
-                            $"Họ và tên trên CCCD \"{ocrResult.Name}\" không khớp với hồ sơ \"{user.Fullname}\". Vui lòng cập nhật đúng họ tên trước khi xác minh CCCD.");
-                }
-
-                // 6. Số CCCD không được trùng với tài khoản khác.
+                // 5. Số CCCD không được trùng với tài khoản khác.
                 if (!string.IsNullOrEmpty(ocrResult.Id) && ocrResult.Id != _encryption.Decrypt(user.Identitynumber))
                 {
                     var isUnique = await _unitOfWork.UserRepository.IsIdentityNumberUniqueAsync(_encryption.Encrypt(ocrResult.Id));
@@ -130,6 +116,7 @@ namespace MV.ApplicationLayer.Services
                 await _storageService.DeleteFileAsync(CccdBucket, user.Userid, previousBackUrl);
 
             var verified = false;
+            var profileDataUpdated = false;
             if (ocrResult != null)
             {
                 user.Identitynumber = _encryption.Encrypt(ocrResult.Id);
@@ -144,16 +131,31 @@ namespace MV.ApplicationLayer.Services
 
                 if (options.AutoFillProfile)
                 {
-                    if (string.IsNullOrWhiteSpace(user.Fullname))
+                    // CCCD là nguồn định danh chuẩn. Tên hiển thị từ Zalo/Google có thể là
+                    // nickname hoặc tên ứng dụng, vì vậy phải được thay bằng thông tin OCR.
+                    if (!string.IsNullOrWhiteSpace(ocrResult.Name) &&
+                        !string.Equals(user.Fullname, ocrResult.Name, StringComparison.Ordinal))
+                    {
                         user.Fullname = ocrResult.Name;
+                        profileDataUpdated = true;
+                    }
+
+                    // Ngày sinh và giới tính cũng là dữ liệu định danh chuẩn từ CCCD.
+                    if (dob != null && user.Birthdate != dob)
+                    {
+                        user.Birthdate = dob;
+                        profileDataUpdated = true;
+                    }
+
+                    var gender = GenderHelper.FromEkycSex(ocrResult.Sex);
+                    if (gender != null && user.Gender != gender)
+                    {
+                        user.Gender = gender;
+                        profileDataUpdated = true;
+                    }
+
                     if (string.IsNullOrWhiteSpace(user.Address))
                         user.Address = ocrResult.Address;
-                    if (user.Gender == null)
-                        user.Gender = GenderHelper.FromEkycSex(ocrResult.Sex);
-                    // Với luồng gate độ tuổi (học sinh), DOB trên CCCD là nguồn chuẩn → ghi đè.
-                    // Các luồng khác (tutor) chỉ điền khi còn trống.
-                    if (dob != null && (user.Birthdate == null || options.MinAgeRequired.HasValue))
-                        user.Birthdate = dob;
                 }
             }
 
@@ -165,6 +167,7 @@ namespace MV.ApplicationLayer.Services
                 Response = new CccdUploadResponse
                 {
                     OcrSuccess = ocrResult != null,
+                    ProfileDataUpdated = profileDataUpdated,
                     IdentityNumber = MaskIdentityNumber(ocrResult?.Id),
                     FullName = ocrResult?.Name,
                     DateOfBirth = ocrResult?.Dob,
