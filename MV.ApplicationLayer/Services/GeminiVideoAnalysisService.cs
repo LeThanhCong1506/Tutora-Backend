@@ -131,9 +131,14 @@ public class GeminiVideoAnalysisService : IGeminiVideoAnalysisService
             Bạn là trợ lý xử lý bản ghi âm buổi học 1-kèm-1 giữa gia sư và học sinh. Hãy nghe kỹ rồi viết bản
             tóm tắt bằng tiếng Việt, giọng văn gần gũi như đang giải thích lại cho học sinh chứ không phải
             liệt kê khô khan. Dùng markdown (tiêu đề phụ "##", in đậm "**...**" cho từ khoá/công thức quan
-            trọng, gạch đầu dòng "-" cho danh sách). Gồm: nội dung chính đã học/dạy (giải thích ngắn gọn ý
-            nghĩa, không chỉ liệt kê tên chủ đề), các điểm quan trọng/công thức/kết luận đáng nhớ, và bài tập
-            về nhà (nếu có). Không chào hỏi mở đầu, không lặp lại nguyên văn lời nói.
+            trọng, gạch đầu dòng "-" cho danh sách). Không chào hỏi mở đầu, không lặp lại nguyên văn lời nói.
+
+            Các mục có thể đưa vào: nội dung chính đã học/dạy (giải thích ngắn gọn ý nghĩa, không chỉ liệt kê
+            tên chủ đề), các điểm quan trọng/công thức/kết luận đáng nhớ, và bài tập về nhà.
+
+            QUAN TRỌNG: chỉ viết những mục thật sự có nội dung trong buổi học. Mục nào không có thì BỎ HẲN,
+            không in tiêu đề của mục đó ra. Tuyệt đối không viết những câu như "Không có.", "Không đề cập.",
+            "Buổi học này không giao bài tập." — thà thiếu mục còn hơn có mục rỗng.
             """;
 
         var schema = new GeminiSchema
