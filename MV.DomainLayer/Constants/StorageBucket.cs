@@ -30,6 +30,9 @@ public static class StorageBucket
     /// <summary>Private receipt images for staff/admin manual payout transfers.</summary>
     public const string PayoutProofs       = "payout-proofs";
 
+    /// <summary>Private proof images for admin system-fund top-ups.</summary>
+    public const string SystemFundProofs   = "system-fund-proofs";
+
     /// <summary>Public icons cho gói AI credit.</summary>
     public const string AiCreditIcons      = "ai-credit-icons";
 }
