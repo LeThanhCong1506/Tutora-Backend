@@ -98,6 +98,15 @@ namespace MV.PresentationLayer.Controllers
             return Ok(APIResponse<List<CalendarDayResponse>>.Success(result, "Lấy lịch học thành công."));
         }
 
+        [HttpGet("class-sessions/upcoming")]
+        public async Task<ActionResult<APIResponse<CalendarClassSessionResponse>>> GetUpcomingClassSession()
+        {
+            var userId = UserHelper.GetUserId(User);
+
+            var result = await _classSessionService.GetStudentNextClassSessionAsync(userId);
+            return Ok(APIResponse<CalendarClassSessionResponse?>.Success(result, "Lấy buổi học sắp tới thành công."));
+        }
+
         // 5. PUT /api/student/classSessions/{id}/confirm
         [HttpPut("class-sessions/{id}/confirm")]
         public async Task<IActionResult> ConfirmClassSession(int id)
