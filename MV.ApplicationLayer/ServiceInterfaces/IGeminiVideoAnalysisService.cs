@@ -16,9 +16,14 @@ namespace MV.ApplicationLayer.ServiceInterfaces
         /// <summary>Chờ file chuyển sang state ACTIVE (Gemini xử lý video xong) — poll định kỳ, có timeout.</summary>
         Task WaitForFileActiveAsync(string fileName, CancellationToken ct = default);
 
-        /// <summary>Tóm tắt + chép lời (transcript) đầy đủ buổi học bằng tiếng Việt, lấy trong CÙNG 1 lượt gọi
-        /// (Gemini đã phải "nghe" hết video để tóm tắt, nên xin luôn bản chép lời không tốn thêm 1 lượt phân tích).</summary>
-        Task<GeminiVideoStudentAnalysis> AnalyzeVideoForStudentAsync(string fileUri, string mimeType, CancellationToken ct = default);
+        /// <summary>Tóm tắt buổi học bằng tiếng Việt. Tách riêng khỏi chép lời vì đầu ra ngắn hơn 10-15 lần
+        /// nên xong sau vài giây — gộp chung 1 lượt gọi thì người dùng phải đợi cả bản chép lời viết xong
+        /// mới thấy được tóm tắt (LLM sinh token tuần tự, response chỉ về khi viết hết).</summary>
+        Task<string> SummarizeVideoForStudentAsync(string fileUri, string mimeType, CancellationToken ct = default);
+
+        /// <summary>Chép lời (transcript) đầy đủ buổi học. Chạy nền sau khi tóm tắt đã trả cho người dùng,
+        /// dùng model riêng (<see cref="MV.DomainLayer.Configuration.GoogleGeminiSettings.TranscriptModel"/>).</summary>
+        Task<string> TranscribeVideoAsync(string fileUri, string mimeType, CancellationToken ct = default);
 
         /// <summary>Sinh nội dung báo cáo có cấu trúc (structured JSON output) cho gia sư.</summary>
         Task<TutorReportAiFillResult> GenerateTutorReportFieldsAsync(string fileUri, string mimeType, CancellationToken ct = default);
