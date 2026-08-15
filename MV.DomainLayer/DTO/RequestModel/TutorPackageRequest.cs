@@ -6,6 +6,11 @@ namespace MV.DomainLayer.DTO.RequestModel
     {
         public string Name { get; set; } = string.Empty;
 
+        /// <summary>
+        /// Môn học áp dụng cho gói cố định. Gói linh hoạt legacy có thể để null.
+        /// </summary>
+        public int? SubjectId { get; set; }
+
         /// <summary>1 = flexible, 2 = fixed.</summary>
         public int PackageType { get; set; } = 1;
 

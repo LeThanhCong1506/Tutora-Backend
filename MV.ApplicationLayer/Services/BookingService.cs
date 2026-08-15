@@ -97,6 +97,12 @@ public partial class BookingService(
             .FirstOrDefaultAsync(c => c.Packageid == dto.PackageId && c.Tutorid == dto.TutorId && c.Isactive)
             ?? throw new BookingException(BookingErrorCodes.InvalidInput, "Package không hợp lệ", 400);
 
+        // Gói cố định là lịch được tutor tạo riêng cho một môn. Không cho phép lấy lịch
+        // của gói Toán để tạo booking có subject-grade price của Vật lý (hoặc ngược lại).
+        if (package.Packagetype == Tutorpackage.FixedPackageType && package.Subjectid != price.Subjectid)
+            throw new BookingException(BookingErrorCodes.InvalidInput,
+                "Gói học không thuộc môn học đã chọn", 409);
+
         var totalSessions = ResolveTotalSessions(dto, package);
         var classSessionSlots = package.Packagetype == Tutorpackage.FixedPackageType
             ? GenerateFixedPackageSlots(package, dto.StartDate, totalSessions)
