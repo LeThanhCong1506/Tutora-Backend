@@ -31,6 +31,8 @@ public static class NotificationType
     /// <summary>Đề xuất dời giờ học đã hết hạn do không ai phản hồi kịp. Referenceid = classSessionId.</summary>
     public const string RescheduleExpired = "reschedule_expired";
     public const string Message         = "message";
+    /// <summary>Tin nhắn mới trong hội thoại hỗ trợ giữa người dùng và Admin. Referenceid = supportThreadId.</summary>
+    public const string SupportMessage  = "support_message";
     public const string Warning         = "warning";
     public const string DisputeMessage  = "dispute_message";
     /// <summary>Khóa học đã hoàn thành, mời người học đánh giá gia sư. Referenceid = bookingId.</summary>

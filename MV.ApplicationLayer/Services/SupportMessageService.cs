@@ -7,6 +7,7 @@ using MV.ApplicationLayer.Hubs;
 using MV.ApplicationLayer.Interfaces;
 using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.Constants;
+using MV.DomainLayer.DTO.RequestModel;
 using MV.DomainLayer.DTO.ResponseModel;
 using MV.DomainLayer.Entities;
 using MV.DomainLayer.Helpers;
@@ -18,6 +19,7 @@ public class SupportMessageService : ISupportMessageService
     private readonly IAppDbContext _context;
     private readonly IHubContext<NotificationHub> _hubContext;
     private readonly IFileStorageService _storageService;
+    private readonly INotificationService _notificationService;
     private readonly ILogger<SupportMessageService> _logger;
     private const string SupportImageBucket = "support-images";
 
@@ -25,11 +27,13 @@ public class SupportMessageService : ISupportMessageService
         IAppDbContext context,
         IHubContext<NotificationHub> hubContext,
         IFileStorageService storageService,
+        INotificationService notificationService,
         ILogger<SupportMessageService> logger)
     {
         _context = context;
         _hubContext = hubContext;
         _storageService = storageService;
+        _notificationService = notificationService;
         _logger = logger;
     }
 
@@ -111,6 +115,7 @@ public class SupportMessageService : ISupportMessageService
 
         var response = ToMessageResponse(entity, sender?.Fullname);
         await BroadcastMessageAsync(thread, response);
+        await NotifyRecipientsAsync(thread, response, adminSenderId);
         return response;
     }
 
@@ -132,6 +137,7 @@ public class SupportMessageService : ISupportMessageService
 
         var response = ToMessageResponse(entity, sender?.Fullname);
         await BroadcastMessageAsync(thread, response);
+        await NotifyRecipientsAsync(thread, response, adminSenderId);
         return response;
     }
 
@@ -164,6 +170,7 @@ public class SupportMessageService : ISupportMessageService
 
         var response = ToMessageResponse(entity, senderName: null);
         await BroadcastMessageAsync(thread, response);
+        await NotifyRecipientsAsync(thread, response);
         return response;
     }
 
@@ -181,6 +188,7 @@ public class SupportMessageService : ISupportMessageService
 
         var response = ToMessageResponse(entity, senderName: null);
         await BroadcastMessageAsync(thread, response);
+        await NotifyRecipientsAsync(thread, response);
         return response;
     }
 
@@ -206,6 +214,58 @@ public class SupportMessageService : ISupportMessageService
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to broadcast support message for thread {ThreadId}", thread.Supportthreadid);
+        }
+    }
+
+    /// <summary>
+    /// Persist notification cho phía nhận để badge/header hoạt động cả khi họ không mở inbox.
+    /// Không báo lại cho Admin vừa gửi; các Admin khác vẫn được nhận để không bỏ sót yêu cầu.
+    /// </summary>
+    private async Task NotifyRecipientsAsync(
+        Supportthread thread,
+        SupportMessageItemResponse message,
+        string? senderAdminId = null)
+    {
+        try
+        {
+            var preview = message.MessageType == ChatMessageType.Image
+                ? "📷 Hình ảnh"
+                : string.IsNullOrWhiteSpace(message.Message)
+                    ? "Bạn có tin nhắn mới trong hội thoại hỗ trợ."
+                    : message.Message.Length > 120 ? $"{message.Message[..120]}..." : message.Message;
+
+            if (message.SenderSide == SupportSenderSide.Admin)
+            {
+                await _notificationService.CreateNotificationAsync(new NotificationRequest
+                {
+                    Userid = thread.Userid,
+                    Title = "Phản hồi từ Tutora",
+                    Message = preview,
+                    Type = NotificationType.SupportMessage,
+                    Referenceid = thread.Supportthreadid.ToString(),
+                });
+                return;
+            }
+
+            var adminIds = await _context.Users
+                .Where(user => user.Primaryrole == UserRole.Admin && user.Userid != senderAdminId)
+                .Select(user => user.Userid)
+                .ToListAsync();
+
+            if (adminIds.Count == 0) return;
+            await _notificationService.CreateNotificationsAsync(adminIds.Select(adminId => new NotificationRequest
+            {
+                Userid = adminId,
+                Title = "Yêu cầu hỗ trợ mới",
+                Message = preview,
+                Type = NotificationType.SupportMessage,
+                Referenceid = thread.Supportthreadid.ToString(),
+            }));
+        }
+        catch (Exception ex)
+        {
+            // Notification không được làm hỏng thao tác gửi tin nhắn đã lưu thành công.
+            _logger.LogWarning(ex, "Failed to create support notification for thread {ThreadId}", thread.Supportthreadid);
         }
     }
 
