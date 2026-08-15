@@ -49,6 +49,12 @@ public interface IDisputeService
     Task<DisputeDetailResponse> ResolveDisputeAsync(int disputeId, string adminId, ResolveDisputeRequest request);
 
     /// <summary>
+    /// Đóng tranh chấp khi hai bên đã tự dàn xếp và muốn học tiếp — không phân xử, không hoàn tiền.
+    /// Vẫn phải đặt lại trạng thái buổi học vì buổi đang "disputed" không quyết toán được.
+    /// </summary>
+    Task<DisputeDetailResponse> CloseDisputeAsync(int disputeId, string adminId, CloseDisputeRequest request);
+
+    /// <summary>
     /// Runs AI (Groq) priority classification for a dispute and persists the result. Used both as the
     /// Hangfire job body enqueued right after dispute creation, and as a manual admin re-classify/backfill action.
     /// Returns null if the dispute doesn't exist. <paramref name="actorId"/> scopes the returned response's

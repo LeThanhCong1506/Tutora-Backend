@@ -168,6 +168,19 @@ public class DisputeController : ControllerBase
     }
 
     /// <summary>
+    /// Đóng tranh chấp khi hai bên đã hoà giải và muốn học tiếp — không phân xử ai đúng ai sai,
+    /// không hoàn tiền. Trạng thái buổi học do admin chọn (tính là đã học, hoặc học lại).
+    /// </summary>
+    [RequirePermission(Permissions.DisputeResolve)]
+    [HttpPut("{id}/close")]
+    public async Task<ActionResult<APIResponse<DisputeDetailResponse>>> Close(int id, [FromBody] CloseDisputeRequest request)
+    {
+        var adminId = UserHelper.GetUserId(User);
+        var result = await _disputeService.CloseDisputeAsync(id, adminId, request);
+        return Ok(APIResponse<DisputeDetailResponse>.Success(result, "Đã đóng phản ánh do hai bên hoà giải."));
+    }
+
+    /// <summary>
     /// Get one of the two private threads (tutor or parent/student) for a dispute.
     /// </summary>
     [RequirePermission(Permissions.DisputeView)]
