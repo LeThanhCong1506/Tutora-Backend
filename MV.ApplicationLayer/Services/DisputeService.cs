@@ -482,6 +482,141 @@ public class DisputeService : IDisputeService
 
         return (await GetDisputeDetailAsync(disputeId, adminId))!;
     }
+    public async Task<DisputeDetailResponse> CloseDisputeAsync(int disputeId, string adminId, CloseDisputeRequest request)
+    {
+        if (!CloseDisputeOutcomes.All.Contains(request.ClassSessionOutcome))
+            throw new ArgumentException("Trạng thái buổi học không hợp lệ");
+
+        var snapshot = await _context.Disputes
+            .AsNoTracking()
+            .Where(d => d.Disputeid == disputeId)
+            .Select(d => new { d.Bookingid })
+            .FirstOrDefaultAsync()
+            ?? throw new ArgumentException("Không tìm thấy tranh chấp");
+
+        string? createdBy;
+        int? classSessionId;
+
+        await using (var tx = await _context.Database.BeginTransactionAsync())
+        {
+            try
+            {
+                // Cùng thứ tự khoá với ResolveDisputeAsync để không kẹt chéo với remedy no-show phía người dùng.
+                Booking? booking = null;
+                if (snapshot.Bookingid.HasValue)
+                {
+                    booking = await _context.Bookings
+                        .FromSqlRaw(SqlQueries.LockBookingById, snapshot.Bookingid.Value)
+                        .SingleOrDefaultAsync()
+                        ?? throw new InvalidOperationException("Không tìm thấy booking của tranh chấp");
+                }
+
+                var dispute = await _context.Disputes
+                    .FromSqlRaw(SqlQueries.LockDisputeById, disputeId)
+                    .SingleOrDefaultAsync()
+                    ?? throw new ArgumentException("Không tìm thấy tranh chấp");
+
+                if (dispute.Status is DisputeStatus.Resolved or DisputeStatus.Closed)
+                    throw new InvalidOperationException("Tranh chấp này đã được xử lý rồi");
+
+                // Booking đã bị huỷ theo remedy "đổi gia sư" thì tiền các buổi còn lại đã hoàn về ví phụ
+                // huynh và mọi buổi tương lai đã bị huỷ — hoà giải không thể dựng lại được, chặn từ đây
+                // thay vì để admin đóng xong rồi phát hiện booking vẫn không học tiếp được.
+                if (booking?.Status == BookingStatus.CancelledNoshow)
+                    throw new InvalidOperationException(
+                        "Booking đã bị huỷ và hoàn tiền theo phương án đổi gia sư, không thể khôi phục bằng hoà giải.");
+
+                ClassSession? classSession = null;
+                if (dispute.Classsessionid.HasValue)
+                {
+                    classSession = await _context.ClassSessions
+                        .FromSqlRaw(SqlQueries.LockClassSessionById, dispute.Classsessionid.Value)
+                        .Include(l => l.Booking)
+                        .SingleOrDefaultAsync()
+                        ?? throw new InvalidOperationException("Không tìm thấy buổi học của tranh chấp");
+                }
+
+                var now = TimeZoneHelper.UtcNow;
+
+                if (classSession != null)
+                {
+                    if (request.ClassSessionOutcome == CloseDisputeOutcomes.Completed)
+                    {
+                        // SettleDisputedClassSessionAsync cố ý bỏ qua kiểm tra trạng thái — cần thế vì buổi
+                        // đang ở "disputed", còn SettleClassSessionAsync chỉ nhận pending_confirmation/completed.
+                        await _settlementService.SettleDisputedClassSessionAsync(classSession.Classsessionid, adminId);
+                        classSession.Status = Completed;
+                    }
+                    else
+                    {
+                        if (classSession.Issettled == true)
+                            throw new InvalidOperationException(
+                                "Buổi học này đã được quyết toán, không thể đưa về trạng thái học lại.");
+
+                        // Học lại thì lần dạy hỏng trước đó không được để lại dấu vết, nếu không buổi mới
+                        // sẽ mang sẵn giờ check-in/điểm danh cũ và báo cáo cũ của lần trước.
+                        classSession.Status = Scheduled;
+                        classSession.Checkintime = null;
+                        classSession.Checkouttime = null;
+                        classSession.Realstart = null;
+                        classSession.Realend = null;
+                        classSession.Istutorpresent = null;
+                        classSession.Isstudentpresent = null;
+                        classSession.Attendancenote = null;
+                        classSession.Noshowaction = null;
+                        classSession.Submittedat = null;
+                        classSession.Confirmdeadline = null;
+                    }
+                }
+
+                dispute.Status = DisputeStatus.Closed;
+                dispute.Resolvedat = now;
+                dispute.Resolvedby = adminId;
+                dispute.Resolutionnote = request.Note;
+                // Không bên nào được hoàn tiền — hoà giải không phải phán quyết, để 0 cho khớp báo cáo tài chính.
+                dispute.Refundpercentage = 0;
+
+                createdBy = dispute.Createdby;
+                classSessionId = dispute.Classsessionid;
+
+                await _context.SaveChangesAsync();
+                await tx.CommitAsync();
+            }
+            catch
+            {
+                await tx.RollbackAsync();
+                throw;
+            }
+        }
+
+        _logger.LogInformation("Actor {ActorId} closed dispute {DisputeId} by mutual agreement, classSession outcome {Outcome}",
+            adminId, disputeId, request.ClassSessionOutcome);
+
+        try
+        {
+            var outcomeText = request.ClassSessionOutcome == CloseDisputeOutcomes.Completed
+                ? "Buổi học vẫn được tính là đã hoàn thành."
+                : "Buổi học sẽ được sắp xếp học lại.";
+
+            if (!string.IsNullOrWhiteSpace(createdBy))
+            {
+                await _notificationService.CreateNotificationAsync(new NotificationRequest
+                {
+                    Userid = createdBy,
+                    Title = "Phản ánh đã được đóng",
+                    Message = $"Phản ánh #{disputeId} đã được đóng do hai bên đã thống nhất với nhau. {outcomeText} Ghi chú: {request.Note}",
+                    Referenceid = classSessionId?.ToString()
+                });
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to send dispute close notification for dispute {DisputeId}", disputeId);
+        }
+
+        return (await GetDisputeDetailAsync(disputeId, adminId))!;
+    }
+
     public async Task<DisputeDetailResponse> ResolveDisputeAsync(int disputeId, string adminId, ResolveDisputeRequest request)
     {
         if (!ResolutionTypes.All.Contains(request.ResolutionType))
