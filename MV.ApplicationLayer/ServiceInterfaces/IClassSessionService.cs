@@ -79,6 +79,11 @@ public interface IClassSessionService
     Task<List<CalendarDayResponse>> GetStudentCalendarAsync(string studentUserId, DateTime startDate, DateTime endDate);
 
     /// <summary>
+    /// Buổi học sắp tới gần nhất của học sinh
+    /// </summary>
+    Task<CalendarClassSessionResponse?> GetStudentNextClassSessionAsync(string studentUserId);
+
+    /// <summary>
     /// Aggregate dashboard stats for a tutor: total classSessions, earnings, upcoming count.
     /// </summary>
     Task<TutorDashboardStatsResponse> GetTutorDashboardStatsAsync(string tutorId);

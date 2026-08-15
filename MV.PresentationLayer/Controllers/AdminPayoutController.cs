@@ -245,6 +245,72 @@ public class AdminPayoutController(
         }
     }
 
+    /// <summary>
+    /// Số dư hiện tại của quỹ hệ thống — nguồn duy nhất "Chuyển tiền chủ động" được trừ vào.
+    /// </summary>
+    [RequirePermission(Permissions.PayoutView)]
+    [HttpGet("fund")]
+    public async Task<IActionResult> GetFundBalance(CancellationToken ct)
+    {
+        try
+        {
+            var result = await adminPayoutService.GetFundBalanceAsync(ct);
+            return Ok(APIResponse<SystemFundResponse>.Success(result, "Lấy số dư quỹ hệ thống thành công."));
+        }
+        catch (Exception ex)
+        {
+            return HandleException(ex, "retrieving fund balance");
+        }
+    }
+
+    /// <summary>
+    /// Nạp tiền thật (kèm ảnh chứng minh) vào quỹ hệ thống.
+    /// </summary>
+    [RequirePermission(Permissions.PayoutFundTopup)]
+    [HttpPost("fund/topup")]
+    [Consumes("multipart/form-data")]
+    public async Task<IActionResult> TopUpFund(
+        [FromForm] SystemFundTopupRequest request,
+        CancellationToken ct)
+    {
+        try
+        {
+            if (string.IsNullOrEmpty(ActorUserId))
+                return Unauthorized(APIResponse<object>.Fail(ApiMessages.ActorUserIdNotFound, 401));
+
+            var result = await adminPayoutService.TopUpFundAsync(ActorUserId, request, ct);
+            return Ok(APIResponse<SystemFundTopupResponse>.Success(result, "Nạp quỹ hệ thống thành công."));
+        }
+        catch (Exception ex)
+        {
+            return HandleException(ex, "topping up system fund");
+        }
+    }
+
+    /// <summary>
+    /// Lịch sử các lần nạp quỹ hệ thống.
+    /// </summary>
+    [RequirePermission(Permissions.PayoutView)]
+    [HttpGet("fund/topups")]
+    public async Task<IActionResult> GetFundTopupHistory(
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        CancellationToken ct = default)
+    {
+        var validation = ValidatePagination(page, pageSize);
+        if (validation != null) return validation;
+
+        try
+        {
+            var result = await adminPayoutService.GetFundTopupHistoryAsync(page, pageSize, ct);
+            return Ok(APIResponse<SystemFundTopupListResponse>.Success(result, "Lấy lịch sử nạp quỹ thành công."));
+        }
+        catch (Exception ex)
+        {
+            return HandleException(ex, "retrieving fund top-up history");
+        }
+    }
+
     [HttpGet("system-alerts")]
     [RequirePermission(Permissions.SystemAlertView)]
     public async Task<IActionResult> GetSystemAlerts(

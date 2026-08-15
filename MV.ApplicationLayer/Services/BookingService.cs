@@ -719,7 +719,9 @@ public partial class BookingService(
             {
                 SubjectId = subject.Subjectid,
                 SubjectName = subject.Subjectname,
-                IsActive = subject.IsActive
+                IsActive = subject.IsActive,
+                Slug = subject.Slug,
+                IconUrl = subject.IconUrl
             },
             Package = b.Package == null ? null : new BookingPackageResponse
             {

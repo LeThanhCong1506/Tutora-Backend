@@ -103,6 +103,7 @@ namespace MV.PresentationLayer.Controllers
         /// Chấp nhận JPG, JPEG, PNG — tối đa 5MB mỗi ảnh.
         /// Gọi FPT.AI OCR trực tiếp bằng bytes, lưu PublicId (private) vào DB.
         /// </summary>
+        [Authorize(Roles = UserRole.Tutor)]
         [HttpPost("{id}/profile/cccd")]
         [RequestSizeLimit(10_485_760)]
         [RequestFormLimits(MultipartBodyLengthLimit = 10_485_760)]
@@ -119,7 +120,7 @@ namespace MV.PresentationLayer.Controllers
             }
             catch (InvalidOperationException ex)
             {
-                // Tên CCCD không khớp với hồ sơ
+                // Ảnh mờ/giả hoặc CCCD đã được dùng bởi tài khoản khác.
                 return UnprocessableEntity(APIResponse.Fail(ex.Message, 422));
             }
             catch (ArgumentException ex)
@@ -132,6 +133,7 @@ namespace MV.PresentationLayer.Controllers
         /// Gia sư tự xem lại ảnh CCCD mình đã upload — signed URL, hết hạn sau 15 phút.
         /// Chỉ xem được CCCD của chính mình (so khớp userId từ JWT, không nhận id người khác).
         /// </summary>
+        [Authorize(Roles = UserRole.Tutor)]
         [HttpGet("{id}/profile/cccd")]
         public async Task<IActionResult> GetOwnCccd([FromRoute] string id)
         {

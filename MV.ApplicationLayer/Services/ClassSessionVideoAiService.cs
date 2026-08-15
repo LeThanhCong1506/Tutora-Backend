@@ -1,3 +1,6 @@
+using FFMpegCore;
+using FFMpegCore.Enums;
+using FFMpegCore.Pipes;
 using Hangfire;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -26,7 +29,10 @@ public class ClassSessionVideoAiService(
     IBackgroundJobClient backgroundJobClient,
     ILogger<ClassSessionVideoAiService> logger) : IClassSessionVideoAiService
 {
-    private const string VideoMimeType = "video/mp4";
+    // Chỉ gửi audio cho Gemini, không gửi hình — cắt phần lớn token/thời gian xử lý so với gửi
+    // nguyên video (đổi lại mất nội dung chỉ hiện trên màn hình mà không nói ra, đã xác nhận với
+    // người yêu cầu tính năng là chấp nhận được cho buổi học 1-kèm-1 chủ yếu qua lời nói).
+    private const string AudioMimeType = "audio/mp3";
     private const long MaxFileSizeBytes = 2_000_000_000;
 
     // ── Học sinh: tóm tắt ──────────────────────────────────────────────
@@ -193,14 +199,21 @@ public class ClassSessionVideoAiService(
             var file = await EnsureUploadedFileAsync(job, CancellationToken.None);
             // Bỏ lượt xem lại video lần 2 để tự soát (VerifyStudentAnalysisAsync) — tốn gần gấp đôi
             // thời gian chờ cho một bước cải thiện nhỏ, đổi lấy UX nhanh hơn rõ rệt.
-            var analysis = await geminiService.AnalyzeVideoForStudentAsync(file.Uri, VideoMimeType, CancellationToken.None);
+            var summary = await geminiService.SummarizeVideoForStudentAsync(file.Uri, AudioMimeType, CancellationToken.None);
 
-            job.Resulttext = analysis.Summary;
-            job.Transcripttext = analysis.Transcript;
+            job.Resulttext = summary;
             job.Status = ClassSessionAiJobStatus.Completed;
-            job.Stage = null;
+            // Đánh dấu bản chép lời còn đang chạy nền — job đã Completed vì tóm tắt (thứ người dùng
+            // chờ) đã có, transcript thiếu không làm hỏng kết quả.
+            job.Stage = ClassSessionAiJobStage.Transcribing;
             job.Completedat = TimeZoneHelper.UtcNow;
             await db.SaveChangesAsync();
+
+            // Chép lời tách sang job riêng: nó dài gấp 10-15 lần tóm tắt nên tốn gần hết thời gian chờ,
+            // mà LLM sinh token tuần tự và response chỉ về khi viết xong hết — gộp chung 1 lượt gọi thì
+            // học sinh phải đợi chép lời viết xong mới thấy được tóm tắt. File audio đã upload sẵn được
+            // EnsureUploadedFileAsync cache lại (47h) nên job sau không phải tải/tách/upload lại.
+            backgroundJobClient.Enqueue<IClassSessionVideoAiService>(s => s.RunStudentTranscriptJobAsync(job.JobId, true));
 
             // Tách try/catch riêng: lỗi ở bước này (tạo phiên chat) không được làm job quay lại
             // Failed — tóm tắt đã lưu xong là thành công rồi, chat hỏi tiếp chỉ là phần thêm.
@@ -209,8 +222,10 @@ public class ClassSessionVideoAiService(
                 logger.LogInformation(
                     "[VideoSummaryChat] Bắt đầu tạo phiên chat cho classSession {ClassSessionId}, user {UserId}",
                     job.Classsessionid, job.Requestedbyuserid);
-                // Transcript chi tiết hơn tóm tắt — dùng làm ngữ cảnh chat hỏi tiếp cho câu trả lời chính xác hơn.
-                await EnsureVideoSummaryChatSessionAsync(job.Classsessionid, job.Requestedbyuserid, analysis.Transcript);
+                // Seed bằng tóm tắt để học sinh hỏi được ngay, không phải đợi chép lời. Khi job chép lời
+                // xong sẽ chèn thêm 1 message system nữa chứa transcript — LoadChatContextAsync lấy
+                // message system CUỐI CÙNG nên các câu hỏi sau đó tự động dùng ngữ cảnh chi tiết hơn.
+                await EnsureVideoSummaryChatSessionAsync(job.Classsessionid, job.Requestedbyuserid, summary);
                 logger.LogInformation(
                     "[VideoSummaryChat] Đã tạo xong phiên chat cho classSession {ClassSessionId}",
                     job.Classsessionid);
@@ -235,6 +250,70 @@ public class ClassSessionVideoAiService(
         }
     }
 
+    /// <summary>Chép lời chạy nền sau khi tóm tắt đã trả cho học sinh. Job đã ở trạng thái Completed nên
+    /// mọi lỗi ở đây chỉ được ghi log — không kéo job ngược về Failed, vì tóm tắt (thứ người dùng chờ) vẫn
+    /// dùng tốt; hỏng chép lời chỉ làm tab "Hội thoại" trống.</summary>
+    public async Task RunStudentTranscriptJobAsync(Guid jobId, bool swallowFailure)
+    {
+        var job = await db.ClassSessionAiJobs.FirstOrDefaultAsync(j => j.JobId == jobId);
+        if (job == null)
+        {
+            logger.LogWarning("RunStudentTranscriptJobAsync: job {JobId} not found", jobId);
+            return;
+        }
+
+        try
+        {
+            var file = await EnsureUploadedFileAsync(job, CancellationToken.None);
+            var transcript = await geminiService.TranscribeVideoAsync(file.Uri, AudioMimeType, CancellationToken.None);
+
+            job.Transcripttext = transcript;
+            job.Stage = null;
+            await db.SaveChangesAsync();
+
+            // Nâng ngữ cảnh chat lên bản chép lời (chi tiết hơn tóm tắt) cho các câu hỏi sau. Chèn thêm 1
+            // message system thay vì sửa message cũ — LoadChatContextAsync lấy message system cuối cùng.
+            try
+            {
+                var chatSession = await aiChatRepo.FindSessionByUserAndClassSessionAsync(
+                    job.Requestedbyuserid, ChatSessionType.VideoSummary, job.Classsessionid);
+                if (chatSession != null)
+                {
+                    aiChatRepo.AddMessage(new ChatHistory
+                    {
+                        MessageId = Guid.NewGuid(),
+                        SessionId = chatSession.SessionId,
+                        Role = ChatHistoryRole.System,
+                        Content = transcript,
+                        CreatedAt = TimeZoneHelper.UtcNow
+                    });
+                    await aiChatRepo.SaveChangesAsync();
+                }
+            }
+            catch (Exception chatEx)
+            {
+                logger.LogError(chatEx,
+                    "[VideoSummaryChat] Không nâng được ngữ cảnh chat lên transcript cho classSession {ClassSessionId}",
+                    job.Classsessionid);
+            }
+        }
+        catch (Exception ex) when (swallowFailure)
+        {
+            logger.LogError(ex,
+                "Chép lời buổi học {ClassSessionId} thất bại — tóm tắt vẫn giữ nguyên, chỉ thiếu tab Hội thoại.",
+                job.Classsessionid);
+            job.Stage = null;
+            try
+            {
+                await db.SaveChangesAsync();
+            }
+            catch (Exception saveEx)
+            {
+                logger.LogError(saveEx, "Không xoá được stage transcribing của job {JobId}.", job.JobId);
+            }
+        }
+    }
+
     public async Task RunTutorReportFillJobAsync(Guid jobId, bool swallowFailure)
     {
         var job = await db.ClassSessionAiJobs.FirstOrDefaultAsync(j => j.JobId == jobId);
@@ -250,7 +329,7 @@ public class ClassSessionVideoAiService(
             await db.SaveChangesAsync();
 
             var file = await EnsureUploadedFileAsync(job, CancellationToken.None);
-            var result = await geminiService.GenerateTutorReportFieldsAsync(file.Uri, VideoMimeType, CancellationToken.None);
+            var result = await geminiService.GenerateTutorReportFieldsAsync(file.Uri, AudioMimeType, CancellationToken.None);
 
             job.Resultjson = JsonSerializer.Serialize(result);
             job.Status = ClassSessionAiJobStatus.Completed;
@@ -290,13 +369,25 @@ public class ClassSessionVideoAiService(
             ?? throw new GeminiFileProcessingException("Buổi học chưa có video để phân tích.");
 
         GeminiUploadedFile uploaded;
+        string audioPath;
         using (var media = await driveService.GetMediaAsync(fileId, null, ct))
         {
             if (media.ContentLength is { } size && size > MaxFileSizeBytes)
                 throw new GeminiVideoTooLargeException();
 
+            audioPath = await ExtractAudioToTempFileAsync(media.Content, job.Classsessionid, ct);
+        }
+
+        try
+        {
+            await using var audioStream = File.OpenRead(audioPath);
+            var audioLength = new FileInfo(audioPath).Length;
             uploaded = await geminiService.UploadVideoAsync(
-                media.Content, media.ContentLength ?? 0, VideoMimeType, $"class-session-{job.Classsessionid}.mp4", ct);
+                audioStream, audioLength, AudioMimeType, $"class-session-{job.Classsessionid}.mp3", ct);
+        }
+        finally
+        {
+            File.Delete(audioPath);
         }
         await geminiService.WaitForFileActiveAsync(uploaded.Name, ct);
 
@@ -307,6 +398,28 @@ public class ClassSessionVideoAiService(
         await db.SaveChangesAsync(ct);
 
         return uploaded;
+    }
+
+    /// <summary>Tách track audio khỏi video buổi học (stream thẳng từ Drive qua ffmpeg, không ghi video gốc
+    /// ra đĩa) — chỉ file audio kết quả (nhỏ hơn nhiều) mới được ghi tạm, xoá ngay sau khi upload xong.</summary>
+    private async Task<string> ExtractAudioToTempFileAsync(Stream videoStream, int classSessionId, CancellationToken ct)
+    {
+        var tempPath = Path.Combine(Path.GetTempPath(), $"class-session-audio-{Guid.NewGuid():N}.mp3");
+        try
+        {
+            await FFMpegArguments
+                .FromPipeInput(new StreamPipeSource(videoStream))
+                .OutputToFile(tempPath, overwrite: true, options => options
+                    .WithAudioCodec("libmp3lame")
+                    .DisableChannel(Channel.Video))
+                .ProcessAsynchronously();
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Tách audio khỏi video buổi học {ClassSessionId} thất bại.", classSessionId);
+            throw new GeminiFileProcessingException("Không thể tách âm thanh từ video buổi học.");
+        }
+        return tempPath;
     }
 
     private async Task MarkJobFailedAsync(ClassSessionAiJob job, Exception ex)

@@ -1,3 +1,4 @@
+using FFMpegCore;
 using FirebaseAdmin;
 using Google.Apis.Auth.OAuth2;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -667,6 +668,18 @@ if (app.Environment.IsDevelopment())
     await ManagedMigrationRunner.RunAsync(app.Configuration);
     migrationLogger.LogInformation("Managed migrations are up to date.");
 }
+
+// ffmpeg cho ClassSessionVideoAiService (tách audio khỏi video buổi học trước khi gửi Gemini) —
+// production có sẵn qua Dockerfile (apt-get install ffmpeg, nằm trên PATH hệ thống của container).
+// Máy dev thường KHÔNG tự có ffmpeg, và PATH mới cài (winget/choco) không được các tiến trình đã
+// chạy sẵn từ trước đó (VS, terminal cũ...) nhận ngay — phải đóng mở lại mọi cửa sổ liên quan mới
+// thấy. Nếu vẫn không ăn thua (hoặc muốn né hẳn vụ đó), set biến môi trường FFMPEG_BINARY_FOLDER
+// trỏ thẳng tới thư mục chứa ffmpeg.exe trên máy bạn — set 1 lần ở System/User Environment Variables
+// (không phải file trong repo, nên không đụng máy người khác). Để trống thì dùng PATH hệ thống bình
+// thường như production.
+var ffmpegBinaryFolder = Environment.GetEnvironmentVariable("FFMPEG_BINARY_FOLDER");
+if (!string.IsNullOrWhiteSpace(ffmpegBinaryFolder))
+    GlobalFFOptions.Configure(new FFOptions { BinaryFolder = ffmpegBinaryFolder });
 
 await using (var schemaScope = app.Services.CreateAsyncScope())
 {

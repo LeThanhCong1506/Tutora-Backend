@@ -118,6 +118,69 @@ public partial class ClassSessionService
             .ToList();
     }
 
+    public async Task<CalendarClassSessionResponse?> GetStudentNextClassSessionAsync(string studentUserId)
+    {
+        // Resolve studentId từ studentId hoặc linkedUserId (account tự đăng ký)
+        var profile = await _context.Studentprofiles
+            .AsNoTracking()
+            .FirstOrDefaultAsync(s => s.Studentid == studentUserId || s.Linkeduserid == studentUserId);
+
+        if (profile == null)
+            return null;
+
+        var now = TimeZoneHelper.UtcNow;
+
+        // Buổi in_progress luôn lấy dù đã quá giờ (gia sư có thể chưa check-out);
+        // buổi scheduled chỉ lấy khi chưa kết thúc. Trạng thái `reserved` (chờ
+        // thanh toán đợt 2) và booking đã hủy/hết hạn đều bị loại.
+        var session = await _context.ClassSessions
+            .AsNoTracking()
+            .Where(l => l.Studentid == profile.Studentid
+                     && l.Checkouttime == null
+                     && ((l.Status == Scheduled && l.Scheduledend >= now)
+                         || l.Status == InProgress)
+                     && l.Booking != null
+                     && l.Booking.Status != BookingStatus.Cancelled
+                     && l.Booking.Status != BookingStatus.CancelledNoshow
+                     && l.Booking.Status != BookingStatus.PaymentTimeout)
+            .Include(l => l.Booking)
+                .ThenInclude(b => b!.Tutorsubjectgradeprice)
+                    .ThenInclude(p => p!.Subject)
+            .Include(l => l.Booking)
+                .ThenInclude(b => b!.Tutor)
+                    .ThenInclude(t => t!.Tutor)
+            .Include(l => l.ScheduleChanges)
+            .Include(l => l.RescheduleProposals)
+            // Buổi đang diễn ra lên đầu, phần còn lại theo giờ bắt đầu tăng dần.
+            .OrderByDescending(l => l.Status == InProgress)
+            .ThenBy(l => l.Scheduledstart)
+            .FirstOrDefaultAsync();
+
+        if (session == null)
+            return null;
+
+        // Buổi bị khoá vì chưa thanh toán đợt 2 thì không phải buổi học được.
+        if (await IsSessionBlockedByRemainingPaymentAsync(session.Classsessionid))
+            return null;
+
+        return new CalendarClassSessionResponse
+        {
+            ClassSessionId = session.Classsessionid,
+            BookingId = session.Bookingid,
+            ScheduledStart = session.Scheduledstart,
+            ScheduledEnd = session.Scheduledend,
+            TutorName = session.Booking?.Tutor?.Tutor?.Fullname,
+            SubjectName = session.Booking?.Subject?.Subjectname,
+            Status = session.Status,
+            BookingStatus = session.Booking?.Status,
+            MeetingLink = session.Meetinglink,
+            CheckOutTime = session.Checkouttime,
+            HasRecording = RecordingStatusResolver.Resolve(session.Recordingurl, session.Recordings3key, session.Recordingsid, session.Checkouttime.HasValue).Status == "available",
+            ScheduleChangeStatus = ResolveActiveScheduleChangeStatus(session.ScheduleChanges),
+            HasPendingReschedule = ResolveHasPendingReschedule(session.RescheduleProposals)
+        };
+    }
+
     public async Task<TutorDashboardStatsResponse> GetTutorDashboardStatsAsync(string tutorId)
     {
         var now = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;

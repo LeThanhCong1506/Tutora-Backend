@@ -72,8 +72,8 @@ namespace MV.ApplicationLayer.Services
             var user = await _unitOfWork.UserRepository.GetUserByIdAsync(userId)
                 ?? throw new ArgumentException("Không tìm thấy người dùng.");
 
-            // Dùng chung luồng eKYC (FPT.AI OCR + khớp tên + chống trùng). Tutor cho phép OCR
-            // thất bại (Admin xác minh thủ công), không gate độ tuổi.
+            // Dùng luồng eKYC (FPT.AI OCR + chống trùng). Dữ liệu định danh OCR sẽ cập nhật
+            // hồ sơ; Tutor cho phép OCR thất bại (Admin xác minh thủ công), không gate độ tuổi.
             var result = await _ekyc.VerifyAndApplyAsync(user, request, new EkycVerificationOptions
             {
                 RequireOcr = false,
