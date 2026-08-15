@@ -369,6 +369,16 @@ namespace MV.InfrastructureLayer.Repositories
             await _context.Tutorpackages.AddAsync(package);
         }
 
+        public void DeleteTutorPackage(Tutorpackage package)
+        {
+            _context.Tutorpackages.Remove(package);
+        }
+
+        public async Task<bool> TutorPackageHasBookingsAsync(int packageId)
+        {
+            return await _context.Bookings.AnyAsync(b => b.Packageid == packageId);
+        }
+
         #endregion
     }
 }

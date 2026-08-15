@@ -32,12 +32,14 @@ namespace MV.ApplicationLayer.Services
         private const int OtpExpiryMinutes = 5;
         private const int MaxOtpAttempts = 5;
 
-        // Chống brute-force/spam đăng nhập: sai quá MaxLoginAttempts lần liên tiếp (tính theo
-        // định danh email/SĐT/username) → khóa tạm LoginLockoutMinutes phút. Việc check khóa
-        // nằm ở ngay đầu SimpleLoginAsync, TRƯỚC mọi truy vấn DB — nên khi đã bị khóa, các
-        // request tiếp theo không còn chạm tới Postgres nữa (giảm tải DB, không chỉ chặn hack).
+        // Chống brute-force/spam đăng nhập: sai quá MaxLoginAttempts lần liên tiếp → khóa tạm
+        // LoginLockoutMinutes phút. Khóa tính theo Userid đã resolve được từ định danh (không phải
+        // theo chuỗi email/SĐT/username vừa gõ) — 1 tài khoản có thể đăng nhập bằng nhiều định
+        // danh khác nhau, nên gõ sai bằng định danh A rồi đổi sang định danh B đúng cho CÙNG tài
+        // khoản không được phép "vượt" khóa. Định danh không khớp tài khoản nào (không có Userid)
+        // thì vẫn khóa theo chuỗi định danh để chặn dò quét.
         private const int MaxLoginAttempts = 5;
-        private const int LoginLockoutMinutes = 15;
+        private const int LoginLockoutMinutes = 10;
 
         // Chống spam gửi OTP qua Zalo ZNS (mỗi lần gửi tốn phí thật): tối thiểu
         // OtpResendCooldownSeconds giữa 2 lần gửi liên tiếp cho CÙNG số điện thoại +
@@ -81,9 +83,40 @@ namespace MV.ApplicationLayer.Services
                     return new TokenResponse { ErrorMessage = "Bạn cần cung cấp email/số điện thoại và mật khẩu." };
                 }
 
-                // Check khóa TRƯỚC mọi truy vấn DB — request vào một định danh đang bị khóa
-                // không chạm tới Postgres, tránh bị dùng để dội tải DB.
-                var attemptKey = LoginAttemptKey(request.EmailOrPhone);
+                // Resolve tài khoản theo định danh TRƯỚC khi check khóa, để khóa được gắn theo
+                // Userid thay vì theo chuỗi định danh vừa gõ (xem giải thích ở khai báo hằng số
+                // MaxLoginAttempts). GetUserBy*Async dùng đúng predicate so khớp như
+                // CheckIfUserLoginCorrect*Async nên không lệch kết quả giữa 2 bước.
+                User? user;
+                Func<Task<bool>> verifyPassword;
+                string wrongCredentialMessage;
+
+                if (request.EmailOrPhone.Contains("@"))
+                {
+                    user = await _unitOfWork.UserRepository.GetUserByEmailAsync(request.EmailOrPhone);
+                    verifyPassword = () => _unitOfWork.UserRepository.CheckIfUserLoginCorrectAsync(
+                        request.EmailOrPhone, request.Password);
+                    wrongCredentialMessage = "Email hoặc mật khẩu không đúng.";
+                }
+                else if (request.EmailOrPhone.All(char.IsDigit) || request.EmailOrPhone.StartsWith("+"))
+                {
+                    user = await _unitOfWork.UserRepository.GetUserByPhoneAsync(request.EmailOrPhone);
+                    verifyPassword = () => _unitOfWork.UserRepository.CheckIfUserLoginCorrectByPhoneAsync(
+                        request.EmailOrPhone, request.Password);
+                    wrongCredentialMessage = "Số điện thoại hoặc mật khẩu không đúng.";
+                }
+                else
+                {
+                    user = await _unitOfWork.UserRepository.GetUserByUsernameAsync(request.EmailOrPhone);
+                    verifyPassword = () => _unitOfWork.UserRepository.CheckIfUserLoginCorrectByUsernameAsync(
+                        request.EmailOrPhone, request.Password);
+                    wrongCredentialMessage = "Tên người dùng hoặc mật khẩu không chính xác.";
+                }
+
+                // Không resolve được tài khoản (định danh không tồn tại) → không có Userid để khóa
+                // theo tài khoản, fallback về khóa theo chuỗi định danh để vẫn chặn được dò quét.
+                var attemptKey = user != null ? LoginAttemptKeyForUser(user.Userid) : LoginAttemptKey(request.EmailOrPhone);
+
                 var attemptEntry = await GetLoginAttemptAsync(attemptKey);
                 if (attemptEntry != null && attemptEntry.LockedUntilUtc > MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow)
                 {
@@ -95,46 +128,11 @@ namespace MV.ApplicationLayer.Services
                     };
                 }
 
-                User? user;
-
-                if (request.EmailOrPhone.Contains("@"))
+                var isValid = await verifyPassword();
+                if (!isValid)
                 {
-                    var isValid = await _unitOfWork.UserRepository.CheckIfUserLoginCorrectAsync(
-                        request.EmailOrPhone, request.Password);
-
-                    if (!isValid)
-                    {
-                        await RecordFailedLoginAttemptAsync(attemptKey);
-                        return new TokenResponse { ErrorMessage = "Email hoặc mật khẩu không đúng." };
-                    }
-
-                    user = await _unitOfWork.UserRepository.GetUserByEmailAsync(request.EmailOrPhone);
-                }
-                else if (request.EmailOrPhone.All(char.IsDigit) || request.EmailOrPhone.StartsWith("+"))
-                {
-                    var isValid = await _unitOfWork.UserRepository.CheckIfUserLoginCorrectByPhoneAsync(
-                        request.EmailOrPhone, request.Password);
-
-                    if (!isValid)
-                    {
-                        await RecordFailedLoginAttemptAsync(attemptKey);
-                        return new TokenResponse { ErrorMessage = "Số điện thoại hoặc mật khẩu không đúng." };
-                    }
-
-                    user = await _unitOfWork.UserRepository.GetUserByPhoneAsync(request.EmailOrPhone);
-                }
-                else
-                {
-                    var isValid = await _unitOfWork.UserRepository.CheckIfUserLoginCorrectByUsernameAsync(
-                        request.EmailOrPhone, request.Password);
-
-                    if (!isValid)
-                    {
-                        await RecordFailedLoginAttemptAsync(attemptKey);
-                        return new TokenResponse { ErrorMessage = "Tên người dùng hoặc mật khẩu không chính xác." };
-                    }
-
-                    user = await _unitOfWork.UserRepository.GetUserByUsernameAsync(request.EmailOrPhone);
+                    await RecordFailedLoginAttemptAsync(attemptKey);
+                    return new TokenResponse { ErrorMessage = wrongCredentialMessage };
                 }
 
                 // Mật khẩu đã đúng — xóa bộ đếm sai để không cộng dồn qua các lần đăng nhập sau.
@@ -788,8 +786,11 @@ namespace MV.ApplicationLayer.Services
             await SaveOtpDailyLimitAsync(otpKey, dailyEntry);
         }
 
-        // ─── Login attempt lockout (Redis via IDistributedCache), keyed by định danh đăng nhập ───
+        // ─── Login attempt lockout (Redis via IDistributedCache) ───
+        // Khóa theo Userid khi định danh resolve được tài khoản; LoginAttemptKey (theo chuỗi
+        // định danh thô) chỉ còn dùng làm fallback khi định danh không khớp tài khoản nào.
         private static string LoginAttemptKey(string identifier) => $"login:fail:{identifier.Trim().ToLowerInvariant()}";
+        private static string LoginAttemptKeyForUser(string userId) => $"login:fail:user:{userId}";
 
         private sealed class LoginAttemptEntry
         {

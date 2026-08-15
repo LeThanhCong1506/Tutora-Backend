@@ -103,6 +103,7 @@ namespace MV.ApplicationLayer.ServiceInterfaces
 
         Task<bool> DeactivateTutorPackageAsync(string tutorId, int packageId);
         Task<bool> ActivateTutorPackageAsync(string tutorId, int packageId);
+        Task<bool> DeleteTutorPackageAsync(string tutorId, int packageId);
 
         // ── Profile submission ─────────────────────────────────────────────
 

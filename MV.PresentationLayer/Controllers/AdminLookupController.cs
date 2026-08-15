@@ -68,8 +68,15 @@ public class AdminLookupController : ControllerBase
         [FromBody] SubjectRequest req)
     {
         if (!ModelState.IsValid) return BadRequest(APIResponse.Fail("Dữ liệu môn học không hợp lệ.", 400));
-        var result = await _lookup.CreateSubjectAsync(req);
-        return Ok(APIResponse<SubjectResponse>.Success(result, "Tạo môn học mới thành công."));
+        try
+        {
+            var result = await _lookup.CreateSubjectAsync(req);
+            return Ok(APIResponse<SubjectResponse>.Success(result, "Tạo môn học mới thành công."));
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(APIResponse.Fail(ex.Message, 400));
+        }
     }
 
     [HttpPut("subjects/{id:int}")]
@@ -78,16 +85,48 @@ public class AdminLookupController : ControllerBase
         int id, [FromBody] SubjectRequest req)
     {
         if (!ModelState.IsValid) return BadRequest(APIResponse.Fail("Dữ liệu môn học không hợp lệ.", 400));
-        var result = await _lookup.UpdateSubjectAsync(id, req);
-        return result == null
-            ? NotFound(APIResponse.Fail("Không tìm thấy môn học.", 404))
-            : Ok(APIResponse<SubjectResponse>.Success(result, "Cập nhật môn học thành công."));
+        try
+        {
+            var result = await _lookup.UpdateSubjectAsync(id, req);
+            return result == null
+                ? NotFound(APIResponse.Fail("Không tìm thấy môn học.", 404))
+                : Ok(APIResponse<SubjectResponse>.Success(result, "Cập nhật môn học thành công."));
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(APIResponse.Fail(ex.Message, 400));
+        }
     }
 
     [HttpDelete("subjects/{id:int}")]
     [RequirePermission(Permissions.LookupDelete)]
     public Task<ActionResult<APIResponse<object>>> DeleteSubject(int id)
         => DeleteGuarded(() => _lookup.DeleteSubjectAsync(id), "môn học");
+
+    /// <summary>
+    /// Xóa vĩnh viễn môn học đã ngừng hoạt động. Yêu cầu IsActive=false và chưa từng được
+    /// tham chiếu (chương/câu hỏi/bảng giá gia sư/hồ sơ học sinh) — 409 nếu vi phạm.
+    /// </summary>
+    [HttpDelete("subjects/{id:int}/permanent")]
+    [RequirePermission(Permissions.LookupDelete)]
+    public async Task<ActionResult<APIResponse<object>>> HardDeleteSubject(int id)
+    {
+        try
+        {
+            var result = await _lookup.HardDeleteSubjectAsync(id);
+            return result
+                ? Ok(APIResponse.Success("Đã xóa vĩnh viễn môn học."))
+                : NotFound(APIResponse.Fail("Không tìm thấy môn học.", 404));
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Conflict(APIResponse.Fail(ex.Message, 409));
+        }
+        catch (LookupInUseException ex)
+        {
+            return Conflict(APIResponse.Fail(ex.Message, 409));
+        }
+    }
 
     // GradeLevels
 
@@ -236,7 +275,7 @@ public class AdminLookupController : ControllerBase
 
         var ok = await reorderFn();
         return ok
-            ? Ok(APIResponse<object>.Success($"Đã cập nhật thứ tự {label}."))
+            ? Ok(APIResponse.Success($"Đã cập nhật thứ tự {label}."))
             : BadRequest(APIResponse.Fail($"Danh sách {label} chứa mục không tồn tại.", 400));
     }
 
@@ -249,7 +288,7 @@ public class AdminLookupController : ControllerBase
         {
             var ok = await deleteFn();
             return ok
-                ? Ok(APIResponse<object>.Success(successMessage ?? $"Xoá {label} thành công."))
+                ? Ok(APIResponse.Success(successMessage ?? $"Xoá {label} thành công."))
                 : NotFound(APIResponse.Fail($"Không tìm thấy {label}.", 404));
         }
         catch (LookupInUseException ex)
@@ -270,7 +309,7 @@ public class AdminLookupController : ControllerBase
 
         var message = result.AffectedCount > 0
             ? $"Đã ngừng sử dụng {label} (đang có {result.AffectedCount} gói giá của tutor tham chiếu — các booking/lớp đang dạy không bị ảnh hưởng)."
-            : $"Soft delete {label} thành công (đã ngừng sử dụng).";
-        return Ok(APIResponse<object>.Success(message));
+            : $"Đã ngừng sử dụng {label}.";
+        return Ok(APIResponse.Success(message));
     }
 }

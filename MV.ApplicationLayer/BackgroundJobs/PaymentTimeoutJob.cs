@@ -44,7 +44,9 @@ public class PaymentTimeoutJob(IServiceProvider sp, ILogger<PaymentTimeoutJob> l
         var notify = scope.ServiceProvider.GetRequiredService<INotificationService>();
         var notificationRepo = scope.ServiceProvider.GetRequiredService<INotificationRepository>();
         var now = TimeZoneHelper.UtcNow;
-        var dueSoon = now.AddMinutes(10);
+        // Cửa sổ giữ chỗ chỉ còn 10 phút (BookingService.cs) — nhắc trước 3 phút để còn kịp
+        // hành động, thay vì 10 phút cũ (gần như trùng luôn lúc booking vừa tạo).
+        var dueSoon = now.AddMinutes(3);
 
         var bookingsDueSoon = await db.Bookings
             .Where(b => (b.Status == BookingStatus.PendingPayment || b.Status == BookingStatus.Accepted)
@@ -186,7 +188,7 @@ public class PaymentTimeoutJob(IServiceProvider sp, ILogger<PaymentTimeoutJob> l
                     {
                         Userid = b.Parentid,
                         Title = "Booking đã hết hạn thanh toán",
-                        Message = $"Booking #{b.Bookingid} đã bị hủy do quá hạn thanh toán 30 phút.",
+                        Message = $"Booking #{b.Bookingid} đã bị hủy do quá hạn thanh toán 10 phút.",
                         Type = NotificationType.BookingTimeout,
                         Referenceid = b.Bookingid.ToString()
                     });
@@ -195,7 +197,7 @@ public class PaymentTimeoutJob(IServiceProvider sp, ILogger<PaymentTimeoutJob> l
                     {
                         Userid = b.Tutorid,
                         Title = "Booking đã hết hạn thanh toán",
-                        Message = $"Booking #{b.Bookingid} đã bị hủy do phụ huynh không thanh toán trong 30 phút.",
+                        Message = $"Booking #{b.Bookingid} đã bị hủy do phụ huynh không thanh toán trong 10 phút.",
                         Type = NotificationType.BookingTimeout,
                         Referenceid = b.Bookingid.ToString()
                     });

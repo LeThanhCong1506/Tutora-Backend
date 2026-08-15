@@ -218,37 +218,13 @@ public class ChatService(
         return response;
     }
 
-    public async Task SendMeetLinksAsync(int bookingId, List<ClassSessionMiniResponse> classSessions)
+    public Task SendMeetLinksAsync(int bookingId, List<ClassSessionMiniResponse> classSessions)
     {
-        var booking = await bookingRepo.FindWithStudentAsync(bookingId);
-        if (booking == null) return;
-
-        var (payerId, payerIsStudent) = BookingPayerResolver.Resolve(booking);
-        var channel = await chatRepo.FindChannelByParticipantsAsync(
-            booking.Tutorid!,
-            payerIsStudent ? null : payerId,
-            payerIsStudent ? payerId : null);
-        if (channel == null) return;
-
-                var senderId = booking.Tutorid ?? SystemActors.System;
-
-        // Chỉ gửi link BUỔI ĐẦU vào chat. Các buổi sau chỉ mở sau khi phụ huynh
-        // thanh toán đợt 2 — gửi sẵn link mọi buổi sẽ khiến phụ huynh tưởng vào được
-        // ngay (dù Agora token đã chặn ở BE). Link buổi sau sẽ được gửi khi tutor
-        // check-in từng buổi.
-        var firstSession = classSessions
-            .Where(l => !string.IsNullOrWhiteSpace(l.MeetingLink))
-            .OrderBy(l => l.ScheduledStart)
-            .FirstOrDefault();
-
-        if (firstSession != null)
-        {
-            await SendMessageAsync(senderId, channel.Channelid, new ChatMessageCreateRequest
-            {
-                Content = $"Buổi học đầu tiên: {firstSession.ScheduledStart:dd/MM HH:mm} - {firstSession.ScheduledEnd:HH:mm}\n\n🔗 Link tham gia: {firstSession.MeetingLink}",
-                MessageType = ChatMessageType.MeetLink
-            });
-        }
+        // No-op có chủ đích: MeetingLink chỉ là channel Agora RTC nội bộ (= classSessionId), không
+        // phải URL bấm được. Tin nhắn cũ in thẳng giá trị này ra ("🔗 Link tham gia: 683") khiến người
+        // dùng tưởng đó là link thật nhưng không bấm được gì — bỏ thông báo này, người dùng vào học
+        // qua nút "Vào học nhanh" ở trang chi tiết buổi học thay vào đó.
+        return Task.CompletedTask;
     }
 
     public async Task<int> GetOrCreateChannelAsync(string parentId, string tutorId, bool isStudent = false)

@@ -521,10 +521,18 @@ public class AiCreditService(
         var pkg = await context.AiCreditPackages.FirstOrDefaultAsync(p => p.Packageid == packageId, ct)
             ?? throw new BookingException(AiCreditErrorCodes.PackageNotFound, "Không tìm thấy gói.", 404);
 
-        // Soft-disable thay vì xóa cứng để không mất lịch sử tham chiếu từ payment_transactions.
-        pkg.Isactive = false;
-        pkg.Ispurchasable = false;
-        pkg.Updatedat = TimeZoneHelper.UtcNow;
+        // Xóa cứng chỉ an toàn khi gói chưa từng có giao dịch nào tham chiếu tới — payment_transactions
+        // và payment_requests đều FK ON DELETE SET NULL vào package_id, nên xóa cứng một gói đã có giao
+        // dịch sẽ không lỗi nhưng làm rỗng luôn "giao dịch này thuộc gói nào" trong lịch sử/báo cáo.
+        var hasTransactions = await context.PaymentTransactions.AnyAsync(t => t.AiCreditPackageid == packageId, ct)
+            || await context.PaymentRequests.AnyAsync(r => r.AiCreditPackageid == packageId, ct);
+        if (hasTransactions)
+            throw new BookingException(
+                AiCreditErrorCodes.PackageHasTransactions,
+                "Gói đã có giao dịch nên không thể xóa. Hãy tắt \"Đang hoạt động\" ở màn hình sửa để ẩn gói thay vào đó.",
+                409);
+
+        context.AiCreditPackages.Remove(pkg);
         await context.SaveChangesAsync(ct);
     }
 
