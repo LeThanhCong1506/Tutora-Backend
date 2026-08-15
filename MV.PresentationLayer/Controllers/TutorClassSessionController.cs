@@ -257,6 +257,30 @@ public class TutorClassSessionController : ControllerBase
     }
 
     /// <summary>
+    /// Gia sư tự mở 1 tranh chấp mới cho buổi học của mình (no_show / quality / payment / other).
+    /// Buổi học phải PendingConfirmation hoặc Completed, và chưa có tranh chấp nào.
+    /// </summary>
+    [HttpPost("{id}/dispute")]
+    [Consumes("multipart/form-data")]
+    public async Task<ActionResult<APIResponse<DisputeDetailResponse>>> CreateDispute(int id, [FromForm] CreateDisputeRequest request)
+    {
+        var tutorId = UserHelper.GetUserId(User);
+        try
+        {
+            var result = await _disputeService.CreateTutorDisputeAsync(id, tutorId, request);
+            return Ok(APIResponse<DisputeDetailResponse>.Success(result, "Đã gửi khiếu nại thành công."));
+        }
+        catch (ArgumentException ex)
+        {
+            return NotFound(APIResponse<DisputeDetailResponse>.Fail(ex.Message));
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(APIResponse<DisputeDetailResponse>.Fail(ex.Message));
+        }
+    }
+
+    /// <summary>
     /// Submit a written rebuttal to a dispute raised against the tutor for this classSession.
     /// </summary>
     [HttpPost("{id}/dispute/response")]
