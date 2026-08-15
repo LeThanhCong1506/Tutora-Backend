@@ -6,6 +6,10 @@ namespace MV.DomainLayer.DTO.ResponseModel
 
         public string TutorId { get; set; } = string.Empty;
 
+        public int? SubjectId { get; set; }
+
+        public string? SubjectName { get; set; }
+
         public string Name { get; set; } = string.Empty;
 
         /// <summary>1 = flexible, 2 = fixed.</summary>
