@@ -17,11 +17,13 @@ namespace MV.PresentationLayer.Controllers
     {
         private readonly IUserService _userService;
         private readonly IUnitOfWork _unitOfWork;
+        private readonly ISupportMessageService _supportService;
 
-        public UserController(IUserService userService, IUnitOfWork unitOfWork)
+        public UserController(IUserService userService, IUnitOfWork unitOfWork, ISupportMessageService supportService)
         {
             _userService = userService;
             _unitOfWork = unitOfWork;
+            _supportService = supportService;
         }
 
         [HttpGet("profile")]
@@ -261,6 +263,58 @@ namespace MV.PresentationLayer.Controllers
             {
                 return BadRequest(APIResponse<object>.Fail(ex.Message, 400));
             }
+        }
+
+        /// <summary>
+        /// My own support thread with Admin/Staff (tutor/parent/student side). Null content if no
+        /// thread exists yet — the caller hasn't messaged support before.
+        /// </summary>
+        [HttpGet("me/support/thread")]
+        [Authorize]
+        public async Task<IActionResult> GetMySupportThread()
+        {
+            var currentUserId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (string.IsNullOrEmpty(currentUserId))
+                return Unauthorized(APIResponse<object>.Fail(ApiMessages.Unauthorized, 401));
+
+            var result = await _supportService.GetThreadForUserAsync(currentUserId);
+            return Ok(APIResponse<SupportThreadDetailResponse?>.Success(result, "Lấy hội thoại hỗ trợ thành công."));
+        }
+
+        /// <summary>Sends a message to Admin/Staff, creating my support thread on first contact.</summary>
+        [HttpPost("me/support/messages")]
+        [Authorize]
+        public async Task<IActionResult> SendMySupportMessage([FromBody] SendSupportMessageRequest request)
+        {
+            var currentUserId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (string.IsNullOrEmpty(currentUserId))
+                return Unauthorized(APIResponse<object>.Fail(ApiMessages.Unauthorized, 401));
+
+            var result = await _supportService.SendMessageAsUserAsync(currentUserId, request.Message);
+            return Ok(APIResponse<SupportMessageItemResponse>.Success(result, "Gửi tin nhắn thành công."));
+        }
+
+        private const long MaxSupportImageSizeBytes = 5 * 1024 * 1024;
+
+        /// <summary>Uploads and sends an image to Admin/Staff, creating my support thread on first contact.</summary>
+        [HttpPost("me/support/images")]
+        [Authorize]
+        [RequestSizeLimit(MaxSupportImageSizeBytes)]
+        public async Task<IActionResult> SendMySupportImage(IFormFile file)
+        {
+            var currentUserId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (string.IsNullOrEmpty(currentUserId))
+                return Unauthorized(APIResponse<object>.Fail(ApiMessages.Unauthorized, 401));
+
+            if (file == null || file.Length == 0)
+                return BadRequest(APIResponse<object>.Fail("Không có file được chọn.", 400));
+            if (file.Length > MaxSupportImageSizeBytes)
+                return BadRequest(APIResponse<object>.Fail("Kích thước file vượt quá 5MB.", 400));
+            if (!file.ContentType.StartsWith("image/"))
+                return BadRequest(APIResponse<object>.Fail("Chỉ chấp nhận file hình ảnh.", 400));
+
+            var result = await _supportService.SendImageAsUserAsync(currentUserId, file);
+            return Ok(APIResponse<SupportMessageItemResponse>.Success(result, "Gửi hình ảnh thành công."));
         }
     }
 }
