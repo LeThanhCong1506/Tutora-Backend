@@ -23,26 +23,15 @@ public class CloseDisputeRequest
     public string Note { get; set; } = null!;
 }
 
-/// <summary>
-/// Trạng thái buổi học sau khi admin đóng tranh chấp do hai bên hoà giải.
-///
-/// Chỉ buổi ở "pending_confirmation" hoặc "completed" mới tạo được tranh chấp (xem
-/// <see cref="MV.ApplicationLayer.Helpers.DisputeSettlementPolicy.IsEligibleClassSession"/>), nhưng
-/// trạng thái cũ đó không được lưu lại ở đâu — nên admin phải tự chọn đưa buổi về đâu.
-/// </summary>
+/// <summary>Trạng thái buổi học sau khi admin đóng tranh chấp do hai bên hoà giải.</summary>
 public static class CloseDisputeOutcomes
 {
-    /// <summary>Buổi học vẫn tính là đã dạy — quyết toán cho gia sư ngay, không hoàn tiền.</summary>
+    /// <summary>Buổi học vẫn tính là đã dạy — quyết toán cho gia sư như bình thường, không hoàn tiền.</summary>
     public const string Completed = "completed";
-
-    /// <summary>Trả buổi về "chờ phụ huynh xác nhận" như trước khi có phản ánh — dùng khi phản ánh
-    /// được tạo lúc buổi còn đang chờ xác nhận. Chưa quyết toán: phụ huynh xác nhận (hoặc hết hạn
-    /// 12h rồi job tự xác nhận) thì tiền mới chuyển, đúng luồng thường ngày.</summary>
-    public const string PendingConfirmation = "pending_confirmation";
 
     /// <summary>Hai bên thống nhất học lại buổi này — trả buổi về "scheduled", xoá dấu vết điểm danh
     /// của lần trước và KHÔNG quyết toán (tiền vẫn nằm trong booking để dùng cho lần học lại).</summary>
     public const string Reschedule = "reschedule";
 
-    public static readonly string[] All = { Completed, PendingConfirmation, Reschedule };
+    public static readonly string[] All = { Completed, Reschedule };
 }

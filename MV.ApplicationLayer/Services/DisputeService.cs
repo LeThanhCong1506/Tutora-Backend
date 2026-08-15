@@ -540,47 +540,32 @@ public class DisputeService : IDisputeService
 
                 if (classSession != null)
                 {
-                    switch (request.ClassSessionOutcome)
+                    if (request.ClassSessionOutcome == CloseDisputeOutcomes.Completed)
                     {
-                        case CloseDisputeOutcomes.Completed:
-                            // SettleDisputedClassSessionAsync cố ý bỏ qua kiểm tra trạng thái — cần thế vì buổi
-                            // đang ở "disputed", còn SettleClassSessionAsync chỉ nhận pending_confirmation/completed.
-                            await _settlementService.SettleDisputedClassSessionAsync(classSession.Classsessionid, adminId);
-                            classSession.Status = Completed;
-                            break;
+                        // SettleDisputedClassSessionAsync cố ý bỏ qua kiểm tra trạng thái — cần thế vì buổi
+                        // đang ở "disputed", còn SettleClassSessionAsync chỉ nhận pending_confirmation/completed.
+                        await _settlementService.SettleDisputedClassSessionAsync(classSession.Classsessionid, adminId);
+                        classSession.Status = Completed;
+                    }
+                    else
+                    {
+                        if (classSession.Issettled == true)
+                            throw new InvalidOperationException(
+                                "Buổi học này đã được quyết toán, không thể đưa về trạng thái học lại.");
 
-                        case CloseDisputeOutcomes.PendingConfirmation:
-                            if (classSession.Issettled == true)
-                                throw new InvalidOperationException(
-                                    "Buổi học này đã được quyết toán, không thể đưa lại về chờ xác nhận.");
-
-                            // Trả về đúng luồng thường ngày thay vì quyết toán hộ phụ huynh: họ chưa từng
-                            // xác nhận buổi này trước khi phản ánh nổ ra. Cấp lại hạn 12h giống lúc gia sư
-                            // nộp báo cáo (ClassSessionService.M3.Attendance) — hạn cũ đã trôi qua trong
-                            // thời gian tranh chấp nên giữ nguyên là job tự xác nhận ngay lập tức.
-                            classSession.Status = PendingConfirmation;
-                            classSession.Confirmdeadline = now.AddHours(12);
-                            break;
-
-                        default:
-                            if (classSession.Issettled == true)
-                                throw new InvalidOperationException(
-                                    "Buổi học này đã được quyết toán, không thể đưa về trạng thái học lại.");
-
-                            // Học lại thì lần dạy hỏng trước đó không được để lại dấu vết, nếu không buổi mới
-                            // sẽ mang sẵn giờ check-in/điểm danh cũ và mốc nộp báo cáo của lần trước.
-                            classSession.Status = Scheduled;
-                            classSession.Checkintime = null;
-                            classSession.Checkouttime = null;
-                            classSession.Realstart = null;
-                            classSession.Realend = null;
-                            classSession.Istutorpresent = null;
-                            classSession.Isstudentpresent = null;
-                            classSession.Attendancenote = null;
-                            classSession.Noshowaction = null;
-                            classSession.Submittedat = null;
-                            classSession.Confirmdeadline = null;
-                            break;
+                        // Học lại thì lần dạy hỏng trước đó không được để lại dấu vết, nếu không buổi mới
+                        // sẽ mang sẵn giờ check-in/điểm danh cũ và báo cáo cũ của lần trước.
+                        classSession.Status = Scheduled;
+                        classSession.Checkintime = null;
+                        classSession.Checkouttime = null;
+                        classSession.Realstart = null;
+                        classSession.Realend = null;
+                        classSession.Istutorpresent = null;
+                        classSession.Isstudentpresent = null;
+                        classSession.Attendancenote = null;
+                        classSession.Noshowaction = null;
+                        classSession.Submittedat = null;
+                        classSession.Confirmdeadline = null;
                     }
                 }
 
@@ -609,12 +594,9 @@ public class DisputeService : IDisputeService
 
         try
         {
-            var outcomeText = request.ClassSessionOutcome switch
-            {
-                CloseDisputeOutcomes.Completed => "Buổi học vẫn được tính là đã hoàn thành.",
-                CloseDisputeOutcomes.PendingConfirmation => "Buổi học quay lại chờ bạn xác nhận như bình thường.",
-                _ => "Buổi học sẽ được sắp xếp học lại."
-            };
+            var outcomeText = request.ClassSessionOutcome == CloseDisputeOutcomes.Completed
+                ? "Buổi học vẫn được tính là đã hoàn thành."
+                : "Buổi học sẽ được sắp xếp học lại.";
 
             if (!string.IsNullOrWhiteSpace(createdBy))
             {
