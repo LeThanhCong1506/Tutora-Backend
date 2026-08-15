@@ -40,6 +40,10 @@ public class DisputeDetailResponse
     // Tutor rebuttal
     public string? TutorResponse { get; set; }
     public DateTime? TutorRespondedAt { get; set; }
+
+    /// <summary>Phản hồi của phụ huynh/học sinh khi dispute do gia sư tạo (chiều ngược với <see cref="TutorResponse"/>).</summary>
+    public string? RespondentResponse { get; set; }
+    public DateTime? RespondentRespondedAt { get; set; }
     public List<DisputeEvidenceItemResponse>? AdditionalEvidence { get; set; }
 
     // No-show verification (admin gate before the payer side may choose a remedy)

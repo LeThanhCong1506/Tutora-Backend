@@ -1298,6 +1298,10 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
             entity.Property(e => e.Tutorrespondedat)
                 .HasColumnType("timestamp without time zone")
                 .HasColumnName("tutor_responded_at");
+            entity.Property(e => e.Respondentresponse).HasColumnName("respondent_response");
+            entity.Property(e => e.Respondentrespondedat)
+                .HasColumnType("timestamp without time zone")
+                .HasColumnName("respondent_responded_at");
             entity.Property(e => e.Noshowconfirmedat)
                 .HasColumnType("timestamp without time zone")
                 .HasColumnName("no_show_confirmed_at");
