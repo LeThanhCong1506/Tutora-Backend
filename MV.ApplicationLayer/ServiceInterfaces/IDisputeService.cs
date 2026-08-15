@@ -103,6 +103,24 @@ public interface IDisputeService
     /// </summary>
     Task<string> UploadTutorDisputeEvidenceAsync(int classSessionId, string tutorId, Microsoft.AspNetCore.Http.IFormFile file);
 
+    // ── Tutor creates a dispute / parent-student responds (mirror of the Parent/Student-facing
+    // creation + Tutor-facing rebuttal blocks above, reversed) ─────────────────
+
+    /// <summary>
+    /// Tutor opens a new dispute for their own classSession.
+    /// </summary>
+    Task<DisputeDetailResponse> CreateTutorDisputeAsync(int classSessionId, string tutorId, CreateDisputeRequest request);
+
+    /// <summary>
+    /// Parent/student submits a written rebuttal to a dispute raised against them by the tutor.
+    /// </summary>
+    Task<DisputeDetailResponse> SubmitRespondentResponseAsync(int classSessionId, string userId, string role, string response);
+
+    /// <summary>
+    /// Parent/student uploads supporting evidence for a dispute raised against them by the tutor.
+    /// </summary>
+    Task<string> UploadRespondentDisputeEvidenceAsync(int classSessionId, string userId, string role, Microsoft.AspNetCore.Http.IFormFile file);
+
     // ── Dispute chat threads — private per-party channels with admin ───────────
 
     /// <summary>Admin view of either thread ("tutor" or "parent") for a dispute.</summary>
