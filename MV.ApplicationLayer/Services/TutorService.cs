@@ -445,6 +445,29 @@ namespace MV.ApplicationLayer.Services
         }
 
         /// <summary>
+        /// Xóa vĩnh viễn một package đã ẩn. Chỉ cho phép khi package đang Isactive=false
+        /// (phải ẩn trước) và chưa từng có booking nào tham chiếu (booking giữ Packageid FK,
+        /// không cascade delete — xóa cứng package còn booking sẽ vỡ ràng buộc dữ liệu).
+        /// </summary>
+        public async Task<bool> DeleteTutorPackageAsync(string tutorId, int packageId)
+        {
+            var package = await _unitOfWork.TutorRepository.GetTutorPackageAsync(tutorId, packageId);
+            if (package == null) return false;
+
+            if (package.Isactive)
+                throw new InvalidOperationException("Vui lòng ẩn gói này trước khi xóa vĩnh viễn.");
+
+            var hasBookings = await _unitOfWork.TutorRepository.TutorPackageHasBookingsAsync(packageId);
+            if (hasBookings)
+                throw new InvalidOperationException(
+                    "Không thể xóa vĩnh viễn gói này vì đã từng có buổi dạy được đặt theo gói. Bạn có thể tiếp tục ẩn gói này.");
+
+            _unitOfWork.TutorRepository.DeleteTutorPackage(package);
+            await _unitOfWork.SaveChangesAsync();
+            return true;
+        }
+
+        /// <summary>
         /// Cập nhật package (tên, loại, khung cố định). Trả null nếu không tìm thấy.
         /// Chặn (409) nếu package đang có buổi dạy được đặt chưa hoàn tất, hoặc khung mới
         /// đè lên buổi dạy đã cam kết khác.

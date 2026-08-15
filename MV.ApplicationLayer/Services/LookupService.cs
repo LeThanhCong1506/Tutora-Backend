@@ -249,7 +249,18 @@ namespace MV.ApplicationLayer.Services
                 MaxGradeLevelId = req.MaxGradeLevelId,
             };
             _context.Subjects.Add(entity);
-            await _context.SaveChangesAsync();
+            try
+            {
+                await _context.SaveChangesAsync();
+            }
+            catch (DbUpdateException ex) when (IsUniqueSubjectSlugConflict(ex))
+            {
+                throw new ArgumentException($"Slug \"{entity.Slug}\" đã được dùng cho môn học khác. Vui lòng đổi tên hoặc nhập slug khác.");
+            }
+            catch (DbUpdateException ex) when (IsUniqueSubjectNameConflict(ex))
+            {
+                throw new ArgumentException($"Tên môn học \"{entity.Subjectname}\" đã tồn tại.");
+            }
             return ToSubjectResponse(entity);
         }
 
@@ -268,9 +279,28 @@ namespace MV.ApplicationLayer.Services
             entity.DisplayOrder = req.DisplayOrder;
             entity.MinGradeLevelId = req.MinGradeLevelId;
             entity.MaxGradeLevelId = req.MaxGradeLevelId;
-            await _context.SaveChangesAsync();
+            try
+            {
+                await _context.SaveChangesAsync();
+            }
+            catch (DbUpdateException ex) when (IsUniqueSubjectSlugConflict(ex))
+            {
+                throw new ArgumentException($"Slug \"{entity.Slug}\" đã được dùng cho môn học khác. Vui lòng đổi tên hoặc nhập slug khác.");
+            }
+            catch (DbUpdateException ex) when (IsUniqueSubjectNameConflict(ex))
+            {
+                throw new ArgumentException($"Tên môn học \"{entity.Subjectname}\" đã tồn tại.");
+            }
             return ToSubjectResponse(entity);
         }
+
+        // Khớp convention IsUniquePhoneConflict trong SimpleAuthService: soi tên constraint
+        // trong message lỗi Postgres thay vì bắt theo SqlState (DbUpdateException không tự lộ SqlState).
+        private static bool IsUniqueSubjectSlugConflict(DbUpdateException ex) =>
+            $"{ex.Message} {ex.InnerException?.Message}".Contains("ux_subjects_slug", StringComparison.OrdinalIgnoreCase);
+
+        private static bool IsUniqueSubjectNameConflict(DbUpdateException ex) =>
+            $"{ex.Message} {ex.InnerException?.Message}".Contains("subjects_subjectname_key", StringComparison.OrdinalIgnoreCase);
 
         /// <summary>
         /// So theo Levelorder (không so trực tiếp id — id không đảm bảo tăng dần theo khối lớp).
@@ -306,6 +336,33 @@ namespace MV.ApplicationLayer.Services
             entity.IsActive = false;
             await _context.SaveChangesAsync();
             return new LookupDeleteResult(true, affectedCount);
+        }
+
+        /// <summary>
+        /// Xóa vĩnh viễn một môn học. Yêu cầu môn đang IsActive=false (phải ngừng hoạt động
+        /// trước) và chưa từng được tham chiếu bởi Chapter/QuestionBank/Tutorsubjectgradeprice/
+        /// Studentgrade (Booking tham chiếu Subject gián tiếp qua Tutorsubjectgradeprice nên
+        /// đã được bao phủ). Ném LookupInUseException nếu còn tham chiếu -> controller trả 409.
+        /// </summary>
+        public async Task<bool> HardDeleteSubjectAsync(int id)
+        {
+            var entity = await _context.Subjects.FirstOrDefaultAsync(s => s.Subjectid == id);
+            if (entity == null) return false;
+
+            if (entity.IsActive)
+                throw new InvalidOperationException("Vui lòng ngừng hoạt động môn học này trước khi xóa vĩnh viễn.");
+
+            var inUse = await _context.Chapters.AnyAsync(c => c.SubjectId == id)
+                || await _context.QuestionBanks.AnyAsync(q => q.SubjectId == id)
+                || await _context.Tutorsubjectgradeprices.AnyAsync(p => p.Subjectid == id)
+                || await _context.Studentgrades.AnyAsync(sg => sg.Subjectid == id);
+            if (inUse)
+                throw new LookupInUseException(
+                    "Không thể xóa vĩnh viễn môn học này vì đang được tham chiếu bởi chương, câu hỏi, bảng giá gia sư hoặc hồ sơ học sinh. Bạn có thể tiếp tục giữ ở trạng thái ngừng hoạt động.");
+
+            _context.Subjects.Remove(entity);
+            await _context.SaveChangesAsync();
+            return true;
         }
 
         // GradeLevel

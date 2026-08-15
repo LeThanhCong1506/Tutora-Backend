@@ -38,6 +38,22 @@ public class ClassSessionScheduleChangeService(
             return Map(session, null, userId, false, session.Status == ClassSessionStatus.InProgress);
 
         var now = TimeZoneHelper.UtcNow;
+
+        // Read-only path never creates a new request (see ParentController.GetScheduleChange), but it
+        // must still surface a request that timed out while nobody was polling it — otherwise Status
+        // stays "pending" forever even though RequiresConfirmation has already gone false, and neither
+        // side is told the window closed.
+        var justExpired = (latest.Status == ScheduleChangeStatus.Pending
+                || latest.Status == ScheduleChangeStatus.Approved)
+            && latest.Expiresat <= now;
+        if (justExpired)
+        {
+            latest.Status = ScheduleChangeStatus.Expired;
+            latest.Updatedat = now;
+            await db.SaveChangesAsync(cancellationToken);
+            await NotifyExpiredAsync(session, latest);
+        }
+
         var isActive = (latest.Status == ScheduleChangeStatus.Pending
                 || latest.Status == ScheduleChangeStatus.Approved)
             && latest.Expiresat > now;
@@ -411,6 +427,30 @@ public class ClassSessionScheduleChangeService(
             catch (Exception ex)
             {
                 logger.LogWarning(ex, "Could not notify schedule-change approver {UserId}", target);
+            }
+        }
+    }
+
+    private async Task NotifyExpiredAsync(SessionSnapshot session, ClassSessionScheduleChange change)
+    {
+        foreach (var target in new[] { change.Tutoruserid, change.Learnerapproveruserid }.Distinct())
+        {
+            try
+            {
+                await notificationService.CreateNotificationAsync(new NotificationRequest
+                {
+                    Userid = target,
+                    Title = "Yêu cầu xác nhận đổi giờ đã hết hạn",
+                    Message = target == change.Tutoruserid
+                        ? $"Yêu cầu xác nhận học ngoài lịch của {session.StudentName ?? "học viên"} đã hết hạn vì chưa đủ hai bên xác nhận trong 30 phút. Vui lòng vào lại phòng chờ để gửi yêu cầu mới."
+                        : $"Yêu cầu xác nhận học ngoài lịch của {session.StudentName ?? "học viên"} đã hết hạn. Gia sư cần mở lại phòng chờ để gửi yêu cầu mới.",
+                    Type = NotificationType.LessonScheduleChange,
+                    Referenceid = session.Classsessionid.ToString()
+                });
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Could not notify schedule-change expiry to {UserId}", target);
             }
         }
     }

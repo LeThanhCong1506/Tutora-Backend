@@ -54,7 +54,7 @@ public class AdminAiCreditController(
         try
         {
             await aiCreditService.AdminDeletePackageAsync(packageId, ct);
-            return Ok(new { message = "Đã vô hiệu hóa gói." });
+            return Ok(new { message = "Đã xóa gói." });
         }
         catch (BookingException ex) { return Handle(ex); }
     }

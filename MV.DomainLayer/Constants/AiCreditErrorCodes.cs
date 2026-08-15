@@ -3,6 +3,7 @@ namespace MV.DomainLayer.Constants;
 public static class AiCreditErrorCodes
 {
     public const string PackageNotFound = "AI_CREDIT_PACKAGE_NOT_FOUND";
+    public const string PackageHasTransactions = "AI_CREDIT_PACKAGE_HAS_TRANSACTIONS";
     public const string PackageNotPurchasable = "AI_CREDIT_PACKAGE_NOT_PURCHASABLE";
     public const string PackageCodeExists = "AI_CREDIT_PACKAGE_CODE_EXISTS";
     public const string UserNotFound = "AI_CREDIT_USER_NOT_FOUND";

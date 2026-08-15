@@ -649,6 +649,35 @@ namespace MV.PresentationLayer.Controllers
         }
 
         /// <summary>
+        /// Xóa vĩnh viễn một package đã ẩn. Yêu cầu package đang Isactive=false và chưa từng
+        /// có booking nào (mới tạo/tạo nhầm). Trả 409 nếu package đang bật hoặc đã từng được đặt.
+        /// </summary>
+        [HttpDelete("{id}/profile/packages/{packageId:int}/permanent")]
+        public async Task<IActionResult> DeletePackagePermanently([FromRoute] string id, [FromRoute] int packageId)
+        {
+            var currentUserId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (currentUserId != id)
+            {
+                return StatusCode(403, APIResponse.Fail("Bạn chỉ có thể xóa package của chính mình.", 403));
+            }
+
+            try
+            {
+                var result = await _tutorService.DeleteTutorPackageAsync(id, packageId);
+                if (!result)
+                {
+                    return NotFound(APIResponse.Fail("Không tìm thấy package.", 404));
+                }
+
+                return Ok(APIResponse.Success("Đã xóa vĩnh viễn package thành công."));
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Conflict(APIResponse.Fail(ex.Message, 409));
+            }
+        }
+
+        /// <summary>
         /// Update tutor status to pending (request approval)
         /// </summary>
         // [HttpPut("{id}/status/pending")]

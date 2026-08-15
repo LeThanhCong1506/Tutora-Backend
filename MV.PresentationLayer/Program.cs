@@ -389,6 +389,7 @@ builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ISettlementService, SettlementService>();
 builder.Services.AddScoped<IParentService, ParentService>();
 builder.Services.AddScoped<IDisputeService, DisputeService>();
+builder.Services.AddScoped<ISupportMessageService, SupportMessageService>();
 builder.Services.AddScoped<IWarningService, WarningService>();
 builder.Services.AddScoped<IFeedbackService, FeedbackService>();
 builder.Services.AddScoped<IQuestionService, QuestionService>();

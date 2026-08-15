@@ -55,6 +55,9 @@ public static class Permissions
     public const string PolicyView = "policy.view";
     public const string PolicyManage = "policy.manage";
 
+    // Admin/Staff support inbox — direct messaging with tutor/parent/student.
+    public const string SupportView = "support.view";
+
     public const string ExportData = "export.data";
 
     public const string NotificationSend = "notification.send";
@@ -92,6 +95,7 @@ public static class Permissions
         WarningCreate, WarningView, SuspensionManage,
         FeedbackView, FeedbackModerate,
         PolicyView, PolicyManage,
+        SupportView,
         ExportData,
         NotificationSend, NotificationView, NotificationDelete,
         LookupView, LookupCreate, LookupUpdate, LookupDelete,
@@ -160,6 +164,7 @@ public static class Permissions
         new(FeedbackModerate, "Ẩn hoặc hiện đánh giá", "CMS / Nghiệp vụ", "Đánh giá", "Kiểm duyệt", FeedbackView),
         new(PolicyView, "Xem văn bản chính sách", "CMS / Nội dung", "Chính sách", "Xem"),
         new(PolicyManage, "Tạo, sửa, xuất bản văn bản chính sách", "CMS / Nội dung", "Chính sách", "Quản lý", PolicyView),
+        new(SupportView, "Xem và trả lời tin nhắn hỗ trợ gia sư/phụ huynh/học sinh", "CMS / Nghiệp vụ", "Nhắn tin hỗ trợ", "Xem"),
 
         new(NotificationView, "Xem thông báo hệ thống", "Khác", "Thông báo", "Xem"),
         new(NotificationSend, "Gửi thông báo", "Khác", "Thông báo", "Gửi", NotificationView),
