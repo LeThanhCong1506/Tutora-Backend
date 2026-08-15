@@ -2756,6 +2756,7 @@ entity.HasOne(d => d.Tutor).WithOne(p => p.Tutorprofile)
             entity.Property(e => e.Name)
                 .HasMaxLength(255)
                 .HasColumnName("name");
+            entity.Property(e => e.Subjectid).HasColumnName("subject_id");
             entity.Property(e => e.Tutorid)
                 .HasMaxLength(50)
                 .HasColumnName("tutor_id");
@@ -2768,6 +2769,10 @@ entity.HasOne(d => d.Tutor).WithOne(p => p.Tutorprofile)
                 .HasForeignKey(d => d.Tutorid)
                 .OnDelete(DeleteBehavior.Cascade)
                 .HasConstraintName("fk_tutorpackages_tutor");
+            entity.HasOne(d => d.Subject).WithMany()
+                .HasForeignKey(d => d.Subjectid)
+                .OnDelete(DeleteBehavior.Restrict)
+                .HasConstraintName("fk_tutorpackages_subject");
         });
 
         modelBuilder.Entity<Tutorpackagefixedslot>(entity =>

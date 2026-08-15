@@ -250,6 +250,8 @@ namespace MV.ApplicationLayer.Services
                 {
                     PackageId = p.Packageid,
                     TutorId = p.Tutorid,
+                    SubjectId = p.Subjectid,
+                    SubjectName = p.Subject != null ? p.Subject.Subjectname : null,
                     Name = p.Name,
                     PackageType = p.Packagetype,
                     IsActive = p.Isactive,
