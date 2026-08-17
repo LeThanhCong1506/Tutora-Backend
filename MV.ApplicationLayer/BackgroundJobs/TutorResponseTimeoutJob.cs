@@ -125,11 +125,13 @@ public class TutorResponseTimeoutJob(IServiceProvider sp, ILogger<TutorResponseT
             await PromotionUsageHelper.ReturnUsageAsync(db, b.Promotionid, ct);
             await db.SaveChangesAsync(ct);
 
-            if (!string.IsNullOrEmpty(b.Parentid))
+            // Học sinh tự đặt thì Parentid rỗng — báo thẳng cho học sinh.
+            var learnerUserId = !string.IsNullOrEmpty(b.Parentid) ? b.Parentid : b.Studentid;
+            if (!string.IsNullOrEmpty(learnerUserId))
             {
                 notifications.Add(new NotificationRequest
                 {
-                    Userid = b.Parentid,
+                    Userid = learnerUserId,
                     Title = "Booking đã tự động hủy",
                     Message = $"Booking #{b.Bookingid} đã bị hủy do gia sư không phản hồi trong 24 giờ. Tiền cọc đã được hoàn vào ví của bạn.",
                     Type = NotificationType.BookingTimeout,
@@ -179,11 +181,15 @@ public class TutorResponseTimeoutJob(IServiceProvider sp, ILogger<TutorResponseT
 
         var refundAmount = TutorResponseTimeoutPolicy.ParentRefundAmount(booking);
 
-        if (refundAmount <= 0 || string.IsNullOrWhiteSpace(booking.Parentid))
+        var refundUserId = !string.IsNullOrWhiteSpace(booking.Parentid)
+            ? booking.Parentid
+            : booking.Studentid;
+
+        if (refundAmount <= 0 || string.IsNullOrWhiteSpace(refundUserId))
             throw new InvalidOperationException(
                 $"Booking #{booking.Bookingid} has no valid refund recipient or amount.");
 
-        var parentWallet = await WalletLockHelper.GetOrCreateForUpdateAsync(db, booking.Parentid, now, ct);
+        var parentWallet = await WalletLockHelper.GetOrCreateForUpdateAsync(db, refundUserId, now, ct);
         parentWallet.Balance = (parentWallet.Balance ?? 0) + refundAmount;
         parentWallet.Lastupdated = now;
 
