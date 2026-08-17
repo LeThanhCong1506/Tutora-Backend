@@ -4,6 +4,7 @@ using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO.ResponseModel;
 using MV.DomainLayer.Helpers;
 using MV.ApplicationLayer.Helpers;
+using System.Globalization;
 using System.Text.Json;
 using static MV.DomainLayer.Constants.ClassSessionStatus;
 
@@ -226,26 +227,44 @@ namespace MV.ApplicationLayer.Services
                 return null;
             }
 
-            var availabilities = await _dbContext.Tutoravailabilities
+            var availabilityRows = await _dbContext.Tutoravailabilities
                 .AsNoTracking()
                 .Where(a => a.Tutorid == tutorId)
                 .OrderBy(a => a.Dayofweek)
                 .ThenBy(a => a.Starttime)
+                .Select(a => new
+                {
+                    a.Availabilityid,
+                    a.Tutorid,
+                    a.Dayofweek,
+                    a.Starttime,
+                    a.Endtime,
+                    a.Createdat
+                })
+                .ToListAsync();
+
+            // Client parse "HH:mm" nên phải ép format bất biến — ToString() trần
+            // theo culture của máy chủ sẽ ra "12:00 SA" khi host chạy locale vi-VN.
+            var availabilities = availabilityRows
                 .Select(a => new TutorAvailabilityResponse
                 {
                     Availabilityid = a.Availabilityid,
                     Tutorid = a.Tutorid ?? string.Empty,
                     Dayofweek = a.Dayofweek ?? 1,
-                    Starttime = a.Starttime != null ? a.Starttime.ToString() : string.Empty,
-                    Endtime = a.Endtime != null ? a.Endtime.ToString() : string.Empty,
+                    Starttime = a.Starttime?.ToString("HH:mm", CultureInfo.InvariantCulture) ?? string.Empty,
+                    Endtime = a.Endtime?.ToString("HH:mm", CultureInfo.InvariantCulture) ?? string.Empty,
                     Createdat = a.Createdat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
                 })
-                .ToListAsync();
+                .ToList();
 
-            var packages = await _dbContext.Tutorpackages
+            var packageRows = await _dbContext.Tutorpackages
                 .AsNoTracking()
+                .Include(p => p.Tutorpackagefixedslots)
                 .Where(p => p.Tutorid == tutorId && p.Isactive)
                 .OrderBy(p => p.Createdat)
+                .ToListAsync();
+
+            var packages = packageRows
                 .Select(p => new TutorPackageResponse
                 {
                     PackageId = p.Packageid,
@@ -260,12 +279,12 @@ namespace MV.ApplicationLayer.Services
                         {
                             FixedSlotId = fs.Fixedslotid,
                             DayOfWeek = fs.Dayofweek,
-                            StartTime = fs.Starttime.ToString(),
-                            EndTime = fs.Endtime.ToString()
+                            StartTime = fs.Starttime.ToString("HH:mm", CultureInfo.InvariantCulture),
+                            EndTime = fs.Endtime.ToString("HH:mm", CultureInfo.InvariantCulture)
                         })
                         .ToList()
                 })
-                .ToListAsync();
+                .ToList();
 
             // Gắn cờ HasActiveBooking cho từng package (đồng bộ với GetTutorPackagesAsync).
             // Nếu bỏ qua, cờ mặc định là false → màn lịch báo sai "package chưa có booking".
