@@ -103,6 +103,7 @@ namespace MV.PresentationLayer.Controllers
         /// Chấp nhận JPG, JPEG, PNG — tối đa 5MB mỗi ảnh.
         /// Gọi FPT.AI OCR trực tiếp bằng bytes, lưu PublicId (private) vào DB.
         /// </summary>
+        [Authorize(Roles = UserRole.Tutor)]
         [HttpPost("{id}/profile/cccd")]
         [RequestSizeLimit(10_485_760)]
         [RequestFormLimits(MultipartBodyLengthLimit = 10_485_760)]
@@ -119,7 +120,7 @@ namespace MV.PresentationLayer.Controllers
             }
             catch (InvalidOperationException ex)
             {
-                // Tên CCCD không khớp với hồ sơ
+                // Ảnh mờ/giả hoặc CCCD đã được dùng bởi tài khoản khác.
                 return UnprocessableEntity(APIResponse.Fail(ex.Message, 422));
             }
             catch (ArgumentException ex)
@@ -132,6 +133,7 @@ namespace MV.PresentationLayer.Controllers
         /// Gia sư tự xem lại ảnh CCCD mình đã upload — signed URL, hết hạn sau 15 phút.
         /// Chỉ xem được CCCD của chính mình (so khớp userId từ JWT, không nhận id người khác).
         /// </summary>
+        [Authorize(Roles = UserRole.Tutor)]
         [HttpGet("{id}/profile/cccd")]
         public async Task<IActionResult> GetOwnCccd([FromRoute] string id)
         {
@@ -644,6 +646,35 @@ namespace MV.PresentationLayer.Controllers
             }
 
             return Ok(APIResponse.Success("Đã hiện lại package thành công."));
+        }
+
+        /// <summary>
+        /// Xóa vĩnh viễn một package đã ẩn. Yêu cầu package đang Isactive=false và chưa từng
+        /// có booking nào (mới tạo/tạo nhầm). Trả 409 nếu package đang bật hoặc đã từng được đặt.
+        /// </summary>
+        [HttpDelete("{id}/profile/packages/{packageId:int}/permanent")]
+        public async Task<IActionResult> DeletePackagePermanently([FromRoute] string id, [FromRoute] int packageId)
+        {
+            var currentUserId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (currentUserId != id)
+            {
+                return StatusCode(403, APIResponse.Fail("Bạn chỉ có thể xóa package của chính mình.", 403));
+            }
+
+            try
+            {
+                var result = await _tutorService.DeleteTutorPackageAsync(id, packageId);
+                if (!result)
+                {
+                    return NotFound(APIResponse.Fail("Không tìm thấy package.", 404));
+                }
+
+                return Ok(APIResponse.Success("Đã xóa vĩnh viễn package thành công."));
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Conflict(APIResponse.Fail(ex.Message, 409));
+            }
         }
 
         /// <summary>

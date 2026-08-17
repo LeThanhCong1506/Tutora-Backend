@@ -39,6 +39,12 @@ public partial class Dispute
 
     public DateTime? Tutorrespondedat { get; set; }
 
+    /// <summary>Phản hồi của phụ huynh/học sinh khi dispute do GIA SƯ tạo (chiều ngược lại với
+    /// <see cref="Tutorresponse"/>, vốn chỉ đúng nghĩa khi phụ huynh/học sinh là người tạo).</summary>
+    public string? Respondentresponse { get; set; }
+
+    public DateTime? Respondentrespondedat { get; set; }
+
     public DateTime? Noshowconfirmedat { get; set; }
 
     public string? Noshowconfirmedby { get; set; }

@@ -49,6 +49,12 @@ public interface IDisputeService
     Task<DisputeDetailResponse> ResolveDisputeAsync(int disputeId, string adminId, ResolveDisputeRequest request);
 
     /// <summary>
+    /// Đóng tranh chấp khi hai bên đã tự dàn xếp và muốn học tiếp — không phân xử, không hoàn tiền.
+    /// Vẫn phải đặt lại trạng thái buổi học vì buổi đang "disputed" không quyết toán được.
+    /// </summary>
+    Task<DisputeDetailResponse> CloseDisputeAsync(int disputeId, string adminId, CloseDisputeRequest request);
+
+    /// <summary>
     /// Runs AI (Groq) priority classification for a dispute and persists the result. Used both as the
     /// Hangfire job body enqueued right after dispute creation, and as a manual admin re-classify/backfill action.
     /// Returns null if the dispute doesn't exist. <paramref name="actorId"/> scopes the returned response's
@@ -102,6 +108,24 @@ public interface IDisputeService
     /// Tutor uploads supporting evidence for a dispute raised against them.
     /// </summary>
     Task<string> UploadTutorDisputeEvidenceAsync(int classSessionId, string tutorId, Microsoft.AspNetCore.Http.IFormFile file);
+
+    // ── Tutor creates a dispute / parent-student responds (mirror of the Parent/Student-facing
+    // creation + Tutor-facing rebuttal blocks above, reversed) ─────────────────
+
+    /// <summary>
+    /// Tutor opens a new dispute for their own classSession.
+    /// </summary>
+    Task<DisputeDetailResponse> CreateTutorDisputeAsync(int classSessionId, string tutorId, CreateDisputeRequest request);
+
+    /// <summary>
+    /// Parent/student submits a written rebuttal to a dispute raised against them by the tutor.
+    /// </summary>
+    Task<DisputeDetailResponse> SubmitRespondentResponseAsync(int classSessionId, string userId, string role, string response);
+
+    /// <summary>
+    /// Parent/student uploads supporting evidence for a dispute raised against them by the tutor.
+    /// </summary>
+    Task<string> UploadRespondentDisputeEvidenceAsync(int classSessionId, string userId, string role, Microsoft.AspNetCore.Http.IFormFile file);
 
     // ── Dispute chat threads — private per-party channels with admin ───────────
 

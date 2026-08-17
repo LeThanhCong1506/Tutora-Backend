@@ -100,10 +100,12 @@ namespace SP25.OJT202.AccountManagement.Presentation.Middlewares
             context.Response.ContentType = HttpConstants.JsonContentType;
             context.Response.StatusCode = statusCode;
 
+            // camelCase để khớp APIResponse (statusCode/message) — FE đọc field lowercase,
+            // JsonSerializer.Serialize ở đây không đi qua MVC formatter nên không tự camelCase.
             var response = new
             {
-                StatusCode = statusCode,
-                Message = message
+                statusCode = statusCode,
+                message = message
             };
 
             return context.Response.WriteAsync(System.Text.Json.JsonSerializer.Serialize(response));

@@ -199,14 +199,21 @@ public class ClassSessionVideoAiService(
             var file = await EnsureUploadedFileAsync(job, CancellationToken.None);
             // Bỏ lượt xem lại video lần 2 để tự soát (VerifyStudentAnalysisAsync) — tốn gần gấp đôi
             // thời gian chờ cho một bước cải thiện nhỏ, đổi lấy UX nhanh hơn rõ rệt.
-            var analysis = await geminiService.AnalyzeVideoForStudentAsync(file.Uri, AudioMimeType, CancellationToken.None);
+            var summary = await geminiService.SummarizeVideoForStudentAsync(file.Uri, AudioMimeType, CancellationToken.None);
 
-            job.Resulttext = analysis.Summary;
-            job.Transcripttext = analysis.Transcript;
+            job.Resulttext = summary;
             job.Status = ClassSessionAiJobStatus.Completed;
-            job.Stage = null;
+            // Đánh dấu bản chép lời còn đang chạy nền — job đã Completed vì tóm tắt (thứ người dùng
+            // chờ) đã có, transcript thiếu không làm hỏng kết quả.
+            job.Stage = ClassSessionAiJobStage.Transcribing;
             job.Completedat = TimeZoneHelper.UtcNow;
             await db.SaveChangesAsync();
+
+            // Chép lời tách sang job riêng: nó dài gấp 10-15 lần tóm tắt nên tốn gần hết thời gian chờ,
+            // mà LLM sinh token tuần tự và response chỉ về khi viết xong hết — gộp chung 1 lượt gọi thì
+            // học sinh phải đợi chép lời viết xong mới thấy được tóm tắt. File audio đã upload sẵn được
+            // EnsureUploadedFileAsync cache lại (47h) nên job sau không phải tải/tách/upload lại.
+            backgroundJobClient.Enqueue<IClassSessionVideoAiService>(s => s.RunStudentTranscriptJobAsync(job.JobId, true));
 
             // Tách try/catch riêng: lỗi ở bước này (tạo phiên chat) không được làm job quay lại
             // Failed — tóm tắt đã lưu xong là thành công rồi, chat hỏi tiếp chỉ là phần thêm.
@@ -215,8 +222,10 @@ public class ClassSessionVideoAiService(
                 logger.LogInformation(
                     "[VideoSummaryChat] Bắt đầu tạo phiên chat cho classSession {ClassSessionId}, user {UserId}",
                     job.Classsessionid, job.Requestedbyuserid);
-                // Transcript chi tiết hơn tóm tắt — dùng làm ngữ cảnh chat hỏi tiếp cho câu trả lời chính xác hơn.
-                await EnsureVideoSummaryChatSessionAsync(job.Classsessionid, job.Requestedbyuserid, analysis.Transcript);
+                // Seed bằng tóm tắt để học sinh hỏi được ngay, không phải đợi chép lời. Khi job chép lời
+                // xong sẽ chèn thêm 1 message system nữa chứa transcript — LoadChatContextAsync lấy
+                // message system CUỐI CÙNG nên các câu hỏi sau đó tự động dùng ngữ cảnh chi tiết hơn.
+                await EnsureVideoSummaryChatSessionAsync(job.Classsessionid, job.Requestedbyuserid, summary);
                 logger.LogInformation(
                     "[VideoSummaryChat] Đã tạo xong phiên chat cho classSession {ClassSessionId}",
                     job.Classsessionid);
@@ -238,6 +247,70 @@ public class ClassSessionVideoAiService(
         catch (Exception ex) when (swallowFailure)
         {
             await MarkJobFailedAsync(job, ex);
+        }
+    }
+
+    /// <summary>Chép lời chạy nền sau khi tóm tắt đã trả cho học sinh. Job đã ở trạng thái Completed nên
+    /// mọi lỗi ở đây chỉ được ghi log — không kéo job ngược về Failed, vì tóm tắt (thứ người dùng chờ) vẫn
+    /// dùng tốt; hỏng chép lời chỉ làm tab "Hội thoại" trống.</summary>
+    public async Task RunStudentTranscriptJobAsync(Guid jobId, bool swallowFailure)
+    {
+        var job = await db.ClassSessionAiJobs.FirstOrDefaultAsync(j => j.JobId == jobId);
+        if (job == null)
+        {
+            logger.LogWarning("RunStudentTranscriptJobAsync: job {JobId} not found", jobId);
+            return;
+        }
+
+        try
+        {
+            var file = await EnsureUploadedFileAsync(job, CancellationToken.None);
+            var transcript = await geminiService.TranscribeVideoAsync(file.Uri, AudioMimeType, CancellationToken.None);
+
+            job.Transcripttext = transcript;
+            job.Stage = null;
+            await db.SaveChangesAsync();
+
+            // Nâng ngữ cảnh chat lên bản chép lời (chi tiết hơn tóm tắt) cho các câu hỏi sau. Chèn thêm 1
+            // message system thay vì sửa message cũ — LoadChatContextAsync lấy message system cuối cùng.
+            try
+            {
+                var chatSession = await aiChatRepo.FindSessionByUserAndClassSessionAsync(
+                    job.Requestedbyuserid, ChatSessionType.VideoSummary, job.Classsessionid);
+                if (chatSession != null)
+                {
+                    aiChatRepo.AddMessage(new ChatHistory
+                    {
+                        MessageId = Guid.NewGuid(),
+                        SessionId = chatSession.SessionId,
+                        Role = ChatHistoryRole.System,
+                        Content = transcript,
+                        CreatedAt = TimeZoneHelper.UtcNow
+                    });
+                    await aiChatRepo.SaveChangesAsync();
+                }
+            }
+            catch (Exception chatEx)
+            {
+                logger.LogError(chatEx,
+                    "[VideoSummaryChat] Không nâng được ngữ cảnh chat lên transcript cho classSession {ClassSessionId}",
+                    job.Classsessionid);
+            }
+        }
+        catch (Exception ex) when (swallowFailure)
+        {
+            logger.LogError(ex,
+                "Chép lời buổi học {ClassSessionId} thất bại — tóm tắt vẫn giữ nguyên, chỉ thiếu tab Hội thoại.",
+                job.Classsessionid);
+            job.Stage = null;
+            try
+            {
+                await db.SaveChangesAsync();
+            }
+            catch (Exception saveEx)
+            {
+                logger.LogError(saveEx, "Không xoá được stage transcribing của job {JobId}.", job.JobId);
+            }
         }
     }
 

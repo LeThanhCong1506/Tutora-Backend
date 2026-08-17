@@ -345,6 +345,7 @@ namespace MV.InfrastructureLayer.Repositories
         {
             var query = _context.Tutorpackages
                 .Include(c => c.Tutorpackagefixedslots)
+                .Include(c => c.Subject)
                 .Where(c => c.Tutorid == tutorId);
 
             if (!includeInactive)
@@ -361,12 +362,23 @@ namespace MV.InfrastructureLayer.Repositories
         {
             return await _context.Tutorpackages
                 .Include(c => c.Tutorpackagefixedslots)
+                .Include(c => c.Subject)
                 .FirstOrDefaultAsync(c => c.Tutorid == tutorId && c.Packageid == packageId);
         }
 
         public async Task AddTutorPackageAsync(Tutorpackage package)
         {
             await _context.Tutorpackages.AddAsync(package);
+        }
+
+        public void DeleteTutorPackage(Tutorpackage package)
+        {
+            _context.Tutorpackages.Remove(package);
+        }
+
+        public async Task<bool> TutorPackageHasBookingsAsync(int packageId)
+        {
+            return await _context.Bookings.AnyAsync(b => b.Packageid == packageId);
         }
 
         #endregion

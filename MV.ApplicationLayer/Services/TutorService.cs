@@ -373,6 +373,7 @@ namespace MV.ApplicationLayer.Services
             if (profile == null) return null;
 
             ValidateTutorPackageRequest(request);
+            await ValidateTutorCanUsePackageSubjectAsync(tutorId, request);
 
             // Guard: không cho tạo khung cố định đè lên buổi dạy đã cam kết (tránh trùng lịch).
             var committed = await TutorScheduleGuard.GetFutureCommittedSessionsAsync(_context, tutorId);
@@ -389,6 +390,7 @@ namespace MV.ApplicationLayer.Services
             var package = new Tutorpackage
             {
                 Tutorid = tutorId,
+                Subjectid = request.SubjectId,
                 Name = request.Name.Trim(),
                 Packagetype = request.PackageType,
                 Isactive = true,
@@ -445,6 +447,29 @@ namespace MV.ApplicationLayer.Services
         }
 
         /// <summary>
+        /// Xóa vĩnh viễn một package đã ẩn. Chỉ cho phép khi package đang Isactive=false
+        /// (phải ẩn trước) và chưa từng có booking nào tham chiếu (booking giữ Packageid FK,
+        /// không cascade delete — xóa cứng package còn booking sẽ vỡ ràng buộc dữ liệu).
+        /// </summary>
+        public async Task<bool> DeleteTutorPackageAsync(string tutorId, int packageId)
+        {
+            var package = await _unitOfWork.TutorRepository.GetTutorPackageAsync(tutorId, packageId);
+            if (package == null) return false;
+
+            if (package.Isactive)
+                throw new InvalidOperationException("Vui lòng ẩn gói này trước khi xóa vĩnh viễn.");
+
+            var hasBookings = await _unitOfWork.TutorRepository.TutorPackageHasBookingsAsync(packageId);
+            if (hasBookings)
+                throw new InvalidOperationException(
+                    "Không thể xóa vĩnh viễn gói này vì đã từng có buổi dạy được đặt theo gói. Bạn có thể tiếp tục ẩn gói này.");
+
+            _unitOfWork.TutorRepository.DeleteTutorPackage(package);
+            await _unitOfWork.SaveChangesAsync();
+            return true;
+        }
+
+        /// <summary>
         /// Cập nhật package (tên, loại, khung cố định). Trả null nếu không tìm thấy.
         /// Chặn (409) nếu package đang có buổi dạy được đặt chưa hoàn tất, hoặc khung mới
         /// đè lên buổi dạy đã cam kết khác.
@@ -455,6 +480,7 @@ namespace MV.ApplicationLayer.Services
             if (package == null) return null;
 
             ValidateTutorPackageRequest(request);
+            await ValidateTutorCanUsePackageSubjectAsync(tutorId, request);
 
             // Guard 1: gói này còn buổi dạy chưa hoàn tất → khóa, không cho sửa.
             var ownCommitted = await TutorScheduleGuard.GetFutureCommittedSessionsAsync(_context, tutorId, packageId);
@@ -475,6 +501,7 @@ namespace MV.ApplicationLayer.Services
 
             var now = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
             package.Name = request.Name.Trim();
+            package.Subjectid = request.SubjectId;
             package.Packagetype = request.PackageType;
             package.Updatedat = now;
 
@@ -813,6 +840,11 @@ namespace MV.ApplicationLayer.Services
                 throw new ArgumentException("Package fixed phải có ít nhất một fixed slot");
             }
 
+            if (request.PackageType == Tutorpackage.FixedPackageType && request.SubjectId is not > 0)
+            {
+                throw new ArgumentException("Package fixed phải chọn môn học");
+            }
+
             if (request.PackageType == Tutorpackage.FlexiblePackageType && request.FixedSlots.Any())
             {
                 throw new ArgumentException("Package flexible không dùng fixed slots");
@@ -867,12 +899,31 @@ namespace MV.ApplicationLayer.Services
             }
         }
 
+        private async Task ValidateTutorCanUsePackageSubjectAsync(string tutorId, CreateTutorPackageRequest request)
+        {
+            if (request.SubjectId is not > 0) return;
+
+            var isValidSubject = await _context.Subjects.AnyAsync(subject =>
+                subject.Subjectid == request.SubjectId && subject.IsActive);
+            if (!isValidSubject)
+                throw new ArgumentException("Môn học không tồn tại hoặc đã ngừng cung cấp");
+
+            var tutorTeachesSubject = await _context.Tutorsubjectgradeprices.AnyAsync(price =>
+                price.Tutorid == tutorId &&
+                price.Subjectid == request.SubjectId &&
+                price.Isactive);
+            if (!tutorTeachesSubject)
+                throw new ArgumentException("Gia sư chưa cấu hình giá cho môn học này");
+        }
+
         private static TutorPackageResponse MapTutorPackageResponse(Tutorpackage package, bool hasActiveBooking = false)
         {
             return new TutorPackageResponse
             {
                 PackageId = package.Packageid,
                 TutorId = package.Tutorid,
+                SubjectId = package.Subjectid,
+                SubjectName = package.Subject?.Subjectname,
                 Name = package.Name,
                 PackageType = package.Packagetype,
                 IsActive = package.Isactive,

@@ -31,6 +31,12 @@ public static class Permissions
     /// cao hơn hẳn việc duyệt một yêu cầu do chính user tạo ra.
     /// </summary>
     public const string PayoutTransfer = "payout.transfer";
+    /// <summary>
+    /// Nạp tiền thật (kèm ảnh chứng minh) vào quỹ hệ thống — nguồn duy nhất mà PayoutTransfer
+    /// được phép trừ vào. Tách khỏi PayoutTransfer vì đây là xác nhận tiền đã sẵn sàng để chi,
+    /// không phải hành động chi tiền.
+    /// </summary>
+    public const string PayoutFundTopup = "payout.fund_topup";
     public const string FraudLogView = "fraud_log.view";
     public const string SystemAlertView = "system_alert.view";
     public const string SystemAlertResolve = "system_alert.resolve";
@@ -48,6 +54,9 @@ public static class Permissions
 
     public const string PolicyView = "policy.view";
     public const string PolicyManage = "policy.manage";
+
+    // Admin/Staff support inbox — direct messaging with tutor/parent/student.
+    public const string SupportView = "support.view";
 
     public const string ExportData = "export.data";
 
@@ -80,12 +89,13 @@ public static class Permissions
         TutorProfileUpdateView, TutorProfileUpdateDecide,
         UserView, UserUpdate, UserDeactivate,
         DashboardView, FinancialView, BookingView, PaymentConfirm, PromotionManage,
-        PayoutView, PayoutApprove, PayoutReject, PayoutTransfer, FraudLogView,
+        PayoutView, PayoutApprove, PayoutReject, PayoutTransfer, PayoutFundTopup, FraudLogView,
         SystemAlertView, SystemAlertResolve,
         DisputeView, DisputeInvestigate, DisputeResolve,
         WarningCreate, WarningView, SuspensionManage,
         FeedbackView, FeedbackModerate,
         PolicyView, PolicyManage,
+        SupportView,
         ExportData,
         NotificationSend, NotificationView, NotificationDelete,
         LookupView, LookupCreate, LookupUpdate, LookupDelete,
@@ -139,6 +149,7 @@ public static class Permissions
         new(PayoutApprove, "Duyệt yêu cầu rút tiền", "Tài chính", "Rút tiền", "Duyệt", PayoutView),
         new(PayoutReject, "Từ chối yêu cầu rút tiền", "Tài chính", "Rút tiền", "Từ chối", PayoutView),
         new(PayoutTransfer, "Chuyển tiền chủ động cho user", "Tài chính", "Rút tiền", "Chuyển tiền", PayoutView),
+        new(PayoutFundTopup, "Nạp quỹ hệ thống", "Tài chính", "Rút tiền", "Nạp quỹ", PayoutView),
         new(FraudLogView, "Xem nhật ký gian lận (lịch sử)", "Tài chính", "Nhật ký gian lận", "Xem"),
         new(SystemAlertView, "Xem cảnh báo hệ thống", "Tài chính", "Cảnh báo hệ thống", "Xem"),
         new(SystemAlertResolve, "Xử lý cảnh báo hệ thống", "Tài chính", "Cảnh báo hệ thống", "Xử lý", SystemAlertView),
@@ -153,6 +164,7 @@ public static class Permissions
         new(FeedbackModerate, "Ẩn hoặc hiện đánh giá", "CMS / Nghiệp vụ", "Đánh giá", "Kiểm duyệt", FeedbackView),
         new(PolicyView, "Xem văn bản chính sách", "CMS / Nội dung", "Chính sách", "Xem"),
         new(PolicyManage, "Tạo, sửa, xuất bản văn bản chính sách", "CMS / Nội dung", "Chính sách", "Quản lý", PolicyView),
+        new(SupportView, "Xem và trả lời tin nhắn hỗ trợ gia sư/phụ huynh/học sinh", "CMS / Nghiệp vụ", "Nhắn tin hỗ trợ", "Xem"),
 
         new(NotificationView, "Xem thông báo hệ thống", "Khác", "Thông báo", "Xem"),
         new(NotificationSend, "Gửi thông báo", "Khác", "Thông báo", "Gửi", NotificationView),

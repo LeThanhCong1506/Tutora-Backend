@@ -139,6 +139,19 @@ public class SocialRegistrationService : ISocialRegistrationService
             };
         }
 
+        var phoneOwner = await _unitOfWork.UserRepository.GetUserByPhoneAsync(phone);
+
+        // Account Zalo cũ có thể chưa lưu Zalouserid (ví dụ tạo trước khi Web OAuth
+        // được triển khai). Không được tự ghép tài khoản chỉ dựa vào SĐT: dùng OTP ở
+        // bước tiếp theo để chứng minh người dùng sở hữu số này, rồi mới liên kết Zalo.
+        if (session.ExistingUserId == null && phoneOwner != null &&
+            session.Provider == SocialAuthProvider.Zalo &&
+            string.IsNullOrWhiteSpace(phoneOwner.Zalouserid))
+        {
+            session.ExistingUserId = phoneOwner.Userid;
+            session.Role = phoneOwner.Primaryrole;
+        }
+
         if (session.ExistingUserId == null)
         {
             var role = NormalizeRole(request.Role) ?? session.Role;
@@ -156,7 +169,6 @@ public class SocialRegistrationService : ISocialRegistrationService
             session.Role = role;
         }
 
-        var phoneOwner = await _unitOfWork.UserRepository.GetUserByPhoneAsync(phone);
         if (phoneOwner != null && phoneOwner.Userid != session.ExistingUserId)
         {
             return new TokenResponse
@@ -267,6 +279,22 @@ public class SocialRegistrationService : ISocialRegistrationService
                 user.Isphoneverified = true;
                 if (session.Provider == SocialAuthProvider.Google)
                     user.Isemailverified = true;
+
+                // Chỉ liên kết sau khi OTP của số điện thoại hiện hữu đã được xác
+                // thực. Không ghi đè một liên kết Zalo khác để tránh chiếm account.
+                if (session.Provider == SocialAuthProvider.Zalo)
+                {
+                    if (!string.IsNullOrWhiteSpace(user.Zalouserid) &&
+                        !string.Equals(user.Zalouserid, session.ProviderUserId, StringComparison.Ordinal))
+                    {
+                        return new TokenResponse
+                        {
+                            ErrorMessage = "Số điện thoại này đã liên kết với một tài khoản Zalo khác."
+                        };
+                    }
+
+                    user.Zalouserid = session.ProviderUserId;
+                }
 
                 await _unitOfWork.UserRepository.UpdateUserAsync(user);
             }

@@ -18,6 +18,8 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
     }
 
     public virtual DbSet<AdminWalletTransfer> AdminWalletTransfers { get; set; }
+    public virtual DbSet<SystemFund> SystemFunds { get; set; }
+    public virtual DbSet<SystemFundTopup> SystemFundTopups { get; set; }
 
     public virtual DbSet<BankAccount> BankAccounts { get; set; }
 
@@ -52,6 +54,10 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
     public virtual DbSet<DisputeEvidence> DisputeEvidences { get; set; }
 
     public virtual DbSet<DisputeMessage> DisputeMessages { get; set; }
+
+    public virtual DbSet<Supportthread> Supportthreads { get; set; }
+
+    public virtual DbSet<Supportmessage> Supportmessages { get; set; }
 
     public virtual DbSet<Feedback> Feedbacks { get; set; }
 
@@ -197,6 +203,50 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnType("timestamp without time zone")
                 .HasColumnName("created_at");
+        });
+
+        modelBuilder.Entity<SystemFund>(entity =>
+        {
+            entity.HasKey(e => e.Fundid).HasName("system_fund_pkey");
+
+            entity.ToTable("system_fund");
+
+            entity.Property(e => e.Fundid).HasColumnName("fund_id");
+            entity.Property(e => e.Balance)
+                .HasPrecision(15, 2)
+                .HasColumnName("balance");
+            entity.Property(e => e.Updatedat)
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
+                .HasColumnType("timestamp without time zone")
+                .HasColumnName("updated_at");
+        });
+
+        modelBuilder.Entity<SystemFundTopup>(entity =>
+        {
+            entity.HasKey(e => e.Topupid).HasName("system_fund_topups_pkey");
+
+            entity.ToTable("system_fund_topups");
+
+            entity.HasIndex(e => e.Createdby, "idx_system_fund_topups_created_by");
+
+            entity.Property(e => e.Topupid).HasColumnName("topup_id");
+            entity.Property(e => e.Amount)
+                .HasPrecision(15, 2)
+                .HasColumnName("amount");
+            entity.Property(e => e.Reason).HasColumnName("reason");
+            entity.Property(e => e.Proofimagepath).HasColumnName("proof_image_path");
+            entity.Property(e => e.Createdby)
+                .HasMaxLength(50)
+                .HasColumnName("created_by");
+            entity.Property(e => e.Createdat)
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
+                .HasColumnType("timestamp without time zone")
+                .HasColumnName("created_at");
+
+            entity.HasOne(d => d.CreatedbyNavigation).WithMany()
+                .HasForeignKey(d => d.Createdby)
+                .OnDelete(DeleteBehavior.Restrict)
+                .HasConstraintName("system_fund_topups_created_by_fkey");
         });
 
         modelBuilder.Entity<BankAccount>(entity =>
@@ -1248,6 +1298,10 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
             entity.Property(e => e.Tutorrespondedat)
                 .HasColumnType("timestamp without time zone")
                 .HasColumnName("tutor_responded_at");
+            entity.Property(e => e.Respondentresponse).HasColumnName("respondent_response");
+            entity.Property(e => e.Respondentrespondedat)
+                .HasColumnType("timestamp without time zone")
+                .HasColumnName("respondent_responded_at");
             entity.Property(e => e.Noshowconfirmedat)
                 .HasColumnType("timestamp without time zone")
                 .HasColumnName("no_show_confirmed_at");
@@ -1344,6 +1398,72 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
             entity.HasOne(d => d.SenderidNavigation).WithMany()
                 .HasForeignKey(d => d.Senderid)
                 .HasConstraintName("dispute_messages_senderid_fkey");
+        });
+
+        modelBuilder.Entity<Supportthread>(entity =>
+        {
+            entity.HasKey(e => e.Supportthreadid).HasName("support_threads_pkey");
+
+            entity.ToTable("support_threads");
+
+            entity.HasIndex(e => e.Userid, "support_threads_userid_key").IsUnique();
+            entity.HasIndex(e => e.Lastmessageat, "idx_support_threads_last_message");
+
+            entity.Property(e => e.Supportthreadid).HasColumnName("support_thread_id");
+            entity.Property(e => e.Userid)
+                .HasMaxLength(50)
+                .HasColumnName("user_id");
+            entity.Property(e => e.Unreadforadmin).HasDefaultValue(0).HasColumnName("unread_for_admin");
+            entity.Property(e => e.Unreadforuser).HasDefaultValue(0).HasColumnName("unread_for_user");
+            entity.Property(e => e.Lastmessageat)
+                .HasColumnType("timestamp without time zone")
+                .HasColumnName("last_message_at");
+            entity.Property(e => e.Createdat)
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
+                .HasColumnType("timestamp without time zone")
+                .HasColumnName("created_at");
+
+            entity.HasOne(d => d.User).WithOne()
+                .HasForeignKey<Supportthread>(d => d.Userid)
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("support_threads_userid_fkey");
+        });
+
+        modelBuilder.Entity<Supportmessage>(entity =>
+        {
+            entity.HasKey(e => e.Supportmessageid).HasName("support_messages_pkey");
+
+            entity.ToTable("support_messages");
+
+            entity.HasIndex(e => new { e.Supportthreadid, e.Createdat }, "idx_support_messages_thread_created");
+
+            entity.Property(e => e.Supportmessageid).HasColumnName("support_message_id");
+            entity.Property(e => e.Supportthreadid).HasColumnName("support_thread_id");
+            entity.Property(e => e.Senderid)
+                .HasMaxLength(50)
+                .HasColumnName("sender_id");
+            entity.Property(e => e.Senderside)
+                .HasMaxLength(10)
+                .HasColumnName("sender_side");
+            entity.Property(e => e.Messagetype)
+                .HasMaxLength(20)
+                .HasDefaultValue("text")
+                .HasColumnName("message_type");
+            entity.Property(e => e.Message).HasColumnName("message");
+            entity.Property(e => e.Createdat)
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
+                .HasColumnType("timestamp without time zone")
+                .HasColumnName("created_at");
+
+            entity.HasOne(d => d.Supportthread).WithMany(p => p.Supportmessages)
+                .HasForeignKey(d => d.Supportthreadid)
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("support_messages_supportthreadid_fkey");
+
+            entity.HasOne(d => d.SenderidNavigation).WithMany()
+                .HasForeignKey(d => d.Senderid)
+                .OnDelete(DeleteBehavior.SetNull)
+                .HasConstraintName("support_messages_senderid_fkey");
         });
 
         modelBuilder.Entity<Feedback>(entity =>
@@ -2636,6 +2756,7 @@ entity.HasOne(d => d.Tutor).WithOne(p => p.Tutorprofile)
             entity.Property(e => e.Name)
                 .HasMaxLength(255)
                 .HasColumnName("name");
+            entity.Property(e => e.Subjectid).HasColumnName("subject_id");
             entity.Property(e => e.Tutorid)
                 .HasMaxLength(50)
                 .HasColumnName("tutor_id");
@@ -2648,6 +2769,10 @@ entity.HasOne(d => d.Tutor).WithOne(p => p.Tutorprofile)
                 .HasForeignKey(d => d.Tutorid)
                 .OnDelete(DeleteBehavior.Cascade)
                 .HasConstraintName("fk_tutorpackages_tutor");
+            entity.HasOne(d => d.Subject).WithMany()
+                .HasForeignKey(d => d.Subjectid)
+                .OnDelete(DeleteBehavior.Restrict)
+                .HasConstraintName("fk_tutorpackages_subject");
         });
 
         modelBuilder.Entity<Tutorpackagefixedslot>(entity =>

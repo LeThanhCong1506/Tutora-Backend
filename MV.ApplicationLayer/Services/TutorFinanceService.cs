@@ -46,6 +46,14 @@ public class TutorFinanceService(
             .Select(w => w.Requestedat)
             .FirstOrDefaultAsync(ct);
 
+        var hasActiveDispute = await HasActiveDisputeAsync(tutorId, ct);
+
+        var disputedAmount = await context.ClassSessions
+            .AsNoTracking()
+            .Where(l => l.Tutorid == tutorId
+                        && l.Disputes.Any(d => d.Status != DisputeStatus.Resolved && d.Status != DisputeStatus.Closed))
+            .SumAsync(l => l.Lessonprice ?? 0, ct);
+
         var balance = wallet.Balance ?? 0;
         var frozenBalance = wallet.Frozenbalance ?? 0;
 
@@ -56,9 +64,17 @@ public class TutorFinanceService(
             TotalBalance = balance + frozenBalance,
             TotalEarned = totalEarned,
             PendingSettlement = pendingSettlement,
-            LastWithdrawalAt = lastWithdrawal
+            LastWithdrawalAt = lastWithdrawal,
+            HasActiveDispute = hasActiveDispute,
+            DisputedAmount = disputedAmount
         };
     }
+
+    private Task<bool> HasActiveDisputeAsync(string tutorId, CancellationToken ct) =>
+        context.Disputes
+            .AsNoTracking()
+            .AnyAsync(d => d.ClassSession != null && d.ClassSession.Tutorid == tutorId
+                           && d.Status != DisputeStatus.Resolved && d.Status != DisputeStatus.Closed, ct);
 
     public async Task<EarningsResponse> GetEarningsAsync(string tutorId, string period, DateTime? from, DateTime? to, CancellationToken ct = default)
     {
@@ -216,6 +232,9 @@ public class TutorFinanceService(
 
             if (wallet == null)
                 throw new WalletNotFoundException();
+
+            if (await HasActiveDisputeAsync(tutorId, ct))
+                throw new ActiveDisputeException();
 
             if ((wallet.Balance ?? 0) < request.Amount)
                 throw new InsufficientBalanceException();

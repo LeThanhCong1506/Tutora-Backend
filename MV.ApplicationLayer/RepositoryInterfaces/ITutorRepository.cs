@@ -20,6 +20,8 @@ namespace MV.ApplicationLayer.RepositoryInterfaces
         Task<List<Tutorpackage>> GetTutorPackagesAsync(string tutorId, bool includeInactive = false);
         Task<Tutorpackage?> GetTutorPackageAsync(string tutorId, int packageId);
         Task AddTutorPackageAsync(Tutorpackage package);
+        void DeleteTutorPackage(Tutorpackage package);
+        Task<bool> TutorPackageHasBookingsAsync(int packageId);
 
         // Subject validation
         Task<List<int>> GetExistingSubjectIdsAsync(List<int> subjectIds);

@@ -545,10 +545,12 @@ namespace MV.InfrastructureLayer.Repositories
         {
             if (!minPrice.HasValue && !maxPrice.HasValue) return query;
 
-            return query.Where(u => u.Tutorprofile!.Tutorsubjectgradeprices.Any(p =>
-                p.Isactive &&
-                (!minPrice.HasValue || p.Priceperhour >= minPrice.Value) &&
-                (!maxPrice.HasValue || p.Priceperhour <= maxPrice.Value)));
+            // Lọc theo giá RẺ NHẤT của gia sư (không phải "có ít nhất 1 môn nằm trong khoảng"),
+            // để khớp với giá "Từ X đ/giờ" hiển thị trên card kết quả tìm kiếm.
+            return query.Where(u =>
+                u.Tutorprofile!.Tutorsubjectgradeprices.Any(p => p.Isactive) &&
+                (!minPrice.HasValue || u.Tutorprofile!.Tutorsubjectgradeprices.Where(p => p.Isactive).Min(p => p.Priceperhour) >= minPrice.Value) &&
+                (!maxPrice.HasValue || u.Tutorprofile!.Tutorsubjectgradeprices.Where(p => p.Isactive).Min(p => p.Priceperhour) <= maxPrice.Value));
         }
 
         private static IQueryable<User> ApplySorting(IQueryable<User> query, string? sortBy)

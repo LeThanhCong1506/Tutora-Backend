@@ -255,6 +255,59 @@ public class ParentController : ControllerBase
     }
 
     /// <summary>
+    /// Nộp phản hồi cho 1 tranh chấp do GIA SƯ tạo nhắm vào buổi học của phụ huynh/học sinh —
+    /// đối xứng với TutorClassSessionController's SubmitDisputeResponse.
+    /// </summary>
+    [HttpPost("class-sessions/{id}/dispute/response")]
+    [Authorize(Roles = UserRole.ParentOrStudent)]
+    public async Task<ActionResult<APIResponse<DisputeDetailResponse>>> SubmitDisputeResponse(int id, [FromBody] SubmitTutorResponseRequest request)
+    {
+        var userId = UserHelper.GetUserId(User);
+        var role = User.FindFirstValue(ClaimTypes.Role) ?? "";
+        try
+        {
+            var result = await _disputeService.SubmitRespondentResponseAsync(id, userId, role, request.Response);
+            return Ok(APIResponse<DisputeDetailResponse>.Success(result, "Gửi phản hồi thành công."));
+        }
+        catch (ArgumentException ex)
+        {
+            return NotFound(APIResponse<DisputeDetailResponse>.Fail(ex.Message));
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(APIResponse<DisputeDetailResponse>.Fail(ex.Message));
+        }
+    }
+
+    /// <summary>
+    /// Nộp bằng chứng cho 1 tranh chấp do GIA SƯ tạo nhắm vào buổi học của phụ huynh/học sinh —
+    /// đối xứng với TutorClassSessionController's UploadDisputeEvidence.
+    /// </summary>
+    [HttpPost("class-sessions/{id}/dispute/evidence")]
+    [Authorize(Roles = UserRole.ParentOrStudent)]
+    public async Task<ActionResult<APIResponse<string>>> UploadDisputeEvidence(int id, IFormFile file)
+    {
+        if (file == null || file.Length == 0)
+            return BadRequest(APIResponse<string>.Fail("Tệp bằng chứng là bắt buộc."));
+
+        var userId = UserHelper.GetUserId(User);
+        var role = User.FindFirstValue(ClaimTypes.Role) ?? "";
+        try
+        {
+            var result = await _disputeService.UploadRespondentDisputeEvidenceAsync(id, userId, role, file);
+            return Ok(APIResponse<string>.Success(result, "Tải tệp bằng chứng thành công."));
+        }
+        catch (ArgumentException ex)
+        {
+            return NotFound(APIResponse<string>.Fail(ex.Message));
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(APIResponse<string>.Fail(ex.Message));
+        }
+    }
+
+    /// <summary>
     /// Get the dispute already created for this classSession (status, evidence, tutor response
     /// once resolved) — the create endpoint above only returns a one-time creation snapshot.
     /// </summary>

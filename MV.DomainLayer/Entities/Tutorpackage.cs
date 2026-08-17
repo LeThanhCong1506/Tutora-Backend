@@ -12,6 +12,12 @@ public partial class Tutorpackage
 
     public string Tutorid { get; set; } = null!;
 
+    /// <summary>
+    /// Môn học của gói cố định. Null chỉ dùng cho gói linh hoạt legacy, vốn áp dụng theo
+    /// subject-grade price được chọn ở lúc booking.
+    /// </summary>
+    public int? Subjectid { get; set; }
+
     public string Name { get; set; } = null!;
 
     public int Packagetype { get; set; }
@@ -23,6 +29,8 @@ public partial class Tutorpackage
     public DateTime? Updatedat { get; set; }
 
     public virtual Tutorprofile Tutor { get; set; } = null!;
+
+    public virtual Subject? Subject { get; set; }
 
     public virtual ICollection<Tutorpackagefixedslot> Tutorpackagefixedslots { get; set; } = new List<Tutorpackagefixedslot>();
 

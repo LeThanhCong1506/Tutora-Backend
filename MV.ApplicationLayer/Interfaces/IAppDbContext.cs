@@ -9,6 +9,8 @@ public interface IAppDbContext
     DatabaseFacade Database { get; }
 
     DbSet<AdminWalletTransfer> AdminWalletTransfers { get; }
+    DbSet<SystemFund> SystemFunds { get; }
+    DbSet<SystemFundTopup> SystemFundTopups { get; }
     DbSet<BankAccount> BankAccounts { get; }
     DbSet<BankAccountAuditLog> BankAccountAuditLogs { get; }
     DbSet<Booking> Bookings { get; }
@@ -25,6 +27,8 @@ public interface IAppDbContext
     DbSet<Dispute> Disputes { get; }
     DbSet<DisputeEvidence> DisputeEvidences { get; }
     DbSet<DisputeMessage> DisputeMessages { get; }
+    DbSet<Supportthread> Supportthreads { get; }
+    DbSet<Supportmessage> Supportmessages { get; }
     DbSet<Feedback> Feedbacks { get; }
     DbSet<Handoversummary> Handoversummaries { get; }
     DbSet<Learningmaterial> Learningmaterials { get; }

@@ -41,6 +41,7 @@ namespace MV.ApplicationLayer.ServiceInterfaces
         Task<SubjectResponse> CreateSubjectAsync(SubjectRequest req);
         Task<SubjectResponse?> UpdateSubjectAsync(int id, SubjectRequest req);
         Task<LookupDeleteResult> DeleteSubjectAsync(int id);
+        Task<bool> HardDeleteSubjectAsync(int id);
 
         // GradeLevel
         Task<GradeLevelResponse> CreateGradeLevelAsync(GradeLevelRequest req);

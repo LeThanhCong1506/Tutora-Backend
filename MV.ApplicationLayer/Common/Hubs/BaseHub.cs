@@ -2,12 +2,18 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using MV.ApplicationLayer.ServiceInterfaces;
+using MV.DomainLayer.Constants;
 using System.Security.Claims;
 
 namespace MV.ApplicationLayer.Common.Hubs
 {
     public abstract class BaseHub : Hub
     {
+        /// <summary>Every connected Admin/Staff member joins this group — lets a service broadcast
+        /// one event ("a user just messaged support") to whichever staff currently have the CMS
+        /// support inbox open, without tracking who specifically is looking at it.</summary>
+        public const string SupportAdminsGroup = "support:admins";
+
         protected string? CurrentUserId => Context.User?.FindFirst(ClaimTypes.NameIdentifier)?.Value;
         protected virtual bool TracksPresence => false;
 
@@ -25,6 +31,10 @@ namespace MV.ApplicationLayer.Common.Hubs
             if (!string.IsNullOrEmpty(CurrentUserId))
             {
                 await Groups.AddToGroupAsync(Context.ConnectionId, $"user:{CurrentUserId}");
+
+                if (Context.User?.IsInRole(UserRole.Admin) == true || Context.User?.IsInRole(UserRole.Staff) == true)
+                    await Groups.AddToGroupAsync(Context.ConnectionId, SupportAdminsGroup);
+
                 _logger.LogInformation("User {UserId} connected with ConnectionId {ConnectionId}", CurrentUserId, Context.ConnectionId);
 
                 if (TracksPresence)

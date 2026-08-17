@@ -8,4 +8,6 @@ public class FinanceSummaryResponse
     public decimal TotalEarned { get; set; }
     public decimal PendingSettlement { get; set; }
     public DateTime? LastWithdrawalAt { get; set; }
+    public bool HasActiveDispute { get; set; }
+    public decimal DisputedAmount { get; set; }
 }
