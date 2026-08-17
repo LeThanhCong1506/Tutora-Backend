@@ -33,7 +33,7 @@ public interface IClassSessionService
     /// <summary>
     /// Paged classSession list from the tutor's perspective, filterable by date and status.
     /// </summary>
-    Task<PagedList<ClassSessionResponse>> GetTutorClassSessionsAsync(string tutorId, int page, int pageSize, DateTime? fromDate, string? status);
+    Task<PagedList<ClassSessionResponse>> GetTutorClassSessionsAsync(string tutorId, int page, int pageSize, DateTime? fromDate, string? status, int? bookingId = null);
 
     /// <summary>
     /// Paged "class" list (one row per booking) for the tutor "Quản lý lớp học" screen. Grouping,

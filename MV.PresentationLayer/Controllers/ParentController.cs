@@ -25,6 +25,7 @@ public class ParentController : ControllerBase
     private readonly IDisputeService _disputeService;
     private readonly IClassSessionScheduleChangeService _scheduleChangeService;
     private readonly IClassSessionRescheduleProposalService _rescheduleProposalService;
+    private readonly ISessionLobbyPresenceBroadcaster _lobbyPresenceBroadcaster;
     private readonly ILogger<ParentController> _logger;
 
     public ParentController(
@@ -34,6 +35,7 @@ public class ParentController : ControllerBase
         IDisputeService disputeService,
         IClassSessionScheduleChangeService scheduleChangeService,
         IClassSessionRescheduleProposalService rescheduleProposalService,
+        ISessionLobbyPresenceBroadcaster lobbyPresenceBroadcaster,
         ILogger<ParentController> logger)
     {
         _parentService = parentService;
@@ -42,6 +44,7 @@ public class ParentController : ControllerBase
         _disputeService = disputeService;
         _scheduleChangeService = scheduleChangeService;
         _rescheduleProposalService = rescheduleProposalService;
+        _lobbyPresenceBroadcaster = lobbyPresenceBroadcaster;
         _logger = logger;
     }
 
@@ -136,6 +139,12 @@ public class ParentController : ControllerBase
                 userId,
                 UserRole.Parent,
                 request.Confirmed);
+
+            // Phụ huynh không vào SessionLobbyHub (chỉ gia sư/học sinh của booking mới join lobby) nên
+            // phản hồi REST này không tự phát tới group lobby như khi phản hồi qua Hub — đẩy tay để gia
+            // sư đang chờ trong lobby thấy ngay thay vì phải reload/đợi RefreshState (~10s).
+            await _lobbyPresenceBroadcaster.BroadcastAsync(id, userId, UserRole.Parent, HttpContext.RequestAborted);
+
             return Ok(APIResponse<SessionScheduleChangeResponse>.Success(
                 result,
                 request.Confirmed ? "Đã xác nhận đổi lịch học." : "Đã từ chối đổi lịch học."));

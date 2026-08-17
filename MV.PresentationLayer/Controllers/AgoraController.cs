@@ -37,6 +37,7 @@ public class AgoraController(
     IClassSessionService classSessionService,
     IClassSessionScheduleChangeService scheduleChanges,
     ISessionPresenceService presence,
+    ISessionLobbyPresenceBroadcaster lobbyPresenceBroadcaster,
     ILiveSessionDeviceLeaseService deviceLeases,
     IWhiteboardService whiteboardService,
     ISessionLogService sessionLogService,
@@ -148,7 +149,19 @@ public class AgoraController(
                 }));
         }
 
+        // Chụp trước khi ghi: chỉ khi đây là lần "vừa có mặt" (chưa present ở lần gọi trước) mới cần
+        // báo cho lobby — tránh gọi lại broadcaster (có truy vấn DB + GetOrCreateStateAsync) mỗi 20s
+        // suốt cả buổi học một khi cả hai đã ổn định trong phòng.
+        var wasPresent = presence.IsPresent(classSessionId, userId);
         presence.Heartbeat(classSessionId, userId);
+
+        // Phía còn lại có thể vẫn đang đứng trong SessionLobbyHub (chưa qua đây) — trước đây chỉ
+        // biết tin này qua RefreshState (~10s, chỉ là lưới an toàn), nên nếu poll đó lỡ nhịp thì họ
+        // đứng nhìn banner "chưa vào" vô thời hạn dù mình đã vào phòng thật rồi.
+        if (!wasPresent)
+        {
+            await lobbyPresenceBroadcaster.BroadcastAsync(classSessionId, userId, CurrentUserRole, cancellationToken);
+        }
 
         // In-memory presence answers "is this lesson checkable in right now" and is gone on restart.
         // The same beat is also appended to the durable chain, which is what a dispute weeks later
