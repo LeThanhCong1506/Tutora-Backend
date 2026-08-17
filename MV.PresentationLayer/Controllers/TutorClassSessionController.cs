@@ -43,10 +43,11 @@ public class TutorClassSessionController : ControllerBase
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 10,
         [FromQuery] DateTime? fromDate = null,
-        [FromQuery] string? status = null)
+        [FromQuery] string? status = null,
+        [FromQuery] int? bookingId = null)
     {
         var tutorId = UserHelper.GetUserId(User);
-        var result = await _classSessionService.GetTutorClassSessionsAsync(tutorId, page, pageSize, fromDate, status);
+        var result = await _classSessionService.GetTutorClassSessionsAsync(tutorId, page, pageSize, fromDate, status, bookingId);
         return Ok(APIResponse<PagedList<ClassSessionResponse>>.Success(result, "Lấy danh sách buổi học thành công."));
     }
 
