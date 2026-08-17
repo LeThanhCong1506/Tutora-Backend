@@ -1,6 +1,8 @@
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using MV.ApplicationLayer.Helpers;
+using MV.ApplicationLayer.Hubs;
 using MV.ApplicationLayer.Interfaces;
 using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.Constants;
@@ -14,6 +16,7 @@ namespace MV.ApplicationLayer.Services;
 public class ClassSessionRescheduleProposalService(
     IAppDbContext db,
     INotificationService notificationService,
+    IHubContext<SessionLobbyHub> lobbyHubContext,
     ILogger<ClassSessionRescheduleProposalService> logger) : IClassSessionRescheduleProposalService
 {
     private const int MinHoursBeforeOriginalStart = 2;
@@ -176,6 +179,10 @@ public class ClassSessionRescheduleProposalService(
                 NotificationType.RescheduleRejected,
                 classSessionId);
 
+            // Báo cho lobby biết ngay (nếu có ai đang chờ trong đó) thay vì để họ đứng sau banner
+            // khoá tới 10s (chu kỳ RefreshState) mới tự gỡ — xem SessionLobbyHub cho ngữ cảnh group.
+            await BroadcastRescheduleRejectedAsync(classSessionId, cancellationToken);
+
             return await MapAsync(proposal, session, cancellationToken);
         }
 
@@ -263,6 +270,20 @@ public class ClassSessionRescheduleProposalService(
         }
 
         return overdue.Count;
+    }
+
+    /// <summary>Best-effort — không được để lỗi broadcast làm hỏng thao tác từ chối đã lưu DB thành công.</summary>
+    private async Task BroadcastRescheduleRejectedAsync(int classSessionId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await lobbyHubContext.Clients.Group($"lobby:{classSessionId}")
+                .SendAsync("rescheduleProposalRejected", new { classSessionId }, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Could not broadcast reschedule-proposal rejection to lobby for classSession {ClassSessionId}", classSessionId);
+        }
     }
 
     private async Task NotifyAsync(string userId, string title, string message, string type, int classSessionId)
