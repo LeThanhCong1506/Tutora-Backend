@@ -7,7 +7,6 @@ using MV.ApplicationLayer.Common.Hubs;
 using MV.ApplicationLayer.Interfaces;
 using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.Constants;
-using MV.DomainLayer.Helpers;
 using System.Security.Claims;
 
 namespace MV.ApplicationLayer.Hubs
@@ -28,6 +27,15 @@ namespace MV.ApplicationLayer.Hubs
     ///  - sessionReady { classSessionId }         → FE điều hướng sang phòng học
     ///  - lobbyClosed  { classSessionId, reason } → "ended" (đã kết thúc) | "unavailable"
     ///  - lobbyBlocked { classSessionId, reason } → "payment" (chưa thanh toán đợt 2)
+    ///  - rescheduleProposalRejected { classSessionId } → đề xuất đổi lịch (ClassSessionRescheduleProposal,
+    ///    phản hồi ở trang chi tiết buổi học, ngoài hub này) vừa bị từ chối; bắn từ
+    ///    ClassSessionRescheduleProposalService.RespondAsync để FE tự rời rồi vào lại lobby, gỡ banner
+    ///    khoá ngay thay vì đợi RefreshState (~10s).
+    ///
+    /// lobbyState/scheduleChangeState/sessionReady được tính + phát qua <see cref="ISessionLobbyPresenceBroadcaster"/>
+    /// (dùng chung, không còn riêng trong Hub) — AgoraController.Heartbeat cũng gọi thẳng service này ngay
+    /// khi một bên chuyển từ "chưa có mặt" sang "có mặt" trong phòng học thật, để phía còn lại đang đứng
+    /// trong lobby thấy trạng thái cập nhật ngay thay vì phải đợi RefreshState (~10s, vốn chỉ là lưới an toàn).
     /// </summary>
     [Authorize]
     public class SessionLobbyHub : BaseHub
@@ -36,17 +44,20 @@ namespace MV.ApplicationLayer.Hubs
         private readonly IServiceProvider _serviceProvider;
         private readonly ISessionPresenceService _presence;
         private readonly IClassSessionScheduleChangeService _scheduleChanges;
+        private readonly ISessionLobbyPresenceBroadcaster _broadcaster;
 
         public SessionLobbyHub(
             ILogger<SessionLobbyHub> logger,
             IServiceProvider serviceProvider,
             ISessionPresenceService presence,
-            IClassSessionScheduleChangeService scheduleChanges) : base(logger, serviceProvider)
+            IClassSessionScheduleChangeService scheduleChanges,
+            ISessionLobbyPresenceBroadcaster broadcaster) : base(logger, serviceProvider)
         {
             _logger = logger;
             _serviceProvider = serviceProvider;
             _presence = presence;
             _scheduleChanges = scheduleChanges;
+            _broadcaster = broadcaster;
         }
 
         private string? CurrentUserRole =>
@@ -131,7 +142,7 @@ namespace MV.ApplicationLayer.Hubs
                 scheduledEnd = session.ScheduledEnd
             });
 
-            await BroadcastLobbyStateAsync(classSessionId, session, userId);
+            await _broadcaster.BroadcastAsync(classSessionId, userId, CurrentUserRole, Context.ConnectionAborted);
         }
 
         /// <summary>Rời phòng chờ chủ động (FE gọi khi unmount trang lobby).</summary>
@@ -193,7 +204,7 @@ namespace MV.ApplicationLayer.Hubs
                 return;
             }
 
-            await BroadcastLobbyStateAsync(classSessionId, session, userId);
+            await _broadcaster.BroadcastAsync(classSessionId, userId, CurrentUserRole, Context.ConnectionAborted);
         }
 
         /// <summary>Gia sư hoặc phía người học xác nhận/từ chối học ngoài lịch dự kiến.</summary>
@@ -217,11 +228,7 @@ namespace MV.ApplicationLayer.Hubs
                     Context.ConnectionAborted);
                 await Clients.Group(LobbyGroup(classSessionId)).SendAsync("scheduleChangeState", state);
 
-                using var scope = _serviceProvider.CreateScope();
-                var db = scope.ServiceProvider.GetRequiredService<IAppDbContext>();
-                var session = await LoadSessionAsync(db, classSessionId);
-                if (session != null)
-                    await BroadcastLobbyStateAsync(classSessionId, session, userId);
+                await _broadcaster.BroadcastAsync(classSessionId, userId, CurrentUserRole, Context.ConnectionAborted);
             }
             catch (UnauthorizedAccessException ex)
             {
@@ -298,91 +305,13 @@ namespace MV.ApplicationLayer.Hubs
             return SessionParticipantRole.Unknown;
         }
 
-        /// <summary>
-        /// "Có mặt" = đang chờ trong lobby HOẶC đã ở trong phòng học (presence heartbeat).
-        /// Phía học viên chỉ tính tài khoản student (Linkeduserid). Phụ huynh không
-        /// được thay thế học viên trong lobby hoặc phòng gọi.
-        /// </summary>
-        private (bool TutorWaiting, bool StudentWaiting) ComputeState(int classSessionId, LobbySessionSnapshot session)
-        {
-            var tutorWaiting = !string.IsNullOrEmpty(session.TutorId)
-                && (_presence.IsInLobby(classSessionId, session.TutorId) || _presence.IsPresent(classSessionId, session.TutorId));
-
-            bool studentWaiting;
-            if (!string.IsNullOrEmpty(session.StudentUserId))
-            {
-                studentWaiting = _presence.IsInLobby(classSessionId, session.StudentUserId)
-                    || _presence.IsPresent(classSessionId, session.StudentUserId);
-            }
-            else
-            {
-                studentWaiting = false;
-            }
-
-            return (tutorWaiting, studentWaiting);
-        }
-
-        private async Task BroadcastLobbyStateAsync(
-            int classSessionId,
-            LobbySessionSnapshot session,
-            string actorUserId)
-        {
-            var (tutorWaiting, studentWaiting) = ComputeState(classSessionId, session);
-            // Read the shared gate from the tutor perspective. Admin may bypass admission for
-            // support, but an admin opening the lobby must never unlock it for participants.
-            var stateActorId = session.TutorId ?? actorUserId;
-            var stateActorRole = session.TutorId != null ? UserRole.Tutor : CurrentUserRole;
-            var scheduleChange = await _scheduleChanges.GetOrCreateStateAsync(
-                classSessionId,
-                stateActorId,
-                stateActorRole,
-                Context.ConnectionAborted);
-
-            await Clients.Group(LobbyGroup(classSessionId)).SendAsync("scheduleChangeState", scheduleChange);
-            await Clients.Group(LobbyGroup(classSessionId)).SendAsync("lobbyState", new
-            {
-                classSessionId,
-                tutorWaiting,
-                studentWaiting
-            });
-
-            if (tutorWaiting && studentWaiting && scheduleChange.AdmissionAllowed)
-            {
-                var conflict = await _scheduleChanges.FindCurrentConflictAsync(
-                    classSessionId,
-                    TimeZoneHelper.UtcNow,
-                    Context.ConnectionAborted);
-                if (conflict != null)
-                {
-                    await Clients.Group(LobbyGroup(classSessionId)).SendAsync(
-                        "scheduleConflict",
-                        conflict,
-                        Context.ConnectionAborted);
-                    return;
-                }
-
-                await Clients.Group(LobbyGroup(classSessionId)).SendAsync(
-                    "scheduleConflictCleared",
-                    new { classSessionId },
-                    Context.ConnectionAborted);
-                _logger.LogInformation(
-                    "Lobby of classSession {ClassSessionId} ready — presence, confirmations and schedule validation are complete",
-                    classSessionId);
-                await Clients.Group(LobbyGroup(classSessionId)).SendAsync("sessionReady", new { classSessionId });
-            }
-        }
         /// <summary>Sau khi một người rời lobby: cập nhật trạng thái chờ cho những người còn lại.</summary>
         private async Task NotifyLobbyAfterExitAsync(int classSessionId, string userId)
         {
             try
             {
-                using var scope = _serviceProvider.CreateScope();
-                var db = scope.ServiceProvider.GetRequiredService<IAppDbContext>();
-                var session = await LoadSessionAsync(db, classSessionId);
-                if (session == null) return;
-
                 _logger.LogInformation("User {UserId} left lobby of classSession {ClassSessionId}", userId, classSessionId);
-                await BroadcastLobbyStateAsync(classSessionId, session, userId);
+                await _broadcaster.BroadcastAsync(classSessionId, userId, CurrentUserRole, Context.ConnectionAborted);
             }
             catch (Exception ex)
             {
