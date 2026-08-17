@@ -140,9 +140,9 @@ public partial class ClassSessionService : IClassSessionService
         }
     }
 
-    public async Task<PagedList<ClassSessionResponse>> GetTutorClassSessionsAsync(string tutorId, int page, int pageSize, DateTime? fromDate, string? status)
+    public async Task<PagedList<ClassSessionResponse>> GetTutorClassSessionsAsync(string tutorId, int page, int pageSize, DateTime? fromDate, string? status, int? bookingId)
     {
-        var (items, totalCount) = await _classSessionRepo.GetTutorClassSessionsPagedAsync(tutorId, page, pageSize, fromDate, status);
+        var (items, totalCount) = await _classSessionRepo.GetTutorClassSessionsPagedAsync(tutorId, page, pageSize, fromDate, status, bookingId);
         var dtos = items.Select(MapToClassSessionResponse).ToList();
         return new PagedList<ClassSessionResponse>(dtos, totalCount, page, pageSize);
     }

@@ -195,8 +195,19 @@ public partial class ClassSessionService
         var totalCompleted = await _context.ClassSessions
             .CountAsync(l => l.Tutorid == tutorId && l.Status == Completed);
 
+        // Tiền đã thực sự giải ngân về ví trong tháng (chỉ buổi đã quyết toán).
         var earningsThisMonth = await _context.ClassSessions
             .Where(l => l.Tutorid == tutorId && l.Status == Completed && l.Issettled == true && l.Scheduledstart >= startOfMonth)
+            .SumAsync(l => l.Lessonprice ?? 0);
+
+        // Buổi đã dạy trong tháng nhưng tiền còn bị giữ
+        var earnedPendingThisMonth = await _context.ClassSessions
+            .Where(l => l.Tutorid == tutorId
+                && l.Scheduledstart >= startOfMonth
+                && l.Issettled != true
+                && (l.Status == Completed
+                    || l.Status == PendingConfirmation
+                    || l.Status == InProgress))
             .SumAsync(l => l.Lessonprice ?? 0);
 
         var totalEarnings = await _context.ClassSessions
@@ -211,13 +222,60 @@ public partial class ClassSessionService
         var activeDisputes = await _context.Disputes
             .CountAsync(d => d.ClassSession != null && d.ClassSession.Tutorid == tutorId && d.Status != DisputeStatus.Resolved && d.Status != DisputeStatus.Closed);
 
+        // Tiền các buổi đã lên lịch nhưng chưa dạy
+        var startOfNextMonth = startOfMonth.AddMonths(1);
+
+        var upcomingThisMonthQuery = _context.ClassSessions
+            .Where(l => l.Tutorid == tutorId
+                && l.Status == Scheduled
+                && l.Scheduledstart > now
+                && l.Scheduledstart < startOfNextMonth);
+
+        var upcomingEarnings = await upcomingThisMonthQuery.SumAsync(l => l.Lessonprice ?? 0);
+        var upcomingThisMonthCount = await upcomingThisMonthQuery.CountAsync();
+
+        var reportedSessionIds = _context.ClassSessionReports
+            .Where(r => r.Classsessionid != null)
+            .Select(r => r.Classsessionid!.Value);
+
+        var awaitingReportQuery = _context.ClassSessions
+            .Where(l => l.Tutorid == tutorId
+                && l.Status == InProgress
+                && l.Checkouttime != null
+                && !reportedSessionIds.Contains(l.Classsessionid));
+
+        var awaitingReportCount = await awaitingReportQuery.CountAsync();
+
+        var awaitingReportEntities = await awaitingReportQuery
+            .AsNoTracking()
+            .OrderBy(l => l.Scheduledstart)
+            .Take(5)
+            .Include(l => l.Booking)
+                .ThenInclude(b => b!.Tutorsubjectgradeprice)
+                    .ThenInclude(p => p!.Subject)
+            .Include(l => l.Booking)
+                .ThenInclude(b => b!.Student)
+            .ToListAsync();
+
+        var awaitingReportClassSessions = awaitingReportEntities.Select(l => new AwaitingReportClassSessionResponse
+        {
+            ClassSessionId = l.Classsessionid,
+            BookingId = l.Bookingid,
+            ScheduledStart = l.Scheduledstart,
+            ScheduledEnd = l.Scheduledend,
+            StudentName = l.Booking?.Student?.Fullname,
+            SubjectName = l.Booking?.Subject?.Subjectname,
+            CheckOutTime = l.Checkouttime,
+            ClassSessionPrice = l.Lessonprice ?? 0
+        }).ToList();
+
         var tutorProfile = await _context.Tutorprofiles.FirstOrDefaultAsync(t => t.Tutorid == tutorId);
 
         var nextClassSessionEntities = await _context.ClassSessions
             .AsNoTracking()
             .Where(l => l.Tutorid == tutorId && l.Status == Scheduled && l.Scheduledstart > now)
             .OrderBy(l => l.Scheduledstart)
-            .Take(5)
+            .Take(20)
             .Include(l => l.Booking)
                 .ThenInclude(b => b!.Tutorsubjectgradeprice)
                     .ThenInclude(p => p!.Subject)
@@ -270,12 +328,17 @@ public partial class ClassSessionService
             CompletedThisMonth = completedThisMonth,
             TotalCompleted = totalCompleted,
             EarningsThisMonth = earningsThisMonth,
+            EarnedPendingThisMonth = earnedPendingThisMonth,
             TotalEarnings = totalEarnings,
             WalletBalance = walletBalance,
             AvailableBalance = walletBalance,
             FrozenBalance = frozenBalance,
             TotalBalance = walletBalance + frozenBalance,
             PendingConfirmation = pendingConfirmation,
+            UpcomingEarnings = upcomingEarnings,
+            UpcomingClassSessionsThisMonth = upcomingThisMonthCount,
+            AwaitingReport = awaitingReportCount,
+            AwaitingReportClassSessions = awaitingReportClassSessions,
             ActiveDisputes = activeDisputes,
             AverageRating = tutorProfile?.Averagerating ?? 0,
             TotalReviews = tutorProfile?.Totalreviews ?? 0,
