@@ -55,7 +55,7 @@ public class ParentService : IParentService
     public async Task<List<PendingClassSessionResponse>> GetPendingClassSessionsAsync(string userId, string role)
     {
         var studentIds = role == UserRole.Parent
-            ? await _context.Studentprofiles.Where(s => s.Parentid == userId).Select(s => s.Studentid).ToListAsync()
+            ? await _context.Studentprofiles.Where(s => s.Parentid == userId && s.Deletedat == null).Select(s => s.Studentid).ToListAsync()
             : await _context.Studentprofiles.Where(s => s.Studentid == userId || s.Linkeduserid == userId).Select(s => s.Studentid).ToListAsync();
 
         var classSessions = await _context.ClassSessions
@@ -84,6 +84,7 @@ public class ParentService : IParentService
             ConfirmDeadline = l.Confirmdeadline,
             TutorName = l.Tutor?.Tutor?.Fullname,
             TutorAvatarUrl = l.Tutor?.Tutor?.Avatarurl,
+            StudentId = l.Studentid,
             StudentName = l.Booking?.Student?.Fullname,
             SubjectName = l.Booking?.Subject?.Subjectname,
             ClassSessionPrice = l.Lessonprice,
