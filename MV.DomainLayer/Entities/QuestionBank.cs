@@ -39,6 +39,19 @@ public partial class QuestionBank
     /// <summary>Nguồn lời giải, vd "SGK Toán 9 - Kết nối tri thức".</summary>
     public string? SolutionSource { get; set; }
 
+    /// <summary>NULL = câu tự luận thường | mc (trắc nghiệm, soạn ở tab "Ngân hàng kiểm
+    /// tra") | numeric | text (chưa có UI, để dành sau).</summary>
+    public string? AnswerFormat { get; set; }
+
+    /// <summary>Chỉ có giá trị khi AnswerFormat="mc". Danh sách phương án A/B/C/D...</summary>
+    public List<AnswerOption>? AnswerOptions { get; set; }
+
+    /// <summary>mc -> đúng 1 key trong AnswerOptions (vd "A").</summary>
+    public string? CorrectAnswer { get; set; }
+
+    /// <summary>Giải thích vì sao đáp án đúng — ngắn hơn Solution.</summary>
+    public string? Explanation { get; set; }
+
     /// <summary>URL ảnh (Cloudinary) của câu — bảng biến thiên/đồ thị crop từ PDF. jsonb array.</summary>
     public List<string> ImageUrls { get; set; } = new();
 

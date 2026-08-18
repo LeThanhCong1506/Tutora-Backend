@@ -34,6 +34,28 @@ public class CreateQuestionRequest
 
     public string? SolutionSource { get; set; }
 
+    /// <summary>NULL = câu tự luận thường | mc (trắc nghiệm, "Ngân hàng kiểm tra").</summary>
+    [RegularExpression("mc|numeric|text", ErrorMessage = "answerFormat không hợp lệ.")]
+    public string? AnswerFormat { get; set; }
+
+    /// <summary>Bắt buộc kèm khi AnswerFormat="mc" (≥2 phương án).</summary>
+    public List<AnswerOptionRequest>? AnswerOptions { get; set; }
+
+    /// <summary>mc -> đúng 1 key trong AnswerOptions (vd "A").</summary>
+    public string? CorrectAnswer { get; set; }
+
+    /// <summary>Giải thích vì sao đáp án đúng.</summary>
+    public string? Explanation { get; set; }
+
     /// <summary>pending_review | published. Mặc định pending_review (chờ duyệt).</summary>
     public string? ReviewStatus { get; set; }
+}
+
+public class AnswerOptionRequest
+{
+    [Required(ErrorMessage = "Key phương án là bắt buộc")]
+    public string Key { get; set; } = "";
+
+    [Required(ErrorMessage = "Nội dung phương án là bắt buộc")]
+    public string Text { get; set; } = "";
 }

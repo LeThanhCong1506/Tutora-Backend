@@ -2492,6 +2492,19 @@ entity.HasOne(d => d.Tutor).WithOne(p => p.Tutorprofile)
                     (a, b) => System.Text.Json.JsonSerializer.Serialize(a, (System.Text.Json.JsonSerializerOptions?)null) == System.Text.Json.JsonSerializer.Serialize(b, (System.Text.Json.JsonSerializerOptions?)null),
                     v => v == null ? 0 : System.Text.Json.JsonSerializer.Serialize(v, (System.Text.Json.JsonSerializerOptions?)null).GetHashCode(),
                     v => System.Text.Json.JsonSerializer.Deserialize<List<string>>(System.Text.Json.JsonSerializer.Serialize(v, (System.Text.Json.JsonSerializerOptions?)null), (System.Text.Json.JsonSerializerOptions?)null) ?? new List<string>()));
+            entity.Property(e => e.AnswerFormat).HasColumnName("answer_format");
+            entity.Property(e => e.AnswerOptions)
+                .HasColumnType("jsonb")
+                .HasColumnName("answer_options")
+                .HasConversion(
+                    v => v == null ? null : System.Text.Json.JsonSerializer.Serialize(v, (System.Text.Json.JsonSerializerOptions?)null),
+                    v => v == null ? null : System.Text.Json.JsonSerializer.Deserialize<List<AnswerOption>>(v, (System.Text.Json.JsonSerializerOptions?)null))
+                .Metadata.SetValueComparer(new Microsoft.EntityFrameworkCore.ChangeTracking.ValueComparer<List<AnswerOption>?>(
+                    (a, b) => System.Text.Json.JsonSerializer.Serialize(a, (System.Text.Json.JsonSerializerOptions?)null) == System.Text.Json.JsonSerializer.Serialize(b, (System.Text.Json.JsonSerializerOptions?)null),
+                    v => v == null ? 0 : System.Text.Json.JsonSerializer.Serialize(v, (System.Text.Json.JsonSerializerOptions?)null).GetHashCode(),
+                    v => v == null ? null : System.Text.Json.JsonSerializer.Deserialize<List<AnswerOption>>(System.Text.Json.JsonSerializer.Serialize(v, (System.Text.Json.JsonSerializerOptions?)null), (System.Text.Json.JsonSerializerOptions?)null)));
+            entity.Property(e => e.CorrectAnswer).HasColumnName("correct_answer");
+            entity.Property(e => e.Explanation).HasColumnName("explanation");
             entity.Property(e => e.SourceDocumentId).HasColumnName("source_document_id");
             entity.Property(e => e.SourcePage).HasColumnName("source_page");
             entity.Property(e => e.ReviewStatus)
