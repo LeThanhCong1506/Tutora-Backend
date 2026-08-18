@@ -174,3 +174,26 @@ public class ProficiencyProfileResponse
     public int AttemptCount { get; set; }
     public DateTime? UpdatedAt { get; set; }
 }
+
+/// <summary>1 đề trong danh sách học sinh chọn. Không kèm câu hỏi.</summary>
+public class AvailableAssessmentResponse
+{
+    public Guid Id { get; set; }
+    public string Title { get; set; } = null!;
+    public string? Description { get; set; }
+    public int SubjectId { get; set; }
+    public string? SubjectName { get; set; }
+    public int GradeLevelId { get; set; }
+    public string? GradeName { get; set; }
+
+    /// <summary>Số câu phải làm.</summary>
+    public int QuestionCount { get; set; }
+    public int? DurationMinutes { get; set; }
+}
+
+/// <summary>Kết quả chạy phân tích. Analysis = JSON thô AI trả, FE parse để render mindmap.</summary>
+public class AttemptAnalysisResultResponse
+{
+    public Guid AttemptId { get; set; }
+    public string? Analysis { get; set; }
+}

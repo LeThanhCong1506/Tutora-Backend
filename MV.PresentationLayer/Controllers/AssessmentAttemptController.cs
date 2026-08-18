@@ -27,6 +27,37 @@ public class AssessmentAttemptController : ControllerBase
 
     private string? UserId => User.FindFirstValue(ClaimTypes.NameIdentifier);
 
+    /// <summary>Đề học sinh làm được. Lọc theo môn/lớp cho bước khảo sát đầu vào.</summary>
+    [HttpGet("available")]
+    public async Task<ActionResult<APIResponse<List<AvailableAssessmentResponse>>>> GetAvailable(
+        [FromQuery] int? subjectId = null,
+        [FromQuery] int? gradeLevelId = null,
+        CancellationToken ct = default)
+    {
+        var result = await _service.GetAvailableAsync(subjectId, gradeLevelId, ct);
+        return Ok(APIResponse<List<AvailableAssessmentResponse>>.Success(result, "Lấy danh sách đề thành công."));
+    }
+
+    /// <summary>Khảo sát xong -> random 1 đề khớp môn/lớp và bắt đầu luôn.</summary>
+    [HttpPost("start-random")]
+    public async Task<ActionResult<APIResponse<AttemptInProgressResponse>>> StartRandom(
+        [FromBody] StartRandomAttemptRequest request, CancellationToken ct)
+    {
+        if (string.IsNullOrEmpty(UserId))
+            return Unauthorized(APIResponse.Fail(ApiMessages.Unauthorized, 401));
+        if (!ModelState.IsValid)
+            return BadRequest(APIResponse.Fail("Dữ liệu khảo sát không hợp lệ.", 400));
+
+        var (result, error) = await _service.StartRandomAsync(
+            request.SubjectId, request.GradeLevelId, UserId, ct);
+        if (error != null)
+            return BadRequest(APIResponse.Fail(error, 400));
+
+        return result == null
+            ? NotFound(APIResponse.Fail("Không tìm thấy đề đánh giá.", 404))
+            : Ok(APIResponse<AttemptInProgressResponse>.Success(result, "Bắt đầu làm bài."));
+    }
+
     /// <summary>Bắt đầu làm đề, không kèm đáp án. Còn bài dở thì tiếp tục bài đó.</summary>
     [HttpPost("{assessmentId:guid}/attempts")]
     public async Task<ActionResult<APIResponse<AttemptInProgressResponse>>> Start(
@@ -125,6 +156,29 @@ public class AssessmentAttemptController : ControllerBase
         return Ok(APIResponse<AttemptAnalysisInputResponse>.Success(result, "Lấy dữ kiện phân tích thành công."));
     }
 
+    /// <summary>Chạy phân tích AI cho bài vừa nộp. BE tự gọi tutora-ai rồi ghi profile.</summary>
+    [HttpPost("attempts/{attemptId:guid}/analyze")]
+    public async Task<ActionResult<APIResponse<AttemptAnalysisResultResponse>>> Analyze(
+        Guid attemptId, CancellationToken ct)
+    {
+        if (string.IsNullOrEmpty(UserId))
+            return Unauthorized(APIResponse.Fail(ApiMessages.Unauthorized, 401));
+
+        var input = await _service.GetAnalysisInputAsync(attemptId, ct);
+        if (input == null)
+            return NotFound(APIResponse.Fail("Không tìm thấy bài làm đã nộp.", 404));
+        if (input.UserId != UserId)
+            return Forbid();
+
+        var (result, error) = await _service.RunAnalysisAsync(attemptId, ct);
+        if (error != null)
+            return StatusCode(502, APIResponse.Fail(error, 502));
+
+        return result == null
+            ? NotFound(APIResponse.Fail("Không tìm thấy bài làm đã nộp.", 404))
+            : Ok(APIResponse<AttemptAnalysisResultResponse>.Success(result, "Phân tích thành công."));
+    }
+
     /// <summary>Ghi kết quả AI vào bài làm + profile trình độ.</summary>
     [HttpPost("attempts/{attemptId:guid}/analysis")]
     public async Task<ActionResult<APIResponse<object>>> SaveAnalysis(
@@ -176,6 +230,16 @@ public class AssessmentAttemptController : ControllerBase
         var result = await _service.GetProficiencyAsync(UserId, subjectId, ct);
         return Ok(APIResponse<List<ProficiencyProfileResponse>>.Success(result, "Lấy profile trình độ thành công."));
     }
+}
+
+/// <summary>Body chọn đề sau bước khảo sát.</summary>
+public class StartRandomAttemptRequest
+{
+    [System.ComponentModel.DataAnnotations.Range(1, int.MaxValue, ErrorMessage = "Thiếu môn học")]
+    public int SubjectId { get; set; }
+
+    /// <summary>Null = không giới hạn lớp.</summary>
+    public int? GradeLevelId { get; set; }
 }
 
 /// <summary>Body cho endpoint báo lỗi phân tích.</summary>

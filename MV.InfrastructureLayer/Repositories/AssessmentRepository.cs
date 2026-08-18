@@ -131,6 +131,26 @@ public class AssessmentRepository : IAssessmentRepository
 
     // Học sinh làm bài
 
+    // Đủ câu = số câu đã gán >= QuestionCount (null -> chỉ cần có câu).
+    public async Task<List<Assessment>> GetPublishedAsync(int? subjectId = null, int? gradeLevelId = null)
+    {
+        var query = WithNav(_context.Assessments.AsNoTracking())
+            .Where(a => a.Status == "published");
+
+        if (subjectId.HasValue)
+            query = query.Where(a => a.SubjectId == subjectId.Value);
+        if (gradeLevelId.HasValue)
+            query = query.Where(a => a.GradeLevelId == gradeLevelId.Value);
+
+        var list = await query
+            .Where(a => a.Questions.Any())
+            .Where(a => a.QuestionCount == null || a.Questions.Count >= a.QuestionCount.Value)
+            .OrderBy(a => a.Title)
+            .ToListAsync();
+
+        return list;
+    }
+
     public async Task AddAttemptAsync(AssessmentAttempt attempt)
         => await _context.AssessmentAttempts.AddAsync(attempt);
 
