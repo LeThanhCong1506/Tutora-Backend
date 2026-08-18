@@ -25,6 +25,7 @@ public class ParentController : ControllerBase
     private readonly IDisputeService _disputeService;
     private readonly IClassSessionScheduleChangeService _scheduleChangeService;
     private readonly IClassSessionRescheduleProposalService _rescheduleProposalService;
+    private readonly IBookingService _bookingService;
     private readonly ISessionLobbyPresenceBroadcaster _lobbyPresenceBroadcaster;
     private readonly ILogger<ParentController> _logger;
 
@@ -35,9 +36,11 @@ public class ParentController : ControllerBase
         IDisputeService disputeService,
         IClassSessionScheduleChangeService scheduleChangeService,
         IClassSessionRescheduleProposalService rescheduleProposalService,
+        IBookingService bookingService,
         ISessionLobbyPresenceBroadcaster lobbyPresenceBroadcaster,
         ILogger<ParentController> logger)
     {
+        _bookingService = bookingService;
         _parentService = parentService;
         _studentService = studentService;
         _classSessionService = classSessionService;
@@ -414,6 +417,109 @@ public class ParentController : ControllerBase
 
         var result = await _parentService.GetParentCalendarAsync(userId, role, start, end);
         return Ok(APIResponse<List<CalendarDayResponse>>.Success(result, "Lấy lịch học thành công."));
+    }
+
+    /// <summary>
+    /// Get one child's classSessions as a flat list.
+    /// </summary>
+    [HttpGet("students/{studentId}/class-sessions")]
+    [Authorize(Roles = UserRole.ParentOrStudent)]
+    public async Task<ActionResult<APIResponse<List<ParentChildClassSessionResponse>>>> GetChildClassSessions(
+        string studentId,
+        [FromQuery] DateTime? startDate,
+        [FromQuery] DateTime? endDate)
+    {
+        var userId = UserHelper.GetUserId(User);
+        var role = User.FindFirstValue(ClaimTypes.Role) ?? "";
+
+        try
+        {
+            var result = await _parentService.GetChildClassSessionsAsync(userId, role, studentId, startDate, endDate);
+            return Ok(APIResponse<List<ParentChildClassSessionResponse>>.Success(result, "Lấy buổi học của học sinh thành công."));
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(403, APIResponse<object>.Fail(ex.Message));
+        }
+    }
+
+    /// <summary>
+    /// Buổi học sắp tới gần nhất.
+    /// </summary>
+    [HttpGet("class-sessions/next")]
+    [Authorize(Roles = UserRole.ParentOrStudent)]
+    public async Task<ActionResult<APIResponse<ParentChildClassSessionResponse?>>> GetNextClassSession(
+        [FromQuery] string? studentId)
+    {
+        var userId = UserHelper.GetUserId(User);
+        var role = User.FindFirstValue(ClaimTypes.Role) ?? "";
+
+        try
+        {
+            var result = await _parentService.GetNextClassSessionAsync(userId, role, studentId);
+            return Ok(APIResponse<ParentChildClassSessionResponse?>.Success(result, "Lấy buổi học sắp tới thành công."));
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(403, APIResponse<object>.Fail(ex.Message));
+        }
+    }
+
+    /// <summary>
+    /// Lớp học (booking) của MỘT người con. Khác `/parent/bookings` (gộp mọi con và
+    /// không cho lọc) — app mobile cần theo con đang chọn.
+    /// </summary>
+    [HttpGet("students/{studentId}/bookings")]
+    [Authorize(Roles = UserRole.ParentOrStudent)]
+    public async Task<IActionResult> GetChildBookings(
+        string studentId,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        [FromQuery] string? status = null,
+        [FromQuery] bool excludeClosed = false)
+    {
+        var userId = UserHelper.GetUserId(User);
+        var role = User.FindFirstValue(ClaimTypes.Role) ?? "";
+
+        try
+        {
+            var result = await _bookingService.GetChildBookingsAsync(userId, role, studentId, page, pageSize, status, excludeClosed);
+            var payload = new
+            {
+                items = (List<BookingResponse>)result,
+                totalCount = result.TotalCount,
+                currentPage = result.CurrentPage,
+                totalPages = result.TotalPages,
+                pageSize = result.PageSize
+            };
+            return Ok(APIResponse<object>.Success(payload, "Lấy lớp học của học sinh thành công."));
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(403, APIResponse<object>.Fail(ex.Message));
+        }
+    }
+
+    /// <summary>
+    /// Số liệu tổng quan cho Home của phụ huynh.
+    /// </summary>
+    [HttpGet("home-stats")]
+    [Authorize(Roles = UserRole.ParentOrStudent)]
+    public async Task<ActionResult<APIResponse<ParentHomeStatsResponse>>> GetHomeStats(
+        [FromQuery] string? studentId)
+    {
+        var userId = UserHelper.GetUserId(User);
+        var role = User.FindFirstValue(ClaimTypes.Role) ?? "";
+
+        try
+        {
+            var result = await _parentService.GetHomeStatsAsync(userId, role, studentId);
+            return Ok(APIResponse<ParentHomeStatsResponse>.Success(result, "Lấy số liệu tổng quan thành công."));
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(403, APIResponse<object>.Fail(ex.Message));
+        }
     }
 
     // =====================================================================
