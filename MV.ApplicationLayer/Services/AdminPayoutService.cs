@@ -323,6 +323,24 @@ public class AdminPayoutService(
             JoinedAt = user.Createdat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
         };
 
+        // Trang chi tiết chỉ được hiện tên người xử lý — user id là dữ liệu nội bộ, không đưa ra UI.
+        var actorIds = new[] { withdrawal.Claimedby, withdrawal.Processedby }
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Select(id => id!)
+            .Distinct()
+            .ToList();
+        var actorNames = actorIds.Count == 0
+            ? new Dictionary<string, string?>()
+            : await context.Users
+                .AsNoTracking()
+                .Where(u => actorIds.Contains(u.Userid))
+                .ToDictionaryAsync(u => u.Userid, u => u.Fullname ?? u.Username, ct);
+
+        string? ResolveActorName(string? userId) =>
+            string.IsNullOrWhiteSpace(userId)
+                ? null
+                : actorNames.GetValueOrDefault(userId) ?? SystemActors.DisplayName;
+
         var timeline = BuildTimeline(withdrawal);
 
         return new AdminWithdrawalDetailResponse
@@ -339,8 +357,10 @@ public class AdminPayoutService(
                 CreatedAt = withdrawal.Requestedat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow,
                 ProcessedAt = withdrawal.Processedat,
                 ProcessedBy = withdrawal.Processedby,
+                ProcessedByName = ResolveActorName(withdrawal.Processedby),
                 CompletionNote = withdrawal.Completionnote,
                 ClaimedBy = withdrawal.Claimedby,
+                ClaimedByName = ResolveActorName(withdrawal.Claimedby),
                 ClaimedAt = withdrawal.Claimedat,
                 RejectionReason = withdrawal.Rejectionreason,
                 TransactionId = payoutTransaction?.Providertransactionid,
