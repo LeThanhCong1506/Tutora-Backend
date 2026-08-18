@@ -120,7 +120,7 @@ public static class ClassSessionScheduleConflictGuard
             DateTime.SpecifyKind(conflict.End, DateTimeKind.Utc),
             vietnamTimeZone);
         var message =
-            $"{partyLabel} đang có buổi học #{conflict.ClassSessionId} " +
+            $"{partyLabel} đang có buổi học " +
             $"từ {start:HH:mm} đến {end:HH:mm} ngày {start:dd/MM/yyyy}. " +
             "Vui lòng bắt đầu buổi học này sau khi lịch trên kết thúc.";
 

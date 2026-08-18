@@ -37,7 +37,8 @@ public class QuestionRepository : IQuestionRepository
         IReadOnlyList<string>? difficulties = null,
         bool? hasSolution = null,
         string? sortBy = null,
-        string? sortDir = null)
+        string? sortDir = null,
+        string? answerFormat = null)
     {
         var query = WithNav(_context.QuestionBanks.AsNoTracking());
 
@@ -57,6 +58,8 @@ public class QuestionRepository : IQuestionRepository
                 : query.Where(q => q.Solution == null || q.Solution == "");
         if (!string.IsNullOrWhiteSpace(search))
             query = query.Where(q => EF.Functions.ILike(q.Content, $"%{search}%"));
+        if (!string.IsNullOrWhiteSpace(answerFormat))
+            query = query.Where(q => q.AnswerFormat == answerFormat);
 
         // Sort whitelist: chỉ cho phép cột an toàn, mặc định cập nhật mới nhất.
         bool asc = string.Equals(sortDir, "asc", StringComparison.OrdinalIgnoreCase);

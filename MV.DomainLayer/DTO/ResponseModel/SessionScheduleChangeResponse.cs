@@ -28,6 +28,10 @@ public class SessionScheduleChangeResponse
     public DateTime? ExpiresAt { get; set; }
     public DateTime? TutorConfirmedAt { get; set; }
     public DateTime? LearnerConfirmedAt { get; set; }
+    /// <summary>UserId của bên đã bấm "Từ chối" khi <see cref="Status"/> là "rejected" — so với
+    /// <see cref="TutorUserId"/>/<see cref="LearnerApproverUserId"/> để biết hiển thị "Đã từ chối"
+    /// ở dòng nào trong danh sách xác nhận.</summary>
+    public string? RejectedByUserId { get; set; }
     public DateTime? ApprovedAt { get; set; }
     public DateTime? AppliedAt { get; set; }
     public DateTime? AdjustedScheduledStart { get; set; }

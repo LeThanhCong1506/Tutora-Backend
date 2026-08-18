@@ -22,6 +22,13 @@ public class QuestionResponse
     public string Content { get; set; } = null!;
     public string? Solution { get; set; }
     public string? SolutionSource { get; set; }
+
+    /// <summary>NULL = câu tự luận thường | mc (trắc nghiệm, "Ngân hàng kiểm tra").</summary>
+    public string? AnswerFormat { get; set; }
+    public List<AnswerOptionResponse>? AnswerOptions { get; set; }
+    public string? CorrectAnswer { get; set; }
+    public string? Explanation { get; set; }
+
     public List<string> ImageUrls { get; set; } = new();
     public Guid? SourceDocumentId { get; set; }
     public int? SourcePage { get; set; }
@@ -34,4 +41,10 @@ public class QuestionResponse
 
     public DateTime? CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
+}
+
+public class AnswerOptionResponse
+{
+    public string Key { get; set; } = "";
+    public string Text { get; set; } = "";
 }

@@ -21,7 +21,8 @@ public interface IQuestionRepository
         IReadOnlyList<string>? difficulties = null,
         bool? hasSolution = null,
         string? sortBy = null,
-        string? sortDir = null);
+        string? sortDir = null,
+        string? answerFormat = null);
 
     void Update(QuestionBank question);
 
