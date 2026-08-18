@@ -23,6 +23,11 @@ public class PendingClassSessionResponse
 
     public string? TutorName { get; set; }
     public string? TutorAvatarUrl { get; set; }
+
+    /// <summary>
+    /// Con nào của buổi này
+    /// </summary>
+    public string? StudentId { get; set; }
     public string? StudentName { get; set; }
     public string? SubjectName { get; set; }
 

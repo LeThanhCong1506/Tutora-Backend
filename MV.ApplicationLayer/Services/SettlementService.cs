@@ -577,6 +577,7 @@ public partial class SettlementService : ISettlementService
             ConfirmDeadline = l.Confirmdeadline,
             TutorName = l.Tutor?.Tutor?.Fullname,
             TutorAvatarUrl = l.Tutor?.Tutor?.Avatarurl,
+            StudentId = l.Studentid,
             StudentName = l.Booking?.Student?.Fullname,
             SubjectName = l.Booking?.Subject?.Subjectname,
             ClassSessionPrice = l.Lessonprice,

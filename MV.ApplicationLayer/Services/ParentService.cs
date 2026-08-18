@@ -26,6 +26,7 @@ public class ParentService : IParentService
     private readonly IFileStorageService _storageService;
     private readonly IBackgroundJobClient _backgroundJobClient;
     private readonly IClassSessionRescheduleProposalService _rescheduleProposalService;
+    private readonly IClassSessionService _classSessionService;
     private readonly ILogger<ParentService> _logger;
 
     public ParentService(
@@ -35,6 +36,7 @@ public class ParentService : IParentService
         IFileStorageService storageService,
         IBackgroundJobClient backgroundJobClient,
         IClassSessionRescheduleProposalService rescheduleProposalService,
+        IClassSessionService classSessionService,
         ILogger<ParentService> logger)
     {
         _context = context;
@@ -43,6 +45,7 @@ public class ParentService : IParentService
         _storageService = storageService;
         _backgroundJobClient = backgroundJobClient;
         _rescheduleProposalService = rescheduleProposalService;
+        _classSessionService = classSessionService;
         _logger = logger;
     }
 
@@ -52,7 +55,7 @@ public class ParentService : IParentService
     public async Task<List<PendingClassSessionResponse>> GetPendingClassSessionsAsync(string userId, string role)
     {
         var studentIds = role == UserRole.Parent
-            ? await _context.Studentprofiles.Where(s => s.Parentid == userId).Select(s => s.Studentid).ToListAsync()
+            ? await _context.Studentprofiles.Where(s => s.Parentid == userId && s.Deletedat == null).Select(s => s.Studentid).ToListAsync()
             : await _context.Studentprofiles.Where(s => s.Studentid == userId || s.Linkeduserid == userId).Select(s => s.Studentid).ToListAsync();
 
         var classSessions = await _context.ClassSessions
@@ -81,6 +84,7 @@ public class ParentService : IParentService
             ConfirmDeadline = l.Confirmdeadline,
             TutorName = l.Tutor?.Tutor?.Fullname,
             TutorAvatarUrl = l.Tutor?.Tutor?.Avatarurl,
+            StudentId = l.Studentid,
             StudentName = l.Booking?.Student?.Fullname,
             SubjectName = l.Booking?.Subject?.Subjectname,
             ClassSessionPrice = l.Lessonprice,
@@ -603,6 +607,192 @@ public class ParentService : IParentService
         {
             throw new Exception($"Error getting parent calendar: {ex.Message}", ex);
         }
+    }
+
+    public async Task<List<ParentChildClassSessionResponse>> GetChildClassSessionsAsync(
+        string userId, string role, string studentId, DateTime? startDate, DateTime? endDate)
+    {
+        var studentIds = role == UserRole.Parent
+            ? await _context.Studentprofiles.Where(s => s.Parentid == userId).Select(s => s.Studentid).ToListAsync()
+            : await _context.Studentprofiles.Where(s => s.Studentid == userId || s.Linkeduserid == userId).Select(s => s.Studentid).ToListAsync();
+
+        // Chặn xem buổi học của con người khác.
+        if (!studentIds.Contains(studentId))
+            throw new UnauthorizedAccessException("Bạn không có quyền xem lịch học của học sinh này.");
+
+        var query = _context.ClassSessions
+            .AsNoTracking()
+            .Where(l => l.Studentid == studentId);
+
+        if (startDate.HasValue)
+        {
+            var startUtc = DateTime.SpecifyKind(startDate.Value, DateTimeKind.Utc);
+            query = query.Where(l => l.Scheduledstart >= startUtc);
+        }
+
+        if (endDate.HasValue)
+        {
+            var endUtc = DateTime.SpecifyKind(endDate.Value, DateTimeKind.Utc);
+            query = query.Where(l => l.Scheduledstart <= endUtc);
+        }
+
+        var classSessions = await query
+            .Include(l => l.Booking)
+                .ThenInclude(b => b!.Tutorsubjectgradeprice)
+                    .ThenInclude(p => p!.Subject)
+            .Include(l => l.Booking)
+                .ThenInclude(b => b!.Student)
+            .Include(l => l.Tutor)
+                .ThenInclude(t => t!.Tutor)
+            .Include(l => l.RescheduleProposals)
+            .OrderBy(l => l.Scheduledstart)
+            .ToListAsync();
+
+        return classSessions.Select(l => new ParentChildClassSessionResponse
+        {
+            ClassSessionId = l.Classsessionid,
+            BookingId = l.Bookingid,
+            ScheduledStart = l.Scheduledstart,
+            ScheduledEnd = l.Scheduledend,
+            StudentId = l.Studentid,
+            StudentName = l.Booking?.Student?.Fullname,
+            TutorId = l.Tutorid,
+            TutorName = l.Tutor?.Tutor?.Fullname,
+            TutorAvatarUrl = l.Tutor?.Tutor?.Avatarurl,
+            SubjectName = l.Booking?.Subject?.Subjectname,
+            Status = l.Status,
+            BookingStatus = l.Booking?.Status,
+            MeetingLink = l.Meetinglink,
+            CheckOutTime = l.Checkouttime,
+            HasRecording = RecordingStatusResolver.Resolve(l.Recordingurl, l.Recordings3key, l.Recordingsid, l.Checkouttime.HasValue).Status == "available",
+            HasPendingReschedule = ResolveHasPendingReschedule(l.RescheduleProposals)
+        }).ToList();
+    }
+
+    public async Task<ParentChildClassSessionResponse?> GetNextClassSessionAsync(
+        string userId, string role, string? studentId)
+    {
+        var studentIds = role == UserRole.Parent
+            ? await _context.Studentprofiles.Where(s => s.Parentid == userId).Select(s => s.Studentid).ToListAsync()
+            : await _context.Studentprofiles.Where(s => s.Studentid == userId || s.Linkeduserid == userId).Select(s => s.Studentid).ToListAsync();
+
+        if (studentId != null)
+        {
+            if (!studentIds.Contains(studentId))
+                throw new UnauthorizedAccessException("Bạn không có quyền xem lịch học của học sinh này.");
+            studentIds = new List<string> { studentId };
+        }
+
+        if (studentIds.Count == 0)
+            return null;
+
+        var now = TimeZoneHelper.UtcNow;
+
+        // Buổi in_progress lấy cả khi quá giờ (gia sư chưa check-out); scheduled chỉ lấy khi
+        // chưa kết thúc. Loại `reserved` (chờ gia sư nhận) và booking huỷ/hết hạn thanh toán.
+        var session = await _context.ClassSessions
+            .AsNoTracking()
+            .Where(l => l.Studentid != null && studentIds.Contains(l.Studentid)
+                     && l.Checkouttime == null
+                     && ((l.Status == Scheduled && l.Scheduledend >= now) || l.Status == InProgress)
+                     && l.Booking != null
+                     && l.Booking.Status != BookingStatus.Cancelled
+                     && l.Booking.Status != BookingStatus.CancelledNoshow
+                     && l.Booking.Status != BookingStatus.PaymentTimeout)
+            .Include(l => l.Booking)
+                .ThenInclude(b => b!.Tutorsubjectgradeprice)
+                    .ThenInclude(p => p!.Subject)
+            .Include(l => l.Booking)
+                .ThenInclude(b => b!.Student)
+            .Include(l => l.Tutor)
+                .ThenInclude(t => t!.Tutor)
+            .Include(l => l.RescheduleProposals)
+            .OrderByDescending(l => l.Status == InProgress)
+            .ThenBy(l => l.Scheduledstart)
+            .FirstOrDefaultAsync();
+
+        if (session == null)
+            return null;
+
+        // Buổi bị khoá vì chưa thanh toán đợt 2 thì chưa học được.
+        if (await _classSessionService.IsSessionBlockedByRemainingPaymentAsync(session.Classsessionid))
+            return null;
+
+        return new ParentChildClassSessionResponse
+        {
+            ClassSessionId = session.Classsessionid,
+            BookingId = session.Bookingid,
+            ScheduledStart = session.Scheduledstart,
+            ScheduledEnd = session.Scheduledend,
+            StudentId = session.Studentid,
+            StudentName = session.Booking?.Student?.Fullname,
+            TutorId = session.Tutorid,
+            TutorName = session.Tutor?.Tutor?.Fullname,
+            TutorAvatarUrl = session.Tutor?.Tutor?.Avatarurl,
+            SubjectName = session.Booking?.Subject?.Subjectname,
+            Status = session.Status,
+            BookingStatus = session.Booking?.Status,
+            MeetingLink = session.Meetinglink,
+            CheckOutTime = session.Checkouttime,
+            HasRecording = RecordingStatusResolver.Resolve(session.Recordingurl, session.Recordings3key, session.Recordingsid, session.Checkouttime.HasValue).Status == "available",
+            HasPendingReschedule = ResolveHasPendingReschedule(session.RescheduleProposals)
+        };
+    }
+
+    public async Task<ParentHomeStatsResponse> GetHomeStatsAsync(string userId, string role, string? studentId)
+    {
+        var allStudents = role == UserRole.Parent
+            ? await _context.Studentprofiles.Where(s => s.Parentid == userId && s.Deletedat == null).Select(s => s.Studentid).ToListAsync()
+            : await _context.Studentprofiles.Where(s => s.Studentid == userId || s.Linkeduserid == userId).Select(s => s.Studentid).ToListAsync();
+
+        if (allStudents.Count == 0)
+            return new ParentHomeStatsResponse();
+
+        // Buổi/chờ xác nhận tính theo con đang xem; số con thì luôn tính trên mọi con.
+        if (studentId != null && !allStudents.Contains(studentId))
+            throw new UnauthorizedAccessException("Bạn không có quyền xem số liệu của học sinh này.");
+
+        var students = studentId != null ? new List<string> { studentId } : allStudents;
+
+        var now = TimeZoneHelper.UtcNow;
+        var weekStart = now.Date.AddDays(-(((int)now.DayOfWeek + 6) % 7));
+        var weekEnd = weekStart.AddDays(7);
+
+        // Giữ `reserved`: phụ huynh đã trả cọc nên buổi giữ chỗ vẫn đếm là buổi
+        // trong tuần — khớp với danh sách buổi hiện trên Home.
+        var sessionsThisWeek = await _context.ClassSessions
+            .CountAsync(l => l.Studentid != null && students.Contains(l.Studentid)
+                          && l.Scheduledstart >= weekStart && l.Scheduledstart < weekEnd
+                          && l.Status != Cancelled && l.Status != CancelledNoshow);
+
+        // "Đang học" = có booking đã trả phí và chưa kết thúc; `pending_tutor`/`accepted`
+        // (chờ gia sư nhận, chưa trả phí) và mọi booking đã đóng đều không tính.
+        var learningStatuses = new[]
+        {
+            BookingStatus.DepositPaid,
+            BookingStatus.Paid,
+            BookingStatus.Ongoing,
+            BookingStatus.PendingRemainingPayment,
+        };
+
+        var childrenLearning = await _context.Bookings
+            .Where(b => b.Studentid != null && allStudents.Contains(b.Studentid)
+                     && learningStatuses.Contains(b.Status))
+            .Select(b => b.Studentid)
+            .Distinct()
+            .CountAsync();
+
+        var pendingConfirmation = await _context.ClassSessions
+            .CountAsync(l => l.Studentid != null && students.Contains(l.Studentid)
+                          && l.Status == PendingConfirmation && l.Issettled != true);
+
+        return new ParentHomeStatsResponse
+        {
+            SessionsThisWeek = sessionsThisWeek,
+            ChildrenLearning = childrenLearning,
+            ChildrenTotal = allStudents.Count,
+            PendingConfirmation = pendingConfirmation,
+        };
     }
 
     /// <summary>
