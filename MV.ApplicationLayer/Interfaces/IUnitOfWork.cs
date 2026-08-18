@@ -23,6 +23,8 @@ namespace MV.ApplicationLayer.Interfaces
         IQuestionRepository QuestionRepository { get; }
         ISourceDocumentRepository SourceDocumentRepository { get; }
 
+        IAssessmentRepository AssessmentRepository { get; }
+
         // Single commit point
         Task<int> SaveChangesAsync();
     }

@@ -101,6 +101,16 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
 
     public virtual DbSet<QuestionType> QuestionTypes { get; set; }
 
+    public virtual DbSet<Assessment> Assessments { get; set; }
+
+    public virtual DbSet<AssessmentQuestion> AssessmentQuestions { get; set; }
+
+    public virtual DbSet<AssessmentAttempt> AssessmentAttempts { get; set; }
+
+    public virtual DbSet<AssessmentAttemptAnswer> AssessmentAttemptAnswers { get; set; }
+
+    public virtual DbSet<StudentProficiencyProfile> StudentProficiencyProfiles { get; set; }
+
     public virtual DbSet<AiCreditTransaction> AiCreditTransactions { get; set; }
 
     public virtual DbSet<AiUsageMonthly> AiUsageMonthly { get; set; }
@@ -2695,6 +2705,216 @@ entity.HasOne(d => d.Tutor).WithOne(p => p.Tutorprofile)
             entity.Property(e => e.IsActive).HasDefaultValue(true).HasColumnName("is_active");
             entity.Property(e => e.CreatedAt).HasDefaultValueSql("now()").HasColumnType("timestamp with time zone").HasColumnName("created_at");
             entity.Property(e => e.UpdatedAt).HasDefaultValueSql("now()").HasColumnType("timestamp with time zone").HasColumnName("updated_at");
+        });
+
+        // ── Bộ đề đánh giá (placement test). Xem migrations/managed/V20260818b__assessments.sql ──
+        modelBuilder.Entity<Assessment>(entity =>
+        {
+            entity.HasKey(e => e.Id).HasName("assessments_pkey");
+            entity.ToTable("assessments");
+
+            entity.HasIndex(e => new { e.SubjectId, e.GradeLevelId }, "idx_assessments_subject_grade");
+            entity.HasIndex(e => e.Status, "idx_assessments_status");
+
+            entity.Property(e => e.Id).HasDefaultValueSql("gen_random_uuid()").HasColumnName("id");
+            entity.Property(e => e.Title).HasMaxLength(255).HasColumnName("title");
+            entity.Property(e => e.Description).HasColumnName("description");
+            entity.Property(e => e.SubjectId).HasColumnName("subject_id");
+            entity.Property(e => e.GradeLevelId).HasColumnName("grade_level_id");
+            entity.Property(e => e.QuestionCount).HasColumnName("question_count");
+            entity.Property(e => e.DurationMinutes).HasColumnName("duration_minutes");
+            entity.Property(e => e.ShuffleQuestions).HasDefaultValue(false).HasColumnName("shuffle_questions");
+            entity.Property(e => e.ShuffleOptions).HasDefaultValue(false).HasColumnName("shuffle_options");
+            entity.Property(e => e.ShowResult).HasDefaultValue(true).HasColumnName("show_result");
+            entity.Property(e => e.Status).HasMaxLength(20).HasDefaultValue("draft").HasColumnName("status");
+            entity.Property(e => e.CreatedBy).HasMaxLength(50).HasColumnName("created_by");
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("now()").HasColumnType("timestamp with time zone").HasColumnName("created_at");
+            entity.Property(e => e.UpdatedAt).HasDefaultValueSql("now()").HasColumnType("timestamp with time zone").HasColumnName("updated_at");
+
+            entity.HasOne(d => d.Subject).WithMany()
+                .HasForeignKey(d => d.SubjectId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("assessments_subjectid_fkey");
+
+            entity.HasOne(d => d.Gradelevel).WithMany()
+                .HasForeignKey(d => d.GradeLevelId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("assessments_gradelevelid_fkey");
+        });
+
+        modelBuilder.Entity<AssessmentQuestion>(entity =>
+        {
+            entity.HasKey(e => e.Id).HasName("assessment_questions_pkey");
+            entity.ToTable("assessment_questions");
+
+            entity.HasIndex(e => new { e.AssessmentId, e.DisplayOrder }, "idx_assessment_questions_assessment");
+            entity.HasIndex(e => e.ChapterId, "idx_assessment_questions_chapter");
+
+            entity.Property(e => e.Id).HasDefaultValueSql("gen_random_uuid()").HasColumnName("id");
+            entity.Property(e => e.AssessmentId).HasColumnName("assessment_id");
+            entity.Property(e => e.DisplayOrder).HasDefaultValue(0).HasColumnName("display_order");
+            entity.Property(e => e.Points).HasColumnType("numeric(6,2)").HasDefaultValue(1m).HasColumnName("points");
+            entity.Property(e => e.QuestionFormat).HasMaxLength(20).HasColumnName("question_format");
+            entity.Property(e => e.ChapterId).HasColumnName("chapter_id");
+            entity.Property(e => e.QuestionTypeId).HasColumnName("question_type_id");
+            entity.Property(e => e.Difficulty).HasMaxLength(20).HasColumnName("difficulty");
+            entity.Property(e => e.Content).HasColumnName("content");
+            entity.Property(e => e.CorrectAnswer).HasColumnName("correct_answer");
+            entity.Property(e => e.Explanation).HasColumnName("explanation");
+
+            // jsonb <-> List<T>: giống questions.answer_options/image_urls — so sánh bằng
+            // chuỗi JSON để EF phát hiện thay đổi trong collection.
+            entity.Property(e => e.AnswerOptions)
+                .HasColumnType("jsonb")
+                .HasColumnName("answer_options")
+                .HasConversion(
+                    v => v == null ? null : System.Text.Json.JsonSerializer.Serialize(v, (System.Text.Json.JsonSerializerOptions?)null),
+                    v => v == null ? null : System.Text.Json.JsonSerializer.Deserialize<List<AnswerOption>>(v, (System.Text.Json.JsonSerializerOptions?)null))
+                .Metadata.SetValueComparer(new Microsoft.EntityFrameworkCore.ChangeTracking.ValueComparer<List<AnswerOption>?>(
+                    (a, b) => System.Text.Json.JsonSerializer.Serialize(a, (System.Text.Json.JsonSerializerOptions?)null) == System.Text.Json.JsonSerializer.Serialize(b, (System.Text.Json.JsonSerializerOptions?)null),
+                    v => v == null ? 0 : System.Text.Json.JsonSerializer.Serialize(v, (System.Text.Json.JsonSerializerOptions?)null).GetHashCode(),
+                    v => v == null ? null : System.Text.Json.JsonSerializer.Deserialize<List<AnswerOption>>(System.Text.Json.JsonSerializer.Serialize(v, (System.Text.Json.JsonSerializerOptions?)null), (System.Text.Json.JsonSerializerOptions?)null)));
+
+            entity.Property(e => e.AcceptedAnswers)
+                .HasColumnType("jsonb")
+                .HasColumnName("accepted_answers")
+                .HasConversion(
+                    v => v == null ? null : System.Text.Json.JsonSerializer.Serialize(v, (System.Text.Json.JsonSerializerOptions?)null),
+                    v => v == null ? null : System.Text.Json.JsonSerializer.Deserialize<List<string>>(v, (System.Text.Json.JsonSerializerOptions?)null))
+                .Metadata.SetValueComparer(new Microsoft.EntityFrameworkCore.ChangeTracking.ValueComparer<List<string>?>(
+                    (a, b) => System.Text.Json.JsonSerializer.Serialize(a, (System.Text.Json.JsonSerializerOptions?)null) == System.Text.Json.JsonSerializer.Serialize(b, (System.Text.Json.JsonSerializerOptions?)null),
+                    v => v == null ? 0 : System.Text.Json.JsonSerializer.Serialize(v, (System.Text.Json.JsonSerializerOptions?)null).GetHashCode(),
+                    v => v == null ? null : System.Text.Json.JsonSerializer.Deserialize<List<string>>(System.Text.Json.JsonSerializer.Serialize(v, (System.Text.Json.JsonSerializerOptions?)null), (System.Text.Json.JsonSerializerOptions?)null)));
+
+            entity.Property(e => e.ImageUrls)
+                .HasColumnType("jsonb")
+                .HasColumnName("image_urls")
+                .HasDefaultValueSql("'[]'::jsonb")
+                .HasConversion(
+                    v => System.Text.Json.JsonSerializer.Serialize(v, (System.Text.Json.JsonSerializerOptions?)null),
+                    v => System.Text.Json.JsonSerializer.Deserialize<List<string>>(v, (System.Text.Json.JsonSerializerOptions?)null) ?? new List<string>())
+                .Metadata.SetValueComparer(new Microsoft.EntityFrameworkCore.ChangeTracking.ValueComparer<List<string>>(
+                    (a, b) => System.Text.Json.JsonSerializer.Serialize(a, (System.Text.Json.JsonSerializerOptions?)null) == System.Text.Json.JsonSerializer.Serialize(b, (System.Text.Json.JsonSerializerOptions?)null),
+                    v => v == null ? 0 : System.Text.Json.JsonSerializer.Serialize(v, (System.Text.Json.JsonSerializerOptions?)null).GetHashCode(),
+                    v => System.Text.Json.JsonSerializer.Deserialize<List<string>>(System.Text.Json.JsonSerializer.Serialize(v, (System.Text.Json.JsonSerializerOptions?)null), (System.Text.Json.JsonSerializerOptions?)null) ?? new List<string>()));
+
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("now()").HasColumnType("timestamp with time zone").HasColumnName("created_at");
+            entity.Property(e => e.UpdatedAt).HasDefaultValueSql("now()").HasColumnType("timestamp with time zone").HasColumnName("updated_at");
+
+            entity.HasOne(d => d.Assessment).WithMany(p => p.Questions)
+                .HasForeignKey(d => d.AssessmentId)
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("assessment_questions_assessmentid_fkey");
+
+            entity.HasOne(d => d.ChapterNav).WithMany()
+                .HasForeignKey(d => d.ChapterId)
+                .OnDelete(DeleteBehavior.SetNull)
+                .HasConstraintName("assessment_questions_chapterid_fkey");
+
+            entity.HasOne(d => d.QuestionType).WithMany()
+                .HasForeignKey(d => d.QuestionTypeId)
+                .OnDelete(DeleteBehavior.SetNull)
+                .HasConstraintName("assessment_questions_questiontypeid_fkey");
+        });
+
+        modelBuilder.Entity<AssessmentAttempt>(entity =>
+        {
+            entity.HasKey(e => e.Id).HasName("assessment_attempts_pkey");
+            entity.ToTable("assessment_attempts");
+
+            entity.HasIndex(e => new { e.UserId, e.CreatedAt }, "idx_assessment_attempts_user_created");
+            entity.HasIndex(e => new { e.AssessmentId, e.Status }, "idx_assessment_attempts_assessment");
+
+            entity.Property(e => e.Id).HasDefaultValueSql("gen_random_uuid()").HasColumnName("id");
+            entity.Property(e => e.AssessmentId).HasColumnName("assessment_id");
+            entity.Property(e => e.UserId).HasMaxLength(50).HasColumnName("user_id");
+            entity.Property(e => e.Status).HasMaxLength(20).HasDefaultValue("in_progress").HasColumnName("status");
+            entity.Property(e => e.StartedAt).HasDefaultValueSql("now()").HasColumnType("timestamp with time zone").HasColumnName("started_at");
+            entity.Property(e => e.SubmittedAt).HasColumnType("timestamp with time zone").HasColumnName("submitted_at");
+            entity.Property(e => e.ExpiresAt).HasColumnType("timestamp with time zone").HasColumnName("expires_at");
+            entity.Property(e => e.TotalQuestions).HasDefaultValue(0).HasColumnName("total_questions");
+            entity.Property(e => e.CorrectCount).HasDefaultValue(0).HasColumnName("correct_count");
+            entity.Property(e => e.EarnedPoints).HasColumnType("numeric(8,2)").HasDefaultValue(0m).HasColumnName("earned_points");
+            entity.Property(e => e.MaxPoints).HasColumnType("numeric(8,2)").HasDefaultValue(0m).HasColumnName("max_points");
+            entity.Property(e => e.ScorePercent).HasColumnType("numeric(5,2)").HasColumnName("score_percent");
+            entity.Property(e => e.DurationSeconds).HasColumnName("duration_seconds");
+            entity.Property(e => e.AnalysisStatus).HasMaxLength(20).HasDefaultValue("pending").HasColumnName("analysis_status");
+            entity.Property(e => e.AnalysisSummary).HasColumnName("analysis_summary");
+            // jsonb đọc/ghi nguyên khối dạng string — schema do prompt AI quyết định, BE không parse.
+            entity.Property(e => e.AnalysisResult).HasColumnType("jsonb").HasColumnName("analysis_result");
+            entity.Property(e => e.AnalysisError).HasColumnName("analysis_error");
+            entity.Property(e => e.AnalyzedAt).HasColumnType("timestamp with time zone").HasColumnName("analyzed_at");
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("now()").HasColumnType("timestamp with time zone").HasColumnName("created_at");
+            entity.Property(e => e.UpdatedAt).HasDefaultValueSql("now()").HasColumnType("timestamp with time zone").HasColumnName("updated_at");
+
+            entity.HasOne(d => d.Assessment).WithMany()
+                .HasForeignKey(d => d.AssessmentId)
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("assessment_attempts_assessmentid_fkey");
+        });
+
+        modelBuilder.Entity<AssessmentAttemptAnswer>(entity =>
+        {
+            entity.HasKey(e => e.Id).HasName("assessment_attempt_answers_pkey");
+            entity.ToTable("assessment_attempt_answers");
+
+            entity.HasIndex(e => new { e.AttemptId, e.QuestionId }, "uq_assessment_attempt_answers").IsUnique();
+
+            entity.Property(e => e.Id).HasDefaultValueSql("gen_random_uuid()").HasColumnName("id");
+            entity.Property(e => e.AttemptId).HasColumnName("attempt_id");
+            entity.Property(e => e.QuestionId).HasColumnName("question_id");
+            entity.Property(e => e.GivenAnswer).HasColumnName("given_answer");
+            entity.Property(e => e.IsCorrect).HasDefaultValue(false).HasColumnName("is_correct");
+            entity.Property(e => e.EarnedPoints).HasColumnType("numeric(6,2)").HasDefaultValue(0m).HasColumnName("earned_points");
+            entity.Property(e => e.ChapterId).HasColumnName("chapter_id");
+            entity.Property(e => e.ChapterSlug).HasMaxLength(120).HasColumnName("chapter_slug");
+            entity.Property(e => e.Difficulty).HasMaxLength(20).HasColumnName("difficulty");
+            entity.Property(e => e.QuestionFormat).HasMaxLength(20).HasColumnName("question_format");
+            entity.Property(e => e.TimeSpentSeconds).HasColumnName("time_spent_seconds");
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("now()").HasColumnType("timestamp with time zone").HasColumnName("created_at");
+            entity.Property(e => e.UpdatedAt).HasDefaultValueSql("now()").HasColumnType("timestamp with time zone").HasColumnName("updated_at");
+
+            entity.HasOne(d => d.Attempt).WithMany(p => p.Answers)
+                .HasForeignKey(d => d.AttemptId)
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("assessment_attempt_answers_attemptid_fkey");
+
+            entity.HasOne(d => d.Question).WithMany()
+                .HasForeignKey(d => d.QuestionId)
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("assessment_attempt_answers_questionid_fkey");
+        });
+
+        modelBuilder.Entity<StudentProficiencyProfile>(entity =>
+        {
+            entity.HasKey(e => e.Id).HasName("student_proficiency_profiles_pkey");
+            entity.ToTable("student_proficiency_profiles");
+
+            entity.HasIndex(e => new { e.UserId, e.SubjectId }, "uq_student_proficiency_profiles").IsUnique();
+
+            entity.Property(e => e.Id).HasDefaultValueSql("gen_random_uuid()").HasColumnName("id");
+            entity.Property(e => e.UserId).HasMaxLength(50).HasColumnName("user_id");
+            entity.Property(e => e.SubjectId).HasColumnName("subject_id");
+            entity.Property(e => e.GradeLevelId).HasColumnName("grade_level_id");
+            entity.Property(e => e.Level).HasMaxLength(20).HasColumnName("level");
+            entity.Property(e => e.Summary).HasColumnName("summary");
+            entity.Property(e => e.Strengths).HasColumnType("jsonb").HasColumnName("strengths");
+            entity.Property(e => e.Weaknesses).HasColumnType("jsonb").HasColumnName("weaknesses");
+            entity.Property(e => e.RecommendedPath).HasColumnType("jsonb").HasColumnName("recommended_path");
+            entity.Property(e => e.SourceAttemptId).HasColumnName("source_attempt_id");
+            entity.Property(e => e.AttemptCount).HasDefaultValue(0).HasColumnName("attempt_count");
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("now()").HasColumnType("timestamp with time zone").HasColumnName("created_at");
+            entity.Property(e => e.UpdatedAt).HasDefaultValueSql("now()").HasColumnType("timestamp with time zone").HasColumnName("updated_at");
+
+            entity.HasOne(d => d.Subject).WithMany()
+                .HasForeignKey(d => d.SubjectId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("student_proficiency_profiles_subjectid_fkey");
+
+            entity.HasOne(d => d.Gradelevel).WithMany()
+                .HasForeignKey(d => d.GradeLevelId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("student_proficiency_profiles_gradelevelid_fkey");
         });
 
         modelBuilder.Entity<Tutorsubjectgradeprice>(entity =>
