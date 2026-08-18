@@ -10,6 +10,17 @@ namespace MV.ApplicationLayer.ServiceInterfaces;
 /// </summary>
 public interface IAssessmentAttemptService
 {
+    /// <summary>Đề học sinh làm được, theo môn/lớp. Rỗng nếu chưa admin phát hành đề nào.</summary>
+    Task<List<AvailableAssessmentResponse>> GetAvailableAsync(
+        int? subjectId, int? gradeLevelId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Chọn 1 đề ngẫu nhiên khớp môn/lớp rồi bắt đầu luôn. Đề chưa có cột cấp độ nên
+    /// tiêu chí chỉ là môn + lớp, còn lại random.
+    /// </summary>
+    Task<(AttemptInProgressResponse? Result, string? Error)> StartRandomAsync(
+        int subjectId, int? gradeLevelId, string userId, CancellationToken ct = default);
+
     /// <summary>Bắt đầu/tiếp tục làm đề. Còn bài dở thì trả lại bài đó, không tạo mới.</summary>
     Task<(AttemptInProgressResponse? Result, string? Error)> StartAsync(
         Guid assessmentId, string userId, CancellationToken ct = default);
@@ -30,6 +41,13 @@ public interface IAssessmentAttemptService
 
     /// <summary>Ghi kết quả AI + ghi đè profile trình độ của (học sinh, môn).</summary>
     Task<bool> SaveAnalysisAsync(Guid attemptId, SaveAnalysisRequest request, CancellationToken ct = default);
+
+    /// <summary>
+    /// Chạy trọn phân tích: dữ kiện thô -> tutora-ai -> ghi profile. Null cả 2 = không
+    /// tìm thấy bài đã nộp.
+    /// </summary>
+    Task<(AttemptAnalysisResultResponse? Result, string? Error)> RunAnalysisAsync(
+        Guid attemptId, CancellationToken ct = default);
 
     /// <summary>AI lỗi — bài vẫn giữ điểm, retry được.</summary>
     Task<bool> MarkAnalysisFailedAsync(Guid attemptId, string error, CancellationToken ct = default);
