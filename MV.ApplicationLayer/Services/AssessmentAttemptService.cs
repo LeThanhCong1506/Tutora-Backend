@@ -1,4 +1,8 @@
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using MV.DomainLayer.Settings;
+using System.Net.Http.Json;
+using System.Text.Json;
 using MV.ApplicationLayer.Interfaces;
 using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.Constants;
@@ -13,11 +17,56 @@ public class AssessmentAttemptService : IAssessmentAttemptService
 {
     private readonly IUnitOfWork _unitOfWork;
     private readonly ILogger<AssessmentAttemptService> _logger;
+    private readonly IHttpClientFactory _httpClientFactory;
+    private readonly IConfiguration _config;
 
-    public AssessmentAttemptService(IUnitOfWork unitOfWork, ILogger<AssessmentAttemptService> logger)
+    public AssessmentAttemptService(
+        IUnitOfWork unitOfWork,
+        ILogger<AssessmentAttemptService> logger,
+        IHttpClientFactory httpClientFactory,
+        IConfiguration config)
     {
         _unitOfWork = unitOfWork;
         _logger = logger;
+        _httpClientFactory = httpClientFactory;
+        _config = config;
+    }
+
+    // Chọn đề 
+
+    public async Task<List<AvailableAssessmentResponse>> GetAvailableAsync(
+        int? subjectId, int? gradeLevelId, CancellationToken ct = default)
+    {
+        var list = await _unitOfWork.AssessmentRepository.GetPublishedAsync(subjectId, gradeLevelId);
+
+        return list.Select(a => new AvailableAssessmentResponse
+        {
+            Id = a.Id,
+            Title = a.Title,
+            Description = a.Description,
+            SubjectId = a.SubjectId,
+            SubjectName = a.Subject?.Subjectname,
+            GradeLevelId = a.GradeLevelId,
+            GradeName = a.Gradelevel?.Gradename,
+            QuestionCount = a.QuestionCount ?? a.Questions.Count,
+            DurationMinutes = a.DurationMinutes,
+        }).ToList();
+    }
+
+    public async Task<(AttemptInProgressResponse? Result, string? Error)> StartRandomAsync(
+        int subjectId, int? gradeLevelId, string userId, CancellationToken ct = default)
+    {
+        var candidates = await _unitOfWork.AssessmentRepository.GetPublishedAsync(subjectId, gradeLevelId);
+
+        // Không có đề đúng lớp -> nới ra cả môn, thà cho làm đề lệch lớp hơn là chặn.
+        if (candidates.Count == 0 && gradeLevelId.HasValue)
+            candidates = await _unitOfWork.AssessmentRepository.GetPublishedAsync(subjectId, null);
+
+        if (candidates.Count == 0)
+            return (null, "Chưa có đề đánh giá nào cho môn này.");
+
+        var picked = candidates[Random.Shared.Next(candidates.Count)];
+        return await StartAsync(picked.Id, userId, ct);
     }
 
     // Bắt đầu / tiếp tục làm bài 
@@ -349,6 +398,87 @@ public class AssessmentAttemptService : IAssessmentAttemptService
         _unitOfWork.AssessmentRepository.UpdateAttempt(attempt);
         await _unitOfWork.SaveChangesAsync();
         return true;
+    }
+
+    // Gọi tutora-ai phân tích 
+
+    /// <summary>
+    /// Lấy dữ kiện thô -> tutora-ai /analyze-assessment -> ghi profile. Gộp 3 chặng ở BE
+    /// vì tutora-ai chưa có internal-key để tự gọi ngược vào đây, và để API key của AI
+    /// không phải lộ ra FE.
+    /// </summary>
+    public async Task<(AttemptAnalysisResultResponse? Result, string? Error)> RunAnalysisAsync(
+        Guid attemptId, CancellationToken ct = default)
+    {
+        var input = await GetAnalysisInputAsync(attemptId, ct);
+        if (input == null) return (null, null);
+
+        var attempt = await _unitOfWork.AssessmentRepository.GetAttemptAsync(attemptId);
+        if (attempt == null) return (null, null);
+
+        // processing: chặn 2 lời gọi song song cùng phân tích 1 bài.
+        attempt.AnalysisStatus = AssessmentAnalysisStatus.Processing;
+        _unitOfWork.AssessmentRepository.UpdateAttempt(attempt);
+        await _unitOfWork.SaveChangesAsync();
+
+        string raw;
+        try
+        {
+            var client = _httpClientFactory.CreateClient(ServiceKeys.HttpClients.TutorAi);
+            using var req = new HttpRequestMessage(HttpMethod.Post, "/api/v1/analyze-assessment")
+            {
+                Content = JsonContent.Create(input),
+            };
+            var apiKey = _config[$"{TutorAiSettings.SectionName}:ApiKey"];
+            if (!string.IsNullOrEmpty(apiKey))
+                req.Headers.Add("X-API-Key", apiKey);
+
+            using var resp = await client.SendAsync(req, ct);
+            resp.EnsureSuccessStatusCode();
+            raw = await resp.Content.ReadAsStringAsync(ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Gọi tutora-ai phân tích bài {AttemptId} thất bại.", attemptId);
+            await MarkAnalysisFailedAsync(attemptId, ex.Message, ct);
+            return (null, "AI đang không phản hồi. Bài làm vẫn được giữ nguyên, bạn thử lại sau nhé.");
+        }
+
+        try
+        {
+            using var doc = JsonDocument.Parse(raw);
+            var save = doc.RootElement.GetProperty("saveRequest");
+
+            string? Str(string name) =>
+                save.TryGetProperty(name, out var v) && v.ValueKind != JsonValueKind.Null
+                    ? v.GetString()
+                    : null;
+
+            await SaveAnalysisAsync(attemptId, new SaveAnalysisRequest
+            {
+                Summary = Str("summary"),
+                Level = Str("level"),
+                Strengths = Str("strengths"),
+                Weaknesses = Str("weaknesses"),
+                RecommendedPath = Str("recommendedPath"),
+                AnalysisResult = Str("analysisResult"),
+            }, ct);
+
+            return (new AttemptAnalysisResultResponse
+            {
+                AttemptId = attemptId,
+                // Khối đầy đủ (có chapterMastery) — FE render mindmap từ đây.
+                Analysis = doc.RootElement.TryGetProperty("analysis", out var a)
+                    ? a.GetRawText()
+                    : null,
+            }, null);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "AI trả dữ liệu không đọc được cho bài {AttemptId}.", attemptId);
+            await MarkAnalysisFailedAsync(attemptId, ex.Message, ct);
+            return (null, "Kết quả phân tích không đọc được. Bạn thử lại sau nhé.");
+        }
     }
 
     // Profile trình độ 

@@ -53,6 +53,9 @@ public interface IAssessmentRepository
 
     // Học sinh làm bài
 
+    /// <summary>Đề đã phát hành + đủ câu, theo môn/lớp. Học sinh chọn đề từ đây.</summary>
+    Task<List<Assessment>> GetPublishedAsync(int? subjectId = null, int? gradeLevelId = null);
+
     Task AddAttemptAsync(AssessmentAttempt attempt);
 
     /// <summary>Bài đang làm dở với 1 đề.</summary>
