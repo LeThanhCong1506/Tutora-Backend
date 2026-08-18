@@ -55,6 +55,7 @@ public class QuestionController : ControllerBase
         [FromQuery] bool? hasSolution = null,
         [FromQuery] string? sortBy = null,
         [FromQuery] string? sortDir = null,
+        [FromQuery] string? answerFormat = null,
         CancellationToken ct = default)
     {
         if (pageNumber < 1) pageNumber = 1;
@@ -66,7 +67,7 @@ public class QuestionController : ControllerBase
 
         var paged = await _questionService.GetPagedAsync(
             pageNumber, pageSize, subjectId, gradeLevelId, chapterIdList, reviewStatus, search,
-            difficultyList, hasSolution, sortBy, sortDir, ct);
+            difficultyList, hasSolution, sortBy, sortDir, answerFormat, ct);
 
         return Ok(APIResponse<object>.Success(new
         {

@@ -24,6 +24,7 @@ namespace MV.InfrastructureLayer
         private IStaffPermissionRepository? _staffPermissionRepository;
         private IQuestionRepository? _questionRepository;
         private ISourceDocumentRepository? _sourceDocumentRepository;
+        private IAssessmentRepository? _assessmentRepository;
 
         // Expose repository INTERFACES
         public IUserRepository UserRepository =>
@@ -51,6 +52,9 @@ namespace MV.InfrastructureLayer
 
         public ISourceDocumentRepository SourceDocumentRepository =>
             _sourceDocumentRepository ??= new SourceDocumentRepository(_context);
+
+        public IAssessmentRepository AssessmentRepository =>
+            _assessmentRepository ??= new AssessmentRepository(_context);
 
         //CONSTRUCTOR INJECTION for DbContext and dependencies
         public UnitOfWork(AgoraDbContext context, IPasswordRepository passwordRepository, ILogger<UnitOfWork> logger)

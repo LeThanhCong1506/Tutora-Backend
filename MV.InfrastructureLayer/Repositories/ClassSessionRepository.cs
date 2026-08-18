@@ -26,7 +26,7 @@ public class ClassSessionRepository(AgoraDbContext context) : IClassSessionRepos
         => context.ClassSessions.Add(classSession);
 
     public async Task<(IReadOnlyList<ClassSession> Items, int Total)> GetTutorClassSessionsPagedAsync(
-        string tutorId, int page, int pageSize, DateTime? fromDate, string? status)
+        string tutorId, int page, int pageSize, DateTime? fromDate, string? status, int? bookingId)
     {
         var q = context.ClassSessions
             .AsNoTracking()
@@ -48,6 +48,9 @@ public class ClassSessionRepository(AgoraDbContext context) : IClassSessionRepos
         }
         if (!string.IsNullOrWhiteSpace(status))
             q = q.Where(l => l.Status == status);
+        // Lọc theo lớp: màn chi tiết lớp cần đủ mọi buổi, kể cả buổi tháng khác.
+        if (bookingId.HasValue)
+            q = q.Where(l => l.Bookingid == bookingId.Value);
 
         q = q.OrderBy(l => l.Scheduledstart);
 

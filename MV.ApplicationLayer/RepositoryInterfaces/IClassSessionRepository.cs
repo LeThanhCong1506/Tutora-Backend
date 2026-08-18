@@ -14,7 +14,7 @@ public interface IClassSessionRepository
     void Add(ClassSession classSession);
 
     Task<(IReadOnlyList<ClassSession> Items, int Total)> GetTutorClassSessionsPagedAsync(
-        string tutorId, int page, int pageSize, DateTime? fromDate, string? status);
+        string tutorId, int page, int pageSize, DateTime? fromDate, string? status, int? bookingId);
 
     Task<(IReadOnlyList<ClassSession> Items, int Total)> GetByStudentIdsPagedAsync(
         IEnumerable<string> studentIds, int page, int pageSize, DateTime? fromDate, string? status);

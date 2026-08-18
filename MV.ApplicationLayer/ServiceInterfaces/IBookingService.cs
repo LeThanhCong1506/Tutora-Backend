@@ -17,6 +17,12 @@ public interface IBookingService
     Task<PagedList<BookingResponse>> GetMyBookingsAsync(string userId, string userRole, int page, int pageSize, string? status = null);
 
     /// <summary>
+    /// Booking của MỘT người con.
+    /// </summary>
+    /// <param name="excludeClosed">Bỏ booking đã huỷ/hết hạn thanh toán (Home phụ huynh).</param>
+    Task<PagedList<BookingResponse>> GetChildBookingsAsync(string userId, string userRole, string studentId, int page, int pageSize, string? status = null, bool excludeClosed = false);
+
+    /// <summary>
     /// Single booking by id — ownership-checked for the calling user's role.
     /// </summary>
     Task<BookingResponse?> GetBookingByIdAsync(int id, string userId, string userRole);

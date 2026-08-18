@@ -345,6 +345,7 @@ namespace MV.InfrastructureLayer.Repositories
         {
             var query = _context.Tutorpackages
                 .Include(c => c.Tutorpackagefixedslots)
+                .Include(c => c.Subject)
                 .Where(c => c.Tutorid == tutorId);
 
             if (!includeInactive)
@@ -361,6 +362,7 @@ namespace MV.InfrastructureLayer.Repositories
         {
             return await _context.Tutorpackages
                 .Include(c => c.Tutorpackagefixedslots)
+                .Include(c => c.Subject)
                 .FirstOrDefaultAsync(c => c.Tutorid == tutorId && c.Packageid == packageId);
         }
 

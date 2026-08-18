@@ -369,6 +369,9 @@ builder.Services.AddScoped<IAgoraRTCService, AgoraRTCService>();
 builder.Services.AddSingleton<ILiveSessionDeviceLeaseService, LiveSessionDeviceLeaseService>();
 // Presence in-memory (Singleton): theo dõi ai đang trong phòng học để auto check-in khi đủ cả 2.
 builder.Services.AddSingleton<ISessionPresenceService, SessionPresenceService>();
+// Đẩy lobbyState/sessionReady tới group lobby khi presence đổi từ ngoài SessionLobbyHub (vd. heartbeat
+// trong phòng học thật) — xem AgoraController.Heartbeat.
+builder.Services.AddScoped<ISessionLobbyPresenceBroadcaster, SessionLobbyPresenceBroadcaster>();
 // Cloud Recording: auto start khi auto check-in, stop khi check-out; relay file S3 → Drive chạy nền.
 builder.Services.AddHttpClient<ICloudRecordingService, CloudRecordingService>();
 builder.Services.AddHttpClient<IWhiteboardService, WhiteboardService>();
@@ -393,6 +396,8 @@ builder.Services.AddScoped<ISupportMessageService, SupportMessageService>();
 builder.Services.AddScoped<IWarningService, WarningService>();
 builder.Services.AddScoped<IFeedbackService, FeedbackService>();
 builder.Services.AddScoped<IQuestionService, QuestionService>();
+builder.Services.AddScoped<IAssessmentService, AssessmentService>();
+builder.Services.AddScoped<IAssessmentAttemptService, AssessmentAttemptService>();
 builder.Services.AddScoped<ISourceDocumentService, SourceDocumentService>();
 builder.Services.AddScoped<IKnowledgeBaseService, KnowledgeBaseService>();
 builder.Services.AddScoped<IPolicyService, PolicyService>();

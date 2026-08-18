@@ -39,6 +39,10 @@ public class QuestionService : IQuestionService
             Content = request.Content,
             Solution = request.Solution,
             SolutionSource = request.SolutionSource,
+            AnswerFormat = request.AnswerFormat,
+            AnswerOptions = ToAnswerOptions(request.AnswerOptions),
+            CorrectAnswer = request.CorrectAnswer,
+            Explanation = request.Explanation,
             ReviewStatus = string.IsNullOrWhiteSpace(request.ReviewStatus) ? "pending_review" : request.ReviewStatus,
             CreatedBy = createdBy,
         };
@@ -63,12 +67,12 @@ public class QuestionService : IQuestionService
         int? subjectId, int? gradeLevelId, IReadOnlyList<int>? chapterIds,
         string? reviewStatus, string? search,
         IReadOnlyList<string>? difficulties, bool? hasSolution,
-        string? sortBy, string? sortDir,
+        string? sortBy, string? sortDir, string? answerFormat,
         CancellationToken ct = default)
     {
         var paged = await _unitOfWork.QuestionRepository.GetPagedAsync(
             pageNumber, pageSize, subjectId, gradeLevelId, chapterIds, reviewStatus, search,
-            difficulties, hasSolution, sortBy, sortDir);
+            difficulties, hasSolution, sortBy, sortDir, answerFormat);
 
         var items = paged.Select(ToResponse).ToList();
         return new PagedList<QuestionResponse>(items, paged.TotalCount, paged.CurrentPage, paged.PageSize);
@@ -90,6 +94,10 @@ public class QuestionService : IQuestionService
         entity.Content = request.Content;
         entity.Solution = request.Solution;
         entity.SolutionSource = request.SolutionSource;
+        entity.AnswerFormat = request.AnswerFormat;
+        entity.AnswerOptions = ToAnswerOptions(request.AnswerOptions);
+        entity.CorrectAnswer = request.CorrectAnswer;
+        entity.Explanation = request.Explanation;
         if (!string.IsNullOrWhiteSpace(request.ReviewStatus))
             entity.ReviewStatus = request.ReviewStatus;
 
@@ -151,6 +159,10 @@ public class QuestionService : IQuestionService
         Content = e.Content,
         Solution = e.Solution,
         SolutionSource = e.SolutionSource,
+        AnswerFormat = e.AnswerFormat,
+        AnswerOptions = e.AnswerOptions?.Select(o => new AnswerOptionResponse { Key = o.Key, Text = o.Text }).ToList(),
+        CorrectAnswer = e.CorrectAnswer,
+        Explanation = e.Explanation,
         ImageUrls = e.ImageUrls ?? new(),
         SourceDocumentId = e.SourceDocumentId,
         SourcePage = e.SourcePage,
@@ -161,4 +173,7 @@ public class QuestionService : IQuestionService
         CreatedAt = e.CreatedAt,
         UpdatedAt = e.UpdatedAt,
     };
+
+    private static List<AnswerOption>? ToAnswerOptions(List<AnswerOptionRequest>? options) =>
+        options?.Select(o => new AnswerOption { Key = o.Key, Text = o.Text }).ToList();
 }

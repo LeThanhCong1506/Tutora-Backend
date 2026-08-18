@@ -21,19 +21,22 @@ namespace MV.PresentationLayer.Controllers
         private readonly IStudentRepository _studentRepository;
         private readonly IClassSessionScheduleChangeService _scheduleChangeService;
         private readonly IClassSessionRescheduleProposalService _rescheduleProposalService;
+        private readonly ISessionLobbyPresenceBroadcaster _lobbyPresenceBroadcaster;
 
         public StudentClassSessionController(
             ISettlementService settlementService,
             IClassSessionService classSessionService,
             IStudentRepository studentRepository,
             IClassSessionScheduleChangeService scheduleChangeService,
-            IClassSessionRescheduleProposalService rescheduleProposalService)
+            IClassSessionRescheduleProposalService rescheduleProposalService,
+            ISessionLobbyPresenceBroadcaster lobbyPresenceBroadcaster)
         {
             _settlementService = settlementService;
             _classSessionService = classSessionService;
             _studentRepository = studentRepository;
             _scheduleChangeService = scheduleChangeService;
             _rescheduleProposalService = rescheduleProposalService;
+            _lobbyPresenceBroadcaster = lobbyPresenceBroadcaster;
         }
 
         private string? UserId => User.FindFirstValue(ClaimTypes.NameIdentifier);
@@ -165,6 +168,11 @@ namespace MV.PresentationLayer.Controllers
                     return BadRequest(APIResponse<object>.Fail("Yêu cầu đổi lịch không còn chờ xác nhận.", 400));
 
                 var result = await _scheduleChangeService.RespondAsync(id, userId, UserRole.Student, request.Confirmed);
+
+                // Phản hồi từ trang chi tiết (ngoài lobby) không tự phát tới group lobby như khi phản
+                // hồi qua Hub — đẩy tay để gia sư đang chờ trong lobby thấy ngay, không cần reload.
+                await _lobbyPresenceBroadcaster.BroadcastAsync(id, userId, UserRole.Student, HttpContext.RequestAborted);
+
                 return Ok(APIResponse<SessionScheduleChangeResponse>.Success(
                     result,
                     request.Confirmed ? "Đã xác nhận đổi lịch học." : "Đã từ chối đổi lịch học."));

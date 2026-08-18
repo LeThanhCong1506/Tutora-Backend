@@ -19,7 +19,7 @@ public interface IQuestionService
         int? subjectId, int? gradeLevelId, IReadOnlyList<int>? chapterIds,
         string? reviewStatus, string? search,
         IReadOnlyList<string>? difficulties, bool? hasSolution,
-        string? sortBy, string? sortDir,
+        string? sortBy, string? sortDir, string? answerFormat,
         CancellationToken ct = default);
 
     /// <summary>Trả null nếu không tìm thấy câu hỏi.</summary>

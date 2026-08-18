@@ -97,6 +97,12 @@ public partial class BookingService(
             .FirstOrDefaultAsync(c => c.Packageid == dto.PackageId && c.Tutorid == dto.TutorId && c.Isactive)
             ?? throw new BookingException(BookingErrorCodes.InvalidInput, "Package không hợp lệ", 400);
 
+        // Gói cố định là lịch được tutor tạo riêng cho một môn. Không cho phép lấy lịch
+        // của gói Toán để tạo booking có subject-grade price của Vật lý (hoặc ngược lại).
+        if (package.Packagetype == Tutorpackage.FixedPackageType && package.Subjectid != price.Subjectid)
+            throw new BookingException(BookingErrorCodes.InvalidInput,
+                "Gói học không thuộc môn học đã chọn", 409);
+
         var totalSessions = ResolveTotalSessions(dto, package);
         var classSessionSlots = package.Packagetype == Tutorpackage.FixedPackageType
             ? GenerateFixedPackageSlots(package, dto.StartDate, totalSessions)
@@ -237,6 +243,57 @@ public partial class BookingService(
                 Console.WriteLine($"[CRITICAL] Inner Exception: {ex.InnerException.Message}");
             throw;
         }
+    }
+
+    /// <summary>Booking đã đóng hẳn — Home của phụ huynh không hiện các trạng thái này.</summary>
+    private static readonly string[] ClosedBookingStatuses =
+    {
+        BookingStatus.Cancelled,
+        BookingStatus.CancelledNoshow,
+        BookingStatus.PaymentTimeout,
+    };
+
+    public async Task<PagedList<BookingResponse>> GetChildBookingsAsync(
+        string userId, string userRole, string studentId, int page, int pageSize,
+        string? status = null, bool excludeClosed = false)
+    {
+        var ownedIds = userRole == UserRole.Parent
+            ? await context.Studentprofiles.Where(s => s.Parentid == userId).Select(s => s.Studentid).ToListAsync()
+            : await context.Studentprofiles.Where(s => s.Studentid == userId || s.Linkeduserid == userId).Select(s => s.Studentid).ToListAsync();
+
+        if (!ownedIds.Contains(studentId))
+            throw new UnauthorizedAccessException("Bạn không có quyền xem lớp học của học sinh này.");
+
+        // excludeClosed lọc TRƯỚC khi phân trang, nên totalCount cũng đúng.
+        if (excludeClosed && string.IsNullOrWhiteSpace(status))
+        {
+            var q = context.Bookings
+                .AsNoTracking()
+                .Include(b => b.Student).ThenInclude(s => s!.GradelevelNavigation)
+                .Include(b => b.Tutor).ThenInclude(t => t!.Tutor)
+                .Include(b => b.Tutorsubjectgradeprice).ThenInclude(p => p!.Subject)
+                .Include(b => b.Tutorsubjectgradeprice).ThenInclude(p => p!.Gradelevel)
+                .Include(b => b.Package)
+                .Include(b => b.ClassSessions)
+                .Where(b => b.Studentid == studentId
+                         && (b.Status == null || !ClosedBookingStatuses.Contains(b.Status)));
+
+            var closedTotal = await q.CountAsync();
+            var closedItems = await q
+                .OrderByDescending(b => b.Createdat)
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize)
+                .ToListAsync();
+
+            return new PagedList<BookingResponse>(
+                closedItems.Select(b => MapToResponse(b, b.Student, b.Tutor, b.Tutorsubjectgradeprice?.Subject)).ToList(),
+                closedTotal, page, pageSize);
+        }
+
+        var (items, total) = await bookingRepo.GetByStudentIdsPagedAsync(
+            new List<string> { studentId }, page, pageSize, status);
+        var dtos = items.Select(b => MapToResponse(b, b.Student, b.Tutor, b.Tutorsubjectgradeprice?.Subject)).ToList();
+        return new PagedList<BookingResponse>(dtos, total, page, pageSize);
     }
 
     public async Task<PagedList<BookingResponse>> GetTutorBookingRequestsAsync(string tutorId, int page, int pageSize, string? status = null)

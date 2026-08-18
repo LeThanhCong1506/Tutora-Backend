@@ -494,6 +494,7 @@ public class ClassSessionScheduleChangeService(
             ExpiresAt = change?.Expiresat,
             TutorConfirmedAt = change?.Tutorconfirmedat,
             LearnerConfirmedAt = change?.Learnerconfirmedat,
+            RejectedByUserId = change?.Rejectedby,
             ApprovedAt = change?.Approvedat,
             AppliedAt = change?.Appliedat,
             AdjustedScheduledStart = change?.Adjustedscheduledstart,
