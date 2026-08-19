@@ -52,15 +52,19 @@ public class TutorAiClient : ITutorAiClient
                 TopK = topK
             };
 
-            using var response = await client.PostAsJsonAsync(
-                "/api/v1/tutors/recommend",
-                requestBody,
-                cancellationToken);
+            using var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/tutors/recommend")
+            {
+                Content = JsonContent.Create(requestBody)
+            };
+            if (!string.IsNullOrWhiteSpace(_apiKey))
+                request.Headers.Add("X-API-Key", _apiKey);
+
+            using var response = await client.SendAsync(request, cancellationToken);
 
             if (!response.IsSuccessStatusCode)
             {
-                _logger.LogWarning(
-                    "TutorAI service returned non-success status {StatusCode}. Falling back to SQL order.",
+                _logger.LogError(
+                    "TutorAI rank trả status {StatusCode}. Rơi về thứ tự SQL, query bị bỏ.",
                     (int)response.StatusCode);
                 return null;
             }
