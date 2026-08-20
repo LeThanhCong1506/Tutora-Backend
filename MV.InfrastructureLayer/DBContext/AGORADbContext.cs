@@ -2829,9 +2829,9 @@ entity.HasOne(d => d.Tutor).WithOne(p => p.Tutorprofile)
             entity.Property(e => e.AssessmentId).HasColumnName("assessment_id");
             entity.Property(e => e.UserId).HasMaxLength(50).HasColumnName("user_id");
             entity.Property(e => e.Status).HasMaxLength(20).HasDefaultValue("in_progress").HasColumnName("status");
-            entity.Property(e => e.StartedAt).HasDefaultValueSql("now()").HasColumnType("timestamp with time zone").HasColumnName("started_at");
-            entity.Property(e => e.SubmittedAt).HasColumnType("timestamp with time zone").HasColumnName("submitted_at");
-            entity.Property(e => e.ExpiresAt).HasColumnType("timestamp with time zone").HasColumnName("expires_at");
+            entity.Property(e => e.StartedAt).HasDefaultValueSql("now() AT TIME ZONE 'UTC'").HasColumnType("timestamp without time zone").HasColumnName("started_at");
+            entity.Property(e => e.SubmittedAt).HasColumnType("timestamp without time zone").HasColumnName("submitted_at");
+            entity.Property(e => e.ExpiresAt).HasColumnType("timestamp without time zone").HasColumnName("expires_at");
             entity.Property(e => e.TotalQuestions).HasDefaultValue(0).HasColumnName("total_questions");
             entity.Property(e => e.CorrectCount).HasDefaultValue(0).HasColumnName("correct_count");
             entity.Property(e => e.EarnedPoints).HasColumnType("numeric(8,2)").HasDefaultValue(0m).HasColumnName("earned_points");
@@ -2843,7 +2843,7 @@ entity.HasOne(d => d.Tutor).WithOne(p => p.Tutorprofile)
             // jsonb đọc/ghi nguyên khối dạng string — schema do prompt AI quyết định, BE không parse.
             entity.Property(e => e.AnalysisResult).HasColumnType("jsonb").HasColumnName("analysis_result");
             entity.Property(e => e.AnalysisError).HasColumnName("analysis_error");
-            entity.Property(e => e.AnalyzedAt).HasColumnType("timestamp with time zone").HasColumnName("analyzed_at");
+            entity.Property(e => e.AnalyzedAt).HasColumnType("timestamp without time zone").HasColumnName("analyzed_at");
             entity.Property(e => e.CreatedAt).HasDefaultValueSql("now()").HasColumnType("timestamp with time zone").HasColumnName("created_at");
             entity.Property(e => e.UpdatedAt).HasDefaultValueSql("now()").HasColumnType("timestamp with time zone").HasColumnName("updated_at");
 
