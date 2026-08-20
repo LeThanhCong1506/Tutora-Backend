@@ -483,6 +483,7 @@ builder.Services.AddHostedService<ClassSessionReminderJob>();
 builder.Services.AddHostedService<ClassSessionRescheduleProposalExpiryJob>();
 builder.Services.AddHostedService<RemainingPaymentTriggerJob>();
 builder.Services.AddHostedService<AutoEndLiveSessionJob>();
+builder.Services.AddHostedService<InterruptedSessionAutoCloseJob>();
 builder.Services.AddHostedService<GhostUserCleanupJob>();
 builder.Services.AddHostedService<ZaloTokenRefreshJob>();
 builder.Services.AddSingleton<ITutorEmbedQueue, TutorEmbedQueue>();

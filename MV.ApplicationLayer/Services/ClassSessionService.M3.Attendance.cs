@@ -314,6 +314,57 @@ public partial class ClassSessionService
     }
 
     /// <summary>
+    /// Buổi học bị ngắt giữa chừng chỉ được phép có buổi phụ trong đúng ngày bị ngắt (xem
+    /// <see cref="RequestInterruptionAsync"/> và guard tương ứng trong
+    /// ClassSessionRescheduleProposalService.ProposeAsync). Nếu qua nửa đêm của ngày đó
+    /// (Interruptedat.Date + 1 ngày, UTC thuần) mà vẫn chưa xử lý xong, tự đóng: buổi gốc được
+    /// settle qua đường bỏ-qua-status-guard mà dispute đang dùng (SettleDisputedClassSessionAsync)
+    /// nên chuyển thẳng sang Completed và trừ Sessionsremaining đúng 1 lần dù đang ở Interrupted
+    /// (trạng thái mà SettleClassSessionAsync bình thường sẽ từ chối); buổi phụ chưa dùng (nếu có,
+    /// còn Scheduled) chuyển sang Cancelled để không còn nằm "lơ lửng" trên dashboard.
+    /// </summary>
+    public async Task<int> AutoCloseExpiredInterruptedSessionsAsync(CancellationToken ct = default)
+    {
+        var now = TimeZoneHelper.UtcNow;
+
+        var candidates = await _context.ClassSessions
+            .Where(l => l.Status == Interrupted && l.Interruptedat != null)
+            .ToListAsync(ct);
+
+        var expired = candidates.Where(l => now >= l.Interruptedat!.Value.Date.AddDays(1)).ToList();
+        if (expired.Count == 0) return 0;
+
+        var closedCount = 0;
+        foreach (var original in expired)
+        {
+            try
+            {
+                // SettleDisputedClassSessionAsync tự mở transaction Serializable riêng của nó —
+                // không bọc thêm transaction ở đây để tránh nested-transaction.
+                await _settlementService.SettleDisputedClassSessionAsync(original.Classsessionid);
+
+                var unusedContinuation = await _context.ClassSessions.FirstOrDefaultAsync(c =>
+                    c.Originalsessionid == original.Classsessionid
+                    && c.Iscontinuation
+                    && c.Status == Scheduled, ct);
+                if (unusedContinuation != null)
+                {
+                    unusedContinuation.Status = Cancelled;
+                    await _context.SaveChangesAsync(ct);
+                }
+
+                closedCount++;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Không thể tự đóng buổi học bị ngắt {ClassSessionId} đã quá ngày.", original.Classsessionid);
+            }
+        }
+
+        return closedCount;
+    }
+
+    /// <summary>
     /// Bắt đầu Agora Cloud Recording cho buổi học (nếu tính năng bật).
     /// Lỗi record KHÔNG được làm hỏng check-in → nuốt exception, chỉ log cảnh báo.
     /// </summary>

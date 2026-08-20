@@ -111,6 +111,14 @@ public interface IClassSessionService
     Task<int> AutoCloseExpiredLiveSessionsAsync(CancellationToken ct = default);
 
     /// <summary>
+    /// Tự động đóng các buổi học bị ngắt giữa chừng (<c>interrupted</c>) đã qua nửa đêm của ngày bị
+    /// ngắt (UTC thuần) mà chưa được xử lý — dùng bởi background job. Buổi gốc → <c>completed</c>
+    /// qua settle-bỏ-qua-status-guard (giống dispute), trừ Sessionsremaining đúng 1 lần; buổi phụ
+    /// chưa dùng (nếu có, còn <c>scheduled</c>) → <c>cancelled</c>. Trả về số buổi đã tự đóng.
+    /// </summary>
+    Task<int> AutoCloseExpiredInterruptedSessionsAsync(CancellationToken ct = default);
+
+    /// <summary>
     /// Tutor submits a post-classSession report (homework, notes, rating).
     /// </summary>
     Task<ClassSessionDetailResponse> SubmitReportAsync(int classSessionId, string tutorId, SubmitReportRequest request);
