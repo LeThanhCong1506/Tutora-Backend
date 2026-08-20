@@ -23,6 +23,14 @@ public partial class ChatHistory
 
     public bool RagUsed { get; set; }
 
+    /// <summary>Similarity bài mẫu khớp nhất trong bank. NULL = không trúng.</summary>
+    public float? RagSimilarity { get; set; }
+
+    public Guid? RagQuestionId { get; set; }
+
+    /// <summary>Code kiểm tra đáp số: true/false/NULL (không chạy được).</summary>
+    public bool? AnswerVerified { get; set; }
+
     public string? Metadata { get; set; }
 
     public DateTime CreatedAt { get; set; }

@@ -1067,6 +1067,9 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
             entity.Property(e => e.Grade)
                 .HasMaxLength(50)
                 .HasColumnName("grade");
+            entity.Property(e => e.RagSimilarity).HasColumnName("rag_similarity");
+            entity.Property(e => e.RagQuestionId).HasColumnName("rag_question_id");
+            entity.Property(e => e.AnswerVerified).HasColumnName("answer_verified");
             entity.Property(e => e.RagUsed)
                 .HasDefaultValue(false)
                 .HasColumnName("rag_used");
