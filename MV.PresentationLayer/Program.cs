@@ -8,6 +8,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
+using System.Text.RegularExpressions;
 using System.Threading.RateLimiting;
 using MV.ApplicationLayer.Hubs;
 using MV.ApplicationLayer.Interfaces;
@@ -191,13 +192,24 @@ builder.Services.AddMemoryCache();
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
 
+// Khớp origin http(s)://<private-lan-ip>:<port> — dùng cho SetIsOriginAllowed ở policy CORS bên dưới.
+static bool IsLocalNetworkOrigin(string origin)
+{
+    if (!Uri.TryCreate(origin, UriKind.Absolute, out var uri))
+        return false;
+
+    return Regex.IsMatch(uri.Host,
+        @"^(192\.168\.\d{1,3}\.\d{1,3}|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3})$");
+}
+
 // Thêm CORS
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowReactApp",
         policy =>
         {
-            policy.WithOrigins(
+            var allowedOrigins = new HashSet<string>(new[]
+            {
                     "https://localhost:7203", "http://localhost:5173", "http://localhost:5174", "http://localhost:5166",
                     "http://localhost:5180",
                     // Next.js dev server (apps/web-next)
@@ -210,7 +222,14 @@ builder.Services.AddCors(options =>
                     // Developer app
                     "https://tutora-developer.vercel.app", "https://cms-tutora-fe.vercel.app", "https://cms.tutora.vn",
                     // Zalo Mini App domains
-                    "https://h5.zalo.me", "https://h5.zadn.vn", "https://h5.zdn.vn", "https://miniapp-cdn.zalo.me")
+                    "https://h5.zalo.me", "https://h5.zadn.vn", "https://h5.zdn.vn", "https://miniapp-cdn.zalo.me",
+            });
+
+            policy.SetIsOriginAllowed(origin =>
+                    allowedOrigins.Contains(origin)
+                    // Dev-only: cho phép mở FE (vite --host) từ điện thoại/thiết bị khác cùng
+                    // mạng LAN để test giao diện, mà không phải hardcode IP máy từng dev vào đây.
+                    || (builder.Environment.IsDevelopment() && IsLocalNetworkOrigin(origin)))
                   .AllowAnyHeader()
                   .AllowAnyMethod()
                   // AllowAnyHeader chỉ áp dụng cho REQUEST header. Muốn JS đọc được
