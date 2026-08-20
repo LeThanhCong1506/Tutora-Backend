@@ -1688,6 +1688,16 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
             entity.Property(e => e.Ismakeup)
                 .HasDefaultValue(false)
                 .HasColumnName("is_makeup");
+            entity.Property(e => e.Iscontinuation)
+                .HasDefaultValue(false)
+                .HasColumnName("is_continuation");
+            entity.Property(e => e.Isdisputerelearn)
+                .HasDefaultValue(false)
+                .HasColumnName("is_dispute_relearn");
+            entity.Property(e => e.Interruptedat)
+                .HasColumnType("timestamp without time zone")
+                .HasColumnName("interrupted_at");
+            entity.Property(e => e.Interruptreason).HasColumnName("interrupt_reason");
             entity.Property(e => e.Issettled)
                 .HasDefaultValue(false)
                 .HasColumnName("is_settled");

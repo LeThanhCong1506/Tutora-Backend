@@ -61,6 +61,18 @@ public partial class ClassSession
 
     public int? Originalsessionid { get; set; }
 
+    /// <summary>Buổi phụ được sinh ra khi buổi gốc (Originalsessionid) bị ngắt giữa chừng vì sự cố đột xuất.</summary>
+    public bool Iscontinuation { get; set; }
+
+    /// <summary>Buổi học lại được Admin/Staff mở khi hai bên hoà giải một tranh chấp (xem CloseDisputeAsync) trên buổi gốc (Originalsessionid).</summary>
+    public bool Isdisputerelearn { get; set; }
+
+    /// <summary>Mốc thời điểm buổi gốc bị ngắt giữa chừng (UTC). Null nếu buổi chưa từng bị ngắt.</summary>
+    public DateTime? Interruptedat { get; set; }
+
+    /// <summary>Lý do ngắt buổi do người dùng tự nhập, optional.</summary>
+    public string? Interruptreason { get; set; }
+
     public string? Noshowaction { get; set; }
 
     public DateTime? Createdat { get; set; }
