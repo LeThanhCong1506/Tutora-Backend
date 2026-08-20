@@ -32,6 +32,7 @@ public partial class ClassSessionService : IClassSessionService
     private readonly IRecordingAccessTokenService _recordingAccessTokenService;
     private readonly IBackgroundJobClient _backgroundJobClient;
     private readonly IClassSessionRescheduleProposalService _rescheduleProposalService;
+    private readonly ISessionLogService _sessionLogService;
     private readonly ILogger<ClassSessionService> _logger;
 
     // Retained for transaction management only (BeginTransactionAsync)
@@ -55,6 +56,7 @@ public partial class ClassSessionService : IClassSessionService
         IRecordingAccessTokenService recordingAccessTokenService,
         IBackgroundJobClient backgroundJobClient,
         IClassSessionRescheduleProposalService rescheduleProposalService,
+        ISessionLogService sessionLogService,
         ILogger<ClassSessionService> logger)
     {
         _classSessionRepo = classSessionRepo;
@@ -72,6 +74,7 @@ public partial class ClassSessionService : IClassSessionService
         _recordingAccessTokenService = recordingAccessTokenService;
         _backgroundJobClient = backgroundJobClient;
         _rescheduleProposalService = rescheduleProposalService;
+        _sessionLogService = sessionLogService;
         _logger = logger;
     }
 

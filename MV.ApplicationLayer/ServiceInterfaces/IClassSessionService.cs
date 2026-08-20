@@ -116,6 +116,16 @@ public interface IClassSessionService
     Task<ClassSessionDetailResponse> SubmitReportAsync(int classSessionId, string tutorId, SubmitReportRequest request);
 
     /// <summary>
+    /// Gia sư hoặc học viên/phụ huynh báo buổi học (đang <c>in_progress</c>) phải ngắt giữa chừng vì
+    /// sự cố đột xuất. Chỉ được phép khi đã học đủ ngưỡng % tối thiểu (xem
+    /// <see cref="MV.ApplicationLayer.Helpers.ClassSessionInterruptionPolicy"/>) — chống lạm dụng
+    /// làm phương án "dời lịch" trá hình. Buổi gốc chuyển sang <c>interrupted</c> (trạng thái cụt,
+    /// không tự quyết toán); đồng thời sinh ra 1 buổi phụ (<c>Iscontinuation=true</c>, cùng
+    /// booking/tutor/student, thời lượng bằng phần lý thuyết còn lại) để học nốt trong cùng ngày.
+    /// </summary>
+    Task<ClassSessionDetailResponse> RequestInterruptionAsync(int classSessionId, string requestingUserId, string? reason);
+
+    /// <summary>
     /// Presence-driven auto check-in: khi cả gia sư và học viên (hoặc phụ huynh thay thế)
     /// cùng có mặt trong phòng của buổi <paramref name="classSessionId"/>, tự chuyển buổi từ
     /// <c>scheduled</c> sang <c>in_progress</c> và ghi check-in. Một người có mặt không đủ.
