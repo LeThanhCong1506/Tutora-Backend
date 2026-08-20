@@ -51,7 +51,8 @@ namespace MV.ApplicationLayer.Services
                     {
                         Userid = tutorId,
                         Title = "Chứng chỉ được duyệt",
-                        Message = $"Chứng chỉ \"{certificate.Certificatename}\" đã được admin phê duyệt."
+                        Message = $"Chứng chỉ \"{certificate.Certificatename}\" đã được admin phê duyệt.",
+                        Type = NotificationType.TutorVettingApproved
                     });
                 }
                 else
@@ -60,7 +61,8 @@ namespace MV.ApplicationLayer.Services
                     {
                         Userid = tutorId,
                         Title = "Chứng chỉ bị từ chối",
-                        Message = $"Chứng chỉ \"{certificate.Certificatename}\" đã bị từ chối. Lý do: {noteText}"
+                        Message = $"Chứng chỉ \"{certificate.Certificatename}\" đã bị từ chối. Lý do: {noteText}",
+                        Type = NotificationType.TutorVettingRejected
                     });
                 }
             }
@@ -282,7 +284,8 @@ namespace MV.ApplicationLayer.Services
                     {
                         Userid = tutorId,
                         Title = "Cập nhật hồ sơ đã được duyệt",
-                        Message = "Admin đã phê duyệt thay đổi hồ sơ của bạn. Thông tin mới đã hiển thị trên marketplace."
+                        Message = "Admin đã phê duyệt thay đổi hồ sơ của bạn. Thông tin mới đã hiển thị trên marketplace.",
+                        Type = NotificationType.TutorVettingApproved
                     });
                 }
                 else
@@ -291,7 +294,8 @@ namespace MV.ApplicationLayer.Services
                     {
                         Userid = tutorId,
                         Title = "Cập nhật hồ sơ bị từ chối",
-                        Message = $"Admin đã từ chối thay đổi hồ sơ của bạn. Lý do: {request.Note ?? "Không đạt yêu cầu"}. Hồ sơ hiện tại của bạn trên marketplace không bị ảnh hưởng."
+                        Message = $"Admin đã từ chối thay đổi hồ sơ của bạn. Lý do: {request.Note ?? "Không đạt yêu cầu"}. Hồ sơ hiện tại của bạn trên marketplace không bị ảnh hưởng.",
+                        Type = NotificationType.TutorVettingRejected
                     });
                 }
             }
