@@ -493,8 +493,16 @@ public partial class ClassSessionService
 
             if (isFirstClassSessionReport)
             {
+                // Không để hạn 48h vượt quá giờ học buổi reserved gần nhất — xem
+                // RemainingPaymentDeadlinePolicy để biết lý do.
+                var earliestReservedStart = await _context.ClassSessions
+                    .Where(x => x.Bookingid == classSession.Bookingid && x.Status == Reserved)
+                    .OrderBy(x => x.Scheduledstart)
+                    .Select(x => (DateTime?)x.Scheduledstart)
+                    .FirstOrDefaultAsync();
+
                 classSession.Booking!.Status = BookingStatus.PendingRemainingPayment;
-                classSession.Booking.Paymentdueat = now.AddHours(48);
+                classSession.Booking.Paymentdueat = RemainingPaymentDeadlinePolicy.ComputeDeadline(now, earliestReservedStart);
             }
 
             await _context.SaveChangesAsync();
