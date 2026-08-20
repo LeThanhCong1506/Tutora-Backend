@@ -45,6 +45,11 @@ public static class AssessmentQuestionFormat
     /// <summary>true nếu BE chấm đúng/sai được. Essay -> để AI đánh giá.</summary>
     public static bool IsAutoGraded(string format) => format != Essay;
 
+    /// <summary>
+    /// true nếu là câu TRẮC NGHIỆM (chọn phương án).
+    /// </summary>
+    public static bool IsScored(string format) => format is SingleChoice or MultiChoice or TrueFalse;
+
     /// <summary>true nếu cho nhiều đáp án đúng.</summary>
     public static bool AllowsMultipleKeys(string format) => format is MultiChoice or TrueFalse;
 }
