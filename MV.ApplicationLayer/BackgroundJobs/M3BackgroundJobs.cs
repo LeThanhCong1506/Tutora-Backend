@@ -392,8 +392,16 @@ public class RemainingPaymentTriggerJob : BackgroundService
             }
 
             // Transition to pending_remaining_payment
+            // Không để hạn 48h vượt quá giờ học buổi reserved gần nhất — xem
+            // RemainingPaymentDeadlinePolicy để biết lý do.
+            var earliestReservedStart = booking.ClassSessions
+                .Where(x => x.Status == Reserved)
+                .OrderBy(x => x.Scheduledstart)
+                .Select(x => (DateTime?)x.Scheduledstart)
+                .FirstOrDefault();
+
             booking.Status = BookingStatus.PendingRemainingPayment;
-            booking.Paymentdueat = now.AddHours(48);
+            booking.Paymentdueat = MV.ApplicationLayer.Helpers.RemainingPaymentDeadlinePolicy.ComputeDeadline(now, earliestReservedStart);
             booking.Updatedat = now;
 
             var parentId = booking.Student?.Parentid ?? booking.Parentid;
