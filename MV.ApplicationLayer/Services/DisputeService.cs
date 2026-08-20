@@ -306,7 +306,7 @@ public class DisputeService : IDisputeService
         var (status, url) = RecordingStatusResolver.Resolve(cs?.Recordingurl, cs?.Recordings3key, cs?.Recordingsid, cs?.Checkouttime.HasValue ?? false);
         var streamUrl = BuildRecordingStreamUrl(dispute.Classsessionid, actorId, url);
 
-        return new DisputeRecordingResponse
+        var response = new DisputeRecordingResponse
         {
             DisputeId = dispute.Disputeid,
             ClassSessionId = dispute.Classsessionid,
@@ -314,6 +314,30 @@ public class DisputeService : IDisputeService
             RecordingUrl = streamUrl,
             Available = streamUrl != null
         };
+
+        // Buổi bị tranh chấp là buổi phụ -> kéo thêm bản ghi của buổi gốc để admin xem trọn 2 nửa.
+        if (cs != null && cs.Iscontinuation && cs.Originalsessionid.HasValue)
+        {
+            var original = await _context.ClassSessions
+                .AsNoTracking()
+                .Where(x => x.Classsessionid == cs.Originalsessionid.Value)
+                .Select(x => new { x.Classsessionid, x.Recordingurl, x.Recordings3key, x.Recordingsid, x.Checkouttime })
+                .FirstOrDefaultAsync();
+
+            if (original != null)
+            {
+                var (originalStatus, originalUrl) = RecordingStatusResolver.Resolve(
+                    original.Recordingurl, original.Recordings3key, original.Recordingsid, original.Checkouttime.HasValue);
+                var originalStreamUrl = BuildRecordingStreamUrl(original.Classsessionid, actorId, originalUrl);
+
+                response.OriginalClassSessionId = original.Classsessionid;
+                response.OriginalStatus = originalStatus;
+                response.OriginalRecordingUrl = originalStreamUrl;
+                response.OriginalAvailable = originalStreamUrl != null;
+            }
+        }
+
+        return response;
     }
 
     /// <summary>

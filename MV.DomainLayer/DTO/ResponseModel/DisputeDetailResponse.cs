@@ -152,4 +152,15 @@ public class DisputeRecordingResponse
 
     /// <summary>True nếu đã có link xem được.</summary>
     public bool Available { get; set; }
+
+    /// <summary>
+    /// Khi buổi bị tranh chấp là buổi phụ (Iscontinuation=true, sinh ra vì buổi gốc bị ngắt giữa
+    /// chừng), 4 field dưới đây mang thông tin bản ghi của buổi GỐC (Originalsessionid) — để admin
+    /// xem được cả 2 nửa buổi học khi xử lý tranh chấp, không chỉ nửa sau. Null/false nếu buổi bị
+    /// tranh chấp không phải buổi phụ.
+    /// </summary>
+    public int? OriginalClassSessionId { get; set; }
+    public string? OriginalStatus { get; set; }
+    public string? OriginalRecordingUrl { get; set; }
+    public bool OriginalAvailable { get; set; }
 }
