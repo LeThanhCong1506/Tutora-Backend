@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using MV.ApplicationLayer.Interfaces;
 using MV.ApplicationLayer.RepositoryInterfaces;
 using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.Constants;
@@ -23,6 +24,7 @@ public class AiChatService(
     IAiChatRepository aiChatRepo,
     IQuestionNoteRepository questionNoteRepo,
     IStudentRepository studentRepo,
+    IUnitOfWork unitOfWork,
     IHttpClientFactory httpClientFactory,
     IConfiguration config,
     IFileStorageService storage,
@@ -160,6 +162,7 @@ public class AiChatService(
 
         // Client không gửi lớp -> lấy từ hồ sơ học sinh.
         var grade = dto.Grade ?? await ResolveStudentGradeAsync(userId, ct);
+        var proficiency = await ResolveProficiencyAsync(userId, ct);
 
         // 1. Lưu user message ngay (không mất kể cả nếu AI lỗi sau đó).
         // Ảnh base64 -> upload lấy URL để mở lại phiên cũ vẫn thấy đề bài.
@@ -207,7 +210,9 @@ public class AiChatService(
             response_format = dto.ResponseFormat,
             chat_id = sessionId.ToString(),
             message_id = assistantMessageId.ToString(),
-            history
+            history,
+            // Hồ sơ trình độ từ bài đánh giá đầu vào -> tutora-ai chọn độ sâu lời giải.
+            proficiency
         };
 
         using var req = new HttpRequestMessage(HttpMethod.Post, "/api/v1/solve")
@@ -566,6 +571,66 @@ public class AiChatService(
 
         cache.Set(cacheKey, grade, TimeSpan.FromMinutes(10));
         return grade;
+    }
+
+    /// <summary>
+    /// Hồ sơ trình độ gửi kèm /solve. Học sinh chưa làm bài đánh giá -> null, giải như cũ.
+    /// Lấy profile mới cập nhật nhất (chưa có tín hiệu môn nào đang hỏi ở luồng solve).
+    /// </summary>
+    private async Task<object?> ResolveProficiencyAsync(string userId, CancellationToken ct)
+    {
+        var cacheKey = $"ai-chat:proficiency:{userId}";
+        if (cache.TryGetValue<object?>(cacheKey, out var cached)) return cached;
+
+        object? result = null;
+        try
+        {
+            var profiles = await unitOfWork.AssessmentRepository.GetProficiencyProfilesAsync(userId);
+            var profile = profiles
+                .OrderByDescending(p => p.UpdatedAt ?? DateTime.MinValue)
+                .FirstOrDefault();
+
+            if (profile != null && (profile.Level != null || profile.Summary != null))
+                result = new
+                {
+                    subject_name = profile.Subject?.Subjectname,
+                    grade_name = profile.Gradelevel?.Gradename,
+                    level = profile.Level,
+                    summary = profile.Summary,
+                    weak_chapters = ExtractChapters(profile.Weaknesses),
+                    strong_chapters = ExtractChapters(profile.Strengths),
+                };
+        }
+        catch (Exception ex)
+        {
+            // Thiếu profile không được chặn việc giải bài.
+            logger.LogWarning(ex, "Không lấy được profile trình độ của user {UserId}", userId);
+        }
+
+        cache.Set(cacheKey, result, TimeSpan.FromMinutes(10));
+        return result;
+    }
+
+    /// <summary>Rút tên chương từ cột JSON [{"chapter": "..."}]. Lỗi parse -> rỗng.</summary>
+    private static List<string> ExtractChapters(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return new();
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            if (doc.RootElement.ValueKind != JsonValueKind.Array) return new();
+
+            return doc.RootElement.EnumerateArray()
+                .Where(e => e.ValueKind == JsonValueKind.Object)
+                .Select(e => e.TryGetProperty("chapter", out var c) ? c.GetString() : null)
+                .Where(name => !string.IsNullOrWhiteSpace(name))
+                .Select(name => name!)
+                .ToList();
+        }
+        catch
+        {
+            return new();
+        }
     }
 
     /// <summary>
