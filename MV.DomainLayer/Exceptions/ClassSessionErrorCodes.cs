@@ -24,4 +24,8 @@ public static class ClassSessionErrorCodes
     public const string ConfirmDeadlinePassed = "CONFIRM_DEADLINE_PASSED";
     public const string UnauthorizedAccess = "UNAUTHORIZED_ACCESS";
     public const string DisputeAlreadyExists = "DISPUTE_ALREADY_EXISTS";
+
+    // Buổi học bị ngắt giữa chừng / buổi phụ
+    public const string AlreadyContinuationSession = "ALREADY_CONTINUATION_SESSION";
+    public const string InterruptionThresholdNotMet = "INTERRUPTION_THRESHOLD_NOT_MET";
 }
