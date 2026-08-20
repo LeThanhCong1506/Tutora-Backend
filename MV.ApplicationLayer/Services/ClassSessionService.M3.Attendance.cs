@@ -488,6 +488,80 @@ public partial class ClassSessionService
         }
     }
 
+    /// <summary>
+    /// Gia sư hoặc học viên/phụ huynh báo buổi học phải ngắt giữa chừng vì sự cố đột xuất. Chỉ cho
+    /// phép khi đã học đủ ngưỡng % tối thiểu (xem <see cref="ClassSessionInterruptionPolicy"/>) —
+    /// ngưỡng là điều kiện chống lạm dụng, không phải % dùng để tính thời lượng buổi phụ. Buổi gốc
+    /// chuyển sang <c>interrupted</c> (trạng thái cụt, không tự đi tới pending_confirmation/completed
+    /// nên không tự trừ Sessionsremaining); đồng thời sinh 1 buổi phụ (Iscontinuation=true) cùng
+    /// booking/tutor/student để học nốt trong ngày.
+    /// </summary>
+    public async Task<ClassSessionDetailResponse> RequestInterruptionAsync(int classSessionId, string requestingUserId, string? reason)
+    {
+        await using var tx = await _context.Database.BeginTransactionAsync();
+        try
+        {
+            var classSession = await _context.ClassSessions
+                .Include(l => l.Booking)
+                    .ThenInclude(b => b!.Student)
+                .FirstOrDefaultAsync(l => l.Classsessionid == classSessionId)
+                ?? throw new ClassSessionException(ClassSessionErrorCodes.ClassSessionNotFound, "Không tìm thấy buổi học", 404);
+
+            var studentUserId = classSession.Booking?.Student?.Linkeduserid;
+            var parentId = classSession.Booking?.Student?.Parentid ?? classSession.Booking?.Parentid;
+            var isAuthorized = requestingUserId == classSession.Tutorid
+                || (!string.IsNullOrEmpty(studentUserId) && requestingUserId == studentUserId)
+                || (!string.IsNullOrEmpty(parentId) && requestingUserId == parentId);
+            if (!isAuthorized)
+                throw new UnauthorizedAccessException("Bạn không có quyền báo ngắt buổi học này.");
+
+            if (classSession.Status != InProgress)
+                throw new ClassSessionException(ClassSessionErrorCodes.InvalidClassSessionStatus, "Buổi học phải đang diễn ra (đã điểm danh vào) mới báo ngắt được", 400);
+
+            if (classSession.Iscontinuation)
+                throw new ClassSessionException(ClassSessionErrorCodes.AlreadyContinuationSession, "Buổi học phụ không thể tiếp tục bị báo ngắt", 400);
+
+            var isFirstSessionOfBooking = await ClassSessionInterruptionPolicy.IsFirstOriginalSessionAsync(_context, classSession);
+
+            var sessionLog = await _sessionLogService.GetSessionLogAsync(classSessionId);
+            var overlapRatio = sessionLog?.Summary.OverlapRatio ?? 0.0;
+            if (!ClassSessionInterruptionPolicy.MeetsThreshold(isFirstSessionOfBooking, overlapRatio))
+            {
+                var threshold = ClassSessionInterruptionPolicy.ThresholdFor(isFirstSessionOfBooking);
+                throw new ClassSessionException(
+                    ClassSessionErrorCodes.InterruptionThresholdNotMet,
+                    $"Buổi học cần đạt tối thiểu {threshold:P0} thời lượng mới được phép báo ngắt giữa chừng (hiện tại khoảng {overlapRatio:P0}).",
+                    400);
+            }
+
+            var now = TimeZoneHelper.UtcNow;
+            classSession.Status = Interrupted;
+            classSession.Interruptedat = now;
+            classSession.Interruptreason = reason;
+            classSession.Checkouttime = now;
+            classSession.Realend = now;
+
+            await TryStopRecordingAsync(classSession);
+
+            var continuation = ClassSessionInterruptionPolicy.BuildContinuationSession(classSession, isFirstSessionOfBooking, now);
+            _context.ClassSessions.Add(continuation);
+
+            await _context.SaveChangesAsync();
+            await tx.CommitAsync();
+
+            _logger.LogInformation(
+                "ClassSession {ClassSessionId} bị ngắt giữa chừng bởi {UserId} (isFirstSessionOfBooking={IsFirst}, overlapRatio={OverlapRatio:P0}); tạo buổi phụ mới.",
+                classSessionId, requestingUserId, isFirstSessionOfBooking, overlapRatio);
+
+            return (await GetTutorClassSessionDetailAsync(classSessionId, classSession.Tutorid!))!;
+        }
+        catch
+        {
+            await tx.RollbackAsync();
+            throw;
+        }
+    }
+
     public async Task<string> UploadAttachmentAsync(int classSessionId, string tutorId, IFormFile file)
     {
         var classSession = await _context.ClassSessions
