@@ -26,6 +26,7 @@ public partial class PaymentService(
     INotificationService notificationService,
     IBankListService bankListService,
     ILargeTransactionOtpService largeTransactionOtpService,
+    ICommissionConfigService commissionConfigService,
     ILogger<PaymentService> logger) : IPaymentService
 {
     //fix link

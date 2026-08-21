@@ -62,6 +62,8 @@ public interface IAppDbContext
     DbSet<PolicyDocument> PolicyDocuments { get; }
 
     DbSet<Systemconfig> Systemconfigs { get; }
+
+    DbSet<CommissionConfigHistory> CommissionConfigHistories { get; }
     DbSet<AiCreditPackage> AiCreditPackages { get; }
     DbSet<Topuprequest> Topuprequests { get; }
     DbSet<Tutoravailability> Tutoravailabilities { get; }

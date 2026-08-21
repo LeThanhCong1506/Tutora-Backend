@@ -116,6 +116,8 @@ public partial class User
 
     public virtual ICollection<Systemconfig> Systemconfigs { get; set; } = new List<Systemconfig>();
 
+    public virtual ICollection<CommissionConfigHistory> CommissionConfigHistories { get; set; } = new List<CommissionConfigHistory>();
+
     public virtual Tutorprofile? Tutorprofile { get; set; }
 
 

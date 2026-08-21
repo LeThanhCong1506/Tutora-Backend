@@ -18,6 +18,7 @@ public static class Permissions
 
     public const string DashboardView = "dashboard.view";
     public const string FinancialView = "financial.view";
+    public const string FinancialManage = "financial.manage";
     public const string BookingView = "booking.view";
     public const string PaymentConfirm = "payment.confirm";
     public const string PromotionManage = "promotion.manage";

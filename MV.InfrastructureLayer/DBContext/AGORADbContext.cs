@@ -135,6 +135,8 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
 
     public virtual DbSet<Systemconfig> Systemconfigs { get; set; }
 
+    public virtual DbSet<CommissionConfigHistory> CommissionConfigHistories { get; set; }
+
     public virtual DbSet<Topuprequest> Topuprequests { get; set; }
 
     public virtual DbSet<Tutoravailability> Tutoravailabilities { get; set; }
@@ -2267,6 +2269,28 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
             entity.HasOne(d => d.UpdatedbyNavigation).WithMany(p => p.Systemconfigs)
                 .HasForeignKey(d => d.Updatedby)
                 .HasConstraintName("systemconfigs_updatedby_fkey");
+        });
+
+        modelBuilder.Entity<CommissionConfigHistory>(entity =>
+        {
+            entity.HasKey(e => e.Historyid).HasName("commission_config_history_pkey");
+
+            entity.ToTable("commission_config_history");
+
+            entity.Property(e => e.Historyid).HasColumnName("history_id");
+            entity.Property(e => e.Parentfeepercent).HasColumnName("parent_fee_percent");
+            entity.Property(e => e.Tutorfeepercent).HasColumnName("tutor_fee_percent");
+            entity.Property(e => e.Changedby)
+                .HasMaxLength(50)
+                .HasColumnName("changed_by");
+            entity.Property(e => e.Changedat)
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
+                .HasColumnType("timestamp without time zone")
+                .HasColumnName("changed_at");
+
+            entity.HasOne(d => d.ChangedbyNavigation).WithMany(p => p.CommissionConfigHistories)
+                .HasForeignKey(d => d.Changedby)
+                .HasConstraintName("commission_config_history_changed_by_fkey");
         });
 
         modelBuilder.Entity<Tutoravailability>(entity =>

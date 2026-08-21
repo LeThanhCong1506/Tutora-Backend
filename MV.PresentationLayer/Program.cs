@@ -379,6 +379,8 @@ builder.Services.AddScoped<IQuestionNoteService, QuestionNoteService>();
 builder.Services.AddScoped<IPaymentService, PaymentService>();
 builder.Services.AddScoped<IWalletService, WalletService>();
 builder.Services.AddScoped<IAiCreditService, AiCreditService>();
+builder.Services.AddScoped<ICommissionConfigService, CommissionConfigService>();
+builder.Services.AddScoped<IWithdrawalLimitService, WithdrawalLimitService>();
 builder.Services.AddScoped<IClassSessionService, ClassSessionService>();
 builder.Services.AddScoped<ISessionLogService, SessionLogService>();
 builder.Services.AddScoped<IClassSessionScheduleChangeService, ClassSessionScheduleChangeService>();

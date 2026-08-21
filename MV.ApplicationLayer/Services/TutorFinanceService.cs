@@ -16,9 +16,9 @@ public class TutorFinanceService(
     IAppDbContext context,
     INotificationService notificationService,
     IFileStorageService fileStorageService,
+    IWithdrawalLimitService withdrawalLimitService,
     ILogger<TutorFinanceService> logger) : ITutorFinanceService
 {
-    private const decimal MinWithdrawalAmount = 10000m;
 
     public async Task<FinanceSummaryResponse> GetSummaryAsync(string tutorId, CancellationToken ct = default)
     {
@@ -263,8 +263,9 @@ public class TutorFinanceService(
                 || string.IsNullOrEmpty(bankAccount.Accountholdername))
                 throw new BankInfoRequiredException();
 
-            if (request.Amount < MinWithdrawalAmount)
-                throw new WithdrawalAmountTooLowException(MinWithdrawalAmount);
+            var minWithdrawalAmount = await withdrawalLimitService.GetMinWithdrawalAmountAsync(ct);
+            if (request.Amount < minWithdrawalAmount)
+                throw new WithdrawalAmountTooLowException(minWithdrawalAmount);
 
             wallet.Balance -= request.Amount;
             wallet.Lastupdated = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
