@@ -83,20 +83,18 @@ namespace MV.ApplicationLayer.Services
         {
             try
             {
-                var admins = await _context.Users
-                    .Where(u => u.Primaryrole == UserRole.Admin)
-                    .Select(u => u.Userid)
-                    .ToListAsync();
-                if (admins.Count == 0) return;
+                var reviewerIds = await PermissionRecipients.ResolveAsync(
+                    _context, Permissions.TutorProfileUpdateView);
+                if (reviewerIds.Count == 0) return;
 
                 var tutorName = (await _unitOfWork.UserRepository.GetUserByIdAsync(tutorId))?.Fullname ?? tutorId;
 
-                await _notificationService.CreateNotificationsAsync(admins.Select(adminId => new NotificationRequest
+                await _notificationService.CreateNotificationsAsync(reviewerIds.Select(reviewerId => new NotificationRequest
                 {
-                    Userid = adminId,
+                    Userid = reviewerId,
                     Title = "Yêu cầu cập nhật hồ sơ gia sư",
                     Message = $"Gia sư {tutorName} vừa sửa mục \"{sectionLabel}\", đang chờ duyệt.",
-                    Type = "tutor_profile_update"
+                    Type = NotificationType.TutorProfileUpdateRequest
                 }));
             }
             catch (Exception ex)

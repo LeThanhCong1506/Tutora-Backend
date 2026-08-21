@@ -135,7 +135,9 @@ public partial class ClassSessionService
                 {
                     Userid = classSession.Tutorid,
                     Title = "Báo cáo vắng mặt",
-                    Message = $"Bạn đã bị báo cáo vắng mặt cho buổi học #{classSessionId}."
+                    Message = $"Bạn đã bị báo cáo vắng mặt cho buổi học #{classSessionId}.",
+                    Type = NotificationType.LessonNoShow,
+                    Referenceid = classSessionId.ToString()
                 });
             }
             catch (Exception notificationError)
@@ -392,7 +394,9 @@ public partial class ClassSessionService
                 {
                     Userid = ownedSession.Tutorid,
                     Title = "Xử lý vắng mặt",
-                    Message = $"'{request.ActionType}' đã được chọn cho buổi học #{classSessionId} bị vắng mặt."
+                    Type = NotificationType.LessonNoShow,
+                    Message = $"'{request.ActionType}' đã được chọn cho buổi học #{classSessionId} bị vắng mặt.",
+                    Referenceid = classSessionId.ToString()
                 });
             }
         }

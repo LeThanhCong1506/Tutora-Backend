@@ -169,7 +169,9 @@ public partial class SettlementService : ISettlementService
                         {
                             Userid = tutorId,
                             Title = "Giải ngân khóa học thành công",
-                            Message = $"Khóa học #{classSession.Bookingid} đã hoàn thành. Bạn đã nhận được tổng cộng {amountReleasedNow:N0}đ. Số dư ví hiện tại: {tutorWallet.Balance:N0}đ"
+                            Message = $"Khóa học #{classSession.Bookingid} đã hoàn thành. Bạn đã nhận được tổng cộng {amountReleasedNow:N0}đ. Số dư ví hiện tại: {tutorWallet.Balance:N0}đ",
+                            Type = NotificationType.SettlementReleased,
+                            Referenceid = classSession.Bookingid?.ToString()
                         });
                     }
                     else
@@ -178,7 +180,9 @@ public partial class SettlementService : ISettlementService
                         {
                             Userid = tutorId,
                             Title = "Xác nhận buổi học",
-                            Message = $"Buổi học #{classSession.Classsessionid} đã được xác nhận. Tiền học sẽ được giải ngân khi hoàn thành toàn bộ khóa học."
+                            Message = $"Buổi học #{classSession.Classsessionid} đã được xác nhận. Tiền học sẽ được giải ngân khi hoàn thành toàn bộ khóa học.",
+                            Type = NotificationType.LessonConfirmed,
+                            Referenceid = classSession.Classsessionid.ToString()
                         });
                     }
                 }
@@ -453,7 +457,9 @@ public partial class SettlementService : ISettlementService
                         {
                             Userid = refundRecipientId,
                             Title = "Hoàn tiền buổi học",
-                            Message = $"Bạn đã nhận được hoàn tiền {refundAmount:N0}đ ({refundPercentage}%) cho buổi học #{classSession.Classsessionid}. Số dư ví: {parentWallet?.Balance:N0}đ"
+                            Message = $"Bạn đã nhận được hoàn tiền {refundAmount:N0}đ ({refundPercentage}%) cho buổi học #{classSession.Classsessionid}. Số dư ví: {parentWallet?.Balance:N0}đ",
+                            Type = NotificationType.PaymentRefundSuccess,
+                            Referenceid = classSession.Classsessionid.ToString()
                         });
                     }
                 }
