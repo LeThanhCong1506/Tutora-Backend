@@ -27,7 +27,10 @@ public class RequestInfoResponse
     public string? ClaimedByName { get; set; }
     public DateTime? ClaimedAt { get; set; }
     public string? RejectionReason { get; set; }
+    /// <summary>Mã đối soát nội bộ do backend sinh — KHÔNG phải mã của ngân hàng.</summary>
     public string? TransactionId { get; set; }
+    /// <summary>Mã tham chiếu do ngân hàng cấp (liên ngân hàng qua Napas), Admin/Staff nhập khi xác nhận chuyển khoản.</summary>
+    public string? BankTransactionCode { get; set; }
     public DateTime? PaidAt { get; set; }
     public string? ProofImageUrl { get; set; }
 }
