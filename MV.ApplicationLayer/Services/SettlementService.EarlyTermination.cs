@@ -151,7 +151,9 @@ public partial class SettlementService
                 {
                     Userid = booking.Tutorid,
                     Title = "Giải ngân khóa học thành công",
-                    Message = $"Khóa học #{bookingId} đã kết thúc sớm. Bạn đã nhận {releaseAmount:N0}đ cho {deliveredCount} buổi đã dạy."
+                    Message = $"Khóa học #{bookingId} đã kết thúc sớm. Bạn đã nhận {releaseAmount:N0}đ cho {deliveredCount} buổi đã dạy.",
+                    Type = NotificationType.SettlementReleased,
+                    Referenceid = bookingId.ToString()
                 });
 
                 if (!string.IsNullOrWhiteSpace(booking.Parentid))
@@ -160,7 +162,9 @@ public partial class SettlementService
                     {
                         Userid = booking.Parentid,
                         Title = "Khóa học đã kết thúc",
-                        Message = $"Khóa học #{bookingId} đã được kết thúc sớm theo yêu cầu của bạn. Các buổi chưa học đã được hủy."
+                        Message = $"Khóa học #{bookingId} đã được kết thúc sớm theo yêu cầu của bạn. Các buổi chưa học đã được hủy.",
+                        Type = NotificationType.CourseCompleted,
+                        Referenceid = bookingId.ToString()
                     });
                 }
             }
