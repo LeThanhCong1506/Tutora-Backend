@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using MV.ApplicationLayer.Helpers;
 using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO.RequestModel;
@@ -322,6 +323,11 @@ public class TutorFinanceService(
             {
                 logger.LogWarning(ex, "Failed to send notification for withdrawal {WithdrawalId}", withdrawal.Withdrawalid);
             }
+
+            // Người duyệt (Admin + Staff có payout.view) cần biết ngay; đặt sau notification của người
+            // yêu cầu vì cả hai đều best-effort, lỗi bên này không được chặn bên kia.
+            await WithdrawalReviewerNotifier.NotifyNewRequestAsync(
+                context, notificationService, logger, withdrawal, ct);
 
             logger.LogInformation("Created withdrawal {WithdrawalId} for tutor {TutorId}, amount: {Amount}",
                 withdrawal.Withdrawalid, tutorId, request.Amount);
