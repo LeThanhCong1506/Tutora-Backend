@@ -93,6 +93,8 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
 
     public virtual DbSet<TutoraKbChunk> TutoraKbChunks { get; set; }
 
+    public virtual DbSet<PracticeAttempt> PracticeAttempts { get; set; }
+
     public virtual DbSet<QuestionVote> QuestionVotes { get; set; }
 
     public virtual DbSet<SourceDocument> SourceDocuments { get; set; }
@@ -2470,6 +2472,27 @@ entity.HasOne(d => d.Tutor).WithOne(p => p.Tutorprofile)
             entity.Property(e => e.IsActive).HasDefaultValue(true).HasColumnName("is_active");
             entity.Property(e => e.Createdat)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
+                .HasColumnType("timestamp without time zone")
+                .HasColumnName("created_at");
+        });
+
+        modelBuilder.Entity<PracticeAttempt>(entity =>
+        {
+            entity.ToTable("practice_attempts");
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.Id).HasDefaultValueSql("gen_random_uuid()").HasColumnName("id");
+            entity.Property(e => e.UserId).HasMaxLength(50).HasColumnName("user_id");
+            entity.Property(e => e.QuestionId).HasColumnName("question_id");
+            entity.Property(e => e.Chapter).HasMaxLength(120).HasColumnName("chapter");
+            entity.Property(e => e.GradeLevelId).HasColumnName("grade_level_id");
+            entity.Property(e => e.Difficulty).HasMaxLength(20).HasColumnName("difficulty");
+            entity.Property(e => e.GivenAnswer).HasColumnName("given_answer");
+            entity.Property(e => e.IsCorrect).HasDefaultValue(false).HasColumnName("is_correct");
+            entity.Property(e => e.SourceSessionId).HasColumnName("source_session_id");
+            // timestamp KHÔNG timezone — cùng quy ước với V20260820c.
+            entity.Property(e => e.CreatedAt)
+                .HasDefaultValueSql("now() AT TIME ZONE 'UTC'")
                 .HasColumnType("timestamp without time zone")
                 .HasColumnName("created_at");
         });

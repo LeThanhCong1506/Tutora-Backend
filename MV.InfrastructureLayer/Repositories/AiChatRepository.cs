@@ -102,6 +102,40 @@ public class AiChatRepository(AgoraDbContext context) : IAiChatRepository
     public void AddMessageVote(AiMessageVote vote)
         => context.AiMessageVotes.Add(vote);
 
+    /// <summary>Map lớp dạng text ("9") sang grade_level_id. Không khớp -> bỏ trống.</summary>
+    private static readonly Dictionary<string, int> GradeToId = new()
+    {
+        ["9"] = 57, ["10"] = 58, ["11"] = 59, ["12"] = 60, ["thi_vao_10"] = 57,
+    };
+
+    public async Task<bool> AddPendingQuestionAsync(
+        string content, string solution, string? chapter, string? grade, string createdBy)
+    {
+        var hash = Convert.ToHexString(
+            System.Security.Cryptography.MD5.HashData(System.Text.Encoding.UTF8.GetBytes(content))
+        ).ToLowerInvariant();
+
+        // Cùng đề bài hỏi nhiều lần -> chỉ xếp hàng MỘT câu.
+        if (await context.QuestionBanks.AnyAsync(q => q.ContentHash == hash)) return false;
+
+        context.QuestionBanks.Add(new QuestionBank
+        {
+            Id = Guid.NewGuid(),
+            SubjectId = 1,                       // bank hiện chỉ có Toán
+            GradeLevelId = grade is not null && GradeToId.TryGetValue(grade, out var gid) ? gid : 57,
+            Chapter = chapter,
+            ProblemType = "tu_luan",
+            Content = content,
+            Solution = solution,
+            ContentHash = hash,
+            // Gia sư duyệt trong CMS rồi mới vào RAG — match_questions lọc published.
+            ReviewStatus = "pending_review",
+            CreatedBy = createdBy,
+        });
+        await context.SaveChangesAsync();
+        return true;
+    }
+
     public Task<int> SaveChangesAsync()
         => context.SaveChangesAsync();
 }

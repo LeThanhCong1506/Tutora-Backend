@@ -43,6 +43,9 @@ public class AiChatService(
 
     private const string ImageBucket = "homework-images";
 
+    /// <summary>Trên ngưỡng này coi như bank đã có bài tương đương -> không thêm nữa.</summary>
+    private const double NewQuestionSimilarityCeiling = 0.88;
+
     public async Task<AiChatSessionResponse> CreateSessionAsync(string userId, AiChatSessionCreateRequest dto)
     {
         var sessionType = dto.SessionType == ChatSessionType.TutorMatching
@@ -304,6 +307,8 @@ public class AiChatService(
                 await aiChatRepo.SaveChangesAsync();
 
                 await TrackTopicSignalAsync(classification, userId, sessionId, assistantMessageId, finishedAt);
+
+                await QueueForReviewAsync(userMessage.Content, assistant.ToString(), trust, classification, userId);
 
                 // Trừ 1 credit ngay tại đây.
                 try
@@ -645,6 +650,40 @@ public class AiChatService(
         catch
         {
             return new();
+        }
+    }
+
+    /// <summary>
+    /// Bài học sinh hỏi mà bank KHÔNG có -> xếp hàng chờ gia sư duyệt.
+    ///
+    /// Bank tự lớn theo nhu cầu thật thay vì để staff soạn mò: câu nào có người hỏi mới
+    /// vào kho. Duyệt xong (published) thì học sinh sau hỏi lại được RAG + gắn nhãn.
+    /// Chỉ nhận bài AI tự tin (code Python xác nhận đáp số) — rác vào kho còn hại hơn kho rỗng.
+    /// </summary>
+    private async Task QueueForReviewAsync(
+        string? question, string? solution, AnswerTrust? trust,
+        TopicClassification? classification, string userId)
+    {
+        // Đã có bài gần giống trong bank -> không nhân bản.
+        if (trust is null || trust.Similarity >= NewQuestionSimilarityCeiling) return;
+        // Đáp số chưa được xác nhận -> chưa đủ tin để đưa gia sư xem.
+        if (trust.Verified != true) return;
+        if (string.IsNullOrWhiteSpace(question) || string.IsNullOrWhiteSpace(solution)) return;
+        if (question.Length < 20 || question == "[hình ảnh]") return;
+
+        try
+        {
+            await aiChatRepo.AddPendingQuestionAsync(
+                content: question.Trim(),
+                solution: solution.Trim(),
+                chapter: classification?.Chapter,
+                grade: classification?.Grade,
+                createdBy: userId);
+        }
+        catch (Exception ex)
+        {
+            // Bánh đà hỏng KHÔNG được ảnh hưởng việc trả lời học sinh.
+            logger.LogWarning(ex, "Không xếp được câu hỏi vào hàng chờ duyệt (user {UserId})", userId);
         }
     }
 
