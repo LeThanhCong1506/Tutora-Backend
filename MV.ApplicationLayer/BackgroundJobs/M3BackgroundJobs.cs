@@ -392,8 +392,16 @@ public class RemainingPaymentTriggerJob : BackgroundService
             }
 
             // Transition to pending_remaining_payment
+            // Không để hạn 48h vượt quá giờ học buổi reserved gần nhất — xem
+            // RemainingPaymentDeadlinePolicy để biết lý do.
+            var earliestReservedStart = booking.ClassSessions
+                .Where(x => x.Status == Reserved)
+                .OrderBy(x => x.Scheduledstart)
+                .Select(x => (DateTime?)x.Scheduledstart)
+                .FirstOrDefault();
+
             booking.Status = BookingStatus.PendingRemainingPayment;
-            booking.Paymentdueat = now.AddHours(48);
+            booking.Paymentdueat = MV.ApplicationLayer.Helpers.RemainingPaymentDeadlinePolicy.ComputeDeadline(now, earliestReservedStart);
             booking.Updatedat = now;
 
             var parentId = booking.Student?.Parentid ?? booking.Parentid;
@@ -544,6 +552,60 @@ public class AutoEndLiveSessionJob : BackgroundService
         if (closedCount > 0)
         {
             _logger.LogInformation("AutoEndLiveSessionJob: Đã tự động đóng {Count} phòng học quá giờ.", closedCount);
+        }
+    }
+}
+
+/// <summary>
+/// Buổi học bị ngắt giữa chừng (Status=Interrupted) chỉ được phép có buổi phụ trong ĐÚNG NGÀY bị
+/// ngắt — xem <see cref="MV.ApplicationLayer.Services.ClassSessionService.AutoCloseExpiredInterruptedSessionsAsync"/>
+/// cho chi tiết cách tự đóng khi hai bên không quay lại học xong trong ngày đó.
+/// Runs every 15 minutes.
+/// </summary>
+public class InterruptedSessionAutoCloseJob : BackgroundService
+{
+    private readonly IServiceProvider _serviceProvider;
+    private readonly ILogger<InterruptedSessionAutoCloseJob> _logger;
+    private readonly TimeSpan _interval = TimeSpan.FromMinutes(15);
+
+    public InterruptedSessionAutoCloseJob(IServiceProvider serviceProvider, ILogger<InterruptedSessionAutoCloseJob> logger)
+    {
+        _serviceProvider = serviceProvider;
+        _logger = logger;
+    }
+
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        _logger.LogInformation("InterruptedSessionAutoCloseJob đã bắt đầu.");
+        await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken);
+
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            try
+            {
+                await ProcessExpiredInterruptionsAsync(stoppingToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi trong InterruptedSessionAutoCloseJob.");
+            }
+
+            await Task.Delay(_interval, stoppingToken);
+        }
+
+        _logger.LogInformation("InterruptedSessionAutoCloseJob đã dừng.");
+    }
+
+    private async Task ProcessExpiredInterruptionsAsync(CancellationToken ct)
+    {
+        using var scope = _serviceProvider.CreateScope();
+        var classSessionService = scope.ServiceProvider.GetRequiredService<IClassSessionService>();
+
+        var closedCount = await classSessionService.AutoCloseExpiredInterruptedSessionsAsync(ct);
+
+        if (closedCount > 0)
+        {
+            _logger.LogInformation("InterruptedSessionAutoCloseJob: Đã tự đóng {Count} buổi học bị ngắt quá ngày.", closedCount);
         }
     }
 }

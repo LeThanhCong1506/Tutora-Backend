@@ -14,4 +14,9 @@ public static class ClassSessionStatus
     public const string Disputed = "disputed";
     public const string NoShow = "no_show";
     public const string CancelledNoshow = "cancelled_noshow";
+
+    /// <summary>Buổi gốc bị ngắt giữa chừng vì sự cố đột xuất — trạng thái cụt, không tự chuyển
+    /// sang pending_confirmation/completed; chỉ buổi phụ (Iscontinuation) hoặc job tự đóng quá hạn
+    /// mới đưa buổi này tới trạng thái cuối.</summary>
+    public const string Interrupted = "interrupted";
 }

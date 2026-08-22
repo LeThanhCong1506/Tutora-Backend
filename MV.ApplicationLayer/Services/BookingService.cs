@@ -591,6 +591,10 @@ public partial class BookingService(
             var endVn = slot.End;
             var bookingDate = DateOnly.FromDateTime(startVn);
 
+            if (slot.Start <= TimeZoneHelper.UtcNow)
+                throw new BookingException(BookingErrorCodes.SlotInPast,
+                    $"Khung giờ {startVn:dd/MM/yyyy HH:mm}-{endVn:HH:mm} đã ở trong quá khứ, vui lòng chọn giờ khác", 400);
+
             // Debug logging
             logger.LogInformation(
                 "Validating slot (UTC): DayOfWeek={ISO}, Time={StartTime}-{EndTime} | Local(+7): {Date} {StartVn}-{EndVn}",

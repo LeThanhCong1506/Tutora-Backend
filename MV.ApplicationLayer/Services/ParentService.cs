@@ -115,6 +115,7 @@ public class ParentService : IParentService
             .Include(l => l.Tutor)
                 .ThenInclude(t => t!.Tutor)
             .Include(l => l.ClassSessionReport)
+            .Include(l => l.InterruptedbyNavigation)
             .FirstOrDefaultAsync();
 
         if (classSession == null) return null;
@@ -172,6 +173,13 @@ public class ParentService : IParentService
             MeetingLink = classSession.Meetinglink,
             RequiresRemainingPayment = requiresRemainingPayment,
             ClassSessionPrice = classSession.Lessonprice,
+            IsContinuation = classSession.Iscontinuation,
+            IsDisputeRelearn = classSession.Isdisputerelearn,
+            SkipConfirmedByBothSides = classSession.Tutorskipconfirmedat.HasValue && classSession.Studentskipconfirmedat.HasValue,
+            OriginalClassSessionId = classSession.Originalsessionid,
+            InterruptedAt = classSession.Interruptedat,
+            InterruptReason = classSession.Interruptreason,
+            InterruptedByName = classSession.InterruptedbyNavigation?.Fullname,
             Student = classSession.Booking?.Student != null ? new ClassSessionStudentResponse
             {
                 StudentId = classSession.Booking.Student.Studentid,
@@ -599,7 +607,10 @@ public class ParentService : IParentService
                         MeetingLink = l.Meetinglink,
                         CheckOutTime = l.Checkouttime,
                         HasRecording = RecordingStatusResolver.Resolve(l.Recordingurl, l.Recordings3key, l.Recordingsid, l.Checkouttime.HasValue).Status == "available",
-                        HasPendingReschedule = ResolveHasPendingReschedule(l.RescheduleProposals)
+                        HasPendingReschedule = ResolveHasPendingReschedule(l.RescheduleProposals),
+                        IsContinuation = l.Iscontinuation,
+                        IsDisputeRelearn = l.Isdisputerelearn,
+                        OriginalClassSessionId = l.Originalsessionid
                     }).ToList()
                 })
                 .ToList();

@@ -437,3 +437,6 @@ FodyWeavers.xsd
 /MV.PresentationLayer/serviceAccountKey.json
 /AGENTS.md
 /.understand-anything
+
+# Local file storage written by the dev server (uploads/attachments) — not source, never commit
+/MV.PresentationLayer/storage

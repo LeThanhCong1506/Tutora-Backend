@@ -51,7 +51,10 @@ public partial class ClassSessionService
                     MeetingLink = l.Meetinglink,
                     CheckOutTime = l.Checkouttime,
                     HasRecording = RecordingStatusResolver.Resolve(l.Recordingurl, l.Recordings3key, l.Recordingsid, l.Checkouttime.HasValue).Status == "available",
-                    HasPendingReschedule = ResolveHasPendingReschedule(l.RescheduleProposals)
+                    HasPendingReschedule = ResolveHasPendingReschedule(l.RescheduleProposals),
+                    IsContinuation = l.Iscontinuation,
+                    IsDisputeRelearn = l.Isdisputerelearn,
+                    OriginalClassSessionId = l.Originalsessionid
                 }).ToList()
             })
             .ToList();
@@ -112,7 +115,10 @@ public partial class ClassSessionService
                     CheckOutTime = l.Checkouttime,
                     HasRecording = RecordingStatusResolver.Resolve(l.Recordingurl, l.Recordings3key, l.Recordingsid, l.Checkouttime.HasValue).Status == "available",
                     ScheduleChangeStatus = ResolveActiveScheduleChangeStatus(l.ScheduleChanges),
-                    HasPendingReschedule = ResolveHasPendingReschedule(l.RescheduleProposals)
+                    HasPendingReschedule = ResolveHasPendingReschedule(l.RescheduleProposals),
+                    IsContinuation = l.Iscontinuation,
+                    IsDisputeRelearn = l.Isdisputerelearn,
+                    OriginalClassSessionId = l.Originalsessionid
                 }).ToList()
             })
             .ToList();
@@ -177,7 +183,10 @@ public partial class ClassSessionService
             CheckOutTime = session.Checkouttime,
             HasRecording = RecordingStatusResolver.Resolve(session.Recordingurl, session.Recordings3key, session.Recordingsid, session.Checkouttime.HasValue).Status == "available",
             ScheduleChangeStatus = ResolveActiveScheduleChangeStatus(session.ScheduleChanges),
-            HasPendingReschedule = ResolveHasPendingReschedule(session.RescheduleProposals)
+            HasPendingReschedule = ResolveHasPendingReschedule(session.RescheduleProposals),
+            IsContinuation = session.Iscontinuation,
+            IsDisputeRelearn = session.Isdisputerelearn,
+            OriginalClassSessionId = session.Originalsessionid
         };
     }
 
@@ -362,6 +371,7 @@ public partial class ClassSessionService
             .Include(l => l.Tutor)
                 .ThenInclude(t => t!.Tutor)
             .Include(l => l.ClassSessionReport)
+            .Include(l => l.InterruptedbyNavigation)
             .FirstOrDefaultAsync();
 
         if (classSession == null) return null;
@@ -371,6 +381,27 @@ public partial class ClassSessionService
         response.RescheduleProposals = rescheduleProposals;
         response.PendingRescheduleProposal = rescheduleProposals
             .FirstOrDefault(x => x.Status == RescheduleProposalStatus.Pending);
+
+        // Buổi bị ngắt (status=interrupted) không bao giờ tự quay lại in_progress được nữa — cần
+        // biết buổi phụ tương ứng đã được cả 2 phía đồng ý bỏ chưa để hiện đúng nút "Nộp báo cáo"
+        // (xem ContinuationSkipBothConfirmed/CanSubmitReport, SubmitReportAsync). Chỉ lấy buổi phụ
+        // khi nó CÒN Scheduled — khớp đúng guard trong ConfirmSkipContinuationAsync: buổi phụ đã
+        // được vào học (InProgress/Completed/...) thì việc "bỏ buổi phụ" không còn ý nghĩa nữa,
+        // không được để FE tiếp tục hiện lựa chọn bỏ buổi.
+        if (classSession.Status == Interrupted)
+        {
+            var continuation = await _context.ClassSessions
+                .AsNoTracking()
+                .Where(c => c.Originalsessionid == classSessionId && c.Iscontinuation && c.Status == Scheduled)
+                .Select(c => new { c.Classsessionid, c.Tutorskipconfirmedat, c.Studentskipconfirmedat })
+                .FirstOrDefaultAsync();
+            if (continuation != null)
+            {
+                response.ContinuationSessionId = continuation.Classsessionid;
+                response.ContinuationSkipBothConfirmed =
+                    continuation.Tutorskipconfirmedat.HasValue && continuation.Studentskipconfirmedat.HasValue;
+            }
+        }
 
         return response;
     }

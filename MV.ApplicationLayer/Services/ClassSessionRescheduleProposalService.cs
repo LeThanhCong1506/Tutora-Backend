@@ -65,9 +65,28 @@ public class ClassSessionRescheduleProposalService(
         if (proposedScheduledStart <= now)
             throw new InvalidOperationException("Thời gian đề xuất phải ở tương lai.");
 
-        if (now >= session.Scheduledstart.AddHours(-MinHoursBeforeOriginalStart))
-            throw new InvalidOperationException(
-                $"Không thể đề xuất đổi lịch khi còn dưới {MinHoursBeforeOriginalStart} giờ trước giờ học đã đặt.");
+        // Buổi phụ (Iscontinuation, sinh ra khi buổi gốc bị ngắt giữa chừng vì sự cố đột xuất) là
+        // tình huống khẩn cấp — bỏ buffer 2h trước giờ học vì có thể cần dời trong vài chục phút.
+        // Đổi lại, nó chỉ được phép diễn ra trong ĐÚNG NGÀY bị ngắt (UTC thuần, hệ thống không quy
+        // đổi múi giờ), không được kéo qua ngày hôm sau.
+        DateTime proposalCutoff;
+        if (session.Iscontinuation)
+        {
+            proposalCutoff = (session.Interruptedat ?? now).Date.AddDays(1);
+            if (now >= proposalCutoff)
+                throw new InvalidOperationException(
+                    "Đã quá ngày bị gián đoạn, không thể đề xuất giờ học lại cho buổi phụ này nữa.");
+            if (proposedScheduledStart >= proposalCutoff)
+                throw new InvalidOperationException(
+                    "Buổi học phụ chỉ có thể diễn ra trong cùng ngày bị gián đoạn.");
+        }
+        else
+        {
+            proposalCutoff = session.Scheduledstart.AddHours(-MinHoursBeforeOriginalStart);
+            if (now >= proposalCutoff)
+                throw new InvalidOperationException(
+                    $"Không thể đề xuất đổi lịch khi còn dưới {MinHoursBeforeOriginalStart} giờ trước giờ học đã đặt.");
+        }
 
         var existingPending = await db.ClassSessionRescheduleProposals
             .Where(x => x.Classsessionid == classSessionId && x.Status == RescheduleProposalStatus.Pending)
@@ -95,7 +114,7 @@ public class ClassSessionRescheduleProposalService(
         if (conflict != null)
             throw new InvalidOperationException(conflict.Message);
 
-        var expiresAt = new[] { now.AddHours(MaxProposalLifetimeHours), session.Scheduledstart.AddHours(-MinHoursBeforeOriginalStart) }.Min();
+        var expiresAt = new[] { now.AddHours(MaxProposalLifetimeHours), proposalCutoff }.Min();
 
         var proposal = new ClassSessionRescheduleProposal
         {
@@ -374,7 +393,9 @@ public class ClassSessionRescheduleProposalService(
                     ? x.Booking.Student.Linkeduser.Birthdate
                     : x.Booking != null && x.Booking.Student != null
                         ? x.Booking.Student.Birthdate
-                        : null))
+                        : null,
+                x.Iscontinuation,
+                x.Interruptedat))
             .FirstOrDefaultAsync(cancellationToken);
 
     // Nhân bản có chủ đích từ ClassSessionScheduleChangeService.ResolveLearnerApprover (private static ở
@@ -404,5 +425,7 @@ public class ClassSessionRescheduleProposalService(
         string? ParentName,
         string? StudentUserId,
         string? StudentName,
-        DateOnly? StudentBirthdate);
+        DateOnly? StudentBirthdate,
+        bool Iscontinuation,
+        DateTime? Interruptedat);
 }
