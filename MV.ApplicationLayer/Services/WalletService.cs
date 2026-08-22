@@ -531,6 +531,11 @@ public class WalletService(
                 logger.LogWarning(ex, "Failed to send notification for withdrawal {WithdrawalId}", withdrawal.Withdrawalid);
             }
 
+            // Người duyệt (Admin + Staff có payout.view) cần biết ngay; đặt sau notification của người
+            // yêu cầu vì cả hai đều best-effort, lỗi bên này không được chặn bên kia.
+            await WithdrawalReviewerNotifier.NotifyNewRequestAsync(
+                context, notificationService, logger, withdrawal, ct);
+
             logger.LogInformation(
                 "Created withdrawal {WithdrawalId} for user {UserId}, amount: {Amount}",
                 withdrawal.Withdrawalid, userId, request.Amount);
@@ -628,6 +633,7 @@ public class WalletService(
             CompletionNote = raw.Completionnote,
             RejectionReason = raw.Rejectionreason,
             TransactionId = proof.ProviderTransactionId,
+            BankTransactionCode = proof.BankTransactionCode,
             PaidAt = proof.PaidAt,
             ProofImageUrl = proof.ProofImageUrl
         };

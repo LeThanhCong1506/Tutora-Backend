@@ -28,6 +28,14 @@ namespace MV.InfrastructureLayer.Services
             _logger = logger;
         }
 
+        /// <summary>
+        /// PublicBaseUrl đã bỏ dấu "/" ở cuối. LocalStorageSettings quy ước giá trị KHÔNG có dấu
+        /// "/" cuối, nhưng config chỉ là chuỗi nên gõ thừa là chuyện sớm muộn — và hậu quả rất khó
+        /// đoán: URL thành "https://host//api/files/private", route không khớp nên trả 404 chứ
+        /// không phải lỗi cấu hình rõ ràng. Chuẩn hoá ngay tại đây để mọi chỗ ghép URL đều an toàn.
+        /// </summary>
+        private string BaseUrl => _settings.PublicBaseUrl.TrimEnd('/');
+
         public Task EnsureBucketExistsAsync(string bucketName)
         {
             Directory.CreateDirectory(Path.Combine(_settings.PublicRoot, bucketName));
@@ -83,7 +91,7 @@ namespace MV.InfrastructureLayer.Services
             var signature = Convert.ToHexString(ComputeSignature(relativePath, expiresAt, _settings.SigningKey)).ToLowerInvariant();
 
             var query = $"path={Uri.EscapeDataString(relativePath)}&expires={expiresAt}&sig={signature}";
-            return $"{_settings.PublicBaseUrl}/api/files/private?{query}";
+            return $"{BaseUrl}/api/files/private?{query}";
         }
 
         public Task<bool> DeleteFileAsync(string bucketName, string userId, string filePathOrUrl)
@@ -124,7 +132,7 @@ namespace MV.InfrastructureLayer.Services
             }
 
             var urlPath = string.Join('/', Array.ConvertAll(relativePath.Split(Path.DirectorySeparatorChar), Uri.EscapeDataString));
-            return $"{_settings.PublicBaseUrl}{_settings.PublicRequestPath}/{urlPath}";
+            return $"{BaseUrl}{_settings.PublicRequestPath}/{urlPath}";
         }
 
         /// <summary>bucket/userId/{guid}_{tên gốc đã làm sạch} — Path.GetFileName loại bỏ mọi thành phần
@@ -155,7 +163,7 @@ namespace MV.InfrastructureLayer.Services
             string relativePath;
             string root;
 
-            var publicPrefix = $"{_settings.PublicBaseUrl}{_settings.PublicRequestPath}/";
+            var publicPrefix = $"{BaseUrl}{_settings.PublicRequestPath}/";
             if (filePathOrUrl.StartsWith(publicPrefix, StringComparison.Ordinal))
             {
                 relativePath = Uri.UnescapeDataString(filePathOrUrl[publicPrefix.Length..]);

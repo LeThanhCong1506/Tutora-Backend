@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using MV.ApplicationLayer.Common.Hubs;
+using MV.ApplicationLayer.Helpers;
 using MV.ApplicationLayer.Hubs;
 using MV.ApplicationLayer.Interfaces;
 using MV.ApplicationLayer.ServiceInterfaces;
@@ -247,13 +248,11 @@ public class SupportMessageService : ISupportMessageService
                 return;
             }
 
-            var adminIds = await _context.Users
-                .Where(user => user.Primaryrole == UserRole.Admin && user.Userid != senderAdminId)
-                .Select(user => user.Userid)
-                .ToListAsync();
+            var recipientIds = await PermissionRecipients.ResolveAsync(
+                _context, Permissions.SupportView, excludeUserId: senderAdminId);
 
-            if (adminIds.Count == 0) return;
-            await _notificationService.CreateNotificationsAsync(adminIds.Select(adminId => new NotificationRequest
+            if (recipientIds.Count == 0) return;
+            await _notificationService.CreateNotificationsAsync(recipientIds.Select(adminId => new NotificationRequest
             {
                 Userid = adminId,
                 Title = "Yêu cầu hỗ trợ mới",

@@ -184,7 +184,8 @@ namespace MV.ApplicationLayer.Services
                     {
                         Userid = tutorId,
                         Title = "Hồ sơ đã được duyệt!",
-                        Message = "Chúc mừng! Hồ sơ gia sư của bạn đã được admin phê duyệt. Bạn đã xuất hiện trên marketplace và có thể nhận học sinh."
+                        Message = "Chúc mừng! Hồ sơ gia sư của bạn đã được admin phê duyệt. Bạn đã xuất hiện trên marketplace và có thể nhận học sinh.",
+                        Type = NotificationType.TutorVettingApproved
                     });
                 }
                 else if (statusText == ApprovalStatusText.ApprovedPendingProfile)
@@ -205,7 +206,8 @@ namespace MV.ApplicationLayer.Services
                     {
                         Userid = tutorId,
                         Title = "Admin đã duyệt chứng chỉ — vui lòng hoàn tất hồ sơ",
-                        Message = $"Chứng chỉ của bạn đã được phê duyệt. Vui lòng cập nhật: {missingText} để xuất hiện trên marketplace."
+                        Message = $"Chứng chỉ của bạn đã được phê duyệt. Vui lòng cập nhật: {missingText} để xuất hiện trên marketplace.",
+                        Type = NotificationType.TutorVettingApproved
                     });
                 }
                 else if (statusText == ApprovalStatusText.Rejected)
@@ -214,7 +216,8 @@ namespace MV.ApplicationLayer.Services
                     {
                         Userid = tutorId,
                         Title = "Hồ sơ bị từ chối",
-                        Message = $"Hồ sơ gia sư của bạn đã bị từ chối. Lý do: {request.Reason ?? "Không đạt yêu cầu"}. Vui lòng cập nhật lại và gửi lại để được xem xét."
+                        Message = $"Hồ sơ gia sư của bạn đã bị từ chối. Lý do: {request.Reason ?? "Không đạt yêu cầu"}. Vui lòng cập nhật lại và gửi lại để được xem xét.",
+                        Type = NotificationType.TutorVettingRejected
                     });
                 }
             }

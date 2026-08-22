@@ -19,19 +19,19 @@ namespace MV.ApplicationLayer.Services
 
             ValidateImageFile(avatarFile);
 
-            var user = await _unitOfWork.UserRepository.GetUserByIdAsync(userId);
+            var user = await _userRepository.GetUserByIdAsync(userId);
             if (user == null) return null;
 
             var avatarUrl = await _storageService.UploadFileAsync(AvatarBucket, userId, avatarFile);
             user.Avatarurl = avatarUrl;
 
-            await _unitOfWork.SaveChangesAsync();
+            await _context.SaveChangesAsync();
             return avatarUrl;
         }
 
         public async Task<bool> UpdateTutorVideoAsync(string userId, UpdateTutorVideoRequest request)
         {
-            var profile = await _unitOfWork.TutorRepository.GetTutorProfileByIdAsync(userId);
+            var profile = await _tutorRepository.GetTutorProfileByIdAsync(userId);
             if (profile == null) return false;
 
             if (!IsValidYoutubeUrl(request.VideoUrl))
@@ -52,7 +52,7 @@ namespace MV.ApplicationLayer.Services
             profile.Videointrourl = trimmedUrl;
             profile.Updatedat = TimeZoneHelper.UtcNow;
 
-            await _unitOfWork.SaveChangesAsync();
+            await _context.SaveChangesAsync();
             return true;
         }
 
@@ -69,7 +69,7 @@ namespace MV.ApplicationLayer.Services
 
         public async Task<CccdUploadResponse> UploadCccdImagesAsync(string userId, UploadCccdRequest request)
         {
-            var user = await _unitOfWork.UserRepository.GetUserByIdAsync(userId)
+            var user = await _userRepository.GetUserByIdAsync(userId)
                 ?? throw new ArgumentException("Không tìm thấy người dùng.");
 
             // Dùng luồng eKYC (FPT.AI OCR + chống trùng). Dữ liệu định danh OCR sẽ cập nhật
@@ -81,8 +81,8 @@ namespace MV.ApplicationLayer.Services
                 AutoFillProfile = true
             });
 
-            await _unitOfWork.UserRepository.UpdateUserAsync(user);
-            await _unitOfWork.SaveChangesAsync();
+            await _userRepository.UpdateUserAsync(user);
+            await _context.SaveChangesAsync();
 
             _logger.LogInformation("CCCD uploaded for user {UserId}, OCR={OcrSuccess}, Verified={Verified}",
                 userId, result.Ocr != null, result.Verified);

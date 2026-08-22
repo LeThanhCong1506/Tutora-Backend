@@ -13,7 +13,7 @@ namespace MV.ApplicationLayer.Services
 
         public async Task<CertificateUploadResponse> AddCertificateAsync(string tutorId, AddCertificateRequest request)
         {
-            var profile = await _unitOfWork.TutorRepository.GetTutorProfileByIdAsync(tutorId)
+            var profile = await _tutorRepository.GetTutorProfileByIdAsync(tutorId)
                 ?? throw new ArgumentException("Không tìm thấy hồ sơ gia sư");
 
             ValidateCertificateFile(request.CertificateFile);
@@ -46,8 +46,8 @@ namespace MV.ApplicationLayer.Services
                 Updatedat           = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
             };
 
-            await _unitOfWork.TutorRepository.AddCertificateAsync(certificate);
-            await _unitOfWork.SaveChangesAsync();
+            await _tutorRepository.AddCertificateAsync(certificate);
+            await _context.SaveChangesAsync();
 
             _logger.LogInformation("Certificate {CertId} uploaded for tutor {TutorId}, awaiting admin review",
                 certificate.Certificateid, tutorId);
@@ -60,13 +60,13 @@ namespace MV.ApplicationLayer.Services
 
         public async Task<List<CertificateResponse>> GetCertificatesAsync(string tutorId)
         {
-            var certificates = await _unitOfWork.TutorRepository.GetCertificatesByTutorIdAsync(tutorId);
+            var certificates = await _tutorRepository.GetCertificatesByTutorIdAsync(tutorId);
             return certificates.Select(MapToCertificateResponse).ToList();
         }
 
         public async Task<CertificateResponse?> UpdateCertificateAsync(string tutorId, string certificateId, UpdateCertificateRequest request)
         {
-            var certificate = await _unitOfWork.TutorRepository.GetCertificateByIdAsync(certificateId);
+            var certificate = await _tutorRepository.GetCertificateByIdAsync(certificateId);
             if (certificate == null) return null;
 
             if (certificate.Tutorid != tutorId)
@@ -99,14 +99,14 @@ namespace MV.ApplicationLayer.Services
             }
 
             certificate.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
-            await _unitOfWork.SaveChangesAsync();
+            await _context.SaveChangesAsync();
 
             return MapToCertificateResponse(certificate);
         }
 
         public async Task<bool> DeleteCertificateAsync(string tutorId, string certificateId)
         {
-            var certificate = await _unitOfWork.TutorRepository.GetCertificateByIdAsync(certificateId);
+            var certificate = await _tutorRepository.GetCertificateByIdAsync(certificateId);
             if (certificate == null) return false;
 
             if (certificate.Tutorid != tutorId)
@@ -114,8 +114,8 @@ namespace MV.ApplicationLayer.Services
                 throw new UnauthorizedAccessException("Bạn chỉ có thể xóa chứng chỉ của mình");
             }
 
-            _unitOfWork.TutorRepository.DeleteCertificate(certificate);
-            await _unitOfWork.SaveChangesAsync();
+            _tutorRepository.DeleteCertificate(certificate);
+            await _context.SaveChangesAsync();
             return true;
         }
 
