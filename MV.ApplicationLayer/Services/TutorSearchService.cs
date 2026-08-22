@@ -2,7 +2,7 @@ using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO.RequestModel;
 using MV.DomainLayer.DTO.ResponseModel;
-using MV.ApplicationLayer.Interfaces;
+using MV.ApplicationLayer.RepositoryInterfaces;
 
 namespace MV.ApplicationLayer.Services
 {
@@ -12,11 +12,11 @@ namespace MV.ApplicationLayer.Services
     /// </summary>
     public class TutorSearchService : ITutorSearchService
     {
-        private readonly IUnitOfWork _unitOfWork;
+        private readonly ITutorSearchRepository _tutorSearchRepository;
 
-        public TutorSearchService(IUnitOfWork unitOfWork)
+        public TutorSearchService(ITutorSearchRepository tutorSearchRepository)
         {
-            _unitOfWork = unitOfWork;
+            _tutorSearchRepository = tutorSearchRepository;
         }
 
         public async Task<TutorSearchPagedResponse> SearchTutorsAsync(TutorSearchParameters parameters)
@@ -25,7 +25,7 @@ namespace MV.ApplicationLayer.Services
             ValidateSearchParameters(parameters);
 
             // Execute search through repository
-            var result = await _unitOfWork.TutorSearchRepository.SearchTutorsAsync(parameters);
+            var result = await _tutorSearchRepository.SearchTutorsAsync(parameters);
 
             return result;
         }

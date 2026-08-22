@@ -26,20 +26,20 @@ namespace MV.ApplicationLayer.Services
 
         private readonly IFptAiService _fptAiService;
         private readonly IEncryptionService _encryption;
-        private readonly IUnitOfWork _unitOfWork;
+        private readonly IUserRepository _userRepository;
         private readonly IFileStorageService _storageService;
         private readonly ILogger<EkycService> _logger;
 
         public EkycService(
             IFptAiService fptAiService,
             IEncryptionService encryption,
-            IUnitOfWork unitOfWork,
+            IUserRepository userRepository,
             IFileStorageService storageService,
             ILogger<EkycService> logger)
         {
             _fptAiService = fptAiService ?? throw new ArgumentNullException(nameof(fptAiService));
             _encryption = encryption ?? throw new ArgumentNullException(nameof(encryption));
-            _unitOfWork = unitOfWork ?? throw new ArgumentNullException(nameof(unitOfWork));
+            _userRepository = userRepository ?? throw new ArgumentNullException(nameof(userRepository));
             _storageService = storageService ?? throw new ArgumentNullException(nameof(storageService));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         }
@@ -93,7 +93,7 @@ namespace MV.ApplicationLayer.Services
                 // 5. Số CCCD không được trùng với tài khoản khác.
                 if (!string.IsNullOrEmpty(ocrResult.Id) && ocrResult.Id != _encryption.Decrypt(user.Identitynumber))
                 {
-                    var isUnique = await _unitOfWork.UserRepository.IsIdentityNumberUniqueAsync(_encryption.Encrypt(ocrResult.Id));
+                    var isUnique = await _userRepository.IsIdentityNumberUniqueAsync(_encryption.Encrypt(ocrResult.Id));
                     if (!isUnique)
                         throw new InvalidOperationException(
                             "CCCD này đã được xác minh bởi tài khoản khác. Vui lòng liên hệ hỗ trợ nếu đây là nhầm lẫn.");
