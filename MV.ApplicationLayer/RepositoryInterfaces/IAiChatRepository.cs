@@ -30,5 +30,12 @@ public interface IAiChatRepository
 
     void AddMessageVote(AiMessageVote vote);
 
+    /// <summary>
+    /// Xếp 1 câu hỏi mới vào questions với review_status='pending_review' (bánh đà bank).
+    /// Bỏ qua nếu đã có câu trùng nội dung. Trả true nếu thật sự thêm mới.
+    /// </summary>
+    Task<bool> AddPendingQuestionAsync(
+        string content, string solution, string? chapter, string? grade, string createdBy);
+
     Task<int> SaveChangesAsync();
 }

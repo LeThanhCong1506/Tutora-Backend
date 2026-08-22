@@ -155,12 +155,17 @@ public class AssessmentAttemptService : IAssessmentAttemptService
             .GroupBy(a => a.QuestionId)
             .ToDictionary(g => g.Key, g => g.Last());   // gửi trùng -> lấy lần cuối
 
-        int correctCount = 0;
+        int correctCount = 0, scoredQuestions = 0;
         decimal earned = 0, max = 0;
 
         foreach (var question in assessment.Questions)
         {
-            max += question.Points;
+            var isScored = AssessmentQuestionFormat.IsScored(question.QuestionFormat);
+            if (isScored)
+            {
+                scoredQuestions++;
+                max += question.Points;
+            }
 
             givenByQuestion.TryGetValue(question.Id, out var given);
             var rawAnswer = given?.GivenAnswer;
@@ -168,7 +173,7 @@ public class AssessmentAttemptService : IAssessmentAttemptService
             var storedAnswer = string.IsNullOrWhiteSpace(rawAnswer) ? null : rawAnswer.Trim();
 
             var isCorrect = AssessmentGrader.IsCorrect(question, storedAnswer);
-            if (isCorrect)
+            if (isCorrect && isScored)
             {
                 correctCount++;
                 earned += question.Points;
@@ -181,7 +186,7 @@ public class AssessmentAttemptService : IAssessmentAttemptService
                 QuestionId = question.Id,
                 GivenAnswer = storedAnswer,
                 IsCorrect = isCorrect,
-                EarnedPoints = isCorrect ? question.Points : 0,
+                EarnedPoints = isCorrect && isScored ? question.Points : 0,
                 // Snapshot: sửa đề sau này không làm sai lệch phân tích cũ.
                 ChapterId = question.ChapterId,
                 ChapterSlug = question.ChapterNav?.Slug,
@@ -193,7 +198,7 @@ public class AssessmentAttemptService : IAssessmentAttemptService
 
         attempt.Status = AssessmentAttemptStatus.Submitted;
         attempt.SubmittedAt = now;
-        attempt.TotalQuestions = assessment.Questions.Count;
+        attempt.TotalQuestions = scoredQuestions;
         attempt.CorrectCount = correctCount;
         attempt.EarnedPoints = earned;
         attempt.MaxPoints = max;

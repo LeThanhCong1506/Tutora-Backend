@@ -43,6 +43,9 @@ public class AiChatService(
 
     private const string ImageBucket = "homework-images";
 
+    /// <summary>Trên ngưỡng này coi như bank đã có bài tương đương -> không thêm nữa.</summary>
+    private const double NewQuestionSimilarityCeiling = 0.88;
+
     public async Task<AiChatSessionResponse> CreateSessionAsync(string userId, AiChatSessionCreateRequest dto)
     {
         var sessionType = dto.SessionType == ChatSessionType.TutorMatching
@@ -229,6 +232,7 @@ public class AiChatService(
         var ragUsed = false;
         // Danh sách bước cấu trúc cuối cùng (raw JSON array) để lưu Metadata -> canvas.
         string? stepsFinalJson = null;
+        AnswerTrust? trust = null;
         // Tag chủ đề (lớp/chương/dạng) tutora-ai gắn vào done event.
         TopicClassification? classification = null;
 
@@ -251,12 +255,13 @@ public class AiChatService(
                 // Gom delta (lời giải) + thinking (suy nghĩ) để lưu message khi xong
                 var json = line["data:".Length..].Trim();
                 if (json.Length == 0) continue;
-                var (delta, think, rag, stepsFinal, clf) = TryExtractDelta(json);
+                var (delta, think, rag, stepsFinal, clf, tr) = TryExtractDelta(json);
                 if (!string.IsNullOrEmpty(delta)) assistant.Append(delta);
                 if (!string.IsNullOrEmpty(think)) thinking.Append(think);
                 if (rag) ragUsed = true;
                 if (!string.IsNullOrEmpty(stepsFinal)) stepsFinalJson = stepsFinal;
                 if (clf is not null) classification = clf;
+                if (tr is not null) trust = tr;
             }
         }
         finally
@@ -265,11 +270,20 @@ public class AiChatService(
             {
                 var finishedAt = TimeZoneHelper.UtcNow;
                 string? metadata = null;
-                if (thinking.Length > 0 || stepsFinalJson is not null)
+                if (thinking.Length > 0 || stepsFinalJson is not null || trust is not null)
                 {
                     var meta = new JsonObject();
                     if (thinking.Length > 0) meta["thinking"] = thinking.ToString();
                     if (stepsFinalJson is not null) meta["steps"] = JsonNode.Parse(stepsFinalJson);
+                    if (trust is not null)
+                        meta["trust"] = new JsonObject
+                        {
+                            ["bankVerified"] = trust.BankVerified,
+                            ["ragUsed"] = ragUsed,
+                            ["verified"] = trust.Verified,
+                            ["similarity"] = trust.Similarity,
+                            ["questionId"] = trust.QuestionId,
+                        };
                     metadata = meta.ToJsonString();
                 }
                 aiChatRepo.AddMessage(new ChatHistory
@@ -282,6 +296,10 @@ public class AiChatService(
                     // Lớp từ hồ sơ; classifier đoán được thì dùng làm dự phòng.
                     Grade = grade ?? classification?.Grade,
                     RagUsed = ragUsed,
+                    // Đo được chất lượng RAG theo thời gian
+                    RagSimilarity = (float?)trust?.Similarity,
+                    RagQuestionId = Guid.TryParse(trust?.QuestionId, out var qid) ? qid : null,
+                    AnswerVerified = trust?.Verified,
                     CreatedAt = finishedAt
                 });
                 session.UpdatedAt = finishedAt;
@@ -289,6 +307,8 @@ public class AiChatService(
                 await aiChatRepo.SaveChangesAsync();
 
                 await TrackTopicSignalAsync(classification, userId, sessionId, assistantMessageId, finishedAt);
+
+                await QueueForReviewAsync(userMessage.Content, assistant.ToString(), trust, classification, userId);
 
                 // Trừ 1 credit ngay tại đây.
                 try
@@ -634,6 +654,40 @@ public class AiChatService(
     }
 
     /// <summary>
+    /// Bài học sinh hỏi mà bank KHÔNG có -> xếp hàng chờ gia sư duyệt.
+    ///
+    /// Bank tự lớn theo nhu cầu thật thay vì để staff soạn mò: câu nào có người hỏi mới
+    /// vào kho. Duyệt xong (published) thì học sinh sau hỏi lại được RAG + gắn nhãn.
+    /// Chỉ nhận bài AI tự tin (code Python xác nhận đáp số) — rác vào kho còn hại hơn kho rỗng.
+    /// </summary>
+    private async Task QueueForReviewAsync(
+        string? question, string? solution, AnswerTrust? trust,
+        TopicClassification? classification, string userId)
+    {
+        // Đã có bài gần giống trong bank -> không nhân bản.
+        if (trust is null || trust.Similarity >= NewQuestionSimilarityCeiling) return;
+        // Đáp số chưa được xác nhận -> chưa đủ tin để đưa gia sư xem.
+        if (trust.Verified != true) return;
+        if (string.IsNullOrWhiteSpace(question) || string.IsNullOrWhiteSpace(solution)) return;
+        if (question.Length < 20 || question == "[hình ảnh]") return;
+
+        try
+        {
+            await aiChatRepo.AddPendingQuestionAsync(
+                content: question.Trim(),
+                solution: solution.Trim(),
+                chapter: classification?.Chapter,
+                grade: classification?.Grade,
+                createdBy: userId);
+        }
+        catch (Exception ex)
+        {
+            // Bánh đà hỏng KHÔNG được ảnh hưởng việc trả lời học sinh.
+            logger.LogWarning(ex, "Không xếp được câu hỏi vào hàng chờ duyệt (user {UserId})", userId);
+        }
+    }
+
+    /// <summary>
     /// Lưu tag chủ đề của lượt giải này để sau tổng hợp ra "chương đang vướng".
     /// </summary>
     private async Task TrackTopicSignalAsync(
@@ -669,7 +723,8 @@ public class AiChatService(
         }
     }
 
-    private (string? Delta, string? Thinking, bool RagUsed, string? StepsFinal, TopicClassification? Classification)
+    private (string? Delta, string? Thinking, bool RagUsed, string? StepsFinal,
+             TopicClassification? Classification, AnswerTrust? Trust)
         TryExtractDelta(string json)
     {
         try
@@ -683,12 +738,37 @@ public class AiChatService(
                 ? sf.GetRawText()
                 : null;
             var classification = ParseClassification(root);
-            return (delta, thinking, rag, stepsFinal, classification);
+            return (delta, thinking, rag, stepsFinal, classification, ParseTrust(root));
         }
         catch (JsonException)
         {
-            return (null, null, false, null, null);
+            return (null, null, false, null, null, null);
         }
+    }
+
+    /// <summary>Nhãn tin cậy ở done event. Lưu vào metadata để mở lại phiên cũ vẫn thấy nhãn.</summary>
+    private sealed record AnswerTrust(bool BankVerified, bool? Verified, double? Similarity, string? QuestionId);
+
+    private static AnswerTrust? ParseTrust(JsonElement root)
+    {
+        // Chỉ done event mới mang nhãn; delta thường không có field nào trong số này.
+        if (!root.TryGetProperty("done", out var done) || done.ValueKind != JsonValueKind.True) return null;
+
+        bool bankVerified = root.TryGetProperty("bank_verified", out var bv) && bv.ValueKind == JsonValueKind.True;
+        bool? verified = root.TryGetProperty("verified", out var v)
+            ? v.ValueKind switch
+            {
+                JsonValueKind.True => true,
+                JsonValueKind.False => false,
+                _ => null,   // null = bài hình/chứng minh, không kết luận được
+            }
+            : null;
+        double? similarity = root.TryGetProperty("bank_similarity", out var sim)
+            && sim.ValueKind == JsonValueKind.Number ? sim.GetDouble() : null;
+        string? questionId = root.TryGetProperty("bank_question_id", out var qid)
+            && qid.ValueKind == JsonValueKind.String ? qid.GetString() : null;
+
+        return new AnswerTrust(bankVerified, verified, similarity, questionId);
     }
 
     /// <summary>
