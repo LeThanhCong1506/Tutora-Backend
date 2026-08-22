@@ -3603,6 +3603,9 @@ entity.HasOne(d => d.Tutor).WithOne(p => p.Tutorprofile)
             entity.Property(e => e.Proofimagepath)
                 .HasColumnType("text")
                 .HasColumnName("proof_image_path");
+            entity.Property(e => e.Banktransactioncode)
+                .HasMaxLength(100)
+                .HasColumnName("bank_transaction_code");
 
             entity.HasOne(d => d.User).WithMany()
                 .HasForeignKey(d => d.Userid)
