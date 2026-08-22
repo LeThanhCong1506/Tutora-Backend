@@ -8,8 +8,11 @@ using MV.DomainLayer.Helpers;
 
 namespace MV.ApplicationLayer.Services;
 
-public class AdminBookingService(IAppDbContext context) : IAdminBookingService
+public class AdminBookingService(IAppDbContext context, ISettlementService settlementService) : IAdminBookingService
 {
+    public Task<bool> CancelGhostBookingAsync(int bookingId, string adminId, string reason, CancellationToken ct = default)
+        => settlementService.CancelGhostBookingAsync(bookingId, adminId, reason, ct);
+
     public async Task<AdminBookingListResponse> GetAdminBookingsAsync(
         AdminBookingQueryRequest query,
         CancellationToken ct = default)
@@ -363,6 +366,28 @@ public class AdminBookingService(IAppDbContext context) : IAdminBookingService
 
         var completedClassSessions = classSessions.Count(l => l.Status == ClassSessionStatus.Completed);
 
+        // ── Wallet transaction history — mọi dòng ghi sổ gắn với booking này ─────
+        // Escrow credit (lúc PHHS trả tiền) ghi Referencetable=Payment; các dòng còn lại
+        // (EscrowRelease/EscrowReversal/Refund/DepositPayment/RemainingPayment) ghi
+        // Referencetable=Booking — cả 2 đều dùng Referenceid = bookingId (không phải paymentRequestId).
+        var walletTransactions = await context.Wallettransactions
+            .AsNoTracking()
+            .Where(wt => wt.Referenceid == bookingId
+                      && (wt.Referencetable == ReferenceTable.Booking || wt.Referencetable == ReferenceTable.Payment))
+            .OrderByDescending(wt => wt.Createdat)
+            .ThenByDescending(wt => wt.Transactionid)
+            .Select(wt => new
+            {
+                wt.Transactionid,
+                wt.Transactiontype,
+                wt.Amount,
+                wt.Description,
+                wt.Createdat,
+                OwnerUserId = wt.Wallet != null ? wt.Wallet.Userid : null,
+                OwnerName = wt.Wallet != null && wt.Wallet.User != null ? wt.Wallet.User.Fullname : null
+            })
+            .ToListAsync(ct);
+
         // ── Build composite location string ───────────────────────────────────
         var locationParts = new[] { row.Locationdetail, row.Locationward, row.Locationdistrict, row.Locationcity }
             .Where(p => !string.IsNullOrWhiteSpace(p));
@@ -456,7 +481,10 @@ public class AdminBookingService(IAppDbContext context) : IAdminBookingService
             },
             Cancellation = new AdminBookingCancellation
             {
-                IsCancelled = row.Status is BookingStatus.Cancelled or BookingStatus.CancelledNoshow,
+                IsCancelled = row.Status is BookingStatus.Cancelled
+                    or BookingStatus.CancelledNoshow
+                    or BookingStatus.CancelledByStaff
+                    or BookingStatus.CancelledByDispute,
                 CancelledAt = row.Cancelledat,
                 Reason      = row.Cancellationreason
             },
@@ -483,7 +511,21 @@ public class AdminBookingService(IAppDbContext context) : IAdminBookingService
                 RefundStatus     = row.Refundstatus,
                 PaymentStatus    = row.Paymentstatus,
                 PaymentDueAt     = row.Paymentdueat
-            }
+            },
+
+            Transactions = walletTransactions.Select(wt => new AdminBookingWalletTransactionItem
+            {
+                TransactionId    = wt.Transactionid,
+                TransactionType  = wt.Transactiontype,
+                Amount           = wt.Amount,
+                Description      = wt.Description,
+                CreatedAt        = wt.Createdat,
+                WalletOwnerRole  = wt.OwnerUserId == null ? null
+                    : wt.OwnerUserId == row.TutorId ? "tutor"
+                    : wt.OwnerUserId == row.ParentId ? "parent"
+                    : "student",
+                WalletOwnerName  = wt.OwnerName
+            }).ToList()
         };
     }
 }

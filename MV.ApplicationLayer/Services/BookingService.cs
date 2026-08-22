@@ -111,7 +111,14 @@ public partial class BookingService(
 
         await ValidateSlotsAsync(dto.TutorId, classSessionSlots);
 
-        var totalAmount = Math.Round(price.Priceperhour * price.Durationminutespersession / 60m * totalSessions, 2);
+        // Tính theo TỔNG SỐ GIỜ THỰC của các slot đã sinh ra (classSessionSlots), không phải
+        // price.Durationminutespersession × totalSessions. Với gói cố định, mỗi buổi lấy giờ thật
+        // từ Tutorpackagefixedslots của chính gói đó — có thể khác con số tham chiếu ở
+        // Tutorsubjectgradeprice (vd gói "cao cấp" 3h/buổi trong khi giá gốc ghi 1h/buổi). Với booking
+        // linh hoạt (không qua gói cố định), slot vẫn được sinh đúng bằng price.Durationminutespersession
+        // (xem GenerateFlexibleSlots) nên công thức này cho kết quả giống hệt cách tính cũ ở nhánh đó.
+        var totalHours = classSessionSlots.Sum(slot => (decimal)(slot.End - slot.Start).TotalHours);
+        var totalAmount = Math.Round(price.Priceperhour * totalHours, 2);
         int? promotionId = null;
         var discountApplied = 0m;
         if (!string.IsNullOrWhiteSpace(dto.PromotionCode))
@@ -168,9 +175,12 @@ public partial class BookingService(
             context.Bookings.Add(booking);
             await context.SaveChangesAsync();
 
-            var classSessionPrice = Math.Round(totalAmount / totalSessions, 2);
+            // Giá từng buổi theo ĐÚNG thời lượng thật của buổi đó (không chia đều tổng tiền cho số
+            // buổi) — cho kết quả giống hệt cách chia đều cũ khi mọi buổi cùng thời lượng, nhưng vẫn
+            // đúng nếu sau này 1 gói có các buổi dài ngắn khác nhau.
             foreach (var slot in classSessionSlots)
             {
+                var slotPrice = Math.Round(price.Priceperhour * (decimal)(slot.End - slot.Start).TotalHours, 2);
                 context.ClassSessions.Add(new ClassSession
                 {
                     Bookingid = booking.Bookingid,
@@ -178,7 +188,7 @@ public partial class BookingService(
                     Studentid = student.Studentid,
                     Scheduledstart = slot.Start,
                     Scheduledend = slot.End,
-                    Lessonprice = classSessionPrice,
+                    Lessonprice = slotPrice,
                     Status = Reserved,
                     Createdat = TimeZoneHelper.UtcNow
                 });
@@ -372,6 +382,19 @@ public partial class BookingService(
                 return false;
             }
 
+            // Buổi học thử: phụ huynh/học sinh chỉ được tự hủy (và nhận hoàn 100%) nếu còn cách giờ
+            // học đầu tiên >= 72h. Trong vòng 72h, họ phải chờ hoặc báo cáo gia sư không dạy (luồng
+            // no-show dispute có sẵn) — không áp dụng mốc này khi chính gia sư là người hủy.
+            var isTutorCaller = !string.IsNullOrWhiteSpace(booking.Tutorid) && booking.Tutorid == userId;
+            if (needsRefund && !isTutorCaller && IsWithinTrialCancelWindow(booking, now))
+            {
+                logger.LogWarning(
+                    "Rejected parent/student cancellation for booking {BookingId}: within the {Hours}h window before the first session.",
+                    bookingId, TrialCancelWindowHours);
+                await tx.CommitAsync();
+                return false;
+            }
+
             if (needsRefund)
             {
                 refundAmount = TutorResponseTimeoutPolicy.ParentRefundAmount(booking);
@@ -541,6 +564,24 @@ public partial class BookingService(
                 or Disputed
                 or NoShow
                 or CancelledNoshow);
+    }
+
+    /// <summary>Mốc hủy tự do buổi học thử: phải hủy trước giờ học đầu tiên ít nhất chừng này.</summary>
+    private const int TrialCancelWindowHours = 72;
+
+    /// <summary>
+    /// True nếu còn chưa đủ <see cref="TrialCancelWindowHours"/> giờ tới buổi học sớm nhất chưa bị
+    /// hủy. Chỉ có ý nghĩa ở giai đoạn tiền buổi 1 (nếu đã có buổi nào start/settle,
+    /// <see cref="HasStartedOrSettledLesson"/> đã chặn từ trước rồi).
+    /// </summary>
+    private static bool IsWithinTrialCancelWindow(Booking booking, DateTime now)
+    {
+        var firstSessionStart = booking.ClassSessions
+            .Where(s => s.Status != Cancelled)
+            .Select(s => (DateTime?)s.Scheduledstart)
+            .Min();
+
+        return firstSessionStart.HasValue && firstSessionStart.Value - now < TimeSpan.FromHours(TrialCancelWindowHours);
     }
 
     public async Task<List<BookedSlotResponse>> GetTutorBookedSlotsAsync(

@@ -184,4 +184,69 @@ public partial class SettlementService
             throw;
         }
     }
+
+    /// <summary>
+    /// Admin/staff hủy booking sau khi xác minh NGOÀI hệ thống (qua tổng đài) rằng phụ huynh đã
+    /// "nghỉ ngang" — không còn tham gia/phản hồi. Không có luồng dispute nào gắn với hành động
+    /// này — gia sư báo cáo hoàn toàn ngoài hệ thống (gọi tổng đài), staff xác minh và thao tác
+    /// trực tiếp trên CMS.
+    /// Tiền chia theo mặc định công bằng: buổi ĐÃ dạy gia sư giữ nguyên (không đụng tới); buổi
+    /// CHƯA dạy hoàn lại cho phụ huynh theo giá gốc (không gồm 5% phí dịch vụ) — dùng chung công
+    /// thức với "Hủy khóa học & hoàn tiền" của case dispute qua <see cref="CancelRemainingSessionsAsync"/>.
+    /// Trả về false (no-op, không exception) cho mọi trạng thái không hợp lệ để controller trả lỗi
+    /// chung, không 500.
+    /// </summary>
+    public async Task<bool> CancelGhostBookingAsync(
+        int bookingId,
+        string adminId,
+        string? reason = null,
+        CancellationToken ct = default)
+    {
+        await using var tx = await _context.Database.BeginTransactionAsync(ct);
+        try
+        {
+            // Lock booking trước — CancelRemainingSessionsAsync giả định caller đã lock.
+            var booking = await _bookingRepository.FindWithRelationsForUpdateAsync(bookingId, ct);
+            if (booking == null)
+            {
+                await tx.CommitAsync(ct);
+                return false;
+            }
+
+            if (DisputeSettlementPolicy.IsTerminalBooking(booking.Status)
+                || string.IsNullOrWhiteSpace(booking.Tutorid))
+            {
+                await tx.CommitAsync(ct);
+                return false;
+            }
+
+            // Buổi khác đang mid-flight phải xử lý xong qua đúng luồng của nó trước — cùng lý do
+            // với FinalizeBookingEarlyByUserAsync. Pre-check ở đây (đã có ClassSessions load sẵn
+            // từ FindWithRelationsForUpdateAsync) để trả false chính xác thay vì dựa vào no-op
+            // im lặng bên trong CancelRemainingSessionsAsync.
+            var hasBlockingSession = booking.ClassSessions.Any(s =>
+                s.Status is InProgress or PendingConfirmation or Disputed or NoShow);
+            if (hasBlockingSession)
+            {
+                await tx.CommitAsync(ct);
+                return false;
+            }
+
+            var refundedToParent = await CancelRemainingSessionsAsync(
+                bookingId, adminId, BookingStatus.CancelledByStaff, reason, ct);
+
+            await tx.CommitAsync(ct);
+
+            _logger.LogInformation(
+                "Admin {AdminId} cancelled booking {BookingId} as parent-ghost: refunded {Amount} to parent for undelivered sessions.",
+                adminId, bookingId, refundedToParent);
+
+            return true;
+        }
+        catch
+        {
+            await tx.RollbackAsync(ct);
+            throw;
+        }
+    }
 }

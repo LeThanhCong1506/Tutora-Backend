@@ -554,6 +554,302 @@ public partial class SettlementService : ISettlementService
     }
 
     /// <summary>
+    /// Hủy toàn bộ các buổi CHƯA diễn ra (Scheduled/Reserved) còn lại của một booking và hoàn cho
+    /// phụ huynh theo GIÁ GỐC mỗi buổi (<see cref="LessonRefundCalculator.ParentRefundPerSessionNoFee"/>
+    /// — không gồm 5% phí dịch vụ, khác mọi luồng refund khác trong hệ thống). Buổi ĐÃ hoàn thành
+    /// (Completed/Issettled) không bị hủy, và phần escrow của các buổi đó được GIẢI NGÂN NGAY cho
+    /// gia sư (chuyển Frozenbalance → Balance) thay vì tiếp tục kẹt lại chờ Sessionsremaining=0 —
+    /// điều kiện đó sẽ không bao giờ xảy ra nữa vì booking đang bị hủy giữa chừng.
+    /// Dùng chung cho 2 luồng: (1) admin giải quyết tranh chấp bằng "Hủy khóa học & hoàn tiền"
+    /// (<paramref name="bookingStatus"/> = <see cref="BookingStatus.CancelledByDispute"/> — caller
+    /// tự settle buổi đang khiếu nại riêng TRƯỚC khi gọi hàm này, nên nó không còn ở
+    /// Scheduled/Reserved và tự động không bị đụng tới); (2) staff hủy booking do phụ huynh "nghỉ
+    /// ngang" (<paramref name="bookingStatus"/> = <see cref="BookingStatus.CancelledByStaff"/>).
+    /// PHẢI được gọi bên trong một transaction đang mở, với booking đã được lock (FOR UPDATE) bởi
+    /// caller — hàm này không tự mở transaction hay tự lock booking.
+    /// </summary>
+    public async Task<decimal> CancelRemainingSessionsAsync(
+        int bookingId, string processedBy, string bookingStatus, string? reason, CancellationToken ct = default)
+    {
+        var booking = await _context.Bookings
+            .Include(b => b.Student)
+            .FirstOrDefaultAsync(b => b.Bookingid == bookingId, ct)
+            ?? throw new InvalidOperationException($"Booking {bookingId} not found");
+
+        // Đã đóng bởi luồng khác (vd resolve dispute khác gần như đồng thời) — không xử lý lặp.
+        if (DisputeSettlementPolicy.IsTerminalBooking(booking.Status))
+            return 0m;
+
+        var now = TimeZoneHelper.UtcNow;
+
+        var remainingSessions = await _context.ClassSessions
+            .Where(s => s.Bookingid == bookingId && (s.Status == Scheduled || s.Status == Reserved))
+            .ToListAsync(ct);
+        var remainingCount = remainingSessions.Count;
+
+        // Có buổi khác đang mid-flight (không phải buổi caller vừa tự settle riêng, nếu có) — phải
+        // được xử lý xong qua đúng luồng của nó trước, không hủy đè lên để tránh strand/mispricing.
+        var hasBlockingSession = await _context.ClassSessions
+            .AnyAsync(s => s.Bookingid == bookingId
+                && (s.Status == InProgress || s.Status == PendingConfirmation || s.Status == Disputed || s.Status == NoShow),
+                ct);
+        if (hasBlockingSession)
+            return 0m;
+
+        var refundRecipientId = !string.IsNullOrWhiteSpace(booking.Parentid)
+            ? booking.Parentid
+            : (!string.IsNullOrWhiteSpace(booking.Student?.Linkeduserid)
+                ? booking.Student!.Linkeduserid
+                : booking.Studentid);
+
+        var parentRefundPerSession = LessonRefundCalculator.ParentRefundPerSessionNoFee(booking);
+        var tutorEscrowPerSession = LessonRefundCalculator.TutorEscrowPerSession(booking);
+
+        // Clamp theo số tiền phụ huynh thực đã trả trừ đã hoàn trước đó — cùng pattern chống hoàn
+        // vượt mức đã dùng ở ProcessRefundAsync.
+        var totalPaidByParent = booking.Remainingpaidat.HasValue
+            ? (booking.Finalprice ?? 0)
+            : (booking.Depositpaidat.HasValue ? (booking.Depositamount ?? 0) : 0m);
+        var totalAlreadyRefunded = await _context.Wallettransactions
+            .Where(wt => wt.Referencetable == ReferenceTable.Booking
+                      && wt.Referenceid == bookingId
+                      && wt.Transactiontype == TransactionType.Refund)
+            .SumAsync(wt => wt.Amount ?? 0, ct);
+        var maxParentRefund = Math.Max(0, totalPaidByParent - totalAlreadyRefunded);
+
+        var parentTotalRefund = Math.Round(Math.Min(remainingCount * parentRefundPerSession, maxParentRefund), 2);
+
+        var tutorWallet = !string.IsNullOrWhiteSpace(booking.Tutorid)
+            ? await _context.Wallets.FromSqlRaw(SqlQueries.LockWalletByUserId, booking.Tutorid).FirstOrDefaultAsync(ct)
+            : null;
+
+        // Mô tả ngắn cho ledger/notification tùy theo nguồn gọi — không đổi công thức tiền, chỉ
+        // đổi câu chữ cho đúng ngữ cảnh (tranh chấp vs staff hủy do phụ huynh nghỉ ngang).
+        var isStaffGhostCancel = bookingStatus == BookingStatus.CancelledByStaff;
+        var contextLabel = isStaffGhostCancel ? "staff hủy do phụ huynh nghỉ ngang" : "giải quyết tranh chấp";
+
+        // Giải ngân cho các buổi ĐÃ dạy trước khi hủy — nếu không làm bước này, tiền của những buổi
+        // đó sẽ kẹt vĩnh viễn trong Frozenbalance (chỉ Scheduled/Reserved bị đụng ở bước reverse bên
+        // dưới, còn Sessionsremaining chỉ tự release khi CẢ booking hoàn tất — mà booking này đang bị
+        // hủy giữa chừng nên không bao giờ đạt điều kiện đó). Cùng công thức idempotent với
+        // FinalizeBookingEarlyByUserAsync: target = đơn giá × số buổi đã dạy, trừ đi phần đã release
+        // trước đó (vd 1 buổi đã được release riêng qua giải quyết tranh chấp từng buổi) để không
+        // giải ngân trùng.
+        var deliveredCount = await _context.ClassSessions
+            .CountAsync(s => s.Bookingid == bookingId && (s.Status == Completed || s.Issettled == true), ct);
+
+        var tutorEscrowRelease = 0m;
+        if (tutorWallet != null && deliveredCount > 0)
+        {
+            var releaseTarget = Math.Round(tutorEscrowPerSession * deliveredCount, 2);
+            var alreadyReleased = await _context.Wallettransactions
+                .Where(t => t.Walletid == tutorWallet.Walletid
+                            && t.Referencetable == ReferenceTable.Booking
+                            && t.Referenceid == bookingId
+                            && t.Transactiontype == TransactionType.EscrowRelease)
+                .SumAsync(t => t.Amount ?? 0, ct);
+            tutorEscrowRelease = Math.Round(
+                Math.Min(Math.Max(0, releaseTarget - alreadyReleased), Math.Max(0, tutorWallet.Frozenbalance ?? 0)), 2);
+        }
+
+        if (tutorWallet != null && tutorEscrowRelease > 0)
+        {
+            tutorWallet.Frozenbalance = Math.Max(0, (tutorWallet.Frozenbalance ?? 0) - tutorEscrowRelease);
+            tutorWallet.Balance = (tutorWallet.Balance ?? 0) + tutorEscrowRelease;
+            tutorWallet.Lastupdated = now;
+            _context.Wallettransactions.Add(new Wallettransaction
+            {
+                Walletid = tutorWallet.Walletid,
+                Amount = tutorEscrowRelease,
+                Transactiontype = TransactionType.EscrowRelease,
+                Referencetable = ReferenceTable.Booking,
+                Referenceid = bookingId,
+                Description = $"Hủy khóa học #{bookingId} ({contextLabel}) — giải ngân {deliveredCount} buổi đã dạy",
+                Createdat = now
+            });
+        }
+
+        var tutorEscrowReverse = tutorWallet != null
+            ? Math.Round(Math.Min(remainingCount * tutorEscrowPerSession, Math.Max(0, tutorWallet.Frozenbalance ?? 0)), 2)
+            : 0m;
+
+        if (tutorWallet != null && tutorEscrowReverse > 0)
+        {
+            tutorWallet.Frozenbalance = Math.Max(0, (tutorWallet.Frozenbalance ?? 0) - tutorEscrowReverse);
+            tutorWallet.Lastupdated = now;
+            _context.Wallettransactions.Add(new Wallettransaction
+            {
+                Walletid = tutorWallet.Walletid,
+                Amount = -tutorEscrowReverse,
+                Transactiontype = TransactionType.EscrowReversal,
+                Referencetable = ReferenceTable.Booking,
+                Referenceid = bookingId,
+                Description = $"Hủy khóa học #{bookingId} ({contextLabel}, {remainingCount} buổi còn lại)",
+                Createdat = now
+            });
+        }
+
+        var parentWallet = !string.IsNullOrWhiteSpace(refundRecipientId)
+            ? await WalletLockHelper.GetOrCreateForUpdateAsync(_context, refundRecipientId, now, ct)
+            : null;
+
+        if (parentWallet != null && parentTotalRefund > 0)
+        {
+            parentWallet.Balance = (parentWallet.Balance ?? 0) + parentTotalRefund;
+            parentWallet.Lastupdated = now;
+            _context.Wallettransactions.Add(new Wallettransaction
+            {
+                Walletid = parentWallet.Walletid,
+                Amount = parentTotalRefund,
+                Transactiontype = TransactionType.Refund,
+                Referencetable = ReferenceTable.Booking,
+                Referenceid = bookingId,
+                Description = $"Hoàn tiền hủy khóa học #{bookingId} ({contextLabel}, " +
+                              $"{remainingCount} buổi còn lại, giá gốc không gồm phí dịch vụ)",
+                Createdat = now
+            });
+        }
+
+        foreach (var s in remainingSessions)
+            s.Status = Cancelled;
+
+        // Supersede mọi payment request đang active để tránh webhook trễ áp dụng nhầm lên booking
+        // đã đóng (vd yêu cầu nạp bù đợt 2 đang mở).
+        var activeRequests = await _context.PaymentRequests
+            .Where(r => r.Bookingid == bookingId)
+            .ToListAsync(ct);
+        foreach (var request in activeRequests.Where(r => PaymentRequestStatus.IsActive(r.Status)))
+        {
+            request.Status = PaymentRequestStatus.Superseded;
+            request.Updatedat = now;
+        }
+
+        booking.Status = bookingStatus;
+        booking.Escrowstatus = EscrowStatus.Refunded;
+        booking.Sessionsremaining = 0;
+        booking.Paymentdueat = null;
+        booking.Cancellationreason = reason;
+        booking.Cancelledby = processedBy;
+        booking.Cancelledat = now;
+        booking.Updatedat = now;
+
+        await _context.SaveChangesAsync(ct);
+
+        _logger.LogInformation(
+            "Cancelled {Count} remaining session(s) for booking {BookingId} ({Context}) by {ProcessedBy}: refunded {Amount} to parent, released {ReleaseAmount} to tutor for {DeliveredCount} delivered session(s).",
+            remainingCount, bookingId, contextLabel, processedBy, parentTotalRefund, tutorEscrowRelease, deliveredCount);
+
+        if (!string.IsNullOrWhiteSpace(refundRecipientId) && parentTotalRefund > 0)
+        {
+            try
+            {
+                await _notificationService.CreateNotificationAsync(new NotificationRequest
+                {
+                    Userid = refundRecipientId,
+                    Title = "Hủy khóa học & hoàn tiền",
+                    Message = isStaffGhostCancel
+                        ? $"Khóa học của booking #{bookingId} đã được hệ thống hủy. Bạn đã nhận hoàn {parentTotalRefund:N0}đ cho {remainingCount} buổi chưa học."
+                        : $"Khóa học của booking #{bookingId} đã được hủy theo kết quả giải quyết tranh chấp. " +
+                          $"Bạn đã nhận hoàn {parentTotalRefund:N0}đ cho {remainingCount} buổi chưa học.",
+                    Type = NotificationType.PaymentRefundSuccess,
+                    Referenceid = bookingId.ToString()
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to send cancel-course refund notification for booking {BookingId}", bookingId);
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(booking.Tutorid))
+        {
+            try
+            {
+                await _notificationService.CreateNotificationAsync(new NotificationRequest
+                {
+                    Userid = booking.Tutorid,
+                    Title = "Khóa học đã bị hủy",
+                    Message = isStaffGhostCancel
+                        ? (tutorEscrowRelease > 0
+                            ? $"Booking #{bookingId} đã bị hủy do phụ huynh không còn phản hồi. Bạn đã nhận {tutorEscrowRelease:N0}đ cho {deliveredCount} buổi đã dạy; các buổi chưa dạy đã được hủy và hoàn cho phụ huynh."
+                            : $"Booking #{bookingId} đã bị hủy do phụ huynh không còn phản hồi. Các buổi chưa dạy đã được hủy và hoàn cho phụ huynh.")
+                        : (tutorEscrowRelease > 0
+                            ? $"Booking #{bookingId} đã bị hủy theo kết quả giải quyết tranh chấp. Bạn đã nhận {tutorEscrowRelease:N0}đ cho {deliveredCount} buổi đã dạy; các buổi chưa dạy đã được hủy."
+                            : $"Booking #{bookingId} đã bị hủy theo kết quả giải quyết tranh chấp. Các buổi chưa dạy đã được hủy."),
+                    Type = NotificationType.DisputeResolved,
+                    Referenceid = bookingId.ToString()
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to notify tutor for cancel-course booking {BookingId}", bookingId);
+            }
+        }
+
+        return parentTotalRefund;
+    }
+
+    /// <summary>
+    /// Dry-run của <see cref="CancelRemainingSessionsAsync"/> — cùng công thức, chỉ đọc
+    /// (AsNoTracking), không ghi ví/booking/notification. Dùng cho màn hình admin xem trước trước
+    /// khi resolve dispute bằng "Hủy khóa học & hoàn tiền".
+    /// </summary>
+    public async Task<CourseCancelPreviewResponse> PreviewCancelRemainingSessionsAsync(int bookingId, CancellationToken ct = default)
+    {
+        var booking = await _context.Bookings
+            .AsNoTracking()
+            .Include(b => b.Student)
+            .FirstOrDefaultAsync(b => b.Bookingid == bookingId, ct)
+            ?? throw new InvalidOperationException($"Booking {bookingId} not found");
+
+        var remainingCount = await _context.ClassSessions
+            .AsNoTracking()
+            .CountAsync(s => s.Bookingid == bookingId && (s.Status == Scheduled || s.Status == Reserved), ct);
+
+        var parentRefundPerSession = LessonRefundCalculator.ParentRefundPerSessionNoFee(booking);
+        var tutorEscrowPerSession = LessonRefundCalculator.TutorEscrowPerSession(booking);
+
+        var totalPaidByParent = booking.Remainingpaidat.HasValue
+            ? (booking.Finalprice ?? 0)
+            : (booking.Depositpaidat.HasValue ? (booking.Depositamount ?? 0) : 0m);
+        var totalAlreadyRefunded = await _context.Wallettransactions
+            .AsNoTracking()
+            .Where(wt => wt.Referencetable == ReferenceTable.Booking
+                      && wt.Referenceid == bookingId
+                      && wt.Transactiontype == TransactionType.Refund)
+            .SumAsync(wt => wt.Amount ?? 0, ct);
+        var maxParentRefund = Math.Max(0, totalPaidByParent - totalAlreadyRefunded);
+
+        var tutorFrozenBalance = !string.IsNullOrWhiteSpace(booking.Tutorid)
+            ? (await _context.Wallets.AsNoTracking().FirstOrDefaultAsync(w => w.Userid == booking.Tutorid, ct))?.Frozenbalance ?? 0
+            : 0m;
+
+        var rawParentRefund = Math.Round(remainingCount * parentRefundPerSession, 2);
+        var parentRefund = Math.Round(Math.Min(rawParentRefund, maxParentRefund), 2);
+
+        var rawTutorEscrow = Math.Round(remainingCount * tutorEscrowPerSession, 2);
+        var tutorEscrowReversed = Math.Round(Math.Min(rawTutorEscrow, Math.Max(0, tutorFrozenBalance)), 2);
+
+        var warnings = new List<string>();
+        if (parentRefund < rawParentRefund)
+            warnings.Add(
+                $"Số tiền hoàn phụ huynh bị giới hạn còn {parentRefund:N0}đ (thay vì {rawParentRefund:N0}đ) vì mới thu được {totalPaidByParent:N0}đ cho booking này" +
+                (totalAlreadyRefunded > 0 ? $" (đã hoàn {totalAlreadyRefunded:N0}đ trước đó)." : "."));
+        if (tutorEscrowReversed < rawTutorEscrow)
+            warnings.Add($"Escrow gia sư không đủ — chỉ giải phóng được {tutorEscrowReversed:N0}đ thay vì {rawTutorEscrow:N0}đ (số dư đóng băng hiện tại: {tutorFrozenBalance:N0}đ).");
+
+        return new CourseCancelPreviewResponse
+        {
+            BookingId = bookingId,
+            RemainingSessionsCount = remainingCount,
+            ParentRefundAmount = parentRefund,
+            TutorEscrowReversed = tutorEscrowReversed,
+            TutorFrozenBalance = tutorFrozenBalance,
+            Warnings = warnings
+        };
+    }
+
+    /// <summary>
     /// Get classSessions pending settlement (for admin view)
     /// </summary>
     public async Task<List<PendingClassSessionResponse>> GetPendingSettlementsAsync()
@@ -669,6 +965,7 @@ public partial class SettlementService : ISettlementService
 
             // Mark booking as completed
             booking.Status = BookingStatus.Completed;
+            booking.Escrowstatus = EscrowStatus.Released;
             booking.Sessionsremaining = 0;
             booking.Updatedat = now;
 

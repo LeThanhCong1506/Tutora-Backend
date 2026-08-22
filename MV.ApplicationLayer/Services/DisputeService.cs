@@ -639,6 +639,7 @@ public class DisputeService : IDisputeService
 
         string? createdBy;
         string? tutorId;
+        decimal courseCancelRefund = 0;
 
         await using (var tx = await _context.Database.BeginTransactionAsync())
         {
@@ -680,6 +681,10 @@ public class DisputeService : IDisputeService
                     ResolutionTypes.Refund50 => 50,
                     ResolutionTypes.Refund100 => 100,
                     ResolutionTypes.Custom => request.CustomRefundPercentage!.Value,
+                    // Buổi đang bị khiếu nại được settle như đã dạy đủ (gia sư giữ tiền buổi đó) —
+                    // phần hoàn tiền của lựa chọn này nằm ở CancelRemainingSessionsAsync bên dưới,
+                    // áp dụng cho các buổi CHƯA diễn ra của cả khóa học, không phải buổi này.
+                    ResolutionTypes.CancelCourse => 0,
                     _ => 0
                 };
 
@@ -689,6 +694,14 @@ public class DisputeService : IDisputeService
                         await _settlementService.ProcessRefundAsync(classSession.Classsessionid, refundPercentage, adminId);
                     else
                         await _settlementService.SettleDisputedClassSessionAsync(classSession.Classsessionid, adminId);
+
+                    if (request.ResolutionType == ResolutionTypes.CancelCourse && dispute.Bookingid.HasValue)
+                        courseCancelRefund = await _settlementService.CancelRemainingSessionsAsync(
+                            dispute.Bookingid.Value,
+                            adminId,
+                            BookingStatus.CancelledByDispute,
+                            $"Hủy khóa học theo giải quyết tranh chấp #{disputeId}: {request.ResolutionNote}",
+                            CancellationToken.None);
                 }
 
                 dispute.Status = DisputeStatus.Resolved;
@@ -731,14 +744,19 @@ public class DisputeService : IDisputeService
         {
             var notifications = new List<NotificationRequest>();
             if (!string.IsNullOrWhiteSpace(createdBy))
+            {
+                var courseCancelSuffix = request.ResolutionType == ResolutionTypes.CancelCourse
+                    ? $" Khóa học đã bị hủy, bạn đã nhận hoàn {courseCancelRefund:N0}đ cho các buổi chưa học."
+                    : "";
                 notifications.Add(new NotificationRequest
                 {
                     Userid = createdBy,
                     Title = "Tranh chấp đã được giải quyết",
-                    Message = $"Tranh chấp #{disputeId} đã được giải quyết. Kết quả: {request.ResolutionType}. Ghi chú: {request.ResolutionNote}",
+                    Message = $"Tranh chấp #{disputeId} đã được giải quyết. Kết quả: {request.ResolutionType}. Ghi chú: {request.ResolutionNote}{courseCancelSuffix}",
                     Type = NotificationType.DisputeResolved,
                     Referenceid = snapshot.Classsessionid?.ToString()
                 });
+            }
 
             if (tutorId != null)
                 notifications.Add(new NotificationRequest { Userid = tutorId, Title = "Thông báo giải quyết tranh chấp",
@@ -766,6 +784,21 @@ public class DisputeService : IDisputeService
             throw new ArgumentException("Tranh chấp này không gắn với buổi học nào để tính hoàn tiền");
 
         return await _settlementService.PreviewRefundAsync(dispute.Classsessionid.Value, percentage);
+    }
+
+    /// <summary>
+    /// Xem trước số buổi/số tiền sẽ hủy+hoàn nếu resolve dispute bằng "Hủy khóa học & hoàn tiền"
+    /// (ResolutionTypes.CancelCourse) — không side effect.
+    /// </summary>
+    public async Task<CourseCancelPreviewResponse> GetCancelCoursePreviewAsync(int disputeId)
+    {
+        var dispute = await _context.Disputes.AsNoTracking().FirstOrDefaultAsync(d => d.Disputeid == disputeId)
+            ?? throw new ArgumentException("Không tìm thấy tranh chấp");
+
+        if (!dispute.Bookingid.HasValue)
+            throw new ArgumentException("Tranh chấp này không gắn với booking nào để tính hủy khóa học");
+
+        return await _settlementService.PreviewCancelRemainingSessionsAsync(dispute.Bookingid.Value);
     }
 
     public async Task<DisputeStatsResponse> GetDisputeStatsAsync()

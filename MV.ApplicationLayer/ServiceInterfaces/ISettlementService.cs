@@ -55,4 +55,33 @@ public interface ISettlementService
         string userId,
         string? reason = null,
         CancellationToken ct = default);
+
+    /// <summary>
+    /// Admin/staff hủy booking sau khi xác minh ngoài hệ thống rằng phụ huynh đã "nghỉ ngang".
+    /// Giải ngân toàn bộ escrow còn lại (kể cả các buổi chưa dạy) cho gia sư.
+    /// </summary>
+    Task<bool> CancelGhostBookingAsync(
+        int bookingId,
+        string adminId,
+        string? reason = null,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Hủy toàn bộ các buổi CHƯA diễn ra (Scheduled/Reserved) còn lại của một booking và hoàn cho
+    /// phụ huynh theo GIÁ GỐC mỗi buổi (không gồm 5% phí dịch vụ). Buổi đã hoàn thành giữ nguyên
+    /// (gia sư không mất tiền buổi đã dạy). Dùng chung cho cả "Hủy khóa học & hoàn tiền" (resolve
+    /// dispute) và staff hủy booking do phụ huynh "nghỉ ngang" — <paramref name="bookingStatus"/>
+    /// quyết định trạng thái cuối của booking (<c>BookingStatus.CancelledByDispute</c> hoặc
+    /// <c>BookingStatus.CancelledByStaff</c>). PHẢI được gọi bên trong một transaction đang mở,
+    /// với booking đã được lock (FOR UPDATE) bởi caller. Trả về tổng tiền đã hoàn cho phụ huynh
+    /// (0 nếu booking đã terminal hoặc có buổi khác đang mid-flight — no-op, không exception).
+    /// </summary>
+    Task<decimal> CancelRemainingSessionsAsync(
+        int bookingId, string processedBy, string bookingStatus, string? reason, CancellationToken ct = default);
+
+    /// <summary>
+    /// Dry-run của <see cref="CancelRemainingSessionsAsync"/> — cùng công thức, không side effect.
+    /// Dùng để admin xem trước số tiền/số buổi trước khi resolve dispute bằng "Hủy khóa học & hoàn tiền".
+    /// </summary>
+    Task<CourseCancelPreviewResponse> PreviewCancelRemainingSessionsAsync(int bookingId, CancellationToken ct = default);
 }
