@@ -206,6 +206,7 @@ namespace MV.ApplicationLayer.Services
                 await _updateStaging.UpsertPendingUpdateAsync(userId, pending =>
                 {
                     pending.Bio = request.Bio;
+                    pending.Degree = request.Degree;
                     pending.Education = request.Education;
                     pending.GpaScale = request.GpaScale;
                     pending.Gpa = request.Gpa;
@@ -216,6 +217,7 @@ namespace MV.ApplicationLayer.Services
             }
 
             profile.Bio = request.Bio;
+            profile.Degree = request.Degree;
             profile.Education = request.Education;
             profile.Gpascale = request.GpaScale;
             profile.Gpa = request.Gpa;

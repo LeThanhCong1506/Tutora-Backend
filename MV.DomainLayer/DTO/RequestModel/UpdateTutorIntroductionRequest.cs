@@ -8,8 +8,12 @@ namespace MV.DomainLayer.DTO.RequestModel
         [StringLength(2000, MinimumLength = 100, ErrorMessage = "Bio must be 100-2000 characters")]
         public string Bio { get; set; } = string.Empty;
 
+        [Required(ErrorMessage = "Degree is required")]
+        [StringLength(100, ErrorMessage = "Degree cannot exceed 100 characters")]
+        public string Degree { get; set; } = string.Empty;
+
         [Required(ErrorMessage = "Education is required")]
-        [StringLength(255, MinimumLength = 10, ErrorMessage = "Education must be 10-255 characters")]
+        [StringLength(255, MinimumLength = 2, ErrorMessage = "Education must be 2-255 characters")]
         public string Education { get; set; } = string.Empty;
 
         [Required(ErrorMessage = "GPA Scale is required")]

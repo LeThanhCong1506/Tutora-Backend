@@ -100,6 +100,7 @@ namespace MV.ApplicationLayer.Services
                 Status = isComplete ? SectionStatus.Updated : SectionStatus.InProgress,
                 UpdatedAt = isComplete && profile?.Updatedat != null ? profile.Updatedat.Value : (DateTime?)null,
                 Bio = profile?.Bio,
+                Degree = profile?.Degree,
                 Education = profile?.Education,
                 Gpa = profile?.Gpa,
                 GpaScale = profile?.Gpascale,
