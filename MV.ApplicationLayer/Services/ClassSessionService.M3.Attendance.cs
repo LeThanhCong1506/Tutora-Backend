@@ -328,6 +328,8 @@ public partial class ClassSessionService
         var now = TimeZoneHelper.UtcNow;
 
         var candidates = await _context.ClassSessions
+            .Include(l => l.Booking)
+                .ThenInclude(b => b!.Student)
             .Where(l => l.Status == Interrupted && l.Interruptedat != null)
             .ToListAsync(ct);
 
@@ -354,6 +356,48 @@ public partial class ClassSessionService
                 }
 
                 closedCount++;
+
+                try
+                {
+                    var studentUserId = original.Booking?.Student?.Linkeduserid;
+                    var parentId = original.Booking?.Student?.Parentid ?? original.Booking?.Parentid;
+                    var tutorMessage = $"Buổi học #{original.Classsessionid} bị ngắt giữa chừng và đã quá thời hạn học tiếp trong ngày. Hệ thống đã tự động ghi nhận hoàn tất buổi học.";
+                    var notifications = new List<NotificationRequest>();
+                    if (!string.IsNullOrWhiteSpace(original.Tutorid))
+                        notifications.Add(new NotificationRequest
+                        {
+                            Userid = original.Tutorid,
+                            Title = "Buổi học bị ngắt đã tự động hoàn tất",
+                            Message = tutorMessage,
+                            Type = NotificationType.LessonInterruptionAutoClosed,
+                            Referenceid = original.Classsessionid.ToString()
+                        });
+                    if (!string.IsNullOrWhiteSpace(studentUserId))
+                        notifications.Add(new NotificationRequest
+                        {
+                            Userid = studentUserId,
+                            Title = "Buổi học bị ngắt đã tự động hoàn tất",
+                            Message = tutorMessage,
+                            Type = NotificationType.LessonInterruptionAutoClosed,
+                            Referenceid = original.Classsessionid.ToString()
+                        });
+                    if (!string.IsNullOrWhiteSpace(parentId))
+                        notifications.Add(new NotificationRequest
+                        {
+                            Userid = parentId,
+                            Title = "Buổi học bị ngắt đã tự động hoàn tất",
+                            Message = $"Buổi học #{original.Classsessionid} của con bạn bị ngắt giữa chừng và đã quá thời hạn học tiếp trong ngày. Hệ thống đã tự động ghi nhận hoàn tất buổi học.",
+                            Type = NotificationType.LessonInterruptionAutoClosed,
+                            Referenceid = original.Classsessionid.ToString()
+                        });
+
+                    if (notifications.Count > 0)
+                        await _notificationService.CreateNotificationsAsync(notifications);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Không thể gửi thông báo tự đóng buổi học bị ngắt {ClassSessionId}", original.Classsessionid);
+                }
             }
             catch (Exception ex)
             {
@@ -448,8 +492,26 @@ public partial class ClassSessionService
             // Yêu cầu buổi đã được check-in (in_progress). Check-in nay là auto khi cả gia sư và
             // học viên cùng vào phòng, nên điều kiện này đảm bảo chỉ những buổi thật sự diễn ra
             // (cả 2 có mặt) mới gửi được báo cáo → mới đi tiếp tới thanh toán.
-            if (classSession.Status != InProgress)
-                throw new ClassSessionException(ClassSessionErrorCodes.InvalidClassSessionStatus, "Buổi học phải đang diễn ra (đã điểm danh vào) mới gửi được báo cáo", 400);
+            //
+            // Ngoại lệ: buổi bị báo ngắt (status=interrupted) không bao giờ tự quay lại in_progress
+            // được nữa (xem RequestInterruptionAsync), nên nếu không xử lý riêng, gia sư sẽ vĩnh
+            // viễn không gửi được báo cáo cho phần ĐÃ dạy thật (VD 80%) khi 2 bên đồng ý bỏ hẳn
+            // buổi phụ thay vì học nốt. Cho phép gửi báo cáo khi CẢ 2 bên đã xác nhận bỏ buổi phụ
+            // (ConfirmSkipContinuationAsync) — đồng thời tự huỷ buổi phụ đó trong cùng transaction.
+            ClassSession? continuationToCancel = null;
+            if (classSession.Status == Interrupted)
+            {
+                continuationToCancel = await _context.ClassSessions.FirstOrDefaultAsync(
+                    c => c.Originalsessionid == classSessionId && c.Iscontinuation && c.Status == Scheduled);
+            }
+            var bothSidesSkippedContinuation = continuationToCancel?.Tutorskipconfirmedat != null
+                && continuationToCancel.Studentskipconfirmedat != null;
+
+            if (classSession.Status != InProgress && !bothSidesSkippedContinuation)
+                throw new ClassSessionException(
+                    ClassSessionErrorCodes.InvalidClassSessionStatus,
+                    "Buổi học phải đang diễn ra (đã điểm danh vào), hoặc đã bị ngắt và cả 2 bên đã đồng ý bỏ buổi phụ, mới gửi được báo cáo",
+                    400);
 
             if (classSession.ClassSessionReport != null)
                 throw new ClassSessionException(ClassSessionErrorCodes.ReportAlreadySubmitted, "Báo cáo buổi học đã được gửi rồi", 400);
@@ -504,6 +566,9 @@ public partial class ClassSessionService
                 classSession.Booking!.Status = BookingStatus.PendingRemainingPayment;
                 classSession.Booking.Paymentdueat = RemainingPaymentDeadlinePolicy.ComputeDeadline(now, earliestReservedStart);
             }
+
+            if (bothSidesSkippedContinuation)
+                continuationToCancel!.Status = Cancelled;
 
             await _context.SaveChangesAsync();
             await tx.CommitAsync();
@@ -580,6 +645,9 @@ public partial class ClassSessionService
             if (classSession.Iscontinuation)
                 throw new ClassSessionException(ClassSessionErrorCodes.AlreadyContinuationSession, "Buổi học phụ không thể tiếp tục bị báo ngắt", 400);
 
+            if (classSession.Isdisputerelearn)
+                throw new ClassSessionException(ClassSessionErrorCodes.AlreadyRelearnSession, "Buổi học lại do hoà giải không thể tiếp tục bị báo ngắt", 400);
+
             var isFirstSessionOfBooking = await ClassSessionInterruptionPolicy.IsFirstOriginalSessionAsync(_context, classSession);
 
             var sessionLog = await _sessionLogService.GetSessionLogAsync(classSessionId);
@@ -597,6 +665,7 @@ public partial class ClassSessionService
             classSession.Status = Interrupted;
             classSession.Interruptedat = now;
             classSession.Interruptreason = reason;
+            classSession.Interruptedby = requestingUserId;
             classSession.Checkouttime = now;
             classSession.Realend = now;
 
@@ -606,11 +675,58 @@ public partial class ClassSessionService
             _context.ClassSessions.Add(continuation);
 
             await _context.SaveChangesAsync();
+
+            // Meetinglink KHÔNG phải link thật — toàn hệ thống dùng chính Classsessionid làm "cờ đã
+            // kích hoạt vào học online" (xem ClassSessionService.cs/PaymentService.Wallet.cs), và
+            // FE (canJoinLiveSession) ẩn hẳn nút "Vào lớp" nếu thiếu field này. Chỉ biết được giá trị
+            // này SAU khi save lần đầu (PK tự tăng), nên phải set + save thêm 1 lần nữa ở đây.
+            continuation.Meetinglink = continuation.Classsessionid.ToString();
+            await _context.SaveChangesAsync();
             await tx.CommitAsync();
 
             _logger.LogInformation(
                 "ClassSession {ClassSessionId} bị ngắt giữa chừng bởi {UserId} (isFirstSessionOfBooking={IsFirst}, overlapRatio={OverlapRatio:P0}); tạo buổi phụ mới.",
                 classSessionId, requestingUserId, isFirstSessionOfBooking, overlapRatio);
+
+            try
+            {
+                var tutorMessage = $"Buổi học #{classSessionId} đã bị ngắt giữa chừng. Buổi học phụ #{continuation.Classsessionid} đã được tạo để học tiếp phần còn lại trong ngày hôm nay.";
+                var notifications = new List<NotificationRequest>();
+                if (!string.IsNullOrWhiteSpace(classSession.Tutorid))
+                    notifications.Add(new NotificationRequest
+                    {
+                        Userid = classSession.Tutorid,
+                        Title = "Đã tạo buổi học phụ",
+                        Message = tutorMessage,
+                        Type = NotificationType.LessonContinuationCreated,
+                        Referenceid = continuation.Classsessionid.ToString()
+                    });
+                if (!string.IsNullOrWhiteSpace(studentUserId))
+                    notifications.Add(new NotificationRequest
+                    {
+                        Userid = studentUserId,
+                        Title = "Đã tạo buổi học phụ",
+                        Message = tutorMessage,
+                        Type = NotificationType.LessonContinuationCreated,
+                        Referenceid = continuation.Classsessionid.ToString()
+                    });
+                if (!string.IsNullOrWhiteSpace(parentId))
+                    notifications.Add(new NotificationRequest
+                    {
+                        Userid = parentId,
+                        Title = "Đã tạo buổi học phụ",
+                        Message = $"Buổi học #{classSessionId} của con bạn bị ngắt giữa chừng do sự cố đột xuất. Đã tạo buổi học phụ #{continuation.Classsessionid} để học tiếp phần còn lại trong ngày hôm nay.",
+                        Type = NotificationType.LessonContinuationCreated,
+                        Referenceid = continuation.Classsessionid.ToString()
+                    });
+
+                if (notifications.Count > 0)
+                    await _notificationService.CreateNotificationsAsync(notifications);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Không thể gửi thông báo tạo buổi phụ cho classSession {ClassSessionId}", classSessionId);
+            }
 
             return (await GetTutorClassSessionDetailAsync(classSessionId, classSession.Tutorid!))!;
         }
@@ -620,6 +736,118 @@ public partial class ClassSessionService
             throw;
         }
     }
+
+    /// <inheritdoc />
+    public async Task<ClassSessionInterruptionEligibilityResponse> GetInterruptionEligibilityAsync(int classSessionId, string requestingUserId)
+    {
+        var classSession = await _context.ClassSessions
+            .Include(l => l.Booking)
+                .ThenInclude(b => b!.Student)
+            .FirstOrDefaultAsync(l => l.Classsessionid == classSessionId)
+            ?? throw new ClassSessionException(ClassSessionErrorCodes.ClassSessionNotFound, "Không tìm thấy buổi học", 404);
+
+        var studentUserId = classSession.Booking?.Student?.Linkeduserid;
+        var parentId = classSession.Booking?.Student?.Parentid ?? classSession.Booking?.Parentid;
+        var isAuthorized = requestingUserId == classSession.Tutorid
+            || (!string.IsNullOrEmpty(studentUserId) && requestingUserId == studentUserId)
+            || (!string.IsNullOrEmpty(parentId) && requestingUserId == parentId);
+        if (!isAuthorized)
+            throw new UnauthorizedAccessException("Bạn không có quyền xem thông tin buổi học này.");
+
+        // Buổi phụ/buổi học lại do hoà giải KHÔNG BAO GIỜ báo ngắt được (dù học bao lâu) — khác với
+        // "chưa in_progress", vốn chỉ tạm thời chưa đủ điều kiện chứ vẫn có thể đổi thành true sau.
+        var canEverBeInterrupted = !classSession.Iscontinuation && !classSession.Isdisputerelearn;
+
+        // Không throw khi buổi chưa in_progress hoặc thuộc 2 loại trên — trả Eligible=false thẳng,
+        // vì đây chỉ là endpoint tra trạng thái cho FE hiện nút, không phải hành động.
+        if (classSession.Status != InProgress || !canEverBeInterrupted)
+        {
+            return new ClassSessionInterruptionEligibilityResponse
+            {
+                Eligible = false,
+                CurrentRatio = 0.0,
+                RequiredRatio = ClassSessionInterruptionPolicy.ThresholdFor(false),
+                CanEverBeInterrupted = canEverBeInterrupted
+            };
+        }
+
+        var isFirstSessionOfBooking = await ClassSessionInterruptionPolicy.IsFirstOriginalSessionAsync(_context, classSession);
+        var sessionLog = await _sessionLogService.GetSessionLogAsync(classSessionId);
+        var overlapRatio = sessionLog?.Summary.OverlapRatio ?? 0.0;
+        var requiredRatio = ClassSessionInterruptionPolicy.ThresholdFor(isFirstSessionOfBooking);
+
+        return new ClassSessionInterruptionEligibilityResponse
+        {
+            Eligible = ClassSessionInterruptionPolicy.MeetsThreshold(isFirstSessionOfBooking, overlapRatio),
+            CurrentRatio = overlapRatio,
+            RequiredRatio = requiredRatio
+        };
+    }
+
+    /// <summary>Trạng thái đồng ý bỏ buổi phụ hiện tại — dùng để FE hiện đúng "đang chờ bên kia" /
+    /// "cả 2 đã đồng ý". Không yêu cầu quyền riêng gì thêm ngoài xác thực (giống GetInterruptionEligibilityAsync).</summary>
+    public async Task<ClassSessionSkipContinuationResponse> GetSkipContinuationStatusAsync(int continuationSessionId, string requestingUserId)
+    {
+        var classSession = await LoadContinuationForSkipAsync(continuationSessionId, requestingUserId);
+        return ToSkipResponse(classSession);
+    }
+
+    /// <summary>Gia sư HOẶC học sinh/phụ huynh xác nhận đồng ý bỏ hẳn buổi phụ này (không học nốt
+    /// phần còn lại) — mỗi phía tự xác nhận qua đúng cột của mình, idempotent (bấm lại không đổi
+    /// mốc giờ đã ghi). Khi cả 2 cùng xác nhận, SubmitReportAsync trên buổi GỐC mới chấp nhận báo
+    /// cáo và tự huỷ buổi phụ này — hàm này CHỈ ghi nhận đồng ý, không tự huỷ gì ở đây.</summary>
+    public async Task<ClassSessionSkipContinuationResponse> ConfirmSkipContinuationAsync(int continuationSessionId, string requestingUserId)
+    {
+        var classSession = await LoadContinuationForSkipAsync(continuationSessionId, requestingUserId);
+
+        if (classSession.Status != Scheduled)
+            throw new ClassSessionException(
+                ClassSessionErrorCodes.InvalidClassSessionStatus,
+                "Buổi phụ đã diễn ra hoặc đã bị huỷ, không thể bỏ được nữa",
+                400);
+
+        var studentUserId = classSession.Booking?.Student?.Linkeduserid;
+        var isTutor = requestingUserId == classSession.Tutorid;
+        var now = TimeZoneHelper.UtcNow;
+
+        if (isTutor)
+            classSession.Tutorskipconfirmedat ??= now;
+        else
+            classSession.Studentskipconfirmedat ??= now;
+
+        await _context.SaveChangesAsync();
+
+        return ToSkipResponse(classSession);
+    }
+
+    private async Task<ClassSession> LoadContinuationForSkipAsync(int continuationSessionId, string requestingUserId)
+    {
+        var classSession = await _context.ClassSessions
+            .Include(l => l.Booking)
+                .ThenInclude(b => b!.Student)
+            .FirstOrDefaultAsync(l => l.Classsessionid == continuationSessionId)
+            ?? throw new ClassSessionException(ClassSessionErrorCodes.ClassSessionNotFound, "Không tìm thấy buổi học", 404);
+
+        if (!classSession.Iscontinuation)
+            throw new ClassSessionException(ClassSessionErrorCodes.InvalidClassSessionStatus, "Buổi học này không phải buổi phụ", 400);
+
+        var studentUserId = classSession.Booking?.Student?.Linkeduserid;
+        var parentId = classSession.Booking?.Student?.Parentid ?? classSession.Booking?.Parentid;
+        var isAuthorized = requestingUserId == classSession.Tutorid
+            || (!string.IsNullOrEmpty(studentUserId) && requestingUserId == studentUserId)
+            || (!string.IsNullOrEmpty(parentId) && requestingUserId == parentId);
+        if (!isAuthorized)
+            throw new UnauthorizedAccessException("Bạn không có quyền xem thông tin buổi học này.");
+
+        return classSession;
+    }
+
+    private static ClassSessionSkipContinuationResponse ToSkipResponse(ClassSession classSession) => new()
+    {
+        TutorConfirmed = classSession.Tutorskipconfirmedat.HasValue,
+        StudentConfirmed = classSession.Studentskipconfirmedat.HasValue,
+        BothConfirmed = classSession.Tutorskipconfirmedat.HasValue && classSession.Studentskipconfirmedat.HasValue
+    };
 
     public async Task<string> UploadAttachmentAsync(int classSessionId, string tutorId, IFormFile file)
     {
