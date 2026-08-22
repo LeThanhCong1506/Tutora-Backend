@@ -16,7 +16,7 @@ namespace MV.ApplicationLayer.Services
             string tutorId, string certId, AdminVerifyCertificateRequest request, string adminId)
         {
             // 1. Lấy certificate, kiểm tra tồn tại và thuộc đúng tutor
-            var certificate = await _unitOfWork.TutorRepository.GetCertificateByIdAsync(certId)
+            var certificate = await _tutorRepository.GetCertificateByIdAsync(certId)
                 ?? throw new KeyNotFoundException($"Không tìm thấy chứng chỉ với ID: {certId}");
 
             if (!string.Equals(certificate.Tutorid, tutorId, StringComparison.OrdinalIgnoreCase))
@@ -36,7 +36,7 @@ namespace MV.ApplicationLayer.Services
             certificate.Verificationnote = noteText;
             certificate.Updatedat = TimeZoneHelper.UtcNow;
 
-            await _unitOfWork.SaveChangesAsync();
+            await _context.SaveChangesAsync();
 
             _logger.LogInformation(
                 "Admin {AdminId} {Action} certificate {CertId} for tutor {TutorId}",
@@ -85,7 +85,7 @@ namespace MV.ApplicationLayer.Services
 
         public async Task<PagedList<PendingCertificateResponse>> GetAdminCertificatesAsync(CertificateParameters parameters)
         {
-            var paged = await _unitOfWork.TutorRepository.GetAdminCertificatesAsync(parameters);
+            var paged = await _tutorRepository.GetAdminCertificatesAsync(parameters);
 
             var mapped = paged.Select(c => new PendingCertificateResponse
             {
@@ -139,8 +139,8 @@ namespace MV.ApplicationLayer.Services
             var pending = await _updateStaging.GetPendingUpdateAsync(tutorId);
             if (pending == null) return null;
 
-            var profile = await _unitOfWork.TutorRepository.GetTutorProfileByIdAsync(tutorId);
-            var user = await _unitOfWork.UserRepository.GetUserByIdAsync(tutorId);
+            var profile = await _tutorRepository.GetTutorProfileByIdAsync(tutorId);
+            var user = await _userRepository.GetUserByIdAsync(tutorId);
             if (profile == null || user == null) return null;
 
             return new PendingProfileUpdateRequestResponse
@@ -222,10 +222,10 @@ namespace MV.ApplicationLayer.Services
                 throw new KeyNotFoundException(
                     "Yêu cầu cập nhật không còn tồn tại — có thể đã được xử lý trước đó hoặc dữ liệu tạm thời bị mất. Vui lòng yêu cầu tutor nộp lại.");
 
-            var profile = await _unitOfWork.TutorRepository.GetTutorProfileByIdAsync(tutorId)
+            var profile = await _tutorRepository.GetTutorProfileByIdAsync(tutorId)
                 ?? throw new KeyNotFoundException("Không tìm thấy hồ sơ gia sư.");
 
-            var user = await _unitOfWork.UserRepository.GetUserByIdAsync(tutorId)
+            var user = await _userRepository.GetUserByIdAsync(tutorId)
                 ?? throw new KeyNotFoundException("Không tìm thấy gia sư.");
 
             string statusText;
@@ -249,11 +249,11 @@ namespace MV.ApplicationLayer.Services
                 if (pending.SubjectGradePrices != null)
                 {
                     await ValidateSubjectGradePricesAsync(tutorId, pending.SubjectGradePrices);
-                    await _unitOfWork.TutorRepository.ReplaceTutorSubjectGradePricesAsync(
+                    await _tutorRepository.ReplaceTutorSubjectGradePricesAsync(
                         tutorId, MapSubjectGradePriceRequests(tutorId, pending.SubjectGradePrices));
                 }
 
-                await _unitOfWork.SaveChangesAsync();
+                await _context.SaveChangesAsync();
 
                 // Staged edit của gia sư active vừa land vào Postgres → re-embed nền (bio/môn/
                 // giá đổi). 

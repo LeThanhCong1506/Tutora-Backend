@@ -20,7 +20,10 @@ namespace MV.ApplicationLayer.Services
     /// </summary>
     public class SimpleAuthService : ISimpleAuthService
     {
-        private readonly IUnitOfWork _unitOfWork;
+        private readonly IUserRepository _userRepository;
+        private readonly IStudentRepository _studentRepository;
+        private readonly IRefreshTokenRepository _refreshTokenRepository;
+        private readonly IAppDbContext _dbContext;
         private readonly IPasswordRepository _passwordRepository;
         private readonly IAuthenticationRepository _authenticationRepository;
         private readonly IOtpSender _otpSender;
@@ -55,7 +58,10 @@ namespace MV.ApplicationLayer.Services
         private const int MaxOtpSendsPerDay = 5;
 
         public SimpleAuthService(
-            IUnitOfWork unitOfWork,
+            IUserRepository userRepository,
+            IStudentRepository studentRepository,
+            IRefreshTokenRepository refreshTokenRepository,
+            IAppDbContext dbContext,
             IPasswordRepository passwordRepository,
             IAuthenticationRepository authenticationRepository,
             IOtpSender otpSender,
@@ -64,7 +70,10 @@ namespace MV.ApplicationLayer.Services
             IDistributedCache cache,
             IAiCreditService aiCreditService)
         {
-            _unitOfWork = unitOfWork;
+            _userRepository = userRepository;
+            _studentRepository = studentRepository;
+            _refreshTokenRepository = refreshTokenRepository;
+            _dbContext = dbContext;
             _passwordRepository = passwordRepository;
             _authenticationRepository = authenticationRepository;
             _otpSender = otpSender;
@@ -93,22 +102,22 @@ namespace MV.ApplicationLayer.Services
 
                 if (request.EmailOrPhone.Contains("@"))
                 {
-                    user = await _unitOfWork.UserRepository.GetUserByEmailAsync(request.EmailOrPhone);
-                    verifyPassword = () => _unitOfWork.UserRepository.CheckIfUserLoginCorrectAsync(
+                    user = await _userRepository.GetUserByEmailAsync(request.EmailOrPhone);
+                    verifyPassword = () => _userRepository.CheckIfUserLoginCorrectAsync(
                         request.EmailOrPhone, request.Password);
                     wrongCredentialMessage = "Email hoặc mật khẩu không đúng.";
                 }
                 else if (request.EmailOrPhone.All(char.IsDigit) || request.EmailOrPhone.StartsWith("+"))
                 {
-                    user = await _unitOfWork.UserRepository.GetUserByPhoneAsync(request.EmailOrPhone);
-                    verifyPassword = () => _unitOfWork.UserRepository.CheckIfUserLoginCorrectByPhoneAsync(
+                    user = await _userRepository.GetUserByPhoneAsync(request.EmailOrPhone);
+                    verifyPassword = () => _userRepository.CheckIfUserLoginCorrectByPhoneAsync(
                         request.EmailOrPhone, request.Password);
                     wrongCredentialMessage = "Số điện thoại hoặc mật khẩu không đúng.";
                 }
                 else
                 {
-                    user = await _unitOfWork.UserRepository.GetUserByUsernameAsync(request.EmailOrPhone);
-                    verifyPassword = () => _unitOfWork.UserRepository.CheckIfUserLoginCorrectByUsernameAsync(
+                    user = await _userRepository.GetUserByUsernameAsync(request.EmailOrPhone);
+                    verifyPassword = () => _userRepository.CheckIfUserLoginCorrectByUsernameAsync(
                         request.EmailOrPhone, request.Password);
                     wrongCredentialMessage = "Tên người dùng hoặc mật khẩu không chính xác.";
                 }
@@ -179,8 +188,8 @@ namespace MV.ApplicationLayer.Services
                     };
                 }
 
-                await _unitOfWork.UserRepository.UpdateLastLoginAtAsync(user.Userid, MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow);
-                await _unitOfWork.SaveChangesAsync();
+                await _userRepository.UpdateLastLoginAtAsync(user.Userid, MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow);
+                await _dbContext.SaveChangesAsync();
 
                 return await CreateTokenResponseAsync(user, platform);
             }
@@ -228,14 +237,14 @@ namespace MV.ApplicationLayer.Services
                 // Email tùy chọn — nếu có thì kiểm tra trùng.
                 if (!string.IsNullOrWhiteSpace(request.Email))
                 {
-                    var existingByEmail = await _unitOfWork.UserRepository.GetUserByEmailAsync(request.Email);
+                    var existingByEmail = await _userRepository.GetUserByEmailAsync(request.Email);
                     if (existingByEmail != null)
                     {
                         return new TokenResponse { ErrorMessage = "Email đã tồn tại." };
                     }
                 }
 
-                var existingUserByPhone = await _unitOfWork.UserRepository.GetUserByPhoneAsync(phone);
+                var existingUserByPhone = await _userRepository.GetUserByPhoneAsync(phone);
 
                 // SĐT đã tồn tại và đã xác thực → chặn.
                 if (existingUserByPhone != null && existingUserByPhone.Isphoneverified == true)
@@ -254,13 +263,13 @@ namespace MV.ApplicationLayer.Services
                     }
 
                     // Lần đăng ký dở trước có thể đã tạo Studentprofile → cập nhật tên cho khớp bảng Users.
-                    var existingProfile = await _unitOfWork.StudentRepository
+                    var existingProfile = await _studentRepository
                         .FindByStudentOrLinkedUserAsync(existingUserByPhone.Userid);
                     if (existingProfile != null)
                         existingProfile.Fullname = request.FullName;
 
-                    await _unitOfWork.UserRepository.UpdateUserAsync(existingUserByPhone);
-                    await _unitOfWork.SaveChangesAsync();
+                    await _userRepository.UpdateUserAsync(existingUserByPhone);
+                    await _dbContext.SaveChangesAsync();
 
                     var blockReason = await GetOtpBlockReasonAsync(PhoneVerifyKey(phone));
                     if (blockReason != null)
@@ -332,8 +341,8 @@ namespace MV.ApplicationLayer.Services
                     };
                 }
 
-                await _unitOfWork.UserRepository.CreateUserAsync(newUser);
-                await _unitOfWork.SaveChangesAsync();
+                await _userRepository.CreateUserAsync(newUser);
+                await _dbContext.SaveChangesAsync();
 
                 try
                 {
@@ -378,7 +387,7 @@ namespace MV.ApplicationLayer.Services
                 }
 
                 var phone = request.Phone.Trim();
-                var user = await _unitOfWork.UserRepository.GetUserByPhoneAsync(phone);
+                var user = await _userRepository.GetUserByPhoneAsync(phone);
                 if (user == null)
                 {
                     return new TokenResponse { ErrorMessage = "Không tìm thấy người dùng." };
@@ -408,8 +417,8 @@ namespace MV.ApplicationLayer.Services
                 }
 
                 user.Isphoneverified = true;
-                await _unitOfWork.UserRepository.UpdateUserAsync(user);
-                await _unitOfWork.SaveChangesAsync();
+                await _userRepository.UpdateUserAsync(user);
+                await _dbContext.SaveChangesAsync();
                 await RemoveOtpAsync(PhoneVerifyKey(phone));
 
                 return await CreateTokenResponseAsync(user, platform);
@@ -431,7 +440,7 @@ namespace MV.ApplicationLayer.Services
                 }
 
                 var phone = request.Phone.Trim();
-                var user = await _unitOfWork.UserRepository.GetUserByPhoneAsync(phone);
+                var user = await _userRepository.GetUserByPhoneAsync(phone);
                 if (user == null)
                 {
                     return new TokenResponse { ErrorMessage = "Không tìm thấy người dùng." };
@@ -482,7 +491,7 @@ namespace MV.ApplicationLayer.Services
                 }
 
                 var phone = request.Phone.Trim();
-                var user = await _unitOfWork.UserRepository.GetUserByPhoneAsync(phone);
+                var user = await _userRepository.GetUserByPhoneAsync(phone);
 
                 // Theo yêu cầu: báo lỗi rõ ràng khi SĐT chưa đăng ký thay vì luôn trả success.
                 // Đánh đổi có chủ đích, chấp nhận mất lớp chống dò số điện thoại (enumeration)
@@ -522,7 +531,7 @@ namespace MV.ApplicationLayer.Services
                 }
 
                 var phone = request.Phone.Trim();
-                var user = await _unitOfWork.UserRepository.GetUserByPhoneAsync(phone);
+                var user = await _userRepository.GetUserByPhoneAsync(phone);
                 if (user == null)
                 {
                     return new TokenResponse { ErrorMessage = "Yêu cầu không hợp lệ." };
@@ -552,8 +561,8 @@ namespace MV.ApplicationLayer.Services
                 }
 
                 user.Password = _passwordRepository.HashPassword(request.NewPassword);
-                await _unitOfWork.UserRepository.UpdateUserAsync(user);
-                await _unitOfWork.SaveChangesAsync();
+                await _userRepository.UpdateUserAsync(user);
+                await _dbContext.SaveChangesAsync();
                 await RemoveOtpAsync(PhoneResetKey(phone));
 
                 return new TokenResponse { ErrorMessage = string.Empty };
@@ -583,7 +592,7 @@ namespace MV.ApplicationLayer.Services
                 };
             }
 
-            var role = await _unitOfWork.UserRepository.GetUserRoleByIdAsync(user.Userid);
+            var role = await _userRepository.GetUserRoleByIdAsync(user.Userid);
             if (string.IsNullOrEmpty(role))
             {
                 return new TokenResponse { ErrorMessage = "User role not found." };
@@ -618,7 +627,7 @@ namespace MV.ApplicationLayer.Services
         /// </summary>
         private async Task<bool> IsParentManagedChildAccountAsync(string userId)
         {
-            var profile = await _unitOfWork.StudentRepository.FindByStudentOrLinkedUserAsync(userId);
+            var profile = await _studentRepository.FindByStudentOrLinkedUserAsync(userId);
             return profile?.Parentid != null;
         }
 
@@ -638,8 +647,8 @@ namespace MV.ApplicationLayer.Services
                 Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
             };
 
-            await _unitOfWork.RefreshTokenRepository.CreateAsync(refreshToken);
-            await _unitOfWork.SaveChangesAsync();
+            await _refreshTokenRepository.CreateAsync(refreshToken);
+            await _dbContext.SaveChangesAsync();
 
             return rawToken;
         }
