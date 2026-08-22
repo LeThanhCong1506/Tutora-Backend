@@ -37,6 +37,12 @@ public class DisputeDetailResponse
     public decimal? RefundAmount { get; set; }
     public int? RefundPercentage { get; set; }
 
+    /// <summary>False khi chuỗi buổi (gốc + bù/phụ do gián đoạn + học lại do hoà giải) chứa buổi
+    /// này đã đạt số buổi tối đa cho phép trong 1 chuỗi (xem
+    /// DisputeRelearnPolicy.MaxRelearnSessionsPerChain) — CMS nên khoá lựa chọn "Học lại buổi
+    /// này" trong modal đóng phản ánh, chỉ còn "Ra quyết định" (hoàn tiền) khả dụng.</summary>
+    public bool RelearnAvailable { get; set; } = true;
+
     // Tutor rebuttal
     public string? TutorResponse { get; set; }
     public DateTime? TutorRespondedAt { get; set; }
@@ -139,28 +145,12 @@ public class DisputeEvidenceItemResponse
 public class DisputeRecordingResponse
 {
     public int DisputeId { get; set; }
-    public int? ClassSessionId { get; set; }
 
     /// <summary>
-    /// available (có link xem) | processing (đang đẩy lên Drive) | recording (đang ghi) |
-    /// failed (đã ghi nhưng không ra file) | none.
+    /// Toàn bộ chuỗi buổi liên kết (bù/phụ/học lại) chứa buổi bị tranh chấp, theo đúng thứ tự thời
+    /// gian — đi hết cả chuỗi (đệ quy, không chỉ buổi gốc liền trước) vì 1 buổi phụ/buổi bù sau đó
+    /// vẫn có thể bị tranh chấp và sinh ra buổi học lại của chính nó, tạo chuỗi dài hơn 2. Item có
+    /// IsCurrent=true là đúng buổi đang bị tranh chấp trong phản ánh này.
     /// </summary>
-    public string Status { get; set; } = "none";
-
-    /// <summary>Link xem video (Google Drive) — chỉ có khi Status = "available".</summary>
-    public string? RecordingUrl { get; set; }
-
-    /// <summary>True nếu đã có link xem được.</summary>
-    public bool Available { get; set; }
-
-    /// <summary>
-    /// Khi buổi bị tranh chấp là buổi phụ (Iscontinuation=true, sinh ra vì buổi gốc bị ngắt giữa
-    /// chừng), 4 field dưới đây mang thông tin bản ghi của buổi GỐC (Originalsessionid) — để admin
-    /// xem được cả 2 nửa buổi học khi xử lý tranh chấp, không chỉ nửa sau. Null/false nếu buổi bị
-    /// tranh chấp không phải buổi phụ.
-    /// </summary>
-    public int? OriginalClassSessionId { get; set; }
-    public string? OriginalStatus { get; set; }
-    public string? OriginalRecordingUrl { get; set; }
-    public bool OriginalAvailable { get; set; }
+    public List<ClassSessionRecordingChainItem> Chain { get; set; } = [];
 }

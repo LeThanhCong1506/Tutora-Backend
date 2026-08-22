@@ -35,8 +35,10 @@ public static class CloseDisputeOutcomes
     /// <summary>Buổi học vẫn tính là đã dạy — quyết toán cho gia sư như bình thường, không hoàn tiền.</summary>
     public const string Completed = "completed";
 
-    /// <summary>Hai bên thống nhất học lại buổi này — trả buổi về "scheduled", xoá dấu vết điểm danh
-    /// của lần trước và KHÔNG quyết toán (tiền vẫn nằm trong booking để dùng cho lần học lại).</summary>
+    /// <summary>Hai bên thống nhất học lại buổi này — buổi gốc chuyển "cancelled" (giữ nguyên toàn bộ
+    /// dữ liệu/ghi hình để tra cứu), tạo 1 buổi học lại MỚI (link 3, Isdisputerelearn=true) ở giờ do
+    /// Admin/Staff chọn (RelearnScheduledStart). KHÔNG quyết toán buổi gốc — tiền vẫn nằm trong
+    /// booking để dùng cho buổi học lại.</summary>
     public const string Reschedule = "reschedule";
 
     public static readonly string[] All = { Completed, Reschedule };
