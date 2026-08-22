@@ -16,7 +16,7 @@ namespace MV.ApplicationLayer.Services
             string tutorId, string certId, AdminVerifyCertificateRequest request, string adminId)
         {
             // 1. Lấy certificate, kiểm tra tồn tại và thuộc đúng tutor
-            var certificate = await _unitOfWork.TutorRepository.GetCertificateByIdAsync(certId)
+            var certificate = await _tutorRepository.GetCertificateByIdAsync(certId)
                 ?? throw new KeyNotFoundException($"Không tìm thấy chứng chỉ với ID: {certId}");
 
             if (!string.Equals(certificate.Tutorid, tutorId, StringComparison.OrdinalIgnoreCase))
@@ -36,7 +36,7 @@ namespace MV.ApplicationLayer.Services
             certificate.Verificationnote = noteText;
             certificate.Updatedat = TimeZoneHelper.UtcNow;
 
-            await _unitOfWork.SaveChangesAsync();
+            await _context.SaveChangesAsync();
 
             _logger.LogInformation(
                 "Admin {AdminId} {Action} certificate {CertId} for tutor {TutorId}",
@@ -51,7 +51,8 @@ namespace MV.ApplicationLayer.Services
                     {
                         Userid = tutorId,
                         Title = "Chứng chỉ được duyệt",
-                        Message = $"Chứng chỉ \"{certificate.Certificatename}\" đã được admin phê duyệt."
+                        Message = $"Chứng chỉ \"{certificate.Certificatename}\" đã được admin phê duyệt.",
+                        Type = NotificationType.TutorVettingApproved
                     });
                 }
                 else
@@ -60,7 +61,8 @@ namespace MV.ApplicationLayer.Services
                     {
                         Userid = tutorId,
                         Title = "Chứng chỉ bị từ chối",
-                        Message = $"Chứng chỉ \"{certificate.Certificatename}\" đã bị từ chối. Lý do: {noteText}"
+                        Message = $"Chứng chỉ \"{certificate.Certificatename}\" đã bị từ chối. Lý do: {noteText}",
+                        Type = NotificationType.TutorVettingRejected
                     });
                 }
             }
@@ -83,7 +85,7 @@ namespace MV.ApplicationLayer.Services
 
         public async Task<PagedList<PendingCertificateResponse>> GetAdminCertificatesAsync(CertificateParameters parameters)
         {
-            var paged = await _unitOfWork.TutorRepository.GetAdminCertificatesAsync(parameters);
+            var paged = await _tutorRepository.GetAdminCertificatesAsync(parameters);
 
             var mapped = paged.Select(c => new PendingCertificateResponse
             {
@@ -137,8 +139,8 @@ namespace MV.ApplicationLayer.Services
             var pending = await _updateStaging.GetPendingUpdateAsync(tutorId);
             if (pending == null) return null;
 
-            var profile = await _unitOfWork.TutorRepository.GetTutorProfileByIdAsync(tutorId);
-            var user = await _unitOfWork.UserRepository.GetUserByIdAsync(tutorId);
+            var profile = await _tutorRepository.GetTutorProfileByIdAsync(tutorId);
+            var user = await _userRepository.GetUserByIdAsync(tutorId);
             if (profile == null || user == null) return null;
 
             return new PendingProfileUpdateRequestResponse
@@ -158,6 +160,8 @@ namespace MV.ApplicationLayer.Services
                 ProposedBio = pending.Bio,
                 CurrentEducation = profile.Education,
                 ProposedEducation = pending.Education,
+                CurrentDegree = profile.Degree,
+                ProposedDegree = pending.Degree,
                 CurrentExperience = profile.Experience,
                 ProposedExperience = pending.Experience,
                 CurrentVideoIntroUrl = profile.Videointrourl,
@@ -220,10 +224,10 @@ namespace MV.ApplicationLayer.Services
                 throw new KeyNotFoundException(
                     "Yêu cầu cập nhật không còn tồn tại — có thể đã được xử lý trước đó hoặc dữ liệu tạm thời bị mất. Vui lòng yêu cầu tutor nộp lại.");
 
-            var profile = await _unitOfWork.TutorRepository.GetTutorProfileByIdAsync(tutorId)
+            var profile = await _tutorRepository.GetTutorProfileByIdAsync(tutorId)
                 ?? throw new KeyNotFoundException("Không tìm thấy hồ sơ gia sư.");
 
-            var user = await _unitOfWork.UserRepository.GetUserByIdAsync(tutorId)
+            var user = await _userRepository.GetUserByIdAsync(tutorId)
                 ?? throw new KeyNotFoundException("Không tìm thấy gia sư.");
 
             string statusText;
@@ -237,6 +241,7 @@ namespace MV.ApplicationLayer.Services
                 if (pending.TeachingAreaCity != null) profile.Teachingareacity = pending.TeachingAreaCity;
                 if (pending.TeachingAreaDistrict != null) profile.Teachingareadistrict = pending.TeachingAreaDistrict;
                 if (pending.Bio != null) profile.Bio = pending.Bio;
+                if (pending.Degree != null) profile.Degree = pending.Degree;
                 if (pending.Education != null) profile.Education = pending.Education;
                 if (pending.Gpa != null) profile.Gpa = pending.Gpa;
                 if (pending.GpaScale != null) profile.Gpascale = pending.GpaScale;
@@ -247,11 +252,11 @@ namespace MV.ApplicationLayer.Services
                 if (pending.SubjectGradePrices != null)
                 {
                     await ValidateSubjectGradePricesAsync(tutorId, pending.SubjectGradePrices);
-                    await _unitOfWork.TutorRepository.ReplaceTutorSubjectGradePricesAsync(
+                    await _tutorRepository.ReplaceTutorSubjectGradePricesAsync(
                         tutorId, MapSubjectGradePriceRequests(tutorId, pending.SubjectGradePrices));
                 }
 
-                await _unitOfWork.SaveChangesAsync();
+                await _context.SaveChangesAsync();
 
                 // Staged edit của gia sư active vừa land vào Postgres → re-embed nền (bio/môn/
                 // giá đổi). 
@@ -282,7 +287,8 @@ namespace MV.ApplicationLayer.Services
                     {
                         Userid = tutorId,
                         Title = "Cập nhật hồ sơ đã được duyệt",
-                        Message = "Admin đã phê duyệt thay đổi hồ sơ của bạn. Thông tin mới đã hiển thị trên marketplace."
+                        Message = "Admin đã phê duyệt thay đổi hồ sơ của bạn. Thông tin mới đã hiển thị trên marketplace.",
+                        Type = NotificationType.TutorVettingApproved
                     });
                 }
                 else
@@ -291,7 +297,8 @@ namespace MV.ApplicationLayer.Services
                     {
                         Userid = tutorId,
                         Title = "Cập nhật hồ sơ bị từ chối",
-                        Message = $"Admin đã từ chối thay đổi hồ sơ của bạn. Lý do: {request.Note ?? "Không đạt yêu cầu"}. Hồ sơ hiện tại của bạn trên marketplace không bị ảnh hưởng."
+                        Message = $"Admin đã từ chối thay đổi hồ sơ của bạn. Lý do: {request.Note ?? "Không đạt yêu cầu"}. Hồ sơ hiện tại của bạn trên marketplace không bị ảnh hưởng.",
+                        Type = NotificationType.TutorVettingRejected
                     });
                 }
             }

@@ -15,6 +15,10 @@ public static class NotificationType
     public const string PaymentRemainingRequired = "payment_remaining_required";
     public const string PaymentRefundSuccess = "payment_refund_success";
     public const string WithdrawalRequest = "withdrawal_request";
+    /// <summary>Có yêu cầu rút tiền mới đang chờ duyệt, gửi cho Admin (hiển thị ở CMS).
+    /// Referenceid = withdrawalId. Tách khỏi <see cref="WithdrawalRequest"/> vì loại đó dành cho
+    /// người yêu cầu (đã tạo / được duyệt / bị từ chối), còn loại này là việc cần Admin xử lý.</summary>
+    public const string WithdrawalRequestNew = "withdrawal_request_new";
     public const string LessonReminder  = "lesson_reminder";
     public const string LessonCheckin   = "lesson_checkin";
     public const string LessonReport    = "lesson_report";
@@ -30,6 +34,26 @@ public static class NotificationType
     public const string RescheduleRejected = "reschedule_rejected";
     /// <summary>Đề xuất dời giờ học đã hết hạn do không ai phản hồi kịp. Referenceid = classSessionId.</summary>
     public const string RescheduleExpired = "reschedule_expired";
+    /// <summary>Có khiếu nại/tranh chấp mới cần CMS xử lý — gửi cho Admin/Staff.
+    /// Referenceid = disputeId (CMS route là disputes/:disputeId).</summary>
+    public const string DisputeNew      = "dispute_new";
+    /// <summary>Bên bị khiếu nại được báo có khiếu nại về buổi học của mình.
+    /// Referenceid = classSessionId (app người dùng route là disputes/:classSessionId).</summary>
+    public const string DisputeReceived = "dispute_received";
+    /// <summary>Khiếu nại đã xử lý xong (giải quyết / đóng / xác nhận vắng mặt). Referenceid = classSessionId.</summary>
+    public const string DisputeResolved = "dispute_resolved";
+    /// <summary>Bên đối ứng vừa gửi phản hồi cho khiếu nại. Referenceid = classSessionId.</summary>
+    public const string DisputeResponded = "dispute_responded";
+    /// <summary>Gia sư nộp thay đổi hồ sơ, chờ CMS duyệt. Không có referenceid (CMS mở thẳng tab chờ duyệt).</summary>
+    public const string TutorProfileUpdateRequest = "tutor_profile_update";
+    /// <summary>Hồ sơ hoặc chứng chỉ gia sư đã được duyệt.</summary>
+    public const string TutorVettingApproved = "tutor_vetting_approved";
+    /// <summary>Hồ sơ hoặc chứng chỉ gia sư bị từ chối.</summary>
+    public const string TutorVettingRejected = "tutor_vetting_rejected";
+    /// <summary>Tiền khóa học đã giải ngân về ví gia sư. Referenceid = bookingId.</summary>
+    public const string SettlementReleased = "settlement_released";
+    /// <summary>Khóa học đã kết thúc/chốt sổ. Referenceid = bookingId.</summary>
+    public const string CourseCompleted = "course_completed";
     public const string Message         = "message";
     /// <summary>Tin nhắn mới trong hội thoại hỗ trợ giữa người dùng và Admin. Referenceid = supportThreadId.</summary>
     public const string SupportMessage  = "support_message";

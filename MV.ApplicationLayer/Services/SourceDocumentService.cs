@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using MV.ApplicationLayer.Interfaces;
+using MV.ApplicationLayer.RepositoryInterfaces;
 using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO.RequestModel;
@@ -16,20 +17,26 @@ public class SourceDocumentService : ISourceDocumentService
     private const int MaxPages = 20;
     private const string PdfBucket = "question-bank-pdf";
 
-    private readonly IUnitOfWork _unitOfWork;
+    private readonly ISourceDocumentRepository _sourceDocumentRepository;
+    private readonly IQuestionRepository _questionRepository;
+    private readonly IAppDbContext _dbContext;
     private readonly IFileStorageService _storage;
     private readonly ITutorAiClient _aiClient;
     private readonly INotificationService _notificationService;
     private readonly ILogger<SourceDocumentService> _logger;
 
     public SourceDocumentService(
-        IUnitOfWork unitOfWork,
+        ISourceDocumentRepository sourceDocumentRepository,
+        IQuestionRepository questionRepository,
+        IAppDbContext dbContext,
         IFileStorageService storage,
         ITutorAiClient aiClient,
         INotificationService notificationService,
         ILogger<SourceDocumentService> logger)
     {
-        _unitOfWork = unitOfWork;
+        _sourceDocumentRepository = sourceDocumentRepository;
+        _questionRepository = questionRepository;
+        _dbContext = dbContext;
         _storage = storage;
         _aiClient = aiClient;
         _notificationService = notificationService;
@@ -109,8 +116,8 @@ public class SourceDocumentService : ISourceDocumentService
             Status = "processing",
             UploadedBy = uploadedBy,
         };
-        await _unitOfWork.SourceDocumentRepository.AddAsync(doc);
-        await _unitOfWork.SaveChangesAsync();
+        await _sourceDocumentRepository.AddAsync(doc);
+        await _dbContext.SaveChangesAsync();
 
         // Gọi tutora-ai extract PDF -> list câu.
         var extracted = await _aiClient.ExtractPdfAsync(pdfBytes, file.FileName, ct);
@@ -118,8 +125,8 @@ public class SourceDocumentService : ISourceDocumentService
         {
             doc.Status = "failed";
             doc.ErrorMessage = "AI extract thất bại (tutora-ai không phản hồi hoặc lỗi).";
-            _unitOfWork.SourceDocumentRepository.Update(doc);
-            await _unitOfWork.SaveChangesAsync();
+            _sourceDocumentRepository.Update(doc);
+            await _dbContext.SaveChangesAsync();
             return Fail(doc, "AI extract thất bại. Vui lòng thử lại.");
         }
 
@@ -150,17 +157,17 @@ public class SourceDocumentService : ISourceDocumentService
         {
             doc.Status = "done";
             doc.QuestionsExtracted = 0;
-            _unitOfWork.SourceDocumentRepository.Update(doc);
-            await _unitOfWork.SaveChangesAsync();
+            _sourceDocumentRepository.Update(doc);
+            await _dbContext.SaveChangesAsync();
             await NotifyExtractionDoneAsync(doc, 0);
             return Fail(doc, "Không tách được câu hỏi nào từ PDF.");
         }
 
-        await _unitOfWork.SourceDocumentRepository.AddQuestionsAsync(questions);
+        await _sourceDocumentRepository.AddQuestionsAsync(questions);
         doc.QuestionsExtracted = questions.Count;
         doc.Status = "done";
-        _unitOfWork.SourceDocumentRepository.Update(doc);
-        await _unitOfWork.SaveChangesAsync();   // trigger tính content_hash cho từng câu
+        _sourceDocumentRepository.Update(doc);
+        await _dbContext.SaveChangesAsync();   // trigger tính content_hash cho từng câu
 
         // Embed từng câu (best-effort). Câu nào embed lỗi -> vector null, embed lại sau.
         int embedded = 0;
@@ -172,7 +179,7 @@ public class SourceDocumentService : ISourceDocumentService
                 if (vector == null) continue;
                 q.Embedding = new Vector(vector);
                 q.EmbeddedHash = q.ContentHash;   // content_hash đã có sau save (trigger)
-                _unitOfWork.QuestionRepository.Update(q);
+                _questionRepository.Update(q);
                 embedded++;
             }
             catch (Exception ex)
@@ -181,7 +188,7 @@ public class SourceDocumentService : ISourceDocumentService
             }
         }
         if (embedded > 0)
-            await _unitOfWork.SaveChangesAsync();
+            await _dbContext.SaveChangesAsync();
 
         await NotifyExtractionDoneAsync(doc, questions.Count);
 
@@ -201,14 +208,14 @@ public class SourceDocumentService : ISourceDocumentService
     public async Task<PagedList<SourceDocumentResponse>> GetHistoryAsync(
         int pageNumber, int pageSize, CancellationToken ct = default)
     {
-        var (items, total) = await _unitOfWork.SourceDocumentRepository.GetHistoryAsync(pageNumber, pageSize);
+        var (items, total) = await _sourceDocumentRepository.GetHistoryAsync(pageNumber, pageSize);
         var mapped = items.Select(DocToResponse).ToList();
         return new PagedList<SourceDocumentResponse>(mapped, total, pageNumber, pageSize);
     }
 
     public async Task<SourceDocumentDetailResponse?> GetDetailAsync(Guid id, CancellationToken ct = default)
     {
-        var doc = await _unitOfWork.SourceDocumentRepository.GetWithQuestionsAsync(id);
+        var doc = await _sourceDocumentRepository.GetWithQuestionsAsync(id);
         if (doc == null) return null;
         var detail = new SourceDocumentDetailResponse
         {

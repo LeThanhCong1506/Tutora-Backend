@@ -422,17 +422,16 @@ public class ParentService : IParentService
 
             try
             {
-                var admins = await _context.Users
-                    .Where(u => u.Primaryrole == UserRole.Admin)
-                    .Select(u => u.Userid)
-                    .ToListAsync();
-                if (admins.Count > 0)
+                var reviewerIds = await PermissionRecipients.ResolveAsync(_context, Permissions.DisputeView);
+                if (reviewerIds.Count > 0)
                 {
-                    await _notificationService.CreateNotificationsAsync(admins.Select(adminId => new NotificationRequest
+                    await _notificationService.CreateNotificationsAsync(reviewerIds.Select(reviewerId => new NotificationRequest
                     {
-                        Userid = adminId,
+                        Userid = reviewerId,
                         Title = "Tranh chấp mới",
-                        Message = $"Phụ huynh đã tạo tranh chấp cho buổi học #{classSessionId}. Lý do: {request.Reason}"
+                        Message = $"Phụ huynh đã tạo tranh chấp cho buổi học #{classSessionId}. Lý do: {request.Reason}",
+                        Type = NotificationType.DisputeNew,
+                        Referenceid = dispute.Disputeid.ToString()
                     }));
                 }
 
@@ -442,7 +441,9 @@ public class ParentService : IParentService
                     {
                         Userid = classSession.Tutorid,
                         Title = "Có khiếu nại về buổi học của bạn",
-                        Message = $"Một khiếu nại đã được tạo cho buổi học #{classSessionId}. Bạn có thể xem chi tiết và gửi phản hồi."
+                        Message = $"Một khiếu nại đã được tạo cho buổi học #{classSessionId}. Bạn có thể xem chi tiết và gửi phản hồi.",
+                        Type = NotificationType.DisputeReceived,
+                        Referenceid = classSessionId.ToString()
                     });
                 }
             }

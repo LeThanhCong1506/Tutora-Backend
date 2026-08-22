@@ -584,8 +584,9 @@ namespace MV.InfrastructureLayer.Repositories
                 ? label
                 : profile.Subscriptiontype?.ToUpper();
 
-            // Extract degree level from education
-            var degreeLevel = ExtractDegreeLevel(profile.Education);
+            // Ưu tiên cột Degree thật (từ 2026-08-22); hồ sơ cũ chưa điền lại thì
+            // vẫn đoán qua chuỗi Education như trước để không mất badge đột ngột.
+            var degreeLevel = ExtractDegreeLevel(profile.Degree) ?? ExtractDegreeLevel(profile.Education);
 
             // Lowest active price across all subject/grade offerings (for "Từ X đ/giờ").
             var minPricePerHour = profile.Tutorsubjectgradeprices?

@@ -479,14 +479,18 @@ public class DisputeService : IDisputeService
                     {
                         Userid = snapshot.Createdby,
                         Title = "Báo cáo vắng mặt đã được xác nhận",
-                        Message = $"Admin đã xác nhận gia sư vắng mặt ở buổi học #{classSessionId}. Bạn có thể chọn phương án xử lý."
+                        Message = $"Admin đã xác nhận gia sư vắng mặt ở buổi học #{classSessionId}. Bạn có thể chọn phương án xử lý.",
+                        Type = NotificationType.DisputeResolved,
+                        Referenceid = classSessionId.ToString()
                     });
                 if (!string.IsNullOrWhiteSpace(tutorId))
                     notifications.Add(new NotificationRequest
                     {
                         Userid = tutorId,
                         Title = "Xác nhận vắng mặt",
-                        Message = $"Admin đã xác nhận báo cáo vắng mặt cho buổi học #{classSessionId}."
+                        Message = $"Admin đã xác nhận báo cáo vắng mặt cho buổi học #{classSessionId}.",
+                        Type = NotificationType.DisputeResolved,
+                        Referenceid = classSessionId.ToString()
                     });
                 if (notifications.Count > 0)
                     await _notificationService.CreateNotificationsAsync(notifications);
@@ -655,6 +659,7 @@ public class DisputeService : IDisputeService
                 {
                     Userid = createdBy,
                     Title = "Phản ánh đã được đóng",
+                    Type = NotificationType.DisputeResolved,
                     Message = $"Phản ánh #{disputeId} đã được đóng do hai bên đã thống nhất với nhau. {outcomeText} Ghi chú: {request.Note}",
                     Referenceid = classSessionId?.ToString()
                 });
@@ -725,7 +730,7 @@ public class DisputeService : IDisputeService
         var snapshot = await _context.Disputes
             .AsNoTracking()
             .Where(d => d.Disputeid == disputeId)
-            .Select(d => new { d.Bookingid })
+            .Select(d => new { d.Bookingid, d.Classsessionid })
             .FirstOrDefaultAsync()
             ?? throw new ArgumentException("Không tìm thấy tranh chấp");
 
@@ -827,12 +832,16 @@ public class DisputeService : IDisputeService
                 {
                     Userid = createdBy,
                     Title = "Tranh chấp đã được giải quyết",
-                    Message = $"Tranh chấp #{disputeId} đã được giải quyết. Kết quả: {request.ResolutionType}. Ghi chú: {request.ResolutionNote}"
+                    Message = $"Tranh chấp #{disputeId} đã được giải quyết. Kết quả: {request.ResolutionType}. Ghi chú: {request.ResolutionNote}",
+                    Type = NotificationType.DisputeResolved,
+                    Referenceid = snapshot.Classsessionid?.ToString()
                 });
 
             if (tutorId != null)
                 notifications.Add(new NotificationRequest { Userid = tutorId, Title = "Thông báo giải quyết tranh chấp",
-                    Message = $"Tranh chấp #{disputeId} liên quan đến buổi học của bạn đã được giải quyết. Kết quả: {request.ResolutionType}." });
+                    Message = $"Tranh chấp #{disputeId} liên quan đến buổi học của bạn đã được giải quyết. Kết quả: {request.ResolutionType}.",
+                    Type = NotificationType.DisputeResolved,
+                    Referenceid = snapshot.Classsessionid?.ToString() });
 
             await _notificationService.CreateNotificationsAsync(notifications);
 
@@ -971,7 +980,9 @@ public class DisputeService : IDisputeService
                 {
                     Userid = dispute.Createdby,
                     Title = "Gia sư đã phản hồi khiếu nại",
-                    Message = $"Gia sư đã gửi phản hồi cho khiếu nại #{dispute.Disputeid}. Admin sẽ xem xét và xử lý."
+                    Message = $"Gia sư đã gửi phản hồi cho khiếu nại #{dispute.Disputeid}. Admin sẽ xem xét và xử lý.",
+                    Type = NotificationType.DisputeResponded,
+                    Referenceid = dispute.Classsessionid?.ToString()
                 });
             }
             catch (Exception ex)
@@ -1149,17 +1160,16 @@ public class DisputeService : IDisputeService
 
         try
         {
-            var admins = await _context.Users
-                .Where(u => u.Primaryrole == UserRole.Admin)
-                .Select(u => u.Userid)
-                .ToListAsync();
-            if (admins.Count > 0)
+            var reviewerIds = await PermissionRecipients.ResolveAsync(_context, Permissions.DisputeView);
+            if (reviewerIds.Count > 0)
             {
-                await _notificationService.CreateNotificationsAsync(admins.Select(adminId => new NotificationRequest
+                await _notificationService.CreateNotificationsAsync(reviewerIds.Select(reviewerId => new NotificationRequest
                 {
-                    Userid = adminId,
+                    Userid = reviewerId,
                     Title = "Tranh chấp mới",
-                    Message = $"Gia sư đã tạo tranh chấp cho buổi học #{classSessionId}. Lý do: {request.Reason}"
+                    Message = $"Gia sư đã tạo tranh chấp cho buổi học #{classSessionId}. Lý do: {request.Reason}",
+                    Type = NotificationType.DisputeNew,
+                    Referenceid = dispute.Disputeid.ToString()
                 }));
             }
 
@@ -1187,7 +1197,9 @@ public class DisputeService : IDisputeService
                 {
                     Userid = counterpartId,
                     Title = "Có khiếu nại về buổi học của bạn",
-                    Message = $"Gia sư đã tạo khiếu nại cho buổi học #{classSessionId}. Bạn có thể xem chi tiết và gửi phản hồi."
+                    Message = $"Gia sư đã tạo khiếu nại cho buổi học #{classSessionId}. Bạn có thể xem chi tiết và gửi phản hồi.",
+                    Type = NotificationType.DisputeReceived,
+                    Referenceid = classSessionId.ToString()
                 });
             }
         }
@@ -1243,7 +1255,9 @@ public class DisputeService : IDisputeService
                 {
                     Userid = dispute.Createdby,
                     Title = "Đã có phản hồi cho khiếu nại",
-                    Message = $"Phụ huynh/học sinh đã gửi phản hồi cho khiếu nại #{dispute.Disputeid}. Admin sẽ xem xét và xử lý."
+                    Message = $"Phụ huynh/học sinh đã gửi phản hồi cho khiếu nại #{dispute.Disputeid}. Admin sẽ xem xét và xử lý.",
+                    Type = NotificationType.DisputeResponded,
+                    Referenceid = dispute.Classsessionid?.ToString()
                 });
             }
             catch (Exception ex)
@@ -1427,14 +1441,12 @@ public class DisputeService : IDisputeService
         return response;
     }
 
-    /// <summary>Notify every admin of a new tutor/parent dispute message — there's no single
-    /// "assigned" admin per dispute, so all of them get the badge/real-time push.</summary>
+    /// <summary>Notify every dispute handler of a new tutor/parent dispute message — there's no
+    /// single "assigned" admin per dispute, so all of them get the badge/real-time push.
+    /// Bao gồm cả Staff có dispute.view, không chỉ Admin.</summary>
     private async Task NotifyAdminsOfDisputeMessageAsync(DisputeMessageResponse response)
     {
-        var adminIds = await _context.Users
-            .Where(u => u.Primaryrole == UserRole.Admin)
-            .Select(u => u.Userid)
-            .ToListAsync();
+        var adminIds = await PermissionRecipients.ResolveAsync(_context, Permissions.DisputeView);
 
         foreach (var adminId in adminIds)
         {

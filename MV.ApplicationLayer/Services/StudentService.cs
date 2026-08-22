@@ -15,7 +15,9 @@ namespace MV.ApplicationLayer.Services
 {
     public partial class StudentService : IStudentService
     {
-        private readonly IUnitOfWork _unitOfWork;
+        private readonly IUserRepository _userRepository;
+        private readonly IStudentRepository _studentRepository;
+        private readonly IAppDbContext _dbContext;
         private readonly IFileStorageService _storage;
         private readonly IConfiguration _config;
         private readonly IPasswordRepository _passwordRepository;
@@ -31,7 +33,9 @@ namespace MV.ApplicationLayer.Services
         private const string PasswordChars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!@#$";
 
         public StudentService(
-            IUnitOfWork unitOfWork,
+            IUserRepository userRepository,
+            IStudentRepository studentRepository,
+            IAppDbContext dbContext,
             IFileStorageService storage,
             IConfiguration config,
             IPasswordRepository passwordRepository,
@@ -40,7 +44,9 @@ namespace MV.ApplicationLayer.Services
             IAiCreditService aiCreditService,
             Microsoft.Extensions.Logging.ILogger<StudentService> logger)
         {
-            _unitOfWork = unitOfWork ?? throw new ArgumentNullException(nameof(unitOfWork));
+            _userRepository = userRepository ?? throw new ArgumentNullException(nameof(userRepository));
+            _studentRepository = studentRepository ?? throw new ArgumentNullException(nameof(studentRepository));
+            _dbContext = dbContext ?? throw new ArgumentNullException(nameof(dbContext));
             _storage = storage ?? throw new ArgumentNullException(nameof(storage));
             _config = config ?? throw new ArgumentNullException(nameof(config));
             _passwordRepository = passwordRepository ?? throw new ArgumentNullException(nameof(passwordRepository));
@@ -52,14 +58,14 @@ namespace MV.ApplicationLayer.Services
 
         public async Task<List<StudentProfileResponse>> GetStudentsByParentIdAsync(string parentId)
         {
-            var students = await _unitOfWork.StudentRepository.GetByParentIdAsync(parentId);
+            var students = await _studentRepository.GetByParentIdAsync(parentId);
             var responses = new List<StudentProfileResponse>();
             foreach (var s in students)
             {
                 var resp = MapToResponse(s);
                 if (s.Linkeduserid != null)
                 {
-                    var user = await _unitOfWork.UserRepository.GetUserByIdAsync(s.Linkeduserid);
+                    var user = await _userRepository.GetUserByIdAsync(s.Linkeduserid);
                     resp.Username = user?.Username;
                 }
                 responses.Add(resp);
@@ -69,12 +75,12 @@ namespace MV.ApplicationLayer.Services
 
         public async Task<StudentProfileResponse> GetStudentByIdAsync(string studentId, string parentId)
         {
-            var student = await _unitOfWork.StudentRepository.GetByIdAndParentAsync(studentId, parentId)
+            var student = await _studentRepository.GetByIdAndParentAsync(studentId, parentId)
                 ?? throw new StudentNotFoundException(studentId);
             var resp = MapToResponse(student);
             if (student.Linkeduserid != null)
             {
-                var user = await _unitOfWork.UserRepository.GetUserByIdAsync(student.Linkeduserid);
+                var user = await _userRepository.GetUserByIdAsync(student.Linkeduserid);
                 resp.Username = user?.Username;
             }
             return resp;
@@ -84,12 +90,12 @@ namespace MV.ApplicationLayer.Services
         {
             ValidateBirthdate(request.Birthdate);
 
-            var currentCount = await _unitOfWork.StudentRepository.CountByParentIdAsync(parentId);
+            var currentCount = await _studentRepository.CountByParentIdAsync(parentId);
             if (currentCount >= MaxStudentsPerParent)
                 throw new MaxStudentsReachedException();
 
             // SĐT phụ huynh.
-            var parent = await _unitOfWork.UserRepository.GetUserByIdAsync(parentId);
+            var parent = await _userRepository.GetUserByIdAsync(parentId);
 
             // 1. Auto-generate credentials cho child
             var childUserId = Guid.NewGuid().ToString();
@@ -127,9 +133,9 @@ namespace MV.ApplicationLayer.Services
             };
 
             // 4. Lưu cả User và Studentprofile
-            await _unitOfWork.UserRepository.CreateUserAsync(childUser);
-            await _unitOfWork.StudentRepository.CreateAsync(student);
-            await _unitOfWork.SaveChangesAsync();
+            await _userRepository.CreateUserAsync(childUser);
+            await _studentRepository.CreateAsync(student);
+            await _dbContext.SaveChangesAsync();
 
             // 4b. Tặng gói Free cho TÀI KHOẢN của học sinh (credit gắn với user_id).
             try
@@ -157,7 +163,7 @@ namespace MV.ApplicationLayer.Services
 
         public async Task<StudentProfileResponse> UpdateAvatarAsync(string studentId, IFormFile avatarFile, string parentId)
         {
-            var student = await _unitOfWork.StudentRepository.GetByIdAndParentAsync(studentId, parentId)
+            var student = await _studentRepository.GetByIdAndParentAsync(studentId, parentId)
                 ?? throw new NotStudentOwnerException(studentId);
 
             var oldFilePath = student.Avatarurl;
@@ -165,19 +171,19 @@ namespace MV.ApplicationLayer.Services
                 await _storage.DeleteFileAsync(AvatarBucket, studentId, oldFilePath);
 
             student.Avatarurl = await UploadAvatarAsync(avatarFile, parentId);
-            _unitOfWork.StudentRepository.Update(student);
+            _studentRepository.Update(student);
 
             if (student.Linkeduserid != null)
             {
-                var linkedUser = await _unitOfWork.UserRepository.GetUserByIdAsync(student.Linkeduserid);
+                var linkedUser = await _userRepository.GetUserByIdAsync(student.Linkeduserid);
                 if (linkedUser != null)
                 {
                     linkedUser.Avatarurl = student.Avatarurl;
-                    await _unitOfWork.UserRepository.UpdateUserAsync(linkedUser);
+                    await _userRepository.UpdateUserAsync(linkedUser);
                 }
             }
 
-            await _unitOfWork.SaveChangesAsync();
+            await _dbContext.SaveChangesAsync();
 
             return MapToResponse(student);
         }
@@ -186,7 +192,7 @@ namespace MV.ApplicationLayer.Services
         {
             ValidateBirthdate(request.Birthdate);
 
-            var student = await _unitOfWork.StudentRepository.GetByIdAndParentAsync(studentId, parentId)
+            var student = await _studentRepository.GetByIdAndParentAsync(studentId, parentId)
                 ?? throw new NotStudentOwnerException(studentId);
 
             student.Fullname = request.Fullname;
@@ -195,35 +201,35 @@ namespace MV.ApplicationLayer.Services
             student.Gradelevelid = request.GradeLevelId;
             student.Learninggoals = request.Learninggoals;
 
-            _unitOfWork.StudentRepository.Update(student);
+            _studentRepository.Update(student);
 
             // Cũng cập nhật User.Fullname để đồng bộ tên ở mọi nơi
             if (student.Linkeduserid != null)
             {
-                var linkedUser = await _unitOfWork.UserRepository.GetUserByIdAsync(student.Linkeduserid);
+                var linkedUser = await _userRepository.GetUserByIdAsync(student.Linkeduserid);
                 if (linkedUser != null)
                 {
                     linkedUser.Fullname = request.Fullname;
                     linkedUser.Birthdate = request.Birthdate;
-                    await _unitOfWork.UserRepository.UpdateUserAsync(linkedUser);
+                    await _userRepository.UpdateUserAsync(linkedUser);
                 }
             }
 
-            await _unitOfWork.SaveChangesAsync();
+            await _dbContext.SaveChangesAsync();
 
             return MapToResponse(student);
         }
 
         public async Task DeleteStudentAsync(string studentId, string parentId)
         {
-            var student = await _unitOfWork.StudentRepository.GetByIdAndParentAsync(studentId, parentId)
+            var student = await _studentRepository.GetByIdAndParentAsync(studentId, parentId)
                 ?? throw new NotStudentOwnerException(studentId);
 
-            if (await _unitOfWork.StudentRepository.HasActiveBookingAsync(studentId))
+            if (await _studentRepository.HasActiveBookingAsync(studentId))
                 throw new StudentHasActiveBookingException();
 
-            _unitOfWork.StudentRepository.SoftDelete(student);
-            await _unitOfWork.SaveChangesAsync();
+            _studentRepository.SoftDelete(student);
+            await _dbContext.SaveChangesAsync();
         }
 
 
@@ -232,21 +238,21 @@ namespace MV.ApplicationLayer.Services
         /// </summary>
         public async Task<StudentCredentialsResponse> ResetStudentPasswordAsync(string studentId, string parentId)
         {
-            var student = await _unitOfWork.StudentRepository.GetByIdAndParentAsync(studentId, parentId)
+            var student = await _studentRepository.GetByIdAndParentAsync(studentId, parentId)
                 ?? throw new NotStudentOwnerException(studentId);
 
             if (string.IsNullOrEmpty(student.Linkeduserid))
                 throw new InvalidOperationException("Học sinh chưa có tài khoản liên kết.");
 
-            var user = await _unitOfWork.UserRepository.GetUserByIdAsync(student.Linkeduserid)
+            var user = await _userRepository.GetUserByIdAsync(student.Linkeduserid)
                 ?? throw new InvalidOperationException("Không tìm thấy tài khoản liên kết.");
 
             // Generate new password
             var newPassword = GenerateSecurePassword();
             user.Password = _passwordRepository.HashPassword(newPassword);
 
-            await _unitOfWork.UserRepository.UpdateUserAsync(user);
-            await _unitOfWork.SaveChangesAsync();
+            await _userRepository.UpdateUserAsync(user);
+            await _dbContext.SaveChangesAsync();
 
             return new StudentCredentialsResponse
             {
@@ -262,7 +268,7 @@ namespace MV.ApplicationLayer.Services
 
         public async Task<StudentLinkStatusResponse> GetLinkStatusAsync(string studentUserId)
         {
-            var profiles = await _unitOfWork.StudentRepository.GetByLinkedUserIdAsync(studentUserId);
+            var profiles = await _studentRepository.GetByLinkedUserIdAsync(studentUserId);
             var student = profiles.FirstOrDefault(p => p.Parentid != null) ?? profiles.FirstOrDefault();
 
             if (student == null)
@@ -275,12 +281,12 @@ namespace MV.ApplicationLayer.Services
             string? parentName = null;
             if (linked)
             {
-                var parent = await _unitOfWork.UserRepository.GetUserByIdAsync(student.Parentid!);
+                var parent = await _userRepository.GetUserByIdAsync(student.Parentid!);
                 parentName = parent?.Fullname;
             }
 
             // Trạng thái xác minh độ tuổi nằm ở bảng Users.
-            var linkedUser = await _unitOfWork.UserRepository.GetUserByIdAsync(studentUserId);
+            var linkedUser = await _userRepository.GetUserByIdAsync(studentUserId);
             var profileResp = MapToResponse(student);
             profileResp.IsIdentityVerified = linkedUser?.Isidentityverified == true;
 
@@ -295,7 +301,7 @@ namespace MV.ApplicationLayer.Services
 
         public async Task<StudentProfileResponse> UpdateSelfAvatarAsync(string studentUserId, IFormFile avatarFile)
         {
-            var student = await _unitOfWork.StudentRepository.FindByStudentOrLinkedUserAsync(studentUserId)
+            var student = await _studentRepository.FindByStudentOrLinkedUserAsync(studentUserId)
                 ?? throw new StudentNotFoundException();
 
             var oldFilePath = student.Avatarurl;
@@ -304,17 +310,17 @@ namespace MV.ApplicationLayer.Services
 
             var newUrl = await _storage.UploadFileAsync(AvatarBucket, studentUserId, avatarFile);
             student.Avatarurl = newUrl;
-            _unitOfWork.StudentRepository.Update(student);
+            _studentRepository.Update(student);
 
             // Cập nhật User để 2 bảng luôn đồng bộ
-            var linkedUser = await _unitOfWork.UserRepository.GetUserByIdAsync(studentUserId);
+            var linkedUser = await _userRepository.GetUserByIdAsync(studentUserId);
             if (linkedUser != null)
             {
                 linkedUser.Avatarurl = newUrl;
-                await _unitOfWork.UserRepository.UpdateUserAsync(linkedUser);
+                await _userRepository.UpdateUserAsync(linkedUser);
             }
 
-            await _unitOfWork.SaveChangesAsync();
+            await _dbContext.SaveChangesAsync();
 
             return MapToResponse(student);
         }
@@ -324,10 +330,10 @@ namespace MV.ApplicationLayer.Services
             ValidateBirthdate(request.Birthdate);
 
             // Load cả 2 entity trước khi modify
-            var student = await _unitOfWork.StudentRepository.FindByStudentOrLinkedUserAsync(studentUserId)
+            var student = await _studentRepository.FindByStudentOrLinkedUserAsync(studentUserId)
                 ?? throw new StudentNotFoundException();
 
-            var linkedUser = await _unitOfWork.UserRepository.GetUserByIdAsync(studentUserId);
+            var linkedUser = await _userRepository.GetUserByIdAsync(studentUserId);
 
             // Đã xác minh CCCD → họ tên & ngày sinh là nguồn chuẩn từ CCCD, KHÔNG cho tự sửa
             var identityLocked = linkedUser?.Isidentityverified == true;
@@ -349,7 +355,7 @@ namespace MV.ApplicationLayer.Services
             }
 
             // EF change tracking tự detect thay đổi — không cần gọi Update() thủ công
-            await _unitOfWork.SaveChangesAsync();
+            await _dbContext.SaveChangesAsync();
 
             var resp = MapToResponse(student);
             resp.IsIdentityVerified = identityLocked;
@@ -374,7 +380,7 @@ namespace MV.ApplicationLayer.Services
         }
 
         private Task<string> GenerateStudentIdAsync()
-            => _unitOfWork.StudentRepository.GenerateUniqueStudentIdAsync();
+            => _studentRepository.GenerateUniqueStudentIdAsync();
 
         private async Task<string> GenerateUniqueUsernameAsync(string fullName)
         {
@@ -390,7 +396,7 @@ namespace MV.ApplicationLayer.Services
             {
                 var randomDigits = RandomNumberGenerator.GetInt32(100, 9999);
                 var candidate = $"{baseName}{randomDigits}";
-                if (await _unitOfWork.UserRepository.IsUsernameUniqueAsync(candidate))
+                if (await _userRepository.IsUsernameUniqueAsync(candidate))
                     return candidate;
             }
             throw new InvalidOperationException("Không thể tạo tên đăng nhập duy nhất.");

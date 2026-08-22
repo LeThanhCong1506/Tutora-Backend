@@ -13,7 +13,7 @@ namespace MV.ApplicationLayer.Services
 
         public async Task UpdateTutorProfileAsync(string userId, UpdateTutorProfileRequest request)
         {
-            var profile = await _unitOfWork.UserRepository.GetTutorProfileByIdAsync(userId)
+            var profile = await _userRepository.GetTutorProfileByIdAsync(userId)
                 ?? throw new KeyNotFoundException("Không tìm thấy hồ sơ gia sư.");
 
             bool hasCriticalChange = false;
@@ -52,13 +52,13 @@ namespace MV.ApplicationLayer.Services
             }
 
             profile.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
-            await _unitOfWork.UserRepository.UpdateTutorProfileAsync(profile);
-            await _unitOfWork.SaveChangesAsync();
+            await _userRepository.UpdateTutorProfileAsync(profile);
+            await _context.SaveChangesAsync();
         }
 
         public async Task UpdateTutorWeeklyAvailabilityAsync(string tutorId, UpdateTutorScheduleRequest request)
         {
-            var tutorProfile = await _unitOfWork.UserRepository.GetTutorProfileByIdAsync(tutorId)
+            var tutorProfile = await _userRepository.GetTutorProfileByIdAsync(tutorId)
                 ?? throw new KeyNotFoundException("Không tìm thấy hồ sơ gia sư để cập nhật lịch.");
 
             // Guard: chặn nếu còn buổi dạy đã đặt nằm NGOÀI lịch rảnh mới (tránh bỏ rơi buổi đã cam kết).
@@ -72,7 +72,7 @@ namespace MV.ApplicationLayer.Services
                 throw new InvalidOperationException(
                     "Không thể cập nhật lịch: có buổi dạy đã được đặt nằm ngoài lịch rảnh mới. Vui lòng giữ lại khung giờ đã có buổi dạy.");
 
-            await _unitOfWork.UserRepository.DeleteAllExistingAvailabilityByTutorIdAsync(tutorId);
+            await _userRepository.DeleteAllExistingAvailabilityByTutorIdAsync(tutorId);
 
             var availabilityEntities = new List<Tutoravailability>();
             foreach (var slot in request.ListOfFreeTimeSlots)
@@ -96,42 +96,42 @@ namespace MV.ApplicationLayer.Services
                 });
             }
 
-            await _unitOfWork.UserRepository.CreateNewAvailabilitySlotsAsync(availabilityEntities);
-            await _unitOfWork.SaveChangesAsync();
+            await _userRepository.CreateNewAvailabilitySlotsAsync(availabilityEntities);
+            await _context.SaveChangesAsync();
         }
 
         public async Task AutoUpdateTutorProfileStatusAsync(string tutorId)
         {
-            var profile = await _unitOfWork.UserRepository.GetTutorProfileByIdAsync(tutorId);
+            var profile = await _userRepository.GetTutorProfileByIdAsync(tutorId);
             if (profile == null) return;
 
             if (string.Equals(profile.Profilestatus, TutorProfileStatus.Active, StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(profile.Profilestatus, TutorProfileStatus.Rejected, StringComparison.OrdinalIgnoreCase))
                 return;
 
-            var prices = await _unitOfWork.TutorRepository.GetTutorSubjectGradePricesAsync(tutorId);
+            var prices = await _tutorRepository.GetTutorSubjectGradePricesAsync(tutorId);
 
             bool hasBasicInfo = !string.IsNullOrWhiteSpace(profile.Headline) &&
                                 !string.IsNullOrWhiteSpace(profile.Bio) &&
                                 prices.Any(p => p.Isactive && p.Priceperhour > 0);
 
-            bool hasSubjects = await _unitOfWork.UserRepository.CheckIfTutorHasAnySubjectAsync(tutorId);
-            bool hasAvailability = await _unitOfWork.UserRepository.CheckIfTutorHasAnyAvailabilityAsync(tutorId);
+            bool hasSubjects = await _userRepository.CheckIfTutorHasAnySubjectAsync(tutorId);
+            bool hasAvailability = await _userRepository.CheckIfTutorHasAnyAvailabilityAsync(tutorId);
 
             profile.Profilestatus = (hasBasicInfo && hasSubjects && hasAvailability)
                 ? TutorProfileStatus.PendingApproval
                 : TutorProfileStatus.Draft;
 
-            await _unitOfWork.UserRepository.UpdateTutorProfileAsync(profile);
-            await _unitOfWork.SaveChangesAsync();
+            await _userRepository.UpdateTutorProfileAsync(profile);
+            await _context.SaveChangesAsync();
         }
 
         public async Task<ApproveTutorResponse> ApproveTutorProfileAsync(string tutorId, ApproveTutorRequest request, string adminId)
         {
-            var profile = await _unitOfWork.UserRepository.GetTutorProfileByIdAsync(tutorId)
+            var profile = await _userRepository.GetTutorProfileByIdAsync(tutorId)
                 ?? throw new KeyNotFoundException("Không tìm thấy hồ sơ gia sư.");
 
-            var user = await _unitOfWork.UserRepository.GetUserByIdAsync(tutorId)
+            var user = await _userRepository.GetUserByIdAsync(tutorId)
                 ?? throw new UserNotFoundException();
 
             string statusText;
@@ -142,7 +142,7 @@ namespace MV.ApplicationLayer.Services
                 profile.Reviewedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 
                 // Approve all pending certificates in bulk
-                var certificates = await _unitOfWork.TutorRepository.GetCertificatesByTutorIdAsync(tutorId);
+                var certificates = await _tutorRepository.GetCertificatesByTutorIdAsync(tutorId);
                 if (certificates != null)
                 {
                     foreach (var cert in certificates.Where(c =>
@@ -170,8 +170,8 @@ namespace MV.ApplicationLayer.Services
             }
 
             profile.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
-            await _unitOfWork.UserRepository.UpdateTutorProfileAsync(profile);
-            await _unitOfWork.SaveChangesAsync();
+            await _userRepository.UpdateTutorProfileAsync(profile);
+            await _context.SaveChangesAsync();
 
             _embedQueue.Enqueue(tutorId);
 
@@ -184,14 +184,15 @@ namespace MV.ApplicationLayer.Services
                     {
                         Userid = tutorId,
                         Title = "Hồ sơ đã được duyệt!",
-                        Message = "Chúc mừng! Hồ sơ gia sư của bạn đã được admin phê duyệt. Bạn đã xuất hiện trên marketplace và có thể nhận học sinh."
+                        Message = "Chúc mừng! Hồ sơ gia sư của bạn đã được admin phê duyệt. Bạn đã xuất hiện trên marketplace và có thể nhận học sinh.",
+                        Type = NotificationType.TutorVettingApproved
                     });
                 }
                 else if (statusText == ApprovalStatusText.ApprovedPendingProfile)
                 {
-                    var subjects = await _unitOfWork.TutorRepository.GetTutorSubjectsByTutorIdAsync(tutorId);
+                    var subjects = await _tutorRepository.GetTutorSubjectsByTutorIdAsync(tutorId);
                     var missing = new List<string>();
-                    var prices = await _unitOfWork.TutorRepository.GetTutorSubjectGradePricesAsync(tutorId);
+                    var prices = await _tutorRepository.GetTutorSubjectGradePricesAsync(tutorId);
                     if (!prices.Any(p => p.Isactive && p.Priceperhour > 0)) missing.Add("giá theo giờ");
                     if (string.IsNullOrWhiteSpace(profile.Bio)) missing.Add("giới thiệu bản thân");
                     if (string.IsNullOrWhiteSpace(profile.Videointrourl)) missing.Add("video giới thiệu");
@@ -205,7 +206,8 @@ namespace MV.ApplicationLayer.Services
                     {
                         Userid = tutorId,
                         Title = "Admin đã duyệt chứng chỉ — vui lòng hoàn tất hồ sơ",
-                        Message = $"Chứng chỉ của bạn đã được phê duyệt. Vui lòng cập nhật: {missingText} để xuất hiện trên marketplace."
+                        Message = $"Chứng chỉ của bạn đã được phê duyệt. Vui lòng cập nhật: {missingText} để xuất hiện trên marketplace.",
+                        Type = NotificationType.TutorVettingApproved
                     });
                 }
                 else if (statusText == ApprovalStatusText.Rejected)
@@ -214,7 +216,8 @@ namespace MV.ApplicationLayer.Services
                     {
                         Userid = tutorId,
                         Title = "Hồ sơ bị từ chối",
-                        Message = $"Hồ sơ gia sư của bạn đã bị từ chối. Lý do: {request.Reason ?? "Không đạt yêu cầu"}. Vui lòng cập nhật lại và gửi lại để được xem xét."
+                        Message = $"Hồ sơ gia sư của bạn đã bị từ chối. Lý do: {request.Reason ?? "Không đạt yêu cầu"}. Vui lòng cập nhật lại và gửi lại để được xem xét.",
+                        Type = NotificationType.TutorVettingRejected
                     });
                 }
             }
