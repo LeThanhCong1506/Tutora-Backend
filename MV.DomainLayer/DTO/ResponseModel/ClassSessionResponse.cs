@@ -32,6 +32,12 @@ public class ClassSessionResponse
     public string? ScheduleChangeStatus { get; set; }
     /// <summary>True nếu buổi này đang có đề xuất đổi lịch (tính năng chủ động chọn giờ mới) chờ phản hồi.</summary>
     public bool HasPendingReschedule { get; set; }
+    /// <summary>True nếu đây là buổi phụ (Link 2), sinh ra khi buổi gốc (<see cref="OriginalClassSessionId"/>) bị báo ngắt giữa chừng.</summary>
+    public bool? IsContinuation { get; set; }
+    /// <summary>True nếu đây là buổi học lại (Link 3), sinh ra khi hoà giải dispute chọn "học lại".</summary>
+    public bool? IsDisputeRelearn { get; set; }
+    /// <summary>Buổi gốc mà buổi bù/buổi phụ/buổi học lại này trỏ về — null nếu đây là buổi gốc.</summary>
+    public int? OriginalClassSessionId { get; set; }
     public StudentMiniResponse? Student { get; set; }
     public SubjectResponse? Subject { get; set; }
     public TutorMiniResponse? Tutor { get; set; }

@@ -347,6 +347,9 @@ public partial class ClassSessionService : IClassSessionService
         {
             ScheduleChangeStatus = ResolveActiveScheduleChangeStatus(classSession.ScheduleChanges),
             HasPendingReschedule = ResolveHasPendingReschedule(classSession.RescheduleProposals),
+            IsContinuation = classSession.Iscontinuation,
+            IsDisputeRelearn = classSession.Isdisputerelearn,
+            OriginalClassSessionId = classSession.Originalsessionid,
             ClassSessionId = classSession.Classsessionid,
             BookingId = classSession.Bookingid ?? 0,
             TutorId = classSession.Tutorid,
