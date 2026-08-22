@@ -4,6 +4,7 @@ using Microsoft.Extensions.Options;
 using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.DTO.ResponseModel.Zalo;
 using MV.ApplicationLayer.Interfaces;
+using MV.ApplicationLayer.RepositoryInterfaces;
 using StackExchange.Redis;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -307,8 +308,8 @@ public class ZaloOAService : IZaloOAService
 
         // Lấy Zalo phone number của user từ DB
         using var scope = _serviceProvider.CreateScope();
-        var unitOfWork = scope.ServiceProvider.GetRequiredService<IUnitOfWork>();
-        var user = await unitOfWork.UserRepository.GetUserByIdAsync(userId);
+        var userRepository = scope.ServiceProvider.GetRequiredService<IUserRepository>();
+        var user = await userRepository.GetUserByIdAsync(userId);
         if (user == null || string.IsNullOrEmpty(user.Phone))
         {
             _logger.LogWarning("ZNS: user {UserId} không có số điện thoại", userId);
@@ -406,8 +407,8 @@ public class ZaloOAService : IZaloOAService
     public async Task<bool> IsZaloLinkedAsync(string userId)
     {
         using var scope = _serviceProvider.CreateScope();
-        var unitOfWork = scope.ServiceProvider.GetRequiredService<IUnitOfWork>();
-        var user = await unitOfWork.UserRepository.GetUserByIdAsync(userId);
+        var userRepository = scope.ServiceProvider.GetRequiredService<IUserRepository>();
+        var user = await userRepository.GetUserByIdAsync(userId);
         return !string.IsNullOrEmpty(user?.Zalouserid);
     }
 }

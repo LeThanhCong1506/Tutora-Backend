@@ -7,12 +7,14 @@ using MV.DomainLayer.DTO.ResponseModel;
 using MV.DomainLayer.Entities;
 using MV.DomainLayer.Helpers;
 using MV.ApplicationLayer.Interfaces;
+using MV.ApplicationLayer.RepositoryInterfaces;
 
 namespace MV.ApplicationLayer.Services
 {
     public partial class TutorVerificationService : ITutorVerificationService
     {
-        private readonly IUnitOfWork _unitOfWork;
+        private readonly ITutorRepository _tutorRepository;
+        private readonly IUserRepository _userRepository;
         private readonly IFptAiService _fptAiService;
         private readonly IDistributedCache _cache;
         private readonly IAppDbContext _dbContext;
@@ -32,7 +34,8 @@ namespace MV.ApplicationLayer.Services
         private static readonly TimeSpan CacheOperationTimeout = TimeSpan.FromMilliseconds(200);
 
         public TutorVerificationService(
-            IUnitOfWork unitOfWork,
+            ITutorRepository tutorRepository,
+            IUserRepository userRepository,
             IFptAiService fptAiService,
             IDistributedCache cache,
             IAppDbContext dbContext,
@@ -40,7 +43,8 @@ namespace MV.ApplicationLayer.Services
             IEncryptionService encryption,
             ITutorProfileUpdateStagingService updateStaging)
         {
-            _unitOfWork = unitOfWork;
+            _tutorRepository = tutorRepository;
+            _userRepository = userRepository;
             _fptAiService = fptAiService;
             _cache = cache;
             _dbContext = dbContext;
@@ -54,7 +58,7 @@ namespace MV.ApplicationLayer.Services
         /// </summary>
         public async Task<bool> UpdateTutorStatusToPendingAsync(string userId)
         {
-            var profile = await _unitOfWork.TutorRepository.GetTutorProfileByIdAsync(userId);
+            var profile = await _tutorRepository.GetTutorProfileByIdAsync(userId);
             if (profile == null)
             {
                 return false;
@@ -63,7 +67,7 @@ namespace MV.ApplicationLayer.Services
             profile.Profilestatus = TutorProfileStatus.PendingApproval;
             profile.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 
-            await _unitOfWork.SaveChangesAsync();
+            await _dbContext.SaveChangesAsync();
 
             return true;
         }
