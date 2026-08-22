@@ -53,11 +53,35 @@ public class WhiteboardService : IWhiteboardService
         var roomUuid = classSession.Whiteboardroomuuid;
         if (string.IsNullOrEmpty(roomUuid))
         {
-            roomUuid = await CreateRoomAsync(ct);
-            classSession.Whiteboardroomuuid = roomUuid;
-            await _context.SaveChangesAsync(ct);
-            _logger.LogInformation("Created whiteboard room {RoomUuid} for classSession {ClassSessionId}",
-                roomUuid, classSessionId);
+            var candidateUuid = await CreateRoomAsync(ct);
+
+            // Gia sư + học viên thường mở bảng vẽ gần như cùng lúc lúc buổi vừa bắt đầu — 2 request
+            // này race nhau đọc Whiteboardroomuuid=null rồi CÙNG tạo phòng Netless riêng, mỗi bên
+            // lưu uuid của chính mình → 2 người join 2 phòng khác nhau, không bao giờ thấy nét vẽ
+            // của nhau. Chặn bằng update có điều kiện: chỉ request NÀO ghi được (WHERE ...IS NULL)
+            // mới thắng; request thua phải đọc lại và dùng ĐÚNG uuid đã thắng, không dùng uuid vừa
+            // tự tạo (phòng đó bị bỏ phí nhưng vô hại — không có gì tham chiếu tới).
+            var affected = await _context.ClassSessions
+                .Where(l => l.Classsessionid == classSessionId && l.Whiteboardroomuuid == null)
+                .ExecuteUpdateAsync(s => s.SetProperty(l => l.Whiteboardroomuuid, candidateUuid), ct);
+
+            if (affected == 1)
+            {
+                roomUuid = candidateUuid;
+                _logger.LogInformation("Created whiteboard room {RoomUuid} for classSession {ClassSessionId}",
+                    roomUuid, classSessionId);
+            }
+            else
+            {
+                roomUuid = await _context.ClassSessions
+                    .Where(l => l.Classsessionid == classSessionId)
+                    .Select(l => l.Whiteboardroomuuid)
+                    .FirstAsync(ct)
+                    ?? throw new InvalidOperationException($"Không đọc lại được Whiteboardroomuuid cho buổi {classSessionId}.");
+                _logger.LogInformation(
+                    "Whiteboard room race for classSession {ClassSessionId}: dùng lại uuid {RoomUuid} từ request khác đã thắng.",
+                    classSessionId, roomUuid);
+            }
         }
 
         // Room token sinh cục bộ (không cần REST). Tutor = admin, học viên/phụ huynh = writer (đều vẽ được).
