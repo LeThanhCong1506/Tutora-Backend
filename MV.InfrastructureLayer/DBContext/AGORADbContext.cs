@@ -2409,6 +2409,9 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
             entity.Property(e => e.Education)
                 .HasMaxLength(255)
                 .HasColumnName("education");
+            entity.Property(e => e.Degree)
+                .HasMaxLength(100)
+                .HasColumnName("degree");
             entity.Property(e => e.Experience).HasColumnName("experience");
             entity.Property(e => e.Gpa).HasColumnName("gpa");
             entity.Property(e => e.Gpascale).HasColumnName("gpa_scale");
