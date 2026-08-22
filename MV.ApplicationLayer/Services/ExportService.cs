@@ -9,13 +9,11 @@ namespace MV.ApplicationLayer.Services
 {
     public class ExportService : IExportService
     {
-        private readonly IUnitOfWork _unitOfWork;
         private readonly IAppDbContext _context;
         private readonly IEncryptionService _encryption;
 
-        public ExportService(IUnitOfWork unitOfWork, IAppDbContext context, IEncryptionService encryption)
+        public ExportService(IAppDbContext context, IEncryptionService encryption)
         {
-            _unitOfWork = unitOfWork;
             _context = context;
             _encryption = encryption;
         }

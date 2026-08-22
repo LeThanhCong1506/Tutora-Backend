@@ -38,7 +38,7 @@ namespace MV.ApplicationLayer.Services
             }
 
             // Get from database
-            var profile = await _unitOfWork.TutorRepository.GetTutorProfileByIdAsync(tutorId);
+            var profile = await _tutorRepository.GetTutorProfileByIdAsync(tutorId);
 
             // Check if profile exists and is active
             if (profile == null || !string.Equals(profile.Profilestatus, TutorProfileStatus.Active, StringComparison.OrdinalIgnoreCase))
@@ -46,10 +46,10 @@ namespace MV.ApplicationLayer.Services
                 return null;
             }
 
-            var user = await _unitOfWork.UserRepository.GetUserByIdAsync(tutorId);
-            var subjects = await _unitOfWork.TutorRepository.GetTutorSubjectsByTutorIdAsync(tutorId);
-            var certificates = await _unitOfWork.TutorRepository.GetCertificatesByTutorIdAsync(tutorId);
-            var prices = await _unitOfWork.TutorRepository.GetTutorSubjectGradePricesAsync(tutorId);
+            var user = await _userRepository.GetUserByIdAsync(tutorId);
+            var subjects = await _tutorRepository.GetTutorSubjectsByTutorIdAsync(tutorId);
+            var certificates = await _tutorRepository.GetCertificatesByTutorIdAsync(tutorId);
+            var prices = await _tutorRepository.GetTutorSubjectGradePricesAsync(tutorId);
 
             var response = new TutorProfilePreviewResponse
             {

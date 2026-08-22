@@ -14,11 +14,11 @@ namespace MV.ApplicationLayer.Services
 
         public async Task<VerificationProgressResponse?> GetVerificationProgressAsync(string userId)
         {
-            var user = await _unitOfWork.UserRepository.GetUserByIdAsync(userId);
+            var user = await _userRepository.GetUserByIdAsync(userId);
             if (user == null) return null;
 
-            var profile = await _unitOfWork.TutorRepository.GetTutorProfileByIdAsync(userId);
-            var certificates = await _unitOfWork.TutorRepository.GetCertificatesByTutorIdAsync(userId);
+            var profile = await _tutorRepository.GetTutorProfileByIdAsync(userId);
+            var certificates = await _tutorRepository.GetCertificatesByTutorIdAsync(userId);
 
             // Nếu tutor đã Active và có 1 bản chỉnh sửa đang chờ Admin duyệt (Redis), hiển thị
             // cho CHÍNH tutor đó nội dung họ vừa nộp — KHÔNG áp dụng lên `profile` (tracked

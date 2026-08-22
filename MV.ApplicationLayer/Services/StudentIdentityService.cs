@@ -24,20 +24,20 @@ namespace MV.ApplicationLayer.Services
 
         private readonly IFptAiService _fptAiService;
         private readonly IEncryptionService _encryption;
-        private readonly IUnitOfWork _unitOfWork;
+        private readonly IUserRepository _userRepository;
         private readonly IFileStorageService _storageService;
         private readonly ILogger<StudentIdentityService> _logger;
 
         public StudentIdentityService(
             IFptAiService fptAiService,
             IEncryptionService encryption,
-            IUnitOfWork unitOfWork,
+            IUserRepository userRepository,
             IFileStorageService storageService,
             ILogger<StudentIdentityService> logger)
         {
             _fptAiService = fptAiService ?? throw new ArgumentNullException(nameof(fptAiService));
             _encryption = encryption ?? throw new ArgumentNullException(nameof(encryption));
-            _unitOfWork = unitOfWork ?? throw new ArgumentNullException(nameof(unitOfWork));
+            _userRepository = userRepository ?? throw new ArgumentNullException(nameof(userRepository));
             _storageService = storageService ?? throw new ArgumentNullException(nameof(storageService));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         }
@@ -87,7 +87,7 @@ namespace MV.ApplicationLayer.Services
             var encryptedId = _encryption.Encrypt(ocrResult.Id);
             if (!string.IsNullOrEmpty(ocrResult.Id) && encryptedId != user.Identitynumber)
             {
-                var isUnique = await _unitOfWork.UserRepository.IsIdentityNumberUniqueAsync(encryptedId);
+                var isUnique = await _userRepository.IsIdentityNumberUniqueAsync(encryptedId);
                 if (!isUnique)
                     throw new InvalidOperationException(
                         "CCCD này đã được sử dụng bởi tài khoản khác. Vui lòng liên hệ hỗ trợ nếu đây là nhầm lẫn.");

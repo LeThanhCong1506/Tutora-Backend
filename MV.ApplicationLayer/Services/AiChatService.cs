@@ -24,7 +24,7 @@ public class AiChatService(
     IAiChatRepository aiChatRepo,
     IQuestionNoteRepository questionNoteRepo,
     IStudentRepository studentRepo,
-    IUnitOfWork unitOfWork,
+    IAssessmentRepository assessmentRepo,
     IHttpClientFactory httpClientFactory,
     IConfiguration config,
     IFileStorageService storage,
@@ -585,7 +585,7 @@ public class AiChatService(
         object? result = null;
         try
         {
-            var profiles = await unitOfWork.AssessmentRepository.GetProficiencyProfilesAsync(userId);
+            var profiles = await assessmentRepo.GetProficiencyProfilesAsync(userId);
             var profile = profiles
                 .OrderByDescending(p => p.UpdatedAt ?? DateTime.MinValue)
                 .FirstOrDefault();

@@ -1,17 +1,20 @@
 using Microsoft.Extensions.Logging;
 using MV.ApplicationLayer.ServiceInterfaces;
 using MV.ApplicationLayer.Interfaces;
+using MV.ApplicationLayer.RepositoryInterfaces;
 
 namespace MV.ApplicationLayer.Services
 {
     public class PushTokenService : IPushTokenService
     {
-        private readonly IUnitOfWork _unitOfWork;
+        private readonly IUserRepository _userRepository;
+        private readonly IAppDbContext _dbContext;
         private readonly ILogger<PushTokenService> _logger;
 
-        public PushTokenService(IUnitOfWork unitOfWork, ILogger<PushTokenService> logger)
+        public PushTokenService(IUserRepository userRepository, IAppDbContext dbContext, ILogger<PushTokenService> logger)
         {
-            _unitOfWork = unitOfWork;
+            _userRepository = userRepository;
+            _dbContext = dbContext;
             _logger = logger;
         }
 
@@ -25,11 +28,11 @@ namespace MV.ApplicationLayer.Services
                     return false;
                 }
 
-                var result = await _unitOfWork.UserRepository.UpdateFcmTokenAsync(userId, fcmToken);
+                var result = await _userRepository.UpdateFcmTokenAsync(userId, fcmToken);
 
                 if (result)
                 {
-                    await _unitOfWork.SaveChangesAsync();
+                    await _dbContext.SaveChangesAsync();
                     _logger.LogInformation("FCM token saved successfully for user {UserId}", userId);
                 }
                 else
@@ -56,11 +59,11 @@ namespace MV.ApplicationLayer.Services
                     return false;
                 }
 
-                var result = await _unitOfWork.UserRepository.UpdateFcmTokenAsync(userId, string.Empty);
+                var result = await _userRepository.UpdateFcmTokenAsync(userId, string.Empty);
 
                 if (result)
                 {
-                    await _unitOfWork.SaveChangesAsync();
+                    await _dbContext.SaveChangesAsync();
                     _logger.LogInformation("FCM token removed successfully for user {UserId}", userId);
                 }
                 else

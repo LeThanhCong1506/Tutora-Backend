@@ -8,23 +8,30 @@ using MV.DomainLayer.Entities;
 using MV.DomainLayer.Constants;
 using MV.DomainLayer.Helpers;
 using MV.ApplicationLayer.Interfaces;
+using MV.ApplicationLayer.RepositoryInterfaces;
 
 namespace MV.ApplicationLayer.Services
 {
     public class NotificationService : INotificationService
     {
-        private readonly IUnitOfWork _unitOfWork;
+        private readonly IUserRepository _userRepository;
+        private readonly INotificationRepository _notificationRepository;
+        private readonly IAppDbContext _dbContext;
         private readonly IHubContext<NotificationHub> _hubContext;
         private readonly IFirebasePushNotificationService _firebasePushNotificationService;
         private readonly ILogger<NotificationService> _logger;
 
         public NotificationService(
-            IUnitOfWork unitOfWork,
+            IUserRepository userRepository,
+            INotificationRepository notificationRepository,
+            IAppDbContext dbContext,
             IHubContext<NotificationHub> hubContext,
             IFirebasePushNotificationService firebasePushNotificationService,
             ILogger<NotificationService> logger)
         {
-            _unitOfWork = unitOfWork ?? throw new ArgumentNullException(nameof(unitOfWork));
+            _userRepository = userRepository ?? throw new ArgumentNullException(nameof(userRepository));
+            _notificationRepository = notificationRepository ?? throw new ArgumentNullException(nameof(notificationRepository));
+            _dbContext = dbContext ?? throw new ArgumentNullException(nameof(dbContext));
             _hubContext = hubContext ?? throw new ArgumentNullException(nameof(hubContext));
             _firebasePushNotificationService = firebasePushNotificationService ?? throw new ArgumentNullException(nameof(firebasePushNotificationService));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
@@ -51,7 +58,7 @@ namespace MV.ApplicationLayer.Services
         {
             try
             {
-                var user = await _unitOfWork.UserRepository.GetUserByIdAsync(request.Userid);
+                var user = await _userRepository.GetUserByIdAsync(request.Userid);
                 if (user == null)
                 {
                     return new StatusResponse
@@ -73,8 +80,8 @@ namespace MV.ApplicationLayer.Services
                     Createdat = TimeZoneHelper.UtcNow
                 };
 
-                await _unitOfWork.NotificationRepository.CreateNotificationAsync(notification);
-                await _unitOfWork.SaveChangesAsync();
+                await _notificationRepository.CreateNotificationAsync(notification);
+                await _dbContext.SaveChangesAsync();
 
                 var notificationResponse = MapToResponse(notification);
 
@@ -145,8 +152,8 @@ namespace MV.ApplicationLayer.Services
                     };
                 }
 
-                await _unitOfWork.NotificationRepository.CreateNotificationsAsync(notifications);
-                await _unitOfWork.SaveChangesAsync();
+                await _notificationRepository.CreateNotificationsAsync(notifications);
+                await _dbContext.SaveChangesAsync();
 
                 // Gửi realtime qua SignalR tới từng user
                 foreach (var notification in notifications)
@@ -156,7 +163,7 @@ namespace MV.ApplicationLayer.Services
 
                     if (!string.IsNullOrEmpty(notification.Userid))
                     {
-                        var recipient = await _unitOfWork.UserRepository.GetUserByIdAsync(notification.Userid);
+                        var recipient = await _userRepository.GetUserByIdAsync(notification.Userid);
                         if (recipient != null)
                         {
                             await SendPushAsync(recipient, notification.Title ?? "", notification.Message ?? "", notification.Type, notification.Referenceid);
@@ -186,7 +193,7 @@ namespace MV.ApplicationLayer.Services
         // READ
         public async Task<NotificationResponse?> GetNotificationByIdAsync(int notificationId)
         {
-            var notification = await _unitOfWork.NotificationRepository.GetNotificationByIdAsync(notificationId);
+            var notification = await _notificationRepository.GetNotificationByIdAsync(notificationId);
             if (notification == null)
                 return null;
 
@@ -195,25 +202,25 @@ namespace MV.ApplicationLayer.Services
 
         public async Task<IEnumerable<NotificationResponse>> GetNotificationsByUserIdAsync(string userId)
         {
-            var notifications = await _unitOfWork.NotificationRepository.GetNotificationsByUserIdAsync(userId);
+            var notifications = await _notificationRepository.GetNotificationsByUserIdAsync(userId);
             return notifications.Select(MapToResponse);
         }
 
         public async Task<IEnumerable<NotificationResponse>> GetUnreadNotificationsByUserIdAsync(string userId)
         {
-            var notifications = await _unitOfWork.NotificationRepository.GetUnreadNotificationsByUserIdAsync(userId);
+            var notifications = await _notificationRepository.GetUnreadNotificationsByUserIdAsync(userId);
             return notifications.Select(MapToResponse);
         }
 
         public async Task<int> GetUnreadCountByUserIdAsync(string userId)
         {
-            return await _unitOfWork.NotificationRepository.GetUnreadCountByUserIdAsync(userId);
+            return await _notificationRepository.GetUnreadCountByUserIdAsync(userId);
         }
 
         public async Task<UnreadCountResponse> GetUnreadCountResponseByUserIdAsync(string userId)
         {
-            var unreadCount = await _unitOfWork.NotificationRepository.GetUnreadCountByUserIdAsync(userId);
-            var byType = await _unitOfWork.NotificationRepository.GetUnreadCountByTypeAsync(userId);
+            var unreadCount = await _notificationRepository.GetUnreadCountByUserIdAsync(userId);
+            var byType = await _notificationRepository.GetUnreadCountByTypeAsync(userId);
 
             return new UnreadCountResponse
             {
@@ -225,7 +232,7 @@ namespace MV.ApplicationLayer.Services
 
         public async Task<IEnumerable<NotificationResponse>> GetAllNotificationsAsync()
         {
-            var notifications = await _unitOfWork.NotificationRepository.GetAllNotificationsAsync();
+            var notifications = await _notificationRepository.GetAllNotificationsAsync();
             return notifications.Select(MapToResponse);
         }
 
@@ -234,7 +241,7 @@ namespace MV.ApplicationLayer.Services
         {
             try
             {
-                var notification = await _unitOfWork.NotificationRepository.GetNotificationByIdAsync(notificationId);
+                var notification = await _notificationRepository.GetNotificationByIdAsync(notificationId);
                 if (notification == null)
                 {
                     return new StatusResponse
@@ -255,11 +262,11 @@ namespace MV.ApplicationLayer.Services
                     };
                 }
 
-                await _unitOfWork.NotificationRepository.MarkAsReadAsync(notificationId);
-                await _unitOfWork.SaveChangesAsync();
+                await _notificationRepository.MarkAsReadAsync(notificationId);
+                await _dbContext.SaveChangesAsync();
 
                 // Push unread count update via SignalR so FE badge updates immediately
-                var newCount = await _unitOfWork.NotificationRepository.GetUnreadCountByUserIdAsync(currentUserId);
+                var newCount = await _notificationRepository.GetUnreadCountByUserIdAsync(currentUserId);
                 await _hubContext.Clients.Group($"user:{currentUserId}").SendAsync("NotificationCountUpdated", newCount);
 
                 return new StatusResponse
@@ -284,7 +291,7 @@ namespace MV.ApplicationLayer.Services
         {
             try
             {
-                await _unitOfWork.NotificationRepository.MarkAllAsReadAsync(userId);
+                await _notificationRepository.MarkAllAsReadAsync(userId);
 
                 // Push unread count = 0 via SignalR so FE badge clears immediately
                 await _hubContext.Clients.Group($"user:{userId}").SendAsync("NotificationCountUpdated", 0);
@@ -321,9 +328,9 @@ namespace MV.ApplicationLayer.Services
                     };
                 }
 
-                await _unitOfWork.NotificationRepository.MarkAsReadByTypeAsync(userId, type);
+                await _notificationRepository.MarkAsReadByTypeAsync(userId, type);
 
-                var newCount = await _unitOfWork.NotificationRepository.GetUnreadCountByUserIdAsync(userId);
+                var newCount = await _notificationRepository.GetUnreadCountByUserIdAsync(userId);
                 await _hubContext.Clients.Group($"user:{userId}").SendAsync("NotificationCountUpdated", newCount);
 
                 return new StatusResponse
@@ -349,7 +356,7 @@ namespace MV.ApplicationLayer.Services
         {
             try
             {
-                var notification = await _unitOfWork.NotificationRepository.GetNotificationByIdAsync(notificationId);
+                var notification = await _notificationRepository.GetNotificationByIdAsync(notificationId);
                 if (notification == null)
                 {
                     return new StatusResponse
@@ -370,7 +377,7 @@ namespace MV.ApplicationLayer.Services
                     };
                 }
 
-                var result = await _unitOfWork.NotificationRepository.DeleteNotificationAsync(notificationId);
+                var result = await _notificationRepository.DeleteNotificationAsync(notificationId);
 
                 if (!result)
                 {
@@ -382,7 +389,7 @@ namespace MV.ApplicationLayer.Services
                     };
                 }
 
-                await _unitOfWork.SaveChangesAsync();
+                await _dbContext.SaveChangesAsync();
 
                 return new StatusResponse
                 {
@@ -406,7 +413,7 @@ namespace MV.ApplicationLayer.Services
         {
             try
             {
-                var result = await _unitOfWork.NotificationRepository.DeleteNotificationsByUserIdAsync(userId);
+                var result = await _notificationRepository.DeleteNotificationsByUserIdAsync(userId);
 
                 if (!result)
                 {
@@ -451,7 +458,7 @@ namespace MV.ApplicationLayer.Services
                 }
 
                 var beforeDate = TimeZoneHelper.UtcNow.AddDays(-daysOld);
-                var result = await _unitOfWork.NotificationRepository.DeleteOldNotificationsAsync(beforeDate);
+                var result = await _notificationRepository.DeleteOldNotificationsAsync(beforeDate);
 
                 if (!result)
                 {
