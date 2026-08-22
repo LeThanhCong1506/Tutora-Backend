@@ -291,6 +291,7 @@ public class AdminPayoutService(
             .Select(t => new
             {
                 t.Providertransactionid,
+                t.Banktransactioncode,
                 t.Paidat,
                 t.Proofimagepath
             })
@@ -364,6 +365,7 @@ public class AdminPayoutService(
                 ClaimedAt = withdrawal.Claimedat,
                 RejectionReason = withdrawal.Rejectionreason,
                 TransactionId = payoutTransaction?.Providertransactionid,
+                BankTransactionCode = payoutTransaction?.Banktransactioncode,
                 PaidAt = payoutTransaction?.Paidat,
                 ProofImageUrl = proofImageUrl
             },
@@ -489,15 +491,20 @@ public class AdminPayoutService(
         if (request == null
             || !request.PaidAt.HasValue
             || string.IsNullOrWhiteSpace(request.Note)
+            || string.IsNullOrWhiteSpace(request.BankTransactionCode)
             || request.ProofImage == null
             || request.ProofImage.Length == 0)
             throw new InvalidOperationException(
-                "Vui lòng nhập thời gian chuyển khoản, ghi chú và ảnh biên lai.");
+                "Vui lòng nhập thời gian chuyển khoản, mã tham chiếu ngân hàng, ghi chú và ảnh biên lai.");
 
         // Payout reference is minted by the backend, not typed in by staff/admin — it is an
         // internal audit code (not a bank-provided trace number).
         var transactionId = PayoutCodeGenerator.Generate(withdrawalId);
         var note = request.Note.Trim();
+        // Mã tham chiếu ngân hàng thì NGƯỢC LẠI — do staff đọc trên biên lai rồi nhập tay.
+        // Chuẩn hoá về chữ hoa để so trùng không phụ thuộc cách gõ, và để khớp với index
+        // upper() ở DB.
+        var bankTransactionCode = request.BankTransactionCode.Trim().ToUpperInvariant();
         var preview = await context.Withdrawalrequests
             .AsNoTracking()
             .Where(w => w.Withdrawalid == withdrawalId)
@@ -554,6 +561,20 @@ public class AdminPayoutService(
             if (transactionExists)
                 throw new InvalidOperationException($"Mã giao dịch '{transactionId}' đã được ghi nhận trước đó.");
 
+            // Một mã tham chiếu chỉ ứng với đúng một lệnh chi thật. Trùng = staff dán nhầm biên
+            // lai của lệnh khác, và nếu lọt qua thì đối soát về sau sẽ thấy 2 payout cùng khớp
+            // 1 dòng sao kê — chặn ngay tại đây, bên trong transaction đã FOR UPDATE ở trên.
+            var bankCodeExists = await context.PaymentTransactions
+                .AsNoTracking()
+                .AnyAsync(t => t.Purpose == PaymentTransactionPurpose.Withdrawal
+                    && t.Banktransactioncode != null
+                    && t.Banktransactioncode.ToUpper() == bankTransactionCode, ct);
+
+            if (bankCodeExists)
+                throw new InvalidOperationException(
+                    $"Mã tham chiếu ngân hàng '{bankTransactionCode}' đã được dùng cho một yêu cầu rút tiền khác. "
+                    + "Vui lòng kiểm tra lại biên lai.");
+
             var decision = string.Equals(actorRole, UserRole.Staff, StringComparison.OrdinalIgnoreCase)
                 ? Decisions.StaffApproved
                 : Decisions.AdminApproved;
@@ -578,6 +599,7 @@ public class AdminPayoutService(
                 destinationAccountName: withdrawal.Accountholdername,
                 destinationBankName: withdrawal.Bankname);
             payoutTransaction.Proofimagepath = proofImagePath;
+            payoutTransaction.Banktransactioncode = bankTransactionCode;
             context.PaymentTransactions.Add(payoutTransaction);
 
             await context.SaveChangesAsync(ct);

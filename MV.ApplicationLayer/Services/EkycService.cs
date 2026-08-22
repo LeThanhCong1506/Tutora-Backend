@@ -122,7 +122,7 @@ namespace MV.ApplicationLayer.Services
                 user.Identitynumber = _encryption.Encrypt(ocrResult.Id);
                 user.Ekycrawdata = _encryption.Encrypt(JsonSerializer.Serialize(new
                 {
-                    OcrResult = new { id = ocrResult.Id, name = ocrResult.Name, dob = ocrResult.Dob, sex = ocrResult.Sex, address = ocrResult.Address },
+                    OcrResult = new { id = ocrResult.Id, name = ocrResult.Name, dob = ocrResult.Dob, sex = ocrResult.Sex, home = ocrResult.Home, address = ocrResult.Address },
                     VerifiedAt = TimeZoneHelper.UtcNow.ToString("o")
                 }));
 
@@ -154,8 +154,20 @@ namespace MV.ApplicationLayer.Services
                         profileDataUpdated = true;
                     }
 
-                    if (string.IsNullOrWhiteSpace(user.Address))
+                    // Địa chỉ thường trú cũng là dữ liệu định danh chuẩn từ CCCD nên được ghi
+                    // đè như tên/ngày sinh (trước đây chỉ điền khi trống, và điền âm thầm —
+                    // người dùng không hề được báo).
+                    //
+                    // Đây là địa chỉ THƯỜNG TRÚ của tài khoản, khác với KHU VỰC DẠY
+                    // (tutorprofiles.teachingareacity/district — chọn từ provinces.open-api.vn).
+                    // Gia sư có thể thường trú một nơi và dạy ở nơi khác, nên khu vực dạy KHÔNG
+                    // bị đụng tới ở đây; FE chỉ gợi ý tỉnh/thành khi gia sư chưa chọn.
+                    if (!string.IsNullOrWhiteSpace(ocrResult.Address) &&
+                        !string.Equals(user.Address, ocrResult.Address, StringComparison.Ordinal))
+                    {
                         user.Address = ocrResult.Address;
+                        profileDataUpdated = true;
+                    }
                 }
             }
 
@@ -172,6 +184,7 @@ namespace MV.ApplicationLayer.Services
                     FullName = ocrResult?.Name,
                     DateOfBirth = ocrResult?.Dob,
                     Gender = ocrResult?.Sex,
+                    Hometown = ocrResult?.Home,
                     Address = ocrResult?.Address,
                     Message = ocrResult != null
                         ? "Upload và đọc CCCD thành công."

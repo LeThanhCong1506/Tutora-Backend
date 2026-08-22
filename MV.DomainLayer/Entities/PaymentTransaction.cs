@@ -90,6 +90,15 @@ public partial class PaymentTransaction
 
     public string? Proofimagepath { get; set; }
 
+    /// <summary>
+    /// Mã THAM CHIẾU (liên ngân hàng qua Napas, thường có tiền tố "FT") trên biên lai, Admin/Staff
+    /// nhập tay khi xác nhận đã chuyển khoản payout — dùng để đối soát với sao kê ngân hàng.
+    /// Khác <see cref="Providertransactionid"/> (mã nội bộ do PayoutCodeGenerator tự sinh) và
+    /// khác "mã giao dịch" mà app ngân hàng cũng in trên cùng biên lai (mã đó chỉ có ý nghĩa
+    /// nội bộ app của ngân hàng, không tra cứu chéo được).
+    /// </summary>
+    public string? Banktransactioncode { get; set; }
+
     public virtual User? User { get; set; }
 
     public virtual User? ProcessedbyNavigation { get; set; }
