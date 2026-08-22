@@ -4,6 +4,7 @@ using MV.DomainLayer.Settings;
 using System.Net.Http.Json;
 using System.Text.Json;
 using MV.ApplicationLayer.Interfaces;
+using MV.ApplicationLayer.RepositoryInterfaces;
 using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO.RequestModel;
@@ -15,18 +16,21 @@ namespace MV.ApplicationLayer.Services;
 
 public class AssessmentAttemptService : IAssessmentAttemptService
 {
-    private readonly IUnitOfWork _unitOfWork;
+    private readonly IAssessmentRepository _assessmentRepository;
+    private readonly IAppDbContext _dbContext;
     private readonly ILogger<AssessmentAttemptService> _logger;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly IConfiguration _config;
 
     public AssessmentAttemptService(
-        IUnitOfWork unitOfWork,
+        IAssessmentRepository assessmentRepository,
+        IAppDbContext dbContext,
         ILogger<AssessmentAttemptService> logger,
         IHttpClientFactory httpClientFactory,
         IConfiguration config)
     {
-        _unitOfWork = unitOfWork;
+        _assessmentRepository = assessmentRepository;
+        _dbContext = dbContext;
         _logger = logger;
         _httpClientFactory = httpClientFactory;
         _config = config;
@@ -37,7 +41,7 @@ public class AssessmentAttemptService : IAssessmentAttemptService
     public async Task<List<AvailableAssessmentResponse>> GetAvailableAsync(
         int? subjectId, int? gradeLevelId, CancellationToken ct = default)
     {
-        var list = await _unitOfWork.AssessmentRepository.GetPublishedAsync(subjectId, gradeLevelId);
+        var list = await _assessmentRepository.GetPublishedAsync(subjectId, gradeLevelId);
 
         return list.Select(a => new AvailableAssessmentResponse
         {
@@ -56,11 +60,11 @@ public class AssessmentAttemptService : IAssessmentAttemptService
     public async Task<(AttemptInProgressResponse? Result, string? Error)> StartRandomAsync(
         int subjectId, int? gradeLevelId, string userId, CancellationToken ct = default)
     {
-        var candidates = await _unitOfWork.AssessmentRepository.GetPublishedAsync(subjectId, gradeLevelId);
+        var candidates = await _assessmentRepository.GetPublishedAsync(subjectId, gradeLevelId);
 
         // Không có đề đúng lớp -> nới ra cả môn, thà cho làm đề lệch lớp hơn là chặn.
         if (candidates.Count == 0 && gradeLevelId.HasValue)
-            candidates = await _unitOfWork.AssessmentRepository.GetPublishedAsync(subjectId, null);
+            candidates = await _assessmentRepository.GetPublishedAsync(subjectId, null);
 
         if (candidates.Count == 0)
             return (null, "Chưa có đề đánh giá nào cho môn này.");
@@ -74,7 +78,7 @@ public class AssessmentAttemptService : IAssessmentAttemptService
     public async Task<(AttemptInProgressResponse? Result, string? Error)> StartAsync(
         Guid assessmentId, string userId, CancellationToken ct = default)
     {
-        var assessment = await _unitOfWork.AssessmentRepository.GetByIdWithQuestionsAsync(assessmentId);
+        var assessment = await _assessmentRepository.GetByIdWithQuestionsAsync(assessmentId);
         if (assessment == null) return (null, null);   // null cả 2 = không tìm thấy
 
         if (assessment.Status != AssessmentStatus.Published)
@@ -83,15 +87,15 @@ public class AssessmentAttemptService : IAssessmentAttemptService
             return (null, "Đề chưa có câu hỏi.");
 
         // Còn bài dở -> tiếp tục bài đó (unique index cũng chặn ở DB).
-        var existing = await _unitOfWork.AssessmentRepository.GetInProgressAttemptAsync(assessmentId, userId);
+        var existing = await _assessmentRepository.GetInProgressAttemptAsync(assessmentId, userId);
         if (existing != null)
         {
             // Quá giờ -> đóng bài cũ, cho làm bài mới.
             if (existing.ExpiresAt.HasValue && existing.ExpiresAt.Value <= DateTime.UtcNow)
             {
                 existing.Status = AssessmentAttemptStatus.Abandoned;
-                _unitOfWork.AssessmentRepository.UpdateAttempt(existing);
-                await _unitOfWork.SaveChangesAsync();
+                _assessmentRepository.UpdateAttempt(existing);
+                await _dbContext.SaveChangesAsync();
             }
             else
             {
@@ -113,8 +117,8 @@ public class AssessmentAttemptService : IAssessmentAttemptService
             AnalysisStatus = AssessmentAnalysisStatus.Pending,
         };
 
-        await _unitOfWork.AssessmentRepository.AddAttemptAsync(attempt);
-        await _unitOfWork.SaveChangesAsync();
+        await _assessmentRepository.AddAttemptAsync(attempt);
+        await _dbContext.SaveChangesAsync();
 
         return (ToInProgressResponse(assessment, attempt), null);
     }
@@ -124,7 +128,7 @@ public class AssessmentAttemptService : IAssessmentAttemptService
     public async Task<(AttemptResultResponse? Result, string? Error)> SubmitAsync(
         Guid attemptId, string userId, SubmitAttemptRequest request, CancellationToken ct = default)
     {
-        var attempt = await _unitOfWork.AssessmentRepository.GetAttemptWithAnswersAsync(attemptId);
+        var attempt = await _assessmentRepository.GetAttemptWithAnswersAsync(attemptId);
         // Chặn nộp bài của học sinh khác qua URL.
         if (attempt == null || attempt.UserId != userId) return (null, null);
 
@@ -133,7 +137,7 @@ public class AssessmentAttemptService : IAssessmentAttemptService
         if (attempt.Status == AssessmentAttemptStatus.Abandoned)
             return (null, "Bài này đã bị đóng do quá thời gian làm bài.");
 
-        var assessment = await _unitOfWork.AssessmentRepository.GetByIdWithQuestionsAsync(attempt.AssessmentId);
+        var assessment = await _assessmentRepository.GetByIdWithQuestionsAsync(attempt.AssessmentId);
         if (assessment == null) return (null, "Không tìm thấy đề của bài làm này.");
 
         // Quá giờ vẫn CHẤM, không huỷ trắng bài.
@@ -143,20 +147,25 @@ public class AssessmentAttemptService : IAssessmentAttemptService
         // Xoá trả lời cũ rồi ghi lại theo payload nộp.
         if (attempt.Answers.Count > 0)
         {
-            _unitOfWork.AssessmentRepository.RemoveAttemptAnswers(attempt.Answers);
-            await _unitOfWork.SaveChangesAsync();
+            _assessmentRepository.RemoveAttemptAnswers(attempt.Answers);
+            await _dbContext.SaveChangesAsync();
         }
 
         var givenByQuestion = request.Answers
             .GroupBy(a => a.QuestionId)
             .ToDictionary(g => g.Key, g => g.Last());   // gửi trùng -> lấy lần cuối
 
-        int correctCount = 0;
+        int correctCount = 0, scoredQuestions = 0;
         decimal earned = 0, max = 0;
 
         foreach (var question in assessment.Questions)
         {
-            max += question.Points;
+            var isScored = AssessmentQuestionFormat.IsScored(question.QuestionFormat);
+            if (isScored)
+            {
+                scoredQuestions++;
+                max += question.Points;
+            }
 
             givenByQuestion.TryGetValue(question.Id, out var given);
             var rawAnswer = given?.GivenAnswer;
@@ -164,20 +173,20 @@ public class AssessmentAttemptService : IAssessmentAttemptService
             var storedAnswer = string.IsNullOrWhiteSpace(rawAnswer) ? null : rawAnswer.Trim();
 
             var isCorrect = AssessmentGrader.IsCorrect(question, storedAnswer);
-            if (isCorrect)
+            if (isCorrect && isScored)
             {
                 correctCount++;
                 earned += question.Points;
             }
 
-            await _unitOfWork.AssessmentRepository.AddAttemptAnswerAsync(new AssessmentAttemptAnswer
+            await _assessmentRepository.AddAttemptAnswerAsync(new AssessmentAttemptAnswer
             {
                 Id = Guid.NewGuid(),
                 AttemptId = attempt.Id,
                 QuestionId = question.Id,
                 GivenAnswer = storedAnswer,
                 IsCorrect = isCorrect,
-                EarnedPoints = isCorrect ? question.Points : 0,
+                EarnedPoints = isCorrect && isScored ? question.Points : 0,
                 // Snapshot: sửa đề sau này không làm sai lệch phân tích cũ.
                 ChapterId = question.ChapterId,
                 ChapterSlug = question.ChapterNav?.Slug,
@@ -189,7 +198,7 @@ public class AssessmentAttemptService : IAssessmentAttemptService
 
         attempt.Status = AssessmentAttemptStatus.Submitted;
         attempt.SubmittedAt = now;
-        attempt.TotalQuestions = assessment.Questions.Count;
+        attempt.TotalQuestions = scoredQuestions;
         attempt.CorrectCount = correctCount;
         attempt.EarnedPoints = earned;
         attempt.MaxPoints = max;
@@ -199,8 +208,8 @@ public class AssessmentAttemptService : IAssessmentAttemptService
         // Chấm xong rồi; AI phân tích sau, không phụ thuộc.
         attempt.AnalysisStatus = AssessmentAnalysisStatus.Pending;
 
-        _unitOfWork.AssessmentRepository.UpdateAttempt(attempt);
-        await _unitOfWork.SaveChangesAsync();
+        _assessmentRepository.UpdateAttempt(attempt);
+        await _dbContext.SaveChangesAsync();
 
         if (overdue)
             _logger.LogInformation("Bài làm {AttemptId} nộp sau deadline {ExpiresAt} — vẫn chấm bình thường.",
@@ -215,7 +224,7 @@ public class AssessmentAttemptService : IAssessmentAttemptService
     public async Task<AttemptResultResponse?> GetResultAsync(
         Guid attemptId, string userId, CancellationToken ct = default)
     {
-        var attempt = await _unitOfWork.AssessmentRepository.GetAttemptWithAnswersAsync(attemptId);
+        var attempt = await _assessmentRepository.GetAttemptWithAnswersAsync(attemptId);
         if (attempt == null || attempt.UserId != userId) return null;
 
         var response = ToResultResponse(attempt);
@@ -245,7 +254,7 @@ public class AssessmentAttemptService : IAssessmentAttemptService
     public async Task<PagedList<AttemptResultResponse>> GetHistoryAsync(
         string userId, int pageNumber, int pageSize, int? subjectId, CancellationToken ct = default)
     {
-        var paged = await _unitOfWork.AssessmentRepository.GetAttemptsByUserAsync(
+        var paged = await _assessmentRepository.GetAttemptsByUserAsync(
             userId, pageNumber, pageSize, subjectId);
 
         var items = paged.Select(ToResultResponse).ToList();
@@ -257,12 +266,12 @@ public class AssessmentAttemptService : IAssessmentAttemptService
     public async Task<AttemptAnalysisInputResponse?> GetAnalysisInputAsync(
         Guid attemptId, CancellationToken ct = default)
     {
-        var attempt = await _unitOfWork.AssessmentRepository.GetAttemptWithAnswersAsync(attemptId);
+        var attempt = await _assessmentRepository.GetAttemptWithAnswersAsync(attemptId);
         if (attempt?.Assessment == null) return null;
         // Chưa nộp thì chưa có gì phân tích.
         if (attempt.Status != AssessmentAttemptStatus.Submitted) return null;
 
-        var attemptCount = await _unitOfWork.AssessmentRepository.CountSubmittedAttemptsAsync(
+        var attemptCount = await _assessmentRepository.CountSubmittedAttemptsAsync(
             attempt.UserId, attempt.Assessment.SubjectId);
 
         var items = attempt.Answers.Select(a => new AnalysisItemResponse
@@ -327,10 +336,10 @@ public class AssessmentAttemptService : IAssessmentAttemptService
     public async Task<bool> SaveAnalysisAsync(
         Guid attemptId, SaveAnalysisRequest request, CancellationToken ct = default)
     {
-        var attempt = await _unitOfWork.AssessmentRepository.GetAttemptAsync(attemptId);
+        var attempt = await _assessmentRepository.GetAttemptAsync(attemptId);
         if (attempt == null || attempt.Status != AssessmentAttemptStatus.Submitted) return false;
 
-        var assessment = await _unitOfWork.AssessmentRepository.GetByIdAsync(attempt.AssessmentId);
+        var assessment = await _assessmentRepository.GetByIdAsync(attempt.AssessmentId);
         if (assessment == null) return false;
 
         attempt.AnalysisStatus = AssessmentAnalysisStatus.Done;
@@ -338,13 +347,13 @@ public class AssessmentAttemptService : IAssessmentAttemptService
         attempt.AnalysisResult = request.AnalysisResult;
         attempt.AnalysisError = null;
         attempt.AnalyzedAt = DateTime.UtcNow;
-        _unitOfWork.AssessmentRepository.UpdateAttempt(attempt);
+        _assessmentRepository.UpdateAttempt(attempt);
 
         // Ghi đè profile của (học sinh, môn).
-        var attemptCount = await _unitOfWork.AssessmentRepository.CountSubmittedAttemptsAsync(
+        var attemptCount = await _assessmentRepository.CountSubmittedAttemptsAsync(
             attempt.UserId, assessment.SubjectId);
 
-        var profile = await _unitOfWork.AssessmentRepository.GetProficiencyProfileAsync(
+        var profile = await _assessmentRepository.GetProficiencyProfileAsync(
             attempt.UserId, assessment.SubjectId);
 
         // Level lạ -> bỏ qua, đừng để DB reject cả giao dịch.
@@ -355,7 +364,7 @@ public class AssessmentAttemptService : IAssessmentAttemptService
 
         if (profile == null)
         {
-            await _unitOfWork.AssessmentRepository.AddProficiencyProfileAsync(new StudentProficiencyProfile
+            await _assessmentRepository.AddProficiencyProfileAsync(new StudentProficiencyProfile
             {
                 Id = Guid.NewGuid(),
                 UserId = attempt.UserId,
@@ -380,23 +389,23 @@ public class AssessmentAttemptService : IAssessmentAttemptService
             profile.RecommendedPath = request.RecommendedPath;
             profile.SourceAttemptId = attempt.Id;
             profile.AttemptCount = attemptCount;
-            _unitOfWork.AssessmentRepository.UpdateProficiencyProfile(profile);
+            _assessmentRepository.UpdateProficiencyProfile(profile);
         }
 
-        await _unitOfWork.SaveChangesAsync();
+        await _dbContext.SaveChangesAsync();
         return true;
     }
 
     public async Task<bool> MarkAnalysisFailedAsync(Guid attemptId, string error, CancellationToken ct = default)
     {
-        var attempt = await _unitOfWork.AssessmentRepository.GetAttemptAsync(attemptId);
+        var attempt = await _assessmentRepository.GetAttemptAsync(attemptId);
         if (attempt == null) return false;
 
         // Bài không mất điểm, chỉ phân tích bị đánh dấu lỗi.
         attempt.AnalysisStatus = AssessmentAnalysisStatus.Failed;
         attempt.AnalysisError = error;
-        _unitOfWork.AssessmentRepository.UpdateAttempt(attempt);
-        await _unitOfWork.SaveChangesAsync();
+        _assessmentRepository.UpdateAttempt(attempt);
+        await _dbContext.SaveChangesAsync();
         return true;
     }
 
@@ -413,13 +422,13 @@ public class AssessmentAttemptService : IAssessmentAttemptService
         var input = await GetAnalysisInputAsync(attemptId, ct);
         if (input == null) return (null, null);
 
-        var attempt = await _unitOfWork.AssessmentRepository.GetAttemptAsync(attemptId);
+        var attempt = await _assessmentRepository.GetAttemptAsync(attemptId);
         if (attempt == null) return (null, null);
 
         // processing: chặn 2 lời gọi song song cùng phân tích 1 bài.
         attempt.AnalysisStatus = AssessmentAnalysisStatus.Processing;
-        _unitOfWork.AssessmentRepository.UpdateAttempt(attempt);
-        await _unitOfWork.SaveChangesAsync();
+        _assessmentRepository.UpdateAttempt(attempt);
+        await _dbContext.SaveChangesAsync();
 
         string raw;
         try
@@ -488,11 +497,11 @@ public class AssessmentAttemptService : IAssessmentAttemptService
     {
         if (subjectId.HasValue)
         {
-            var one = await _unitOfWork.AssessmentRepository.GetProficiencyProfileAsync(userId, subjectId.Value);
+            var one = await _assessmentRepository.GetProficiencyProfileAsync(userId, subjectId.Value);
             return one == null ? new() : new() { ToProfileResponse(one) };
         }
 
-        var all = await _unitOfWork.AssessmentRepository.GetProficiencyProfilesAsync(userId);
+        var all = await _assessmentRepository.GetProficiencyProfilesAsync(userId);
         return all.Select(ToProfileResponse).ToList();
     }
 

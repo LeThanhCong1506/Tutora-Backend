@@ -15,7 +15,11 @@ namespace MV.ApplicationLayer.Services
 {
     public partial class UserService : IUserService
     {
-        private readonly IUnitOfWork _unitOfWork;
+        private readonly IUserRepository _userRepository;
+        private readonly ITutorRepository _tutorRepository;
+        private readonly IStudentRepository _studentRepository;
+        private readonly IRefreshTokenRepository _refreshTokenRepository;
+        private readonly IStaffPermissionRepository _staffPermissionRepository;
         private readonly IPasswordRepository _passwordRepository;
         private readonly ITutorVerificationService _verificationService;
         private readonly IFileStorageService _storage;
@@ -26,7 +30,11 @@ namespace MV.ApplicationLayer.Services
         private const string UserAvatarBucket = StorageBucket.Avatars;
 
         public UserService(
-            IUnitOfWork unitOfWork,
+            IUserRepository userRepository,
+            ITutorRepository tutorRepository,
+            IStudentRepository studentRepository,
+            IRefreshTokenRepository refreshTokenRepository,
+            IStaffPermissionRepository staffPermissionRepository,
             IPasswordRepository passwordRepository,
             ITutorVerificationService verificationService,
             IFileStorageService storage,
@@ -35,7 +43,11 @@ namespace MV.ApplicationLayer.Services
             IAppDbContext context,
             ITutorEmbedQueue embedQueue)
         {
-            _unitOfWork = unitOfWork;
+            _userRepository = userRepository;
+            _tutorRepository = tutorRepository;
+            _studentRepository = studentRepository;
+            _refreshTokenRepository = refreshTokenRepository;
+            _staffPermissionRepository = staffPermissionRepository;
             _passwordRepository = passwordRepository;
             _verificationService = verificationService;
             _storage = storage;
@@ -49,7 +61,7 @@ namespace MV.ApplicationLayer.Services
 
         public async Task<UserResponse> GetUserByIdAsync(string userId)
         {
-            var user = await _unitOfWork.UserRepository.GetUserByIdAsync(userId)
+            var user = await _userRepository.GetUserByIdAsync(userId)
                 ?? throw new UserNotFoundException();
 
             return new UserResponse
@@ -73,11 +85,11 @@ namespace MV.ApplicationLayer.Services
 
         public async Task<PagedList<UserResponse>> GetUsersByRoleAsync(string roleName, UserParameters parameters)
         {
-            var users = await _unitOfWork.UserRepository.GetUsersByRoleAsync(roleName, parameters);
+            var users = await _userRepository.GetUsersByRoleAsync(roleName, parameters);
             var mapped = users.Select(MapToUserResponse).ToList();
             if (string.Equals(roleName, UserRole.Staff, StringComparison.OrdinalIgnoreCase))
             {
-                var assignments = await _unitOfWork.StaffPermissionRepository.GetAssignmentsAsync(
+                var assignments = await _staffPermissionRepository.GetAssignmentsAsync(
                     mapped.Select(user => user.Userid).ToArray());
                 foreach (var response in mapped)
                 {
@@ -99,14 +111,14 @@ namespace MV.ApplicationLayer.Services
 
         public async Task<PagedList<UserResponse>> GetTutorsBySubjectAsync(int subjectId, UserParameters parameters)
         {
-            var tutors = await _unitOfWork.UserRepository.GetTutorsBySubjectAsync(subjectId, parameters);
+            var tutors = await _userRepository.GetTutorsBySubjectAsync(subjectId, parameters);
             var mapped = tutors.Select(MapToUserResponse).ToList();
             return new PagedList<UserResponse>(mapped, tutors.TotalCount, tutors.CurrentPage, tutors.PageSize);
         }
 
         public async Task<PagedList<PendingTutorResponse>> GetPendingTutorsAsync(UserParameters parameters)
         {
-            var users = await _unitOfWork.UserRepository.GetPendingTutorsAsync(parameters);
+            var users = await _userRepository.GetPendingTutorsAsync(parameters);
 
             var mappedUsers = new List<PendingTutorResponse>();
             foreach (var u in users)
@@ -137,7 +149,7 @@ namespace MV.ApplicationLayer.Services
 
         public async Task<TutorProfileShortResponse> GetTutorProfileShortAsync(string tutorId)
         {
-            var profile = await _unitOfWork.UserRepository.GetTutorProfileByIdAsync(tutorId)
+            var profile = await _userRepository.GetTutorProfileByIdAsync(tutorId)
                 ?? throw new KeyNotFoundException("Không tìm thấy hồ sơ gia sư của người dùng này.");
 
             return new TutorProfileShortResponse
@@ -150,7 +162,7 @@ namespace MV.ApplicationLayer.Services
 
         public async Task<List<StudentProfileResponse>> GetStudentsByParentIdAsync(string parentId)
         {
-            var studentProfiles = await _unitOfWork.UserRepository.GetStudentProfilesByParentIdAsync(parentId);
+            var studentProfiles = await _userRepository.GetStudentProfilesByParentIdAsync(parentId);
 
             return studentProfiles.Select(sp => new StudentProfileResponse
             {
@@ -171,11 +183,11 @@ namespace MV.ApplicationLayer.Services
         // UpdateUserAsync (PUT /api/users/{id}).
         public async Task<UserResponse> CreateStaffAsync(CreateStaffRequest request, string adminUserId)
         {
-            if (!await _unitOfWork.UserRepository.IsEmailUniqueAsync(request.Email))
+            if (!await _userRepository.IsEmailUniqueAsync(request.Email))
                 throw new EmailAlreadyExistsException();
-            if (!string.IsNullOrEmpty(request.Username) && !await _unitOfWork.UserRepository.IsUsernameUniqueAsync(request.Username))
+            if (!string.IsNullOrEmpty(request.Username) && !await _userRepository.IsUsernameUniqueAsync(request.Username))
                 throw new UsernameAlreadyExistsException();
-            if (!string.IsNullOrEmpty(request.Phone) && !await _unitOfWork.UserRepository.IsPhoneUniqueAsync(request.Phone))
+            if (!string.IsNullOrEmpty(request.Phone) && !await _userRepository.IsPhoneUniqueAsync(request.Phone))
                 throw new PhoneAlreadyExistsException();
 
             PermissionGroup? group = null;
@@ -202,7 +214,7 @@ namespace MV.ApplicationLayer.Services
                 Primaryrole = UserRole.Staff
             };
 
-            await _unitOfWork.UserRepository.CreateUserAsync(newUser);
+            await _userRepository.CreateUserAsync(newUser);
             var assignment = new StaffPermissionGroupAssignment
             {
                 StaffUserId = userId,
@@ -229,7 +241,7 @@ namespace MV.ApplicationLayer.Services
                 }),
                 CreatedAt = now
             });
-            await _unitOfWork.SaveChangesAsync();
+            await _context.SaveChangesAsync();
 
             var response = await GetUserByIdAsync(newUser.Userid);
             response.AssignmentVersion = assignment.Version;
@@ -245,10 +257,10 @@ namespace MV.ApplicationLayer.Services
         }
         public async Task CreateTutorSubjectAsync(string tutorId, SelectTutorSubjectRequest request)
         {
-            if (!await _unitOfWork.UserRepository.SubjectExistsAsync(request.SubjectId))
+            if (!await _userRepository.SubjectExistsAsync(request.SubjectId))
                 throw new KeyNotFoundException("Môn học này không tồn tại trong hệ thống.");
 
-            if (await _unitOfWork.UserRepository.HasTutorAlreadySelectedSubjectAsync(tutorId, request.SubjectId))
+            if (await _userRepository.HasTutorAlreadySelectedSubjectAsync(tutorId, request.SubjectId))
                 throw new InvalidOperationException("Bạn đã đăng ký môn học này rồi.");
 
             var tutorSubject = new Tutorsubject
@@ -259,16 +271,16 @@ namespace MV.ApplicationLayer.Services
                 Tags = request.Tags
             };
 
-            await _unitOfWork.UserRepository.CreateTutorSubjectAsync(tutorSubject);
-            await _unitOfWork.SaveChangesAsync();
+            await _userRepository.CreateTutorSubjectAsync(tutorSubject);
+            await _context.SaveChangesAsync();
         }
 
         public async Task UpdateUserAsync(string userId, UpdateUserRequest request)
         {
-            var user = await _unitOfWork.UserRepository.GetUserByIdAsync(userId)
+            var user = await _userRepository.GetUserByIdAsync(userId)
                 ?? throw new UserNotFoundException();
 
-            var studentProfile = await _unitOfWork.StudentRepository.FindByStudentOrLinkedUserAsync(userId);
+            var studentProfile = await _studentRepository.FindByStudentOrLinkedUserAsync(userId);
 
             // Đã xác minh CCCD (Student hoặc Tutor qua eKYC): họ tên & ngày sinh lấy từ CCCD là nguồn
             // chuẩn, không cho tự sửa (cùng quy tắc với StudentService.UpdateSelfProfileAsync).
@@ -289,7 +301,7 @@ namespace MV.ApplicationLayer.Services
                 var email = request.Email.Trim();
                 if (!string.Equals(user.Email, email, StringComparison.OrdinalIgnoreCase))
                 {
-                    if (!await _unitOfWork.UserRepository.IsEmailUniqueAsync(email))
+                    if (!await _userRepository.IsEmailUniqueAsync(email))
                         throw new EmailAlreadyExistsException();
                     user.Email = email;
                 }
@@ -297,25 +309,25 @@ namespace MV.ApplicationLayer.Services
 
             SyncStudentProfile(user, studentProfile);
 
-            await _unitOfWork.UserRepository.UpdateUserAsync(user);
-            await _unitOfWork.SaveChangesAsync();
+            await _userRepository.UpdateUserAsync(user);
+            await _context.SaveChangesAsync();
         }
 
         public async Task DeleteUserAsync(string userId)
         {
-            var user = await _unitOfWork.UserRepository.GetUserByIdAsync(userId)
+            var user = await _userRepository.GetUserByIdAsync(userId)
                 ?? throw new UserNotFoundException();
 
-            await _unitOfWork.RefreshTokenRepository.RevokeAllByUserIdAsync(userId);
-            await _unitOfWork.UserRepository.DeleteUserAsync(user);
-            await _unitOfWork.SaveChangesAsync();
+            await _refreshTokenRepository.RevokeAllByUserIdAsync(userId);
+            await _userRepository.DeleteUserAsync(user);
+            await _context.SaveChangesAsync();
         }
 
         // ─── Self-deactivation ────────────────────────────────────────────────
 
         public async Task<DeactivationStatusResponse> ToggleDeactivationAsync(string userId)
         {
-            var user = await _unitOfWork.UserRepository.GetUserByIdAsync(userId)
+            var user = await _userRepository.GetUserByIdAsync(userId)
                 ?? throw new UserNotFoundException();
 
             var now = TimeZoneHelper.UtcNow;
@@ -328,8 +340,8 @@ namespace MV.ApplicationLayer.Services
             if (user.Tutorprofile != null)
                 user.Tutorprofile.Ispublic = !willDeactivate;
 
-            await _unitOfWork.UserRepository.UpdateUserAsync(user);
-            await _unitOfWork.SaveChangesAsync();
+            await _userRepository.UpdateUserAsync(user);
+            await _context.SaveChangesAsync();
 
             var message = willDeactivate
                 ? "Tài khoản của bạn đã được tạm khóa thành công. Bạn có thể mở lại bất cứ lúc nào bằng cách đăng nhập."
@@ -357,14 +369,14 @@ namespace MV.ApplicationLayer.Services
             if (avatarFile.Length > 5 * 1024 * 1024)
                 throw new ArgumentException("Ảnh đại diện phải nhỏ hơn 5MB");
 
-            var user = await _unitOfWork.UserRepository.GetUserByIdAsync(userId)
+            var user = await _userRepository.GetUserByIdAsync(userId)
                 ?? throw new UserNotFoundException(userId);
 
             var avatarUrl = await _storage.UploadFileAsync(UserAvatarBucket, userId, avatarFile);
             user.Avatarurl = avatarUrl;
             await SyncStudentProfileAsync(user);
-            await _unitOfWork.UserRepository.UpdateUserAsync(user);
-            await _unitOfWork.SaveChangesAsync();
+            await _userRepository.UpdateUserAsync(user);
+            await _context.SaveChangesAsync();
 
             return avatarUrl;
         }
@@ -377,7 +389,7 @@ namespace MV.ApplicationLayer.Services
         /// hàm này để 2 bảng không bị lệch. Không làm gì nếu user không phải học sinh.
         /// </summary>
         private async Task SyncStudentProfileAsync(User user)
-            => SyncStudentProfile(user, await _unitOfWork.StudentRepository.FindByStudentOrLinkedUserAsync(user.Userid));
+            => SyncStudentProfile(user, await _studentRepository.FindByStudentOrLinkedUserAsync(user.Userid));
 
         private static void SyncStudentProfile(User user, Studentprofile? profile)
         {

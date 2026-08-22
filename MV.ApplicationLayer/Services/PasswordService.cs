@@ -11,15 +11,17 @@ namespace MV.ApplicationLayer.Services
 {
     public class PasswordService : IPasswordService
     {
-        private readonly IUnitOfWork _unitOfWork;
+        private readonly IUserRepository _userRepository;
+        private readonly IAppDbContext _dbContext;
         private readonly IPasswordRepository _passwordRepository;
         private readonly IConfiguration _configuration;
         private readonly ILogger<PasswordService> _logger;
 
-        public PasswordService(IUnitOfWork unitOfWork, IPasswordRepository passwordRepository,
+        public PasswordService(IUserRepository userRepository, IAppDbContext dbContext, IPasswordRepository passwordRepository,
             IConfiguration configuration, ILogger<PasswordService> logger)
         {
-            _unitOfWork = unitOfWork;
+            _userRepository = userRepository;
+            _dbContext = dbContext;
             _passwordRepository = passwordRepository;
             _configuration = configuration;
             _logger = logger;
@@ -30,7 +32,7 @@ namespace MV.ApplicationLayer.Services
             try
             {
                 // 1. Get user from DB
-                var user = await _unitOfWork.UserRepository.GetUserByIdAsync(userId);
+                var user = await _userRepository.GetUserByIdAsync(userId);
                 if (user == null)
                 {
                     return (false, ApiMessages.UserNotFoundWithPeriod);
@@ -57,8 +59,8 @@ namespace MV.ApplicationLayer.Services
                 var hashedPassword = _passwordRepository.HashPassword(newPassword);
                 user.Password = hashedPassword;
 
-                await _unitOfWork.UserRepository.UpdateUserAsync(user);
-                await _unitOfWork.SaveChangesAsync();
+                await _userRepository.UpdateUserAsync(user);
+                await _dbContext.SaveChangesAsync();
 
                 return (true, null);
             }
