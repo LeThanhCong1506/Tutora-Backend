@@ -26,20 +26,20 @@ namespace MV.ApplicationLayer.Services
 
         private readonly IFptAiService _fptAiService;
         private readonly IEncryptionService _encryption;
-        private readonly IUnitOfWork _unitOfWork;
+        private readonly IUserRepository _userRepository;
         private readonly IFileStorageService _storageService;
         private readonly ILogger<EkycService> _logger;
 
         public EkycService(
             IFptAiService fptAiService,
             IEncryptionService encryption,
-            IUnitOfWork unitOfWork,
+            IUserRepository userRepository,
             IFileStorageService storageService,
             ILogger<EkycService> logger)
         {
             _fptAiService = fptAiService ?? throw new ArgumentNullException(nameof(fptAiService));
             _encryption = encryption ?? throw new ArgumentNullException(nameof(encryption));
-            _unitOfWork = unitOfWork ?? throw new ArgumentNullException(nameof(unitOfWork));
+            _userRepository = userRepository ?? throw new ArgumentNullException(nameof(userRepository));
             _storageService = storageService ?? throw new ArgumentNullException(nameof(storageService));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         }
@@ -93,7 +93,7 @@ namespace MV.ApplicationLayer.Services
                 // 5. Số CCCD không được trùng với tài khoản khác.
                 if (!string.IsNullOrEmpty(ocrResult.Id) && ocrResult.Id != _encryption.Decrypt(user.Identitynumber))
                 {
-                    var isUnique = await _unitOfWork.UserRepository.IsIdentityNumberUniqueAsync(_encryption.Encrypt(ocrResult.Id));
+                    var isUnique = await _userRepository.IsIdentityNumberUniqueAsync(_encryption.Encrypt(ocrResult.Id));
                     if (!isUnique)
                         throw new InvalidOperationException(
                             "CCCD này đã được xác minh bởi tài khoản khác. Vui lòng liên hệ hỗ trợ nếu đây là nhầm lẫn.");
@@ -122,7 +122,7 @@ namespace MV.ApplicationLayer.Services
                 user.Identitynumber = _encryption.Encrypt(ocrResult.Id);
                 user.Ekycrawdata = _encryption.Encrypt(JsonSerializer.Serialize(new
                 {
-                    OcrResult = new { id = ocrResult.Id, name = ocrResult.Name, dob = ocrResult.Dob, sex = ocrResult.Sex, address = ocrResult.Address },
+                    OcrResult = new { id = ocrResult.Id, name = ocrResult.Name, dob = ocrResult.Dob, sex = ocrResult.Sex, home = ocrResult.Home, address = ocrResult.Address },
                     VerifiedAt = TimeZoneHelper.UtcNow.ToString("o")
                 }));
 
@@ -154,8 +154,20 @@ namespace MV.ApplicationLayer.Services
                         profileDataUpdated = true;
                     }
 
-                    if (string.IsNullOrWhiteSpace(user.Address))
+                    // Địa chỉ thường trú cũng là dữ liệu định danh chuẩn từ CCCD nên được ghi
+                    // đè như tên/ngày sinh (trước đây chỉ điền khi trống, và điền âm thầm —
+                    // người dùng không hề được báo).
+                    //
+                    // Đây là địa chỉ THƯỜNG TRÚ của tài khoản, khác với KHU VỰC DẠY
+                    // (tutorprofiles.teachingareacity/district — chọn từ provinces.open-api.vn).
+                    // Gia sư có thể thường trú một nơi và dạy ở nơi khác, nên khu vực dạy KHÔNG
+                    // bị đụng tới ở đây; FE chỉ gợi ý tỉnh/thành khi gia sư chưa chọn.
+                    if (!string.IsNullOrWhiteSpace(ocrResult.Address) &&
+                        !string.Equals(user.Address, ocrResult.Address, StringComparison.Ordinal))
+                    {
                         user.Address = ocrResult.Address;
+                        profileDataUpdated = true;
+                    }
                 }
             }
 
@@ -172,6 +184,7 @@ namespace MV.ApplicationLayer.Services
                     FullName = ocrResult?.Name,
                     DateOfBirth = ocrResult?.Dob,
                     Gender = ocrResult?.Sex,
+                    Hometown = ocrResult?.Home,
                     Address = ocrResult?.Address,
                     Message = ocrResult != null
                         ? "Upload và đọc CCCD thành công."

@@ -40,7 +40,7 @@ public class ManualPaymentContractTests
     }
 
     [Fact]
-    public void WithdrawalApproval_RequiresPaidAtNoteAndProof()
+    public void WithdrawalApproval_RequiresPaidAtNoteBankCodeAndProof()
     {
         var request = new ApproveWithdrawalRequest();
 
@@ -48,6 +48,7 @@ public class ManualPaymentContractTests
 
         Assert.Contains(errors, e => e.MemberNames.Contains(nameof(request.PaidAt)));
         Assert.Contains(errors, e => e.MemberNames.Contains(nameof(request.Note)));
+        Assert.Contains(errors, e => e.MemberNames.Contains(nameof(request.BankTransactionCode)));
         Assert.Contains(errors, e => e.MemberNames.Contains(nameof(request.ProofImage)));
     }
 
@@ -68,11 +69,71 @@ public class ManualPaymentContractTests
         {
             PaidAt = new DateTimeOffset(2026, 7, 17, 15, 30, 0, TimeSpan.FromHours(7)),
             Note = "Đã đối soát đúng số tiền và tài khoản nhận.",
+            BankTransactionCode = "FT26082212345678",
             ProofImage = proof
         };
 
         Assert.Empty(Validate(request));
     }
+
+    [Theory]
+    [InlineData("FT26082212345678")]
+    [InlineData("ft2608221234")]   // chữ thường hợp lệ; service tự chuẩn hoá về chữ hoa
+    [InlineData("2026.08.22/0001")]
+    [InlineData("REF_123-456")]
+    public void WithdrawalApproval_AcceptsRealisticBankTransactionCodes(string code)
+    {
+        var request = BuildApproval(code);
+
+        Assert.DoesNotContain(
+            Validate(request),
+            e => e.MemberNames.Contains(nameof(ApproveWithdrawalRequest.BankTransactionCode)));
+    }
+
+    [Theory]
+    [InlineData("")]               // bắt buộc
+    [InlineData("FT")]             // ngắn hơn 4 ký tự
+    [InlineData("FT2608 221234")]  // khoảng trắng — dễ là lỗi dán nhầm cả dòng sao kê
+    [InlineData("FT<script>")]     // ký tự lạ
+    public void WithdrawalApproval_RejectsMalformedBankTransactionCodes(string code)
+    {
+        var request = BuildApproval(code);
+
+        Assert.Contains(
+            Validate(request),
+            e => e.MemberNames.Contains(nameof(ApproveWithdrawalRequest.BankTransactionCode)));
+    }
+
+    [Fact]
+    public void ApproveWithdrawalRequestContract_SeparatesBankCodeFromInternalPayoutCode()
+    {
+        // Mã đối soát nội bộ do backend sinh và KHÔNG bao giờ nhận từ client; mã ngân hàng thì
+        // ngược lại — staff đọc trên biên lai rồi nhập. Hai thứ này phải là 2 trường tách biệt,
+        // gộp lại là mất khả năng đối soát với sao kê.
+        var contract = typeof(ApproveWithdrawalRequest);
+
+        Assert.Null(contract.GetProperty("TransactionId"));
+        Assert.Null(contract.GetProperty("ProviderTransactionId"));
+        Assert.NotNull(contract.GetProperty(nameof(ApproveWithdrawalRequest.BankTransactionCode)));
+    }
+
+    /// <summary>Yêu cầu duyệt hợp lệ mọi mặt, chỉ thay mã ngân hàng để soi riêng trường đó.</summary>
+    private static ApproveWithdrawalRequest BuildApproval(string bankTransactionCode) => new()
+    {
+        PaidAt = new DateTimeOffset(2026, 8, 22, 15, 30, 0, TimeSpan.FromHours(7)),
+        Note = "Đã đối soát đúng số tiền và tài khoản nhận.",
+        BankTransactionCode = bankTransactionCode,
+        ProofImage = new FormFile(
+            new MemoryStream([137, 80, 78, 71]),
+            0,
+            4,
+            nameof(ApproveWithdrawalRequest.ProofImage),
+            "receipt.png")
+        {
+            Headers = new HeaderDictionary(),
+            ContentType = "image/png"
+        }
+    };
 
     [Fact]
     public void ApproveWithdrawalRequestContract_DoesNotExposeTransactionId()

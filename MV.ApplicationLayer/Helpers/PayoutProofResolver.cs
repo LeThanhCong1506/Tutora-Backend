@@ -12,7 +12,11 @@ namespace MV.ApplicationLayer.Helpers;
 /// </summary>
 public static class PayoutProofResolver
 {
-    public readonly record struct Result(string? ProviderTransactionId, DateTime? PaidAt, string? ProofImageUrl);
+    public readonly record struct Result(
+        string? ProviderTransactionId,
+        string? BankTransactionCode,
+        DateTime? PaidAt,
+        string? ProofImageUrl);
 
     public static async Task<Result> ResolveAsync(
         IAppDbContext context,
@@ -26,13 +30,13 @@ public static class PayoutProofResolver
                         && t.Purpose == PaymentTransactionPurpose.Withdrawal
                         && t.Status == PaymentTransactionStatus.Succeeded)
             .OrderByDescending(t => t.Paymenttransactionid)
-            .Select(t => new { t.Providertransactionid, t.Paidat, t.Proofimagepath })
+            .Select(t => new { t.Providertransactionid, t.Banktransactioncode, t.Paidat, t.Proofimagepath })
             .FirstOrDefaultAsync(ct);
 
         var proofImageUrl = string.IsNullOrWhiteSpace(payout?.Proofimagepath)
             ? null
             : fileStorageService.GenerateSignedUrl(payout.Proofimagepath);
 
-        return new Result(payout?.Providertransactionid, payout?.Paidat, proofImageUrl);
+        return new Result(payout?.Providertransactionid, payout?.Banktransactioncode, payout?.Paidat, proofImageUrl);
     }
 }

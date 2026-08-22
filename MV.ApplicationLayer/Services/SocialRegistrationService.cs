@@ -34,7 +34,9 @@ public class SocialRegistrationService : ISocialRegistrationService
         @"^\+?\d{9,15}$",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
-    private readonly IUnitOfWork _unitOfWork;
+    private readonly IUserRepository _userRepository;
+    private readonly IRefreshTokenRepository _refreshTokenRepository;
+    private readonly IAppDbContext _dbContext;
     private readonly IPasswordRepository _passwordRepository;
     private readonly IAuthenticationRepository _authenticationRepository;
     private readonly IOtpSender _otpSender;
@@ -43,7 +45,9 @@ public class SocialRegistrationService : ISocialRegistrationService
     private readonly IDistributedCache _cache;
 
     public SocialRegistrationService(
-        IUnitOfWork unitOfWork,
+        IUserRepository userRepository,
+        IRefreshTokenRepository refreshTokenRepository,
+        IAppDbContext dbContext,
         IPasswordRepository passwordRepository,
         IAuthenticationRepository authenticationRepository,
         IOtpSender otpSender,
@@ -51,7 +55,9 @@ public class SocialRegistrationService : ISocialRegistrationService
         ILogger<SocialRegistrationService> logger,
         IDistributedCache cache)
     {
-        _unitOfWork = unitOfWork;
+        _userRepository = userRepository;
+        _refreshTokenRepository = refreshTokenRepository;
+        _dbContext = dbContext;
         _passwordRepository = passwordRepository;
         _authenticationRepository = authenticationRepository;
         _otpSender = otpSender;
@@ -71,8 +77,8 @@ public class SocialRegistrationService : ISocialRegistrationService
             return new TokenResponse { ErrorMessage = "Nhà cung cấp đăng nhập không hợp lệ." };
 
         var user = provider == SocialAuthProvider.Google
-            ? await _unitOfWork.UserRepository.GetUserByEmailAsync(email ?? string.Empty)
-            : await _unitOfWork.UserRepository.GetUserByZaloIdAsync(providerUserId);
+            ? await _userRepository.GetUserByEmailAsync(email ?? string.Empty)
+            : await _userRepository.GetUserByZaloIdAsync(providerUserId);
 
         if (user != null)
         {
@@ -88,8 +94,8 @@ public class SocialRegistrationService : ISocialRegistrationService
                     user.Isemailverified = true;
 
                 user.Lastloginat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
-                await _unitOfWork.UserRepository.UpdateUserAsync(user);
-                await _unitOfWork.SaveChangesAsync();
+                await _userRepository.UpdateUserAsync(user);
+                await _dbContext.SaveChangesAsync();
                 return await CreateTokenResponseAsync(user);
             }
         }
@@ -139,7 +145,7 @@ public class SocialRegistrationService : ISocialRegistrationService
             };
         }
 
-        var phoneOwner = await _unitOfWork.UserRepository.GetUserByPhoneAsync(phone);
+        var phoneOwner = await _userRepository.GetUserByPhoneAsync(phone);
 
         // Account Zalo cũ có thể chưa lưu Zalouserid (ví dụ tạo trước khi Web OAuth
         // được triển khai). Không được tự ghép tài khoản chỉ dựa vào SĐT: dùng OTP ở
@@ -257,7 +263,7 @@ public class SocialRegistrationService : ISocialRegistrationService
 
         try
         {
-            var phoneOwner = await _unitOfWork.UserRepository.GetUserByPhoneAsync(session.Phone);
+            var phoneOwner = await _userRepository.GetUserByPhoneAsync(session.Phone);
             if (phoneOwner != null && phoneOwner.Userid != session.ExistingUserId)
             {
                 return new TokenResponse
@@ -272,7 +278,7 @@ public class SocialRegistrationService : ISocialRegistrationService
             User user;
             if (session.ExistingUserId != null)
             {
-                user = await _unitOfWork.UserRepository.GetUserByIdAsync(session.ExistingUserId)
+                user = await _userRepository.GetUserByIdAsync(session.ExistingUserId)
                     ?? throw new InvalidOperationException("Không tìm thấy tài khoản social.");
 
                 user.Phone = session.Phone;
@@ -296,7 +302,7 @@ public class SocialRegistrationService : ISocialRegistrationService
                     user.Zalouserid = session.ProviderUserId;
                 }
 
-                await _unitOfWork.UserRepository.UpdateUserAsync(user);
+                await _userRepository.UpdateUserAsync(user);
             }
             else
             {
@@ -304,7 +310,7 @@ public class SocialRegistrationService : ISocialRegistrationService
             }
 
             user.Lastloginat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
-            await _unitOfWork.SaveChangesAsync();
+            await _dbContext.SaveChangesAsync();
             await _cache.RemoveAsync(SessionKey(request.SocialRegistrationToken));
 
             return await CreateTokenResponseAsync(user);
@@ -425,7 +431,7 @@ public class SocialRegistrationService : ISocialRegistrationService
             };
         }
 
-        await _unitOfWork.UserRepository.CreateUserAsync(user);
+        await _userRepository.CreateUserAsync(user);
         return user;
     }
 
@@ -442,7 +448,7 @@ public class SocialRegistrationService : ISocialRegistrationService
             };
         }
 
-        var role = await _unitOfWork.UserRepository.GetUserRoleByIdAsync(user.Userid)
+        var role = await _userRepository.GetUserRoleByIdAsync(user.Userid)
             ?? user.Primaryrole;
         if (string.IsNullOrWhiteSpace(role))
             return new TokenResponse { ErrorMessage = "User role not found." };
@@ -476,8 +482,8 @@ public class SocialRegistrationService : ISocialRegistrationService
             Expiresat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow.AddDays(expiryDays),
             Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
         };
-        await _unitOfWork.RefreshTokenRepository.CreateAsync(refreshTokenEntity);
-        await _unitOfWork.SaveChangesAsync();
+        await _refreshTokenRepository.CreateAsync(refreshTokenEntity);
+        await _dbContext.SaveChangesAsync();
 
         return new TokenResponse
         {

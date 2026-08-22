@@ -7,6 +7,7 @@ using MV.DomainLayer.DTO;
 using MV.DomainLayer.DTO.RequestModel;
 using MV.DomainLayer.DTO.ResponseModel;
 using MV.ApplicationLayer.Interfaces;
+using MV.ApplicationLayer.RepositoryInterfaces;
 using System.Security.Claims;
 
 namespace MV.PresentationLayer.Controllers
@@ -16,13 +17,15 @@ namespace MV.PresentationLayer.Controllers
     public class UserController : ControllerBase
     {
         private readonly IUserService _userService;
-        private readonly IUnitOfWork _unitOfWork;
+        private readonly IUserRepository _userRepository;
+        private readonly IAppDbContext _dbContext;
         private readonly ISupportMessageService _supportService;
 
-        public UserController(IUserService userService, IUnitOfWork unitOfWork, ISupportMessageService supportService)
+        public UserController(IUserService userService, IUserRepository userRepository, IAppDbContext dbContext, ISupportMessageService supportService)
         {
             _userService = userService;
-            _unitOfWork = unitOfWork;
+            _userRepository = userRepository;
+            _dbContext = dbContext;
             _supportService = supportService;
         }
 
@@ -49,7 +52,7 @@ namespace MV.PresentationLayer.Controllers
         [Authorize(Roles = UserRole.Admin)]
         public async Task<IActionResult> GetUserByEmail(string email)
         {
-            var user = await _unitOfWork.UserRepository.GetUserByEmailAsync(email);
+            var user = await _userRepository.GetUserByEmailAsync(email);
             if (user == null)
                 return NotFound(APIResponse<object>.Fail(ApiMessages.UserNotFound, 404));
             var response = await _userService.GetUserByIdAsync(user.Userid);
@@ -151,12 +154,12 @@ namespace MV.PresentationLayer.Controllers
             if (currentUserId != id && !User.IsInRole(UserRole.Admin))
                 return StatusCode(403, APIResponse<object>.Fail(ApiMessages.Forbidden, 403));
 
-            var user = await _unitOfWork.UserRepository.GetUserByIdAsync(id);
+            var user = await _userRepository.GetUserByIdAsync(id);
             if (user == null)
                 return NotFound(APIResponse<object>.Fail(ApiMessages.UserNotFound, 404));
 
             user.Zabornotifyenabled = request.ZaborNotifyEnabled;
-            await _unitOfWork.SaveChangesAsync();
+            await _dbContext.SaveChangesAsync();
 
             return Ok(APIResponse<object>.Success(null!, "Cập nhật cài đặt thông báo Zalo thành công."));
         }
@@ -187,7 +190,7 @@ namespace MV.PresentationLayer.Controllers
             if (string.IsNullOrEmpty(userId))
                 return Unauthorized(APIResponse<object>.Fail(ApiMessages.Unauthorized, 401));
 
-            var user = await _unitOfWork.UserRepository.GetUserByIdAsync(userId);
+            var user = await _userRepository.GetUserByIdAsync(userId);
             if (user == null)
                 return NotFound(APIResponse<object>.Fail(ApiMessages.UserNotFound, 404));
 
@@ -205,12 +208,12 @@ namespace MV.PresentationLayer.Controllers
             if (string.IsNullOrEmpty(userId))
                 return Unauthorized(APIResponse<object>.Fail(ApiMessages.Unauthorized, 401));
 
-            var user = await _unitOfWork.UserRepository.GetUserByIdAsync(userId);
+            var user = await _userRepository.GetUserByIdAsync(userId);
             if (user == null)
                 return NotFound(APIResponse<object>.Fail(ApiMessages.UserNotFound, 404));
 
             user.Hascompletedtour = true;
-            await _unitOfWork.SaveChangesAsync();
+            await _dbContext.SaveChangesAsync();
 
             return Ok(APIResponse<object>.Success(null!, "Đã đánh dấu hoàn thành hướng dẫn."));
         }

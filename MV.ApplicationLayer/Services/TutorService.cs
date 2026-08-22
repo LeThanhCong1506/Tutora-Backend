@@ -8,13 +8,15 @@ using MV.DomainLayer.DTO.ResponseModel;
 using MV.DomainLayer.Entities;
 using MV.ApplicationLayer.Interfaces;
 using MV.ApplicationLayer.Helpers;
+using MV.ApplicationLayer.RepositoryInterfaces;
 using System.Text.Json;
 
 namespace MV.ApplicationLayer.Services
 {
     public partial class TutorService : ITutorService
     {
-        private readonly IUnitOfWork _unitOfWork;
+        private readonly ITutorRepository _tutorRepository;
+        private readonly IUserRepository _userRepository;
         private readonly IFileStorageService _storageService;
         private readonly IFptAiService _fptAiService;
         private readonly INotificationService _notificationService;
@@ -36,7 +38,8 @@ namespace MV.ApplicationLayer.Services
         private const long MaxCertificateFileSize = 10 * 1024 * 1024; // 10 MB
 
         public TutorService(
-            IUnitOfWork unitOfWork,
+            ITutorRepository tutorRepository,
+            IUserRepository userRepository,
             IFileStorageService storageService,
             IFptAiService fptAiService,
             INotificationService notificationService,
@@ -47,7 +50,8 @@ namespace MV.ApplicationLayer.Services
             IEkycService ekyc,
             ITutorEmbedQueue embedQueue)
         {
-            _unitOfWork = unitOfWork;
+            _tutorRepository = tutorRepository;
+            _userRepository = userRepository;
             _storageService = storageService;
             _fptAiService = fptAiService;
             _notificationService = notificationService;
@@ -87,7 +91,7 @@ namespace MV.ApplicationLayer.Services
                     _context, Permissions.TutorProfileUpdateView);
                 if (reviewerIds.Count == 0) return;
 
-                var tutorName = (await _unitOfWork.UserRepository.GetUserByIdAsync(tutorId))?.Fullname ?? tutorId;
+                var tutorName = (await _userRepository.GetUserByIdAsync(tutorId))?.Fullname ?? tutorId;
 
                 await _notificationService.CreateNotificationsAsync(reviewerIds.Select(reviewerId => new NotificationRequest
                 {
@@ -107,7 +111,7 @@ namespace MV.ApplicationLayer.Services
 
         public async Task<TutorProfileResponse?> GetTutorProfileAsync(string tutorId)
         {
-            var tutorEntity = await _unitOfWork.TutorRepository.GetTutorProfileByIdAsync(tutorId);
+            var tutorEntity = await _tutorRepository.GetTutorProfileByIdAsync(tutorId);
             if (tutorEntity == null) return null;
 
             return new TutorProfileResponse
@@ -129,7 +133,7 @@ namespace MV.ApplicationLayer.Services
 
         public async Task<ProfileUpdateOutcome> UpdateTutorBasicInfoAsync(string userId, UpdateTutorBasicInfoRequest request)
         {
-            var profile = await _unitOfWork.TutorRepository.GetTutorProfileByIdAsync(userId);
+            var profile = await _tutorRepository.GetTutorProfileByIdAsync(userId);
             if (profile == null) return ProfileUpdateOutcome.NotFound;
 
             // Text moderation — Headline
@@ -160,14 +164,14 @@ namespace MV.ApplicationLayer.Services
             profile.Teachingareadistrict = request.TeachingAreaDistrict;
             profile.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 
-            await _unitOfWork.SaveChangesAsync();
+            await _context.SaveChangesAsync();
             await AutoSubmitIfCompleteAsync(userId);
             return ProfileUpdateOutcome.Applied;
         }
 
         public async Task<ProfileUpdateOutcome> UpdateTutorIntroductionAsync(string userId, UpdateTutorIntroductionRequest request)
         {
-            var profile = await _unitOfWork.TutorRepository.GetTutorProfileByIdAsync(userId);
+            var profile = await _tutorRepository.GetTutorProfileByIdAsync(userId);
             if (profile == null) return ProfileUpdateOutcome.NotFound;
 
             if (request.Gpa > request.GpaScale)
@@ -202,6 +206,7 @@ namespace MV.ApplicationLayer.Services
                 await _updateStaging.UpsertPendingUpdateAsync(userId, pending =>
                 {
                     pending.Bio = request.Bio;
+                    pending.Degree = request.Degree;
                     pending.Education = request.Education;
                     pending.GpaScale = request.GpaScale;
                     pending.Gpa = request.Gpa;
@@ -212,13 +217,14 @@ namespace MV.ApplicationLayer.Services
             }
 
             profile.Bio = request.Bio;
+            profile.Degree = request.Degree;
             profile.Education = request.Education;
             profile.Gpascale = request.GpaScale;
             profile.Gpa = request.Gpa;
             profile.Experience = request.Experience;
             profile.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 
-            await _unitOfWork.SaveChangesAsync();
+            await _context.SaveChangesAsync();
             await AutoSubmitIfCompleteAsync(userId);
             _embedQueue.Enqueue(userId);   // bio/education/experience đổi → re-embed nền
             return ProfileUpdateOutcome.Applied;
@@ -226,18 +232,18 @@ namespace MV.ApplicationLayer.Services
 
         public async Task<bool> UpdateTutorSubjectsAsync(string userId, UpdateTutorSubjectsRequest request)
         {
-            var profile = await _unitOfWork.TutorRepository.GetTutorProfileByIdAsync(userId);
+            var profile = await _tutorRepository.GetTutorProfileByIdAsync(userId);
             if (profile == null) return false;
 
             await ValidateSubjectGradePricesAsync(userId, request.SubjectGradePrices);
 
             profile.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 
-            await _unitOfWork.TutorRepository.ReplaceTutorSubjectGradePricesAsync(
+            await _tutorRepository.ReplaceTutorSubjectGradePricesAsync(
                 userId,
                 MapSubjectGradePriceRequests(userId, request.SubjectGradePrices));
 
-            await _unitOfWork.SaveChangesAsync();
+            await _context.SaveChangesAsync();
             await AutoSubmitIfCompleteAsync(userId);
             _embedQueue.Enqueue(userId);   // môn/giá đổi → refresh metadata vector nền
             return true;
@@ -247,7 +253,7 @@ namespace MV.ApplicationLayer.Services
 
         public async Task<TutorPricingResponse?> GetTutorPricingAsync(string tutorId)
         {
-            var profile = await _unitOfWork.TutorRepository.GetTutorProfileByIdAsync(tutorId);
+            var profile = await _tutorRepository.GetTutorProfileByIdAsync(tutorId);
             if (profile == null) return null;
 
             return new TutorPricingResponse
@@ -258,7 +264,7 @@ namespace MV.ApplicationLayer.Services
 
         public async Task<ProfileUpdateOutcome> UpdateTutorPricingAsync(string tutorId, UpdateTutorPricingRequest request)
         {
-            var profile = await _unitOfWork.TutorRepository.GetTutorProfileByIdAsync(tutorId);
+            var profile = await _tutorRepository.GetTutorProfileByIdAsync(tutorId);
             if (profile == null) return ProfileUpdateOutcome.NotFound;
 
             if (!request.SubjectGradePrices.Any())
@@ -280,11 +286,11 @@ namespace MV.ApplicationLayer.Services
 
             profile.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 
-            await _unitOfWork.TutorRepository.ReplaceTutorSubjectGradePricesAsync(
+            await _tutorRepository.ReplaceTutorSubjectGradePricesAsync(
                 tutorId,
                 MapSubjectGradePriceRequests(tutorId, request.SubjectGradePrices));
 
-            await _unitOfWork.SaveChangesAsync();
+            await _context.SaveChangesAsync();
             await AutoSubmitIfCompleteAsync(tutorId);
             _embedQueue.Enqueue(tutorId);   // giá đổi → refresh metadata vector nền
             return ProfileUpdateOutcome.Applied;
@@ -292,7 +298,7 @@ namespace MV.ApplicationLayer.Services
 
         public async Task<TutorSubjectGradePriceResponse> AddSubjectGradePriceAsync(string tutorId, TutorSubjectGradePriceRequest request)
         {
-            var profile = await _unitOfWork.TutorRepository.GetTutorProfileByIdAsync(tutorId);
+            var profile = await _tutorRepository.GetTutorProfileByIdAsync(tutorId);
             if (profile == null)
             {
                 throw new ArgumentException("Không tìm thấy hồ sơ gia sư");
@@ -302,7 +308,7 @@ namespace MV.ApplicationLayer.Services
             await ValidateSubjectGradePricesAsync(tutorId, new List<TutorSubjectGradePriceRequest> { request });
 
             // Check if already exists
-            var existing = await _unitOfWork.TutorRepository.GetTutorSubjectGradePriceAsync(
+            var existing = await _tutorRepository.GetTutorSubjectGradePriceAsync(
                 tutorId, request.SubjectId, request.GradeLevelId);
             
             if (existing != null)
@@ -323,13 +329,13 @@ namespace MV.ApplicationLayer.Services
                 Isactive = request.IsActive
             };
 
-            await _unitOfWork.TutorRepository.AddTutorSubjectGradePriceAsync(newPrice);
+            await _tutorRepository.AddTutorSubjectGradePriceAsync(newPrice);
             profile.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
             
-            await _unitOfWork.SaveChangesAsync();
+            await _context.SaveChangesAsync();
 
             // Reload to get navigation properties
-            var created = await _unitOfWork.TutorRepository.GetTutorSubjectGradePriceAsync(
+            var created = await _tutorRepository.GetTutorSubjectGradePriceAsync(
                 tutorId, request.SubjectId, request.GradeLevelId);
 
             await AutoSubmitIfCompleteAsync(tutorId);
@@ -338,16 +344,16 @@ namespace MV.ApplicationLayer.Services
 
         public async Task<bool> DeleteSubjectGradePriceAsync(string tutorId, int subjectId, int gradeLevelId)
         {
-            var profile = await _unitOfWork.TutorRepository.GetTutorProfileByIdAsync(tutorId);
+            var profile = await _tutorRepository.GetTutorProfileByIdAsync(tutorId);
             if (profile == null)
                 throw new ArgumentException("Không tìm thấy hồ sơ gia sư.");
 
-            var deleted = await _unitOfWork.TutorRepository.DeleteTutorSubjectGradePriceAsync(tutorId, subjectId, gradeLevelId);
+            var deleted = await _tutorRepository.DeleteTutorSubjectGradePriceAsync(tutorId, subjectId, gradeLevelId);
             if (!deleted)
                 return false;
 
             profile.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
-            await _unitOfWork.SaveChangesAsync();
+            await _context.SaveChangesAsync();
             return true;
         }
 
@@ -355,7 +361,7 @@ namespace MV.ApplicationLayer.Services
 
         public async Task<List<TutorPackageResponse>> GetTutorPackagesAsync(string tutorId, bool includeInactive = false)
         {
-            var packages = await _unitOfWork.TutorRepository.GetTutorPackagesAsync(tutorId, includeInactive);
+            var packages = await _tutorRepository.GetTutorPackagesAsync(tutorId, includeInactive);
 
             // Gắn cờ HasActiveBooking cho từng package (1 truy vấn dùng chung guard).
             var bookedPackageIds = await TutorScheduleGuard.GetPackageIdsWithFutureSessionsAsync(_context, tutorId);
@@ -367,7 +373,7 @@ namespace MV.ApplicationLayer.Services
 
         public async Task<TutorPackageResponse?> CreateTutorPackageAsync(string tutorId, CreateTutorPackageRequest request)
         {
-            var profile = await _unitOfWork.TutorRepository.GetTutorProfileByIdAsync(tutorId);
+            var profile = await _tutorRepository.GetTutorProfileByIdAsync(tutorId);
             if (profile == null) return null;
 
             ValidateTutorPackageRequest(request);
@@ -407,15 +413,15 @@ namespace MV.ApplicationLayer.Services
                 }).ToList()
             };
 
-            await _unitOfWork.TutorRepository.AddTutorPackageAsync(package);
-            await _unitOfWork.SaveChangesAsync();
+            await _tutorRepository.AddTutorPackageAsync(package);
+            await _context.SaveChangesAsync();
 
             return MapTutorPackageResponse(package);
         }
 
         public async Task<bool> DeactivateTutorPackageAsync(string tutorId, int packageId)
         {
-            var package = await _unitOfWork.TutorRepository.GetTutorPackageAsync(tutorId, packageId);
+            var package = await _tutorRepository.GetTutorPackageAsync(tutorId, packageId);
             if (package == null) return false;
 
             // Guard: không cho tắt gói khi còn buổi dạy được đặt & chưa hoàn tất thuộc gói này.
@@ -426,7 +432,7 @@ namespace MV.ApplicationLayer.Services
 
             package.Isactive = false;
             package.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
-            await _unitOfWork.SaveChangesAsync();
+            await _context.SaveChangesAsync();
             return true;
         }
 
@@ -435,12 +441,12 @@ namespace MV.ApplicationLayer.Services
         /// </summary>
         public async Task<bool> ActivateTutorPackageAsync(string tutorId, int packageId)
         {
-            var package = await _unitOfWork.TutorRepository.GetTutorPackageAsync(tutorId, packageId);
+            var package = await _tutorRepository.GetTutorPackageAsync(tutorId, packageId);
             if (package == null) return false;
 
             package.Isactive = true;
             package.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
-            await _unitOfWork.SaveChangesAsync();
+            await _context.SaveChangesAsync();
             return true;
         }
 
@@ -451,19 +457,19 @@ namespace MV.ApplicationLayer.Services
         /// </summary>
         public async Task<bool> DeleteTutorPackageAsync(string tutorId, int packageId)
         {
-            var package = await _unitOfWork.TutorRepository.GetTutorPackageAsync(tutorId, packageId);
+            var package = await _tutorRepository.GetTutorPackageAsync(tutorId, packageId);
             if (package == null) return false;
 
             if (package.Isactive)
                 throw new InvalidOperationException("Vui lòng ẩn gói này trước khi xóa vĩnh viễn.");
 
-            var hasBookings = await _unitOfWork.TutorRepository.TutorPackageHasBookingsAsync(packageId);
+            var hasBookings = await _tutorRepository.TutorPackageHasBookingsAsync(packageId);
             if (hasBookings)
                 throw new InvalidOperationException(
                     "Không thể xóa vĩnh viễn gói này vì đã từng có buổi dạy được đặt theo gói. Bạn có thể tiếp tục ẩn gói này.");
 
-            _unitOfWork.TutorRepository.DeleteTutorPackage(package);
-            await _unitOfWork.SaveChangesAsync();
+            _tutorRepository.DeleteTutorPackage(package);
+            await _context.SaveChangesAsync();
             return true;
         }
 
@@ -474,7 +480,7 @@ namespace MV.ApplicationLayer.Services
         /// </summary>
         public async Task<TutorPackageResponse?> UpdateTutorPackageAsync(string tutorId, int packageId, CreateTutorPackageRequest request)
         {
-            var package = await _unitOfWork.TutorRepository.GetTutorPackageAsync(tutorId, packageId);
+            var package = await _tutorRepository.GetTutorPackageAsync(tutorId, packageId);
             if (package == null) return null;
 
             ValidateTutorPackageRequest(request);
@@ -516,7 +522,7 @@ namespace MV.ApplicationLayer.Services
                 });
             }
 
-            await _unitOfWork.SaveChangesAsync();
+            await _context.SaveChangesAsync();
 
             // Qua được Guard 1 nghĩa là gói không còn booking → HasActiveBooking = false.
             return MapTutorPackageResponse(package, hasActiveBooking: false);
@@ -530,11 +536,11 @@ namespace MV.ApplicationLayer.Services
         /// </summary>
         public async Task<ProfileCompletionResponse> GetProfileCompletionAsync(string tutorId)
         {
-            var profile        = await _unitOfWork.TutorRepository.GetTutorProfileByIdAsync(tutorId);
-            var user           = await _unitOfWork.UserRepository.GetUserByIdAsync(tutorId);
-            var subjects       = await _unitOfWork.TutorRepository.GetTutorSubjectsByTutorIdAsync(tutorId);
-            var prices         = await _unitOfWork.TutorRepository.GetTutorSubjectGradePricesAsync(tutorId);
-            var availabilities = await _unitOfWork.TutorRepository.GetAvailabilitiesByTutorIdAsync(tutorId);
+            var profile        = await _tutorRepository.GetTutorProfileByIdAsync(tutorId);
+            var user           = await _userRepository.GetUserByIdAsync(tutorId);
+            var subjects       = await _tutorRepository.GetTutorSubjectsByTutorIdAsync(tutorId);
+            var prices         = await _tutorRepository.GetTutorSubjectGradePricesAsync(tutorId);
+            var availabilities = await _tutorRepository.GetAvailabilitiesByTutorIdAsync(tutorId);
 
             bool hasBasicInfo    = profile != null
                                    && !string.IsNullOrWhiteSpace(profile.Headline)
@@ -598,11 +604,11 @@ namespace MV.ApplicationLayer.Services
         /// </summary>
         public async Task<bool> SetAcceptingBookingsAsync(string userId, bool accepting)
         {
-            var profile = await _unitOfWork.TutorRepository.GetTutorProfileByIdAsync(userId);
+            var profile = await _tutorRepository.GetTutorProfileByIdAsync(userId);
             if (profile == null) return false;
             profile.Isacceptingbookings = accepting;
             profile.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
-            await _unitOfWork.SaveChangesAsync();
+            await _context.SaveChangesAsync();
             return true;
         }
 
@@ -613,12 +619,12 @@ namespace MV.ApplicationLayer.Services
                 var completion = await GetProfileCompletionAsync(tutorId);
                 if (!completion.CanSubmit) return;
 
-                var profile = await _unitOfWork.TutorRepository.GetTutorProfileByIdAsync(tutorId);
+                var profile = await _tutorRepository.GetTutorProfileByIdAsync(tutorId);
                 if (profile == null) return;
 
                 profile.Profilestatus = TutorProfileStatus.PendingApproval;
                 profile.Updatedat     = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
-                await _unitOfWork.SaveChangesAsync();
+                await _context.SaveChangesAsync();
 
                 _logger.LogInformation("Profile {TutorId} auto-submitted for admin review (6/6 complete)", tutorId);
             }
@@ -652,7 +658,7 @@ namespace MV.ApplicationLayer.Services
             }
 
             var subjectIds = prices.Select(p => p.SubjectId).Distinct().ToList();
-            var existingSubjectIds = await _unitOfWork.TutorRepository.GetExistingSubjectIdsAsync(subjectIds);
+            var existingSubjectIds = await _tutorRepository.GetExistingSubjectIdsAsync(subjectIds);
             var invalidSubjectIds = subjectIds.Except(existingSubjectIds).ToList();
             if (invalidSubjectIds.Any())
             {
@@ -660,7 +666,7 @@ namespace MV.ApplicationLayer.Services
             }
 
             var gradeLevelIds = prices.Select(p => p.GradeLevelId).Distinct().ToList();
-            var existingGradeLevelIds = await _unitOfWork.TutorRepository.GetExistingGradeLevelIdsAsync(gradeLevelIds);
+            var existingGradeLevelIds = await _tutorRepository.GetExistingGradeLevelIdsAsync(gradeLevelIds);
             var invalidGradeLevelIds = gradeLevelIds.Except(existingGradeLevelIds).ToList();
             if (invalidGradeLevelIds.Any())
             {
@@ -669,9 +675,9 @@ namespace MV.ApplicationLayer.Services
 
             // Rule 0: khối lớp phải thuộc chương trình môn học (vd Vật Lý không áp dụng cho Lớp 1).
             // So theo Levelorder, không so trực tiếp id vì id không đảm bảo tăng dần theo khối lớp.
-            var subjectsWithRange = await _unitOfWork.TutorRepository.GetSubjectsWithGradeRangeAsync(subjectIds);
+            var subjectsWithRange = await _tutorRepository.GetSubjectsWithGradeRangeAsync(subjectIds);
             var subjectById = subjectsWithRange.ToDictionary(s => s.Subjectid);
-            var gradeLevelOrders = await _unitOfWork.TutorRepository.GetGradeLevelOrdersAsync(gradeLevelIds);
+            var gradeLevelOrders = await _tutorRepository.GetGradeLevelOrdersAsync(gradeLevelIds);
 
             foreach (var p in prices)
             {
@@ -694,7 +700,7 @@ namespace MV.ApplicationLayer.Services
             }
 
             // Rule 1 & 2: validate session duration and sessions/week against tutor availability
-            var availabilities = await _unitOfWork.TutorRepository.GetAvailabilitiesByTutorIdAsync(tutorId);
+            var availabilities = await _tutorRepository.GetAvailabilitiesByTutorIdAsync(tutorId);
             if (!availabilities.Any())
             {
                 throw new ArgumentException("Vui lòng thiết lập lịch rảnh trước khi cấu hình môn/giá dạy.");

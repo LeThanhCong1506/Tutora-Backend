@@ -428,6 +428,7 @@ public class TutorFinanceService(
             CompletionNote = raw.Completionnote,
             RejectionReason = raw.Rejectionreason,
             TransactionId = proof.ProviderTransactionId,
+            BankTransactionCode = proof.BankTransactionCode,
             PaidAt = proof.PaidAt,
             ProofImageUrl = proof.ProofImageUrl
         };

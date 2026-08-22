@@ -93,6 +93,8 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
 
     public virtual DbSet<TutoraKbChunk> TutoraKbChunks { get; set; }
 
+    public virtual DbSet<PracticeAttempt> PracticeAttempts { get; set; }
+
     public virtual DbSet<QuestionVote> QuestionVotes { get; set; }
 
     public virtual DbSet<SourceDocument> SourceDocuments { get; set; }
@@ -1069,6 +1071,9 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
             entity.Property(e => e.Grade)
                 .HasMaxLength(50)
                 .HasColumnName("grade");
+            entity.Property(e => e.RagSimilarity).HasColumnName("rag_similarity");
+            entity.Property(e => e.RagQuestionId).HasColumnName("rag_question_id");
+            entity.Property(e => e.AnswerVerified).HasColumnName("answer_verified");
             entity.Property(e => e.RagUsed)
                 .HasDefaultValue(false)
                 .HasColumnName("rag_used");
@@ -2428,6 +2433,9 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
             entity.Property(e => e.Education)
                 .HasMaxLength(255)
                 .HasColumnName("education");
+            entity.Property(e => e.Degree)
+                .HasMaxLength(100)
+                .HasColumnName("degree");
             entity.Property(e => e.Experience).HasColumnName("experience");
             entity.Property(e => e.Gpa).HasColumnName("gpa");
             entity.Property(e => e.Gpascale).HasColumnName("gpa_scale");
@@ -2491,6 +2499,27 @@ entity.HasOne(d => d.Tutor).WithOne(p => p.Tutorprofile)
             entity.Property(e => e.IsActive).HasDefaultValue(true).HasColumnName("is_active");
             entity.Property(e => e.Createdat)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
+                .HasColumnType("timestamp without time zone")
+                .HasColumnName("created_at");
+        });
+
+        modelBuilder.Entity<PracticeAttempt>(entity =>
+        {
+            entity.ToTable("practice_attempts");
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.Id).HasDefaultValueSql("gen_random_uuid()").HasColumnName("id");
+            entity.Property(e => e.UserId).HasMaxLength(50).HasColumnName("user_id");
+            entity.Property(e => e.QuestionId).HasColumnName("question_id");
+            entity.Property(e => e.Chapter).HasMaxLength(120).HasColumnName("chapter");
+            entity.Property(e => e.GradeLevelId).HasColumnName("grade_level_id");
+            entity.Property(e => e.Difficulty).HasMaxLength(20).HasColumnName("difficulty");
+            entity.Property(e => e.GivenAnswer).HasColumnName("given_answer");
+            entity.Property(e => e.IsCorrect).HasDefaultValue(false).HasColumnName("is_correct");
+            entity.Property(e => e.SourceSessionId).HasColumnName("source_session_id");
+            // timestamp KHÔNG timezone — cùng quy ước với V20260820c.
+            entity.Property(e => e.CreatedAt)
+                .HasDefaultValueSql("now() AT TIME ZONE 'UTC'")
                 .HasColumnType("timestamp without time zone")
                 .HasColumnName("created_at");
         });
@@ -2853,9 +2882,9 @@ entity.HasOne(d => d.Tutor).WithOne(p => p.Tutorprofile)
             entity.Property(e => e.AssessmentId).HasColumnName("assessment_id");
             entity.Property(e => e.UserId).HasMaxLength(50).HasColumnName("user_id");
             entity.Property(e => e.Status).HasMaxLength(20).HasDefaultValue("in_progress").HasColumnName("status");
-            entity.Property(e => e.StartedAt).HasDefaultValueSql("now()").HasColumnType("timestamp with time zone").HasColumnName("started_at");
-            entity.Property(e => e.SubmittedAt).HasColumnType("timestamp with time zone").HasColumnName("submitted_at");
-            entity.Property(e => e.ExpiresAt).HasColumnType("timestamp with time zone").HasColumnName("expires_at");
+            entity.Property(e => e.StartedAt).HasDefaultValueSql("now() AT TIME ZONE 'UTC'").HasColumnType("timestamp without time zone").HasColumnName("started_at");
+            entity.Property(e => e.SubmittedAt).HasColumnType("timestamp without time zone").HasColumnName("submitted_at");
+            entity.Property(e => e.ExpiresAt).HasColumnType("timestamp without time zone").HasColumnName("expires_at");
             entity.Property(e => e.TotalQuestions).HasDefaultValue(0).HasColumnName("total_questions");
             entity.Property(e => e.CorrectCount).HasDefaultValue(0).HasColumnName("correct_count");
             entity.Property(e => e.EarnedPoints).HasColumnType("numeric(8,2)").HasDefaultValue(0m).HasColumnName("earned_points");
@@ -2867,7 +2896,7 @@ entity.HasOne(d => d.Tutor).WithOne(p => p.Tutorprofile)
             // jsonb đọc/ghi nguyên khối dạng string — schema do prompt AI quyết định, BE không parse.
             entity.Property(e => e.AnalysisResult).HasColumnType("jsonb").HasColumnName("analysis_result");
             entity.Property(e => e.AnalysisError).HasColumnName("analysis_error");
-            entity.Property(e => e.AnalyzedAt).HasColumnType("timestamp with time zone").HasColumnName("analyzed_at");
+            entity.Property(e => e.AnalyzedAt).HasColumnType("timestamp without time zone").HasColumnName("analyzed_at");
             entity.Property(e => e.CreatedAt).HasDefaultValueSql("now()").HasColumnType("timestamp with time zone").HasColumnName("created_at");
             entity.Property(e => e.UpdatedAt).HasDefaultValueSql("now()").HasColumnType("timestamp with time zone").HasColumnName("updated_at");
 
@@ -3627,6 +3656,9 @@ entity.HasOne(d => d.Tutor).WithOne(p => p.Tutorprofile)
             entity.Property(e => e.Proofimagepath)
                 .HasColumnType("text")
                 .HasColumnName("proof_image_path");
+            entity.Property(e => e.Banktransactioncode)
+                .HasMaxLength(100)
+                .HasColumnName("bank_transaction_code");
 
             entity.HasOne(d => d.User).WithMany()
                 .HasForeignKey(d => d.Userid)

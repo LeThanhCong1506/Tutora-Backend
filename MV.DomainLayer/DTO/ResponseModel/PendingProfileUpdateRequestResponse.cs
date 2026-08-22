@@ -28,6 +28,9 @@ namespace MV.DomainLayer.DTO.ResponseModel
         public string? CurrentEducation { get; set; }
         public string? ProposedEducation { get; set; }
 
+        public string? CurrentDegree { get; set; }
+        public string? ProposedDegree { get; set; }
+
         public string? CurrentExperience { get; set; }
         public string? ProposedExperience { get; set; }
 

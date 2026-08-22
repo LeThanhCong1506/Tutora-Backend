@@ -36,6 +36,12 @@ public class WithdrawalDetailResponse
     public string? CompletionNote { get; set; }
     public string? RejectionReason { get; set; }
     public string? TransactionId { get; set; }
+    /// <summary>
+    /// Mã tham chiếu (liên ngân hàng qua Napas) do ngân hàng cấp cho lệnh chi này. Người
+    /// nhận vốn đã đọc được mã này trên ảnh biên lai (ProofImageUrl); đưa ra dạng text để
+    /// họ tra cứu với ngân hàng của mình mà không phải mở ảnh ra soi.
+    /// </summary>
+    public string? BankTransactionCode { get; set; }
     public DateTime? PaidAt { get; set; }
     public string? ProofImageUrl { get; set; }
 }

@@ -16,6 +16,9 @@ public partial class Tutorprofile
 
     public string? Education { get; set; }
 
+    /// <summary>Học vị (Cử nhân, Thạc sĩ, Tiến sĩ...). Education chỉ còn dùng cho tên trường.</summary>
+    public string? Degree { get; set; }
+
     public double? Gpascale { get; set; }
 
     public double? Gpa { get; set; }

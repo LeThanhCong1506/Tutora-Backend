@@ -24,7 +24,6 @@ using MV.DomainLayer.Configuration;
 using MV.DomainLayer.Interfaces;
 using MV.DomainLayer.Settings;
 using MV.DomainLayer.DTO;
-using MV.InfrastructureLayer;
 using MV.InfrastructureLayer.DBContext;
 using MV.InfrastructureLayer.ExternalServices;
 using MV.InfrastructureLayer.Repositories;
@@ -339,6 +338,9 @@ builder.Services.AddScoped<ITutorSearchRepository, TutorSearchRepository>();
 builder.Services.AddScoped<IStaffPermissionRepository, StaffPermissionRepository>();
 builder.Services.AddScoped<IPermissionGroupRepository, PermissionGroupRepository>();
 builder.Services.AddScoped<ILearningMaterialRepository, LearningMaterialRepository>();
+builder.Services.AddScoped<IAssessmentRepository, AssessmentRepository>();
+builder.Services.AddScoped<IQuestionRepository, QuestionRepository>();
+builder.Services.AddScoped<ISourceDocumentRepository, SourceDocumentRepository>();
 
 // Service injection
 builder.Services.AddScoped<ITutorVerificationService, TutorVerificationService>();
@@ -367,6 +369,8 @@ builder.Services.AddScoped<IRefreshTokenService, RefreshTokenService>();
 builder.Services.AddScoped<ITutorAvailabilityService, TutorAvailabilityService>();
 builder.Services.AddScoped<ILookupService, LookupService>();
 builder.Services.AddScoped<IStudyResourceService, StudyResourceService>();
+builder.Services.AddScoped<IPracticeRepository, PracticeRepository>();
+builder.Services.AddScoped<IPracticeService, PracticeService>();
 builder.Services.AddScoped<IBookingService, BookingService>();
 builder.Services.AddScoped<IEkycService, EkycService>();
 builder.Services.AddScoped<IStudentIdentityService, StudentIdentityService>();
@@ -490,8 +494,6 @@ builder.Services.AddScoped<ITutorAiClient, TutorAiClient>();
 builder.Services.AddScoped<ITutorRecommendService, TutorRecommendService>();
 builder.Services.AddScoped<ITutorSuggestionService, TutorSuggestionService>();
 
-//Unit of work
-builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
 
 // Background job
 //builder.Services.AddHostedService<EmailConsumerService>();
