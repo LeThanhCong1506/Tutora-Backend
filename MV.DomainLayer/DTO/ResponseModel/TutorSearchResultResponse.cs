@@ -27,7 +27,9 @@ namespace MV.DomainLayer.DTO.ResponseModel
         public string? Education { get; set; }
 
         /// <summary>
-        /// Degree/qualification level (e.g., "PHD CANDIDATE", "M.SC MATH", "MBA")
+        /// Học vị hiển thị trên thẻ gia sư. Hồ sơ mới lấy nguyên cột <c>tutor_profiles.degree</c>
+        /// ("Thạc sĩ", "Tiến sĩ"...); hồ sơ cũ chưa có cột này thì suy ra từ chuỗi education
+        /// và trả về dạng viết tắt in hoa ("PHD CANDIDATE", "M.SC", "MBA").
         /// Displayed as small badge next to name in Figma
         /// </summary>
         public string? DegreeLevel { get; set; }

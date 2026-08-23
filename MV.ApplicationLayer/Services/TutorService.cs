@@ -118,6 +118,7 @@ namespace MV.ApplicationLayer.Services
             {
                 Headline = tutorEntity.Headline,
                 Bio = tutorEntity.Bio,
+                Degree = tutorEntity.Degree,
                 Education = tutorEntity.Education,
                 Experience = tutorEntity.Experience,
                 Gpa = tutorEntity.Gpa,
@@ -174,9 +175,17 @@ namespace MV.ApplicationLayer.Services
             var profile = await _tutorRepository.GetTutorProfileByIdAsync(userId);
             if (profile == null) return ProfileUpdateOutcome.NotFound;
 
-            if (request.Gpa > request.GpaScale)
+            // GPA là tùy chọn, nhưng đã nhập điểm thì phải có thang điểm — nếu không, con số
+            // "8.5" nằm trơ một mình trên hồ sơ không nói lên điều gì (thang 10 thì khá, thang
+            // 4 thì vô nghĩa).
+            if (request.Gpa.HasValue && !request.GpaScale.HasValue)
             {
-                throw new ArgumentException($"GPA ({request.Gpa}) cannot exceed GPA Scale ({request.GpaScale})");
+                throw new ArgumentException("Vui lòng chọn thang điểm cho GPA.");
+            }
+
+            if (request.Gpa.HasValue && request.GpaScale.HasValue && request.Gpa > request.GpaScale)
+            {
+                throw new ArgumentException($"Điểm GPA ({request.Gpa}) không được vượt quá thang điểm ({request.GpaScale}).");
             }
 
             // Text moderation — Bio

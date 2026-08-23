@@ -23,9 +23,9 @@ namespace MV.DomainLayer.DTO
 
         public string? Bio { get; set; }
 
-        public string? Education { get; set; }
-
         public string? Degree { get; set; }
+
+        public string? Education { get; set; }
 
         public double? Gpa { get; set; }
 
