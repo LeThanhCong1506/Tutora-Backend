@@ -35,8 +35,12 @@ public class ClassSessionVideoAiService(
     private const string AudioMimeType = "audio/mp3";
     private const long MaxFileSizeBytes = 2_000_000_000;
 
-    // ── Học sinh: tóm tắt ──────────────────────────────────────────────
+    // ── Học sinh: tóm tắt (tự động dựa trên mọi video hiện có trong chuỗi) ──
 
+    /// <summary>1 video trong chuỗi → tóm tắt đúng video đó (student_summary); ≥2 video → tự động hợp
+    /// nhất (chain_summary). Học sinh không cần biết/chọn giữa 2 chế độ — chuỗi dài ra tới đâu, job
+    /// mới được tạo tới đó, luôn lưu dưới id buổi GỐC để trigger từ buổi nào trong chuỗi cũng ra cùng
+    /// 1 kết quả.</summary>
     public async Task<ClassSessionAiJobResponse> TriggerStudentSummaryAsync(int classSessionId, string studentUserId, CancellationToken ct = default)
     {
         var profile = await studentRepo.FindByStudentOrLinkedUserAsync(studentUserId)
@@ -47,15 +51,32 @@ public class ClassSessionVideoAiService(
         if (session.Studentid != profile.Studentid)
             throw new UnauthorizedAccessException("Bạn không có quyền truy cập buổi học này.");
 
-        EnsureRecordingAvailable(session);
+        var chain = await LoadAiChainOrThrowAsync(classSessionId);
+        var rootSessionId = chain[0].ClassSessionId;
 
-        var existing = await FindActiveJobAsync(classSessionId, ClassSessionAiJobType.StudentSummary, ct);
-        if (existing != null)
-            return ToResponse(existing);
+        if (chain.Count == 1)
+        {
+            EnsureRecordingAvailable(session);
 
-        var job = await CreateJobAsync(classSessionId, ClassSessionAiJobType.StudentSummary, studentUserId, ct);
-        backgroundJobClient.Enqueue<IClassSessionVideoAiService>(s => s.RunStudentSummaryJobAsync(job.JobId, true));
-        return ToResponse(job);
+            var existingSingle = await FindActiveJobAsync(rootSessionId, ClassSessionAiJobType.StudentSummary, ct);
+            if (existingSingle != null)
+                return ToResponse(existingSingle);
+
+            var singleJob = await CreateJobAsync(rootSessionId, ClassSessionAiJobType.StudentSummary, studentUserId, ct);
+            backgroundJobClient.Enqueue<IClassSessionVideoAiService>(s => s.RunStudentSummaryJobAsync(singleJob.JobId, true));
+            return ToResponse(singleJob);
+        }
+
+        if (!chain.Any(leg => leg.Available))
+            throw new InvalidOperationException("Video buổi học chưa sẵn sàng để phân tích.");
+
+        var existingChain = await FindActiveJobAsync(rootSessionId, ClassSessionAiJobType.ChainSummary, ct);
+        if (existingChain != null)
+            return ToResponse(existingChain);
+
+        var chainJob = await CreateJobAsync(rootSessionId, ClassSessionAiJobType.ChainSummary, studentUserId, ct);
+        backgroundJobClient.Enqueue<IClassSessionVideoAiService>(s => s.RunChainSummaryJobAsync(chainJob.JobId, true));
+        return ToResponse(chainJob);
     }
 
     public async Task<ClassSessionAiJobResponse> GetStudentSummaryStatusAsync(int classSessionId, string studentUserId, CancellationToken ct = default)
@@ -67,7 +88,11 @@ public class ClassSessionVideoAiService(
         if (session.Studentid != profile.Studentid)
             throw new UnauthorizedAccessException("Bạn không có quyền truy cập buổi học này.");
 
-        var job = await FindLatestJobAsync(classSessionId, ClassSessionAiJobType.StudentSummary, ct);
+        var chain = await LoadAiChainOrThrowAsync(classSessionId);
+        var rootSessionId = chain[0].ClassSessionId;
+        var jobType = chain.Count > 1 ? ClassSessionAiJobType.ChainSummary : ClassSessionAiJobType.StudentSummary;
+
+        var job = await FindLatestJobAsync(rootSessionId, jobType, ct);
         return job == null ? new ClassSessionAiJobResponse { Status = "none" } : ToResponse(job);
     }
 
@@ -83,11 +108,15 @@ public class ClassSessionVideoAiService(
         if (session.Studentid != profile.Studentid)
             throw new UnauthorizedAccessException("Bạn không có quyền truy cập buổi học này.");
 
+        var chain = await LoadAiChainOrThrowAsync(classSessionId);
+        var rootSessionId = chain[0].ClassSessionId;
+        var jobType = chain.Count > 1 ? ClassSessionAiJobType.ChainSummary : ClassSessionAiJobType.StudentSummary;
+
         // Nguồn sự thật cho tóm tắt là job đã Completed (luôn được lưu thành công), không phải việc
         // phiên chat có được tạo đúng hay không — tránh phụ thuộc vào 1 bước phụ (seed chat) có thể lỗi.
         var summaryJob = await db.ClassSessionAiJobs.AsNoTracking()
-            .Where(j => j.Classsessionid == classSessionId
-                && j.Jobtype == ClassSessionAiJobType.StudentSummary
+            .Where(j => j.Classsessionid == rootSessionId
+                && j.Jobtype == jobType
                 && j.Status == ClassSessionAiJobStatus.Completed
                 && j.Resulttext != null)
             .OrderByDescending(j => j.Completedat)
@@ -96,7 +125,9 @@ public class ClassSessionVideoAiService(
 
         // Transcript chi tiết hơn tóm tắt — ưu tiên dùng làm ngữ cảnh nếu có (job cũ trước tính năng này thì chưa có).
         var context = summaryJob.Transcripttext ?? summaryJob.Resulttext!;
-        var chatSession = await EnsureVideoSummaryChatSessionAsync(classSessionId, studentUserId, context);
+        // Phiên chat gắn theo buổi GỐC của chuỗi — hỏi từ trang buổi nào trong chuỗi cũng ra cùng 1
+        // lịch sử hội thoại, không đứt quãng khi chuỗi dài thêm (có buổi phụ/học lại mới).
+        var chatSession = await EnsureVideoSummaryChatSessionAsync(rootSessionId, studentUserId, context);
         var (history, summary) = await LoadChatContextAsync(chatSession.SessionId);
         var summaryText = summary ?? context;
 
@@ -137,7 +168,10 @@ public class ClassSessionVideoAiService(
         if (session.Studentid != profile.Studentid)
             throw new UnauthorizedAccessException("Bạn không có quyền truy cập buổi học này.");
 
-        var chatSession = await aiChatRepo.FindSessionByUserAndClassSessionAsync(studentUserId, ChatSessionType.VideoSummary, classSessionId);
+        var chain = await LoadAiChainOrThrowAsync(classSessionId);
+        var rootSessionId = chain[0].ClassSessionId;
+
+        var chatSession = await aiChatRepo.FindSessionByUserAndClassSessionAsync(studentUserId, ChatSessionType.VideoSummary, rootSessionId);
         if (chatSession == null) return new List<ClassSessionVideoChatMessageResponse>();
 
         var (items, _) = await aiChatRepo.GetMessagesPagedAsync(chatSession.SessionId, 1, 200);
@@ -177,6 +211,12 @@ public class ClassSessionVideoAiService(
 
         var job = await FindLatestJobAsync(classSessionId, ClassSessionAiJobType.TutorReportFill, ct);
         return job == null ? new ClassSessionAiJobResponse { Status = "none" } : ToResponse(job);
+    }
+
+    private async Task<List<ClassSessionRecordingChainItem>> LoadAiChainOrThrowAsync(int classSessionId)
+    {
+        var chain = await classSessionService.GetClassSessionAiChainAsync(classSessionId);
+        return chain is { Count: > 0 } ? chain : throw new KeyNotFoundException("Không tìm thấy buổi học.");
     }
 
     // ── Hangfire job bodies ────────────────────────────────────────────
@@ -347,6 +387,121 @@ public class ClassSessionVideoAiService(
         {
             await MarkJobFailedAsync(job, ex);
         }
+    }
+
+    /// <summary>Job hợp nhất: tự tóm tắt (và cache lại như 1 job student_summary bình thường) mọi buổi
+    /// còn thiếu tóm tắt trong chuỗi, rồi gọi 1 lượt Gemini text-only để viết lại thành 1 bản duy nhất.
+    /// Buổi nào lỗi (ghi hình hỏng, Gemini lỗi tạm...) bị bỏ qua, không kéo sập cả bản tổng hợp.</summary>
+    public async Task RunChainSummaryJobAsync(Guid jobId, bool swallowFailure)
+    {
+        var job = await db.ClassSessionAiJobs.FirstOrDefaultAsync(j => j.JobId == jobId);
+        if (job == null)
+        {
+            logger.LogWarning("RunChainSummaryJobAsync: job {JobId} not found", jobId);
+            return;
+        }
+
+        try
+        {
+            job.Status = ClassSessionAiJobStatus.Processing;
+            await db.SaveChangesAsync();
+
+            var chain = await classSessionService.GetClassSessionAiChainAsync(job.Classsessionid)
+                ?? throw new KeyNotFoundException("Không tìm thấy buổi học.");
+
+            var legSummaries = new List<(string Label, string Summary)>();
+            var legTranscripts = new List<(string Label, string Transcript)>();
+            foreach (var leg in chain.Where(l => l.Available))
+            {
+                try
+                {
+                    var (summary, transcript) = await GetOrCreateLegSummaryAsync(leg.ClassSessionId, job.Requestedbyuserid, CancellationToken.None);
+                    legSummaries.Add((leg.Label, summary));
+                    if (transcript != null)
+                        legTranscripts.Add((leg.Label, transcript));
+                }
+                catch (Exception legEx)
+                {
+                    logger.LogWarning(legEx,
+                        "Không tóm tắt được {Label} (classSession {ClassSessionId}) khi tổng hợp chuỗi cho job {JobId}, bỏ qua buổi này.",
+                        leg.Label, leg.ClassSessionId, job.JobId);
+                }
+            }
+
+            if (legSummaries.Count == 0)
+                throw new InvalidOperationException("Không buổi nào trong chuỗi tóm tắt được để tổng hợp.");
+
+            // Chỉ 1 buổi tóm tắt được thì dùng thẳng, khỏi tốn thêm 1 lượt gọi Gemini chỉ để "hợp
+            // nhất" một mục duy nhất.
+            var merged = legSummaries.Count == 1
+                ? legSummaries[0].Summary
+                : await geminiService.SynthesizeChainSummaryAsync(legSummaries, CancellationToken.None);
+
+            // Chép lời không cần Gemini viết lại như tóm tắt — chỉ là bản ghi thô, nối theo đúng thứ
+            // tự thời gian kèm nhãn buổi là đủ, không cần "liền mạch hoá".
+            var mergedTranscript = legTranscripts.Count == 0
+                ? null
+                : string.Join("\n\n", legTranscripts.Select(t => $"## {t.Label}\n{t.Transcript}"));
+
+            job.Resulttext = merged;
+            job.Transcripttext = mergedTranscript;
+            job.Status = ClassSessionAiJobStatus.Completed;
+            job.Completedat = TimeZoneHelper.UtcNow;
+            await db.SaveChangesAsync();
+
+            await NotifyAsync(
+                job.Requestedbyuserid,
+                "Tóm tắt buổi học đã sẵn sàng",
+                $"Video buổi học #{job.Classsessionid} đã được tóm tắt xong. Vào chi tiết buổi học để xem.",
+                NotificationType.LessonVideoSummaryReady,
+                job.Classsessionid);
+        }
+        catch (Exception ex) when (swallowFailure)
+        {
+            await MarkJobFailedAsync(job, ex);
+        }
+    }
+
+    /// <summary>Tóm tắt + chép lời đúng 1 buổi trong chuỗi nếu chưa có, cache lại như 1 job
+    /// student_summary bình thường (để lần sau — kể cả từ trang chi tiết buổi đó — không phải tóm tắt
+    /// lại). Tái dùng nguyên vẹn EnsureUploadedFileAsync/SummarizeVideoForStudentAsync/
+    /// TranscribeVideoAsync, chỉ khác là chạy đồng bộ ngay trong job hợp nhất (đang chạy nền rồi,
+    /// không cần enqueue thêm Hangfire job con).</summary>
+    private async Task<(string Summary, string? Transcript)> GetOrCreateLegSummaryAsync(int legClassSessionId, string requestedByUserId, CancellationToken ct)
+    {
+        var legJob = await db.ClassSessionAiJobs
+            .Where(j => j.Classsessionid == legClassSessionId
+                && j.Jobtype == ClassSessionAiJobType.StudentSummary
+                && j.Status == ClassSessionAiJobStatus.Completed
+                && j.Resulttext != null)
+            .OrderByDescending(j => j.Completedat)
+            .FirstOrDefaultAsync(ct);
+
+        if (legJob == null)
+        {
+            legJob = await CreateJobAsync(legClassSessionId, ClassSessionAiJobType.StudentSummary, requestedByUserId, ct);
+            legJob.Status = ClassSessionAiJobStatus.Processing;
+            await db.SaveChangesAsync(ct);
+
+            var summaryFile = await EnsureUploadedFileAsync(legJob, ct);
+            legJob.Resulttext = await geminiService.SummarizeVideoForStudentAsync(summaryFile.Uri, AudioMimeType, ct);
+            legJob.Status = ClassSessionAiJobStatus.Completed;
+            legJob.Completedat = TimeZoneHelper.UtcNow;
+            await db.SaveChangesAsync(ct);
+        }
+
+        // Buổi đã được tóm tắt riêng trước đó (ví dụ học sinh từng xem buổi này khi chuỗi mới có 1
+        // video) có thể chưa kịp chép lời xong (chạy nền tách riêng, xem RunStudentTranscriptJobAsync)
+        // — job hợp nhất đang chạy nền rồi nên chờ luôn ở đây thay vì bỏ qua.
+        if (legJob.Transcripttext == null)
+        {
+            var transcriptFile = await EnsureUploadedFileAsync(legJob, ct);
+            legJob.Transcripttext = await geminiService.TranscribeVideoAsync(transcriptFile.Uri, AudioMimeType, ct);
+            legJob.Stage = null;
+            await db.SaveChangesAsync(ct);
+        }
+
+        return (legJob.Resulttext!, legJob.Transcripttext);
     }
 
     // ── Helpers dùng chung ─────────────────────────────────────────────

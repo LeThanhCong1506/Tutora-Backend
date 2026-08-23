@@ -60,6 +60,31 @@ public class ClassSessionDetailResponse
     public int? OriginalClassSessionId { get; set; }
     public string? NoShowAction { get; set; }
 
+    // Interruption / continuation info (Link 2) — Originalsessionid dùng chung ở trên.
+    /// <summary>True nếu đây là buổi phụ, sinh ra khi buổi gốc (<see cref="OriginalClassSessionId"/>) bị báo ngắt giữa chừng.</summary>
+    public bool? IsContinuation { get; set; }
+    /// <summary>True nếu đây là buổi học lại (Link 3), sinh ra khi hoà giải dispute chọn "học lại".</summary>
+    public bool? IsDisputeRelearn { get; set; }
+    /// <summary>Mốc buổi GỐC bị báo ngắt (chỉ có giá trị trên chính buổi gốc, không phải trên buổi phụ).</summary>
+    public DateTime? InterruptedAt { get; set; }
+    /// <summary>Lý do báo ngắt do người báo tự nhập (chỉ có trên buổi gốc).</summary>
+    public string? InterruptReason { get; set; }
+    /// <summary>Tên người đã báo ngắt (chỉ có trên buổi gốc) — KHÔNG trả user_id ra ngoài, chỉ tên đã resolve.</summary>
+    public string? InterruptedByName { get; set; }
+    /// <summary>ID buổi phụ sinh ra từ chính buổi này khi bị ngắt (chỉ có trên buổi GỐC, status=interrupted).
+    /// Null nếu buổi chưa từng bị ngắt. FE dùng để gọi API xác nhận/xem trạng thái đồng ý bỏ buổi phụ.</summary>
+    public int? ContinuationSessionId { get; set; }
+    /// <summary>True khi CẢ HAI phía đã đồng ý bỏ hẳn buổi phụ (<see cref="ContinuationSessionId"/>) —
+    /// lúc này gia sư nộp được báo cáo cho buổi GỐC dù đang ở status=interrupted (không cần
+    /// in_progress). Luôn false nếu chưa từng bị ngắt hoặc chưa đủ 2 phía xác nhận.</summary>
+    public bool ContinuationSkipBothConfirmed { get; set; }
+    /// <summary>True khi CHÍNH buổi này là buổi phụ (<see cref="IsContinuation"/>) và cả 2 phía đã
+    /// đồng ý bỏ nó (khác <see cref="ContinuationSkipBothConfirmed"/> — field đó nói về buổi phụ CỦA
+    /// buổi này khi xem từ buổi GỐC). FE dùng để khoá nút "Vào học nhanh"/"Đề xuất đổi lịch" trên
+    /// chính trang buổi phụ một khi 2 bên đã thống nhất bỏ, dù status vẫn còn Scheduled cho tới khi
+    /// gia sư nộp báo cáo xong (xem SubmitReportAsync).</summary>
+    public bool SkipConfirmedByBothSides { get; set; }
+
     // Related entities
     public ClassSessionStudentResponse? Student { get; set; }
     public ClassSessionTutorResponse? Tutor { get; set; }
@@ -87,7 +112,9 @@ public class ClassSessionDetailResponse
     public bool CanCheckIn => Status == Scheduled &&
         Math.Abs((TimeZoneHelper.UtcNow - ScheduledStart).TotalMinutes) <= 15;
 
-    public bool CanSubmitReport => Status == InProgress && CheckInTime.HasValue;
+    // ContinuationSkipBothConfirmed: buổi bị ngắt (status=interrupted) vẫn nộp được báo cáo nếu cả
+    // 2 phía đã đồng ý bỏ buổi phụ — xem SubmitReportAsync/ConfirmSkipContinuationAsync.
+    public bool CanSubmitReport => (Status == InProgress && CheckInTime.HasValue) || ContinuationSkipBothConfirmed;
 }
 
 public class ClassSessionStudentResponse

@@ -7,7 +7,10 @@ namespace MV.DomainLayer.Configuration
         public string ApiKey { get; set; } = string.Empty;
         // gemini-pro không hỗ trợ video. gemini-2.5-flash đã bị Google chặn cấp cho API key mới
         // (deprecation chính thức 2026-10-16 nhưng chặn sớm hơn cho key mới) — dùng bản kế nhiệm.
-        public string Model { get; set; } = "gemini-3.6-flash";
+        // Đổi sang Flash-Lite (2026-08-23): gemini-3.6-flash phản hồi quá chậm cho tóm tắt/điền báo
+        // cáo từ video; Flash-Lite vẫn hỗ trợ video đầy đủ và là bản nhanh nhất dòng Gemini 3, đã
+        // dùng ổn cho TranscriptModel bên dưới (bước chép lời nặng token hơn cả bước này).
+        public string Model { get; set; } = "gemini-3.5-flash-lite";
         /// <summary>Model riêng cho lượt chép lời. Chép lời chỉ là ghi lại đúng những gì nghe được, không
         /// cần suy luận như tóm tắt, nên dùng bản Lite nhanh hơn (~350 so với ~280 token/giây). Đây là
         /// chặng sinh nhiều token nhất (transcript dài gấp 10-15 lần tóm tắt) nên chênh lệch tốc độ ở

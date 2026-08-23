@@ -241,7 +241,7 @@ public class GeminiVideoAnalysisService : IGeminiVideoAnalysisService
         // form báo cáo gửi phụ huynh — để trống trông như gia sư quên điền, nên ghi rõ là không có.
         // Chuẩn hoá ở đây thay vì dặn trong prompt: prompt thì model có thể bỏ qua, code thì không.
         if (string.IsNullOrWhiteSpace(parsed.Homework))
-            parsed.Homework = "Không có.";
+            parsed.Homework = "Không có bài tập về nhà.";
 
         return parsed;
     }
@@ -290,6 +290,59 @@ public class GeminiVideoAnalysisService : IGeminiVideoAnalysisService
 
         var text = await SendGenerateContentAsync(requestBody, _settings.Model, ct);
         return text.Trim();
+    }
+
+    public async Task<string> SynthesizeChainSummaryAsync(
+        IReadOnlyList<(string Label, string Summary)> legSummaries, CancellationToken ct = default)
+    {
+        EnsureConfigured();
+
+        const string instruction = """
+            Bạn là trợ lý tổng hợp tóm tắt buổi học 1-kèm-1. Buổi học dưới đây đã bị ngắt giữa chừng
+            ít nhất 1 lần nên được chia thành nhiều buổi liên tiếp (buổi bù/buổi phụ/buổi học lại),
+            mỗi buổi đã có tóm tắt riêng theo đúng thứ tự thời gian. Hãy đọc và viết lại thành DUY
+            NHẤT một bản tóm tắt liền mạch cho toàn bộ nội dung đã học, như thể đó là một buổi học
+            liên tục — không nhắc tới việc buổi học bị chia/nối/ngắt, không lặp lại nội dung trùng
+            giữa các buổi. Dùng markdown giống các tóm tắt gốc (tiêu đề phụ "##", in đậm "**...**"
+            cho từ khoá/công thức quan trọng, gạch đầu dòng "-" cho danh sách).
+
+            QUAN TRỌNG: chỉ viết những mục thật sự có nội dung. Mục nào không có ở bất kỳ buổi nào
+            thì BỎ HẲN, không in tiêu đề của mục đó ra.
+            """;
+
+        var joined = string.Join(
+            "\n\n",
+            legSummaries.Select(leg => $"--- {leg.Label} ---\n{leg.Summary}"));
+        var prompt = $"{instruction}\n\n{joined}";
+
+        var schema = new GeminiSchema
+        {
+            Type = "OBJECT",
+            Properties = new Dictionary<string, GeminiSchema> { ["summary"] = new() { Type = "STRING" } },
+            Required = ["summary"]
+        };
+
+        var requestBody = new
+        {
+            contents = new object[]
+            {
+                new { role = "user", parts = new object[] { new { text = prompt } } }
+            },
+            generationConfig = new Dictionary<string, object?>
+            {
+                ["temperature"] = _settings.Temperature,
+                ["maxOutputTokens"] = _settings.MaxOutputTokens,
+                ["thinkingConfig"] = MinimalThinkingConfig,
+                ["responseMimeType"] = "application/json",
+                ["responseSchema"] = schema
+            }
+        };
+
+        var text = await SendGenerateContentAsync(requestBody, _settings.Model, ct);
+        var parsed = ParseOrThrow<SummaryJson>(text, "tóm tắt tổng hợp");
+        if (parsed.Summary is null)
+            throw new GeminiResponseParseException("Gemini trả về tóm tắt tổng hợp không hợp lệ.");
+        return parsed.Summary.Trim();
     }
 
     // Cả 3 tác vụ dùng chung builder này (tóm tắt học sinh, soát lại, auto-fill báo cáo gia sư) đều

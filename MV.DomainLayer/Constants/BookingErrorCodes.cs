@@ -6,6 +6,7 @@ public static class BookingErrorCodes
     public const string InvalidPackageType = "INVALID_PACKAGE_TYPE";
     public const string InvalidSchedule = "INVALID_SCHEDULE";
     public const string InvalidStartDate = "INVALID_START_DATE";
+    public const string SlotInPast = "SLOT_IN_PAST";
     public const string LocationRequired = "LOCATION_REQUIRED";
     public const string NotStudentOwner = "NOT_STUDENT_OWNER";
     // Tài khoản học sinh do phụ huynh tạo/quản lý → không được tự đặt lịch.
