@@ -158,6 +158,8 @@ namespace MV.ApplicationLayer.Services
                 ProposedTeachingAreaDistrict = pending.TeachingAreaDistrict,
                 CurrentBio = profile.Bio,
                 ProposedBio = pending.Bio,
+                CurrentDegree = profile.Degree,
+                ProposedDegree = pending.Degree,
                 CurrentEducation = profile.Education,
                 ProposedEducation = pending.Education,
                 CurrentExperience = profile.Experience,
@@ -239,6 +241,7 @@ namespace MV.ApplicationLayer.Services
                 if (pending.TeachingAreaCity != null) profile.Teachingareacity = pending.TeachingAreaCity;
                 if (pending.TeachingAreaDistrict != null) profile.Teachingareadistrict = pending.TeachingAreaDistrict;
                 if (pending.Bio != null) profile.Bio = pending.Bio;
+                if (pending.Degree != null) profile.Degree = pending.Degree;
                 if (pending.Education != null) profile.Education = pending.Education;
                 if (pending.Gpa != null) profile.Gpa = pending.Gpa;
                 if (pending.GpaScale != null) profile.Gpascale = pending.GpaScale;

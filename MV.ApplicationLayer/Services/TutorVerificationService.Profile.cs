@@ -75,6 +75,7 @@ namespace MV.ApplicationLayer.Services
 
                 // Introduction
                 Bio = profile.Bio,
+                Degree = profile.Degree,
                 Education = profile.Education,
                 Gpa = profile.Gpa,
                 GpaScale = profile.Gpascale,
@@ -192,6 +193,7 @@ namespace MV.ApplicationLayer.Services
                     .Select(MapSubjectGradePrice)
                     .ToList(),
                 Bio = profile.Bio,
+                Degree = profile.Degree,
                 Education = profile.Education,
                 Gpa = profile.Gpa,
                 GpaScale = profile.Gpascale,
@@ -363,6 +365,7 @@ namespace MV.ApplicationLayer.Services
                 TeachingMode = profileInfo.TeachingMode,
                 SubjectGradePrices = profileInfo.SubjectGradePrices,
                 Bio = profileInfo.Bio,
+                Degree = profileInfo.Degree,
                 Education = profileInfo.Education,
                 Gpa = profileInfo.Gpa,
                 GpaScale = profileInfo.GpaScale,
