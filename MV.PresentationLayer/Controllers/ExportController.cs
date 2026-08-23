@@ -2,6 +2,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using MV.ApplicationLayer.ServiceInterfaces;
+using MV.DomainLayer.DTO.RequestModel;
 using MV.PresentationLayer.Authorization;
 using System.Text;
 using System.Xml.Serialization;
@@ -74,6 +75,23 @@ namespace MV.PresentationLayer.Controllers
         {
             var fileBytes = await _exportService.GetParentsForExportExcelAsync();
             string fileName = $"Export_Parents_{MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow:yyyyMMdd_HHmmss}.xlsx";
+            return File(fileBytes, ExcelMimeType, fileName);
+        }
+
+        /// <summary>
+        /// Export users (any role — Student/Parent/Tutor, and Admin/Staff for full Admins) to Excel.
+        /// Accepts the same filter query params as GET /api/admin/users (search/role/status/date
+        /// range) — pass none to export everything matching the caller's visibility.
+        /// Delegated Staff (not full Admin) never see internal accounts, same restriction as the
+        /// list endpoint, so export.data alone can't be used to dump Admin/Staff data.
+        /// </summary>
+        [RequirePermission(Permissions.ExportData)]
+        [HttpGet("users")]
+        public async Task<IActionResult> ExportUsersToExcel([FromQuery] AdminUserFilterParameters parameters)
+        {
+            var fileBytes = await _exportService.GetUsersForExportExcelAsync(
+                parameters, includeInternalAccounts: User.IsInRole(UserRole.Admin));
+            string fileName = $"Export_Users_{MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow:yyyyMMdd_HHmmss}.xlsx";
             return File(fileBytes, ExcelMimeType, fileName);
         }
 

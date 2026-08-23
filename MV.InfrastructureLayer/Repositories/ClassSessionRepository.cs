@@ -243,7 +243,10 @@ public class ClassSessionRepository(AgoraDbContext context) : IClassSessionRepos
             ClassSessionPrice     = l.Lessonprice,
             SubjectName     = l.Booking?.Subject?.Subjectname,
             TutorName       = l.Booking?.Tutor?.Tutor?.Fullname,
-            BookingId       = l.Bookingid
+            BookingId       = l.Bookingid,
+            IsContinuation = l.Iscontinuation,
+            IsDisputeRelearn = l.Isdisputerelearn,
+            OriginalClassSessionId = l.Originalsessionid
         }).ToList();
 
         return (items, total);
@@ -293,6 +296,10 @@ public class ClassSessionRepository(AgoraDbContext context) : IClassSessionRepos
             TutorName       = classSession.Booking?.Tutor?.Tutor?.Fullname,
             TutorAvatar     = classSession.Booking?.Tutor?.Tutor?.Avatarurl,
             BookingId       = classSession.Bookingid,
+            IsContinuation = classSession.Iscontinuation,
+            IsDisputeRelearn = classSession.Isdisputerelearn,
+            SkipConfirmedByBothSides = classSession.Tutorskipconfirmedat.HasValue && classSession.Studentskipconfirmedat.HasValue,
+            OriginalClassSessionId = classSession.Originalsessionid,
             Report          = classSession.ClassSessionReport == null ? null : new StudentClassSessionReportResponse
             {
                 TopicsCovered    = classSession.ClassSessionReport.Contentcovered,
@@ -359,7 +366,10 @@ public class ClassSessionRepository(AgoraDbContext context) : IClassSessionRepos
             ConfirmDeadline = l.Confirmdeadline,
             SubjectName     = l.Booking?.Subject?.Subjectname,
             TutorName       = l.Booking?.Tutor?.Tutor?.Fullname,
-            BookingId       = l.Bookingid
+            BookingId       = l.Bookingid,
+            IsContinuation = l.Iscontinuation,
+            IsDisputeRelearn = l.Isdisputerelearn,
+            OriginalClassSessionId = l.Originalsessionid
         }).ToList();
     }
 

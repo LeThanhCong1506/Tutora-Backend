@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using MV.ApplicationLayer.Interfaces;
+using MV.ApplicationLayer.RepositoryInterfaces;
 using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.DTO.RequestModel;
 using MV.DomainLayer.DTO.RequestModel.Question;
@@ -11,16 +12,19 @@ namespace MV.ApplicationLayer.Services;
 
 public class QuestionService : IQuestionService
 {
-    private readonly IUnitOfWork _unitOfWork;
+    private readonly IQuestionRepository _questionRepository;
+    private readonly IAppDbContext _dbContext;
     private readonly ITutorAiClient _aiClient;
     private readonly ILogger<QuestionService> _logger;
 
     public QuestionService(
-        IUnitOfWork unitOfWork,
+        IQuestionRepository questionRepository,
+        IAppDbContext dbContext,
         ITutorAiClient aiClient,
         ILogger<QuestionService> logger)
     {
-        _unitOfWork = unitOfWork;
+        _questionRepository = questionRepository;
+        _dbContext = dbContext;
         _aiClient = aiClient;
         _logger = logger;
     }
@@ -47,8 +51,8 @@ public class QuestionService : IQuestionService
             CreatedBy = createdBy,
         };
 
-        await _unitOfWork.QuestionRepository.AddAsync(entity);
-        await _unitOfWork.SaveChangesAsync();   // trigger DB tự tính content_hash
+        await _questionRepository.AddAsync(entity);
+        await _dbContext.SaveChangesAsync();   // trigger DB tự tính content_hash
 
         // Embed content -> vector (best-effort: lỗi thì câu vẫn được lưu, embed lại sau).
         await TryEmbedAsync(entity, ct);
@@ -58,7 +62,7 @@ public class QuestionService : IQuestionService
 
     public async Task<QuestionResponse?> GetByIdAsync(Guid id, CancellationToken ct = default)
     {
-        var entity = await _unitOfWork.QuestionRepository.GetByIdAsync(id);
+        var entity = await _questionRepository.GetByIdAsync(id);
         return entity == null ? null : ToResponse(entity);
     }
 
@@ -70,7 +74,7 @@ public class QuestionService : IQuestionService
         string? sortBy, string? sortDir, string? answerFormat,
         CancellationToken ct = default)
     {
-        var paged = await _unitOfWork.QuestionRepository.GetPagedAsync(
+        var paged = await _questionRepository.GetPagedAsync(
             pageNumber, pageSize, subjectId, gradeLevelId, chapterIds, reviewStatus, search,
             difficulties, hasSolution, sortBy, sortDir, answerFormat);
 
@@ -81,7 +85,7 @@ public class QuestionService : IQuestionService
     public async Task<QuestionResponse?> UpdateAsync(
         Guid id, UpdateQuestionRequest request, CancellationToken ct = default)
     {
-        var entity = await _unitOfWork.QuestionRepository.GetByIdAsync(id);
+        var entity = await _questionRepository.GetByIdAsync(id);
         if (entity == null) return null;
 
         bool contentChanged = entity.Content != request.Content;
@@ -101,8 +105,8 @@ public class QuestionService : IQuestionService
         if (!string.IsNullOrWhiteSpace(request.ReviewStatus))
             entity.ReviewStatus = request.ReviewStatus;
 
-        _unitOfWork.QuestionRepository.Update(entity);
-        await _unitOfWork.SaveChangesAsync();   // trigger cập nhật content_hash nếu content đổi
+        _questionRepository.Update(entity);
+        await _dbContext.SaveChangesAsync();   // trigger cập nhật content_hash nếu content đổi
 
         // Chỉ re-embed khi content đổi (vector cũ không còn khớp đề mới).
         if (contentChanged)
@@ -113,11 +117,11 @@ public class QuestionService : IQuestionService
 
     public async Task<bool> DeleteAsync(Guid id, CancellationToken ct = default)
     {
-        var entity = await _unitOfWork.QuestionRepository.GetByIdAsync(id);
+        var entity = await _questionRepository.GetByIdAsync(id);
         if (entity == null) return false;
 
-        _unitOfWork.QuestionRepository.Remove(entity);
-        await _unitOfWork.SaveChangesAsync();
+        _questionRepository.Remove(entity);
+        await _dbContext.SaveChangesAsync();
         return true;
     }
 
@@ -133,8 +137,8 @@ public class QuestionService : IQuestionService
 
             entity.Embedding = new Vector(vector);
             entity.EmbeddedHash = entity.ContentHash;   // content_hash do trigger tính, đã có trong entity sau save
-            _unitOfWork.QuestionRepository.Update(entity);
-            await _unitOfWork.SaveChangesAsync();
+            _questionRepository.Update(entity);
+            await _dbContext.SaveChangesAsync();
         }
         catch (Exception ex)
         {

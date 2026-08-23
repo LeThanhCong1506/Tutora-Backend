@@ -1,3 +1,4 @@
+using MV.DomainLayer.DTO.RequestModel;
 using MV.DomainLayer.DTO.ResponseModel;
 
 namespace MV.ApplicationLayer.ServiceInterfaces
@@ -15,6 +16,13 @@ namespace MV.ApplicationLayer.ServiceInterfaces
         Task<ParentExportListResponse> GetParentsForExportAsync();
 
         /// <summary>
+        /// User records (any role — Student/Parent/Tutor, and Admin/Staff when
+        /// <paramref name="includeInternalAccounts"/> is true) as a JSON-serialisable list,
+        /// filtered by the same criteria as the CMS user list (admin/staff export).
+        /// </summary>
+        Task<UserExportListResponse> GetUsersForExportAsync(AdminUserFilterParameters parameters, bool includeInternalAccounts);
+
+        /// <summary>
         /// Mock-test result data as a JSON-serialisable payload (admin export).
         /// </summary>
         Task<MockTestExportResponse> GetMockTestForExportAsync(int testId);
@@ -28,6 +36,11 @@ namespace MV.ApplicationLayer.ServiceInterfaces
         /// Parent records as an Excel (.xlsx) byte array for download.
         /// </summary>
         Task<byte[]> GetParentsForExportExcelAsync();
+
+        /// <summary>
+        /// User records (any role, filterable) as an Excel (.xlsx) byte array for download.
+        /// </summary>
+        Task<byte[]> GetUsersForExportExcelAsync(AdminUserFilterParameters parameters, bool includeInternalAccounts);
 
         /// <summary>
         /// Mock-test results as an Excel (.xlsx) byte array for download.

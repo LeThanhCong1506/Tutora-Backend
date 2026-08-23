@@ -36,6 +36,12 @@ public class ClassSessionRescheduleProposalService(
         if (session.Status != ClassSessionStatus.Scheduled)
             throw new InvalidOperationException("Chỉ có thể đề xuất đổi lịch cho buổi học đang ở trạng thái đã lên lịch.");
 
+        // Cả 2 bên đã đồng ý bỏ hẳn buổi phụ này (ConfirmSkipContinuationAsync) — status vẫn
+        // "scheduled" cho tới khi báo cáo buổi gốc được nộp, nhưng buổi coi như đã "chết" nên
+        // không cho đề xuất đổi lịch mới (mâu thuẫn với ý định đã thống nhất bỏ buổi này).
+        if (session.Tutorskipconfirmedat.HasValue && session.Studentskipconfirmedat.HasValue)
+            throw new InvalidOperationException("Cả 2 bên đã đồng ý bỏ buổi phụ này, không thể đề xuất đổi lịch nữa.");
+
         var approver = ResolveLearnerApprover(session);
         var now = TimeZoneHelper.UtcNow;
 
@@ -65,9 +71,28 @@ public class ClassSessionRescheduleProposalService(
         if (proposedScheduledStart <= now)
             throw new InvalidOperationException("Thời gian đề xuất phải ở tương lai.");
 
-        if (now >= session.Scheduledstart.AddHours(-MinHoursBeforeOriginalStart))
-            throw new InvalidOperationException(
-                $"Không thể đề xuất đổi lịch khi còn dưới {MinHoursBeforeOriginalStart} giờ trước giờ học đã đặt.");
+        // Buổi phụ (Iscontinuation, sinh ra khi buổi gốc bị ngắt giữa chừng vì sự cố đột xuất) là
+        // tình huống khẩn cấp — bỏ buffer 2h trước giờ học vì có thể cần dời trong vài chục phút.
+        // Đổi lại, nó chỉ được phép diễn ra trong ĐÚNG NGÀY bị ngắt (UTC thuần, hệ thống không quy
+        // đổi múi giờ), không được kéo qua ngày hôm sau.
+        DateTime proposalCutoff;
+        if (session.Iscontinuation)
+        {
+            proposalCutoff = (session.Interruptedat ?? now).Date.AddDays(1);
+            if (now >= proposalCutoff)
+                throw new InvalidOperationException(
+                    "Đã quá ngày bị gián đoạn, không thể đề xuất giờ học lại cho buổi phụ này nữa.");
+            if (proposedScheduledStart >= proposalCutoff)
+                throw new InvalidOperationException(
+                    "Buổi học phụ chỉ có thể diễn ra trong cùng ngày bị gián đoạn.");
+        }
+        else
+        {
+            proposalCutoff = session.Scheduledstart.AddHours(-MinHoursBeforeOriginalStart);
+            if (now >= proposalCutoff)
+                throw new InvalidOperationException(
+                    $"Không thể đề xuất đổi lịch khi còn dưới {MinHoursBeforeOriginalStart} giờ trước giờ học đã đặt.");
+        }
 
         var existingPending = await db.ClassSessionRescheduleProposals
             .Where(x => x.Classsessionid == classSessionId && x.Status == RescheduleProposalStatus.Pending)
@@ -95,7 +120,7 @@ public class ClassSessionRescheduleProposalService(
         if (conflict != null)
             throw new InvalidOperationException(conflict.Message);
 
-        var expiresAt = new[] { now.AddHours(MaxProposalLifetimeHours), session.Scheduledstart.AddHours(-MinHoursBeforeOriginalStart) }.Min();
+        var expiresAt = new[] { now.AddHours(MaxProposalLifetimeHours), proposalCutoff }.Min();
 
         var proposal = new ClassSessionRescheduleProposal
         {
@@ -145,6 +170,11 @@ public class ClassSessionRescheduleProposalService(
     {
         var session = await LoadSessionAsync(classSessionId, cancellationToken)
             ?? throw new KeyNotFoundException("Không tìm thấy buổi học.");
+
+        // Cả 2 bên đã đồng ý bỏ hẳn buổi phụ này trong lúc đề xuất còn treo — coi như đã hết hiệu
+        // lực, không cho phản hồi nữa (xem guard tương ứng ở ProposeAsync).
+        if (session.Tutorskipconfirmedat.HasValue && session.Studentskipconfirmedat.HasValue)
+            throw new InvalidOperationException("Cả 2 bên đã đồng ý bỏ buổi phụ này, đề xuất đổi lịch không còn hiệu lực.");
 
         var proposal = await db.ClassSessionRescheduleProposals
             .Where(x => x.Classsessionid == classSessionId && x.Status == RescheduleProposalStatus.Pending)
@@ -374,7 +404,11 @@ public class ClassSessionRescheduleProposalService(
                     ? x.Booking.Student.Linkeduser.Birthdate
                     : x.Booking != null && x.Booking.Student != null
                         ? x.Booking.Student.Birthdate
-                        : null))
+                        : null,
+                x.Iscontinuation,
+                x.Interruptedat,
+                x.Tutorskipconfirmedat,
+                x.Studentskipconfirmedat))
             .FirstOrDefaultAsync(cancellationToken);
 
     // Nhân bản có chủ đích từ ClassSessionScheduleChangeService.ResolveLearnerApprover (private static ở
@@ -404,5 +438,9 @@ public class ClassSessionRescheduleProposalService(
         string? ParentName,
         string? StudentUserId,
         string? StudentName,
-        DateOnly? StudentBirthdate);
+        DateOnly? StudentBirthdate,
+        bool Iscontinuation,
+        DateTime? Interruptedat,
+        DateTime? Tutorskipconfirmedat,
+        DateTime? Studentskipconfirmedat);
 }

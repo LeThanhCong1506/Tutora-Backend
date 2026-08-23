@@ -2,6 +2,7 @@
 using Microsoft.EntityFrameworkCore;
 using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.Constants;
+using MV.DomainLayer.DTO.RequestModel;
 using MV.DomainLayer.DTO.ResponseModel;
 using MV.DomainLayer.Helpers;
 using MV.ApplicationLayer.Interfaces;
@@ -9,13 +10,11 @@ namespace MV.ApplicationLayer.Services
 {
     public class ExportService : IExportService
     {
-        private readonly IUnitOfWork _unitOfWork;
         private readonly IAppDbContext _context;
         private readonly IEncryptionService _encryption;
 
-        public ExportService(IUnitOfWork unitOfWork, IAppDbContext context, IEncryptionService encryption)
+        public ExportService(IAppDbContext context, IEncryptionService encryption)
         {
-            _unitOfWork = unitOfWork;
             _context = context;
             _encryption = encryption;
         }
@@ -62,6 +61,71 @@ namespace MV.ApplicationLayer.Services
                 .ToListAsync();
 
             return new ParentExportListResponse { Parents = parents };
+        }
+
+        // 2b. Lấy danh sách USER (mọi vai trò — Student/Parent/Tutor, và Admin/Staff nếu được phép),
+        // dùng chung bộ lọc với màn danh sách user CMS (AdminUserFilterParameters).
+        public async Task<UserExportListResponse> GetUsersForExportAsync(
+            AdminUserFilterParameters parameters, bool includeInternalAccounts)
+        {
+            var query = _context.Users.AsNoTracking().AsQueryable();
+
+            if (!includeInternalAccounts)
+                query = query.Where(u =>
+                    u.Primaryrole != UserRole.Admin && u.Primaryrole != UserRole.Staff);
+
+            if (!string.IsNullOrWhiteSpace(parameters.SearchTerm))
+            {
+                var term = parameters.SearchTerm.Trim().ToLower();
+                query = query.Where(u =>
+                    (u.Fullname != null && u.Fullname.ToLower().Contains(term)) ||
+                    (u.Email != null && u.Email.ToLower().Contains(term)) ||
+                    (u.Phone != null && u.Phone.Contains(term)));
+            }
+
+            if (!string.IsNullOrWhiteSpace(parameters.Role))
+            {
+                var role = parameters.Role.ToLower();
+                query = query.Where(u => u.Primaryrole != null && u.Primaryrole.ToLower() == role);
+            }
+
+            if (parameters.Status.HasValue)
+                query = query.Where(u => u.Status == parameters.Status.Value);
+
+            if (parameters.CreatedFrom.HasValue)
+            {
+                var createdFromUtc = parameters.CreatedFrom.Value.Kind == DateTimeKind.Utc
+                    ? parameters.CreatedFrom.Value
+                    : DateTime.SpecifyKind(parameters.CreatedFrom.Value, DateTimeKind.Utc);
+                query = query.Where(u => u.Createdat >= createdFromUtc);
+            }
+
+            if (parameters.CreatedTo.HasValue)
+            {
+                var createdToUtc = parameters.CreatedTo.Value.Kind == DateTimeKind.Utc
+                    ? parameters.CreatedTo.Value
+                    : DateTime.SpecifyKind(parameters.CreatedTo.Value, DateTimeKind.Utc);
+                query = query.Where(u => u.Createdat <= createdToUtc);
+            }
+
+            var users = await query
+                .OrderByDescending(u => u.Createdat)
+                .Select(u => new UserExportResponse
+                {
+                    Userid         = u.Userid,
+                    Fullname       = u.Fullname,
+                    Email          = u.Email,
+                    Phone          = u.Phone,
+                    Role           = u.Primaryrole,
+                    Status         = u.Status,
+                    Birthdate      = u.Birthdate,
+                    Identitynumber = u.Identitynumber, // encrypted — decrypt khi ghi Excel
+                    Address        = u.Address,
+                    Createdat      = u.Createdat
+                })
+                .ToListAsync();
+
+            return new UserExportListResponse { Users = users };
         }
 
         // 3. Lấy MỘT MOCKTEST theo ID (và các câu hỏi của nó)
@@ -222,6 +286,70 @@ namespace MV.ApplicationLayer.Services
                 fullRange.Style.Border.OutsideBorder = XLBorderStyleValues.Medium; // Sửa từ Hair/Thin -> Medium
                 fullRange.Style.Border.OutsideBorderColor = XLColor.Gray; // Đổi màu cho đậm
                 // --- KẾT THÚC THAY ĐỔI ---
+
+                worksheet.Columns().AdjustToContents();
+
+                using (var stream = new MemoryStream())
+                {
+                    workbook.SaveAs(stream);
+                    return stream.ToArray();
+                }
+            }
+        }
+
+        // 5b. EXCEL: Lấy danh sách USER (mọi vai trò)
+        public async Task<byte[]> GetUsersForExportExcelAsync(
+            AdminUserFilterParameters parameters, bool includeInternalAccounts)
+        {
+            var dto = await GetUsersForExportAsync(parameters, includeInternalAccounts);
+
+            using (var workbook = new XLWorkbook())
+            {
+                var worksheet = workbook.Worksheets.Add("Users");
+                worksheet.SheetView.FreezeRows(1);
+                worksheet.TabColor = XLColor.FromHtml("#8E44AD");
+                worksheet.Style.Font.FontName = "Calibri";
+
+                worksheet.Cell(1, 1).Value = "UserId";
+                worksheet.Cell(1, 2).Value = "Fullname";
+                worksheet.Cell(1, 3).Value = "Email";
+                worksheet.Cell(1, 4).Value = "Phone";
+                worksheet.Cell(1, 5).Value = "Role";
+                worksheet.Cell(1, 6).Value = "Status";
+                worksheet.Cell(1, 7).Value = "Birthdate";
+                worksheet.Cell(1, 8).Value = "Identitynumber";
+                worksheet.Cell(1, 9).Value = "Address";
+                worksheet.Cell(1, 10).Value = "CreatedAt";
+
+                var headerRange = worksheet.Range(1, 1, 1, 10);
+                headerRange.Style.Font.Bold = true;
+                headerRange.Style.Fill.BackgroundColor = XLColor.FromHtml("#8E44AD");
+                headerRange.Style.Font.FontColor = XLColor.White;
+                headerRange.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+                headerRange.Style.Border.BottomBorder = XLBorderStyleValues.Medium;
+                headerRange.Style.Border.BottomBorderColor = XLColor.Gray;
+
+                int row = 2;
+                foreach (var item in dto.Users)
+                {
+                    worksheet.Cell(row, 1).Value = item.Userid;
+                    worksheet.Cell(row, 2).Value = item.Fullname;
+                    worksheet.Cell(row, 3).Value = item.Email;
+                    worksheet.Cell(row, 4).Value = item.Phone;
+                    worksheet.Cell(row, 5).Value = item.Role;
+                    worksheet.Cell(row, 6).Value = item.Status == 1 ? "Active" : item.Status == 0 ? "Inactive" : (item.Status?.ToString() ?? "");
+                    worksheet.Cell(row, 7).Value = item.Birthdate.HasValue ? item.Birthdate.Value.ToString("yyyy-MM-dd") : "";
+                    worksheet.Cell(row, 8).Value = _encryption.Decrypt(item.Identitynumber) ?? "";
+                    worksheet.Cell(row, 9).Value = item.Address;
+                    worksheet.Cell(row, 10).Value = item.Createdat.HasValue ? item.Createdat.Value.ToString("yyyy-MM-dd HH:mm") : "";
+                    row++;
+                }
+
+                var fullRange = worksheet.Range(1, 1, row - 1, 10);
+                fullRange.Style.Border.InsideBorder = XLBorderStyleValues.Thin;
+                fullRange.Style.Border.InsideBorderColor = XLColor.FromHtml("#BFBFBF");
+                fullRange.Style.Border.OutsideBorder = XLBorderStyleValues.Medium;
+                fullRange.Style.Border.OutsideBorderColor = XLColor.Gray;
 
                 worksheet.Columns().AdjustToContents();
 
