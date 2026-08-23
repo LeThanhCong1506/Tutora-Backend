@@ -2429,6 +2429,9 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnType("timestamp without time zone")
                 .HasColumnName("created_at");
+            entity.Property(e => e.Degree)
+                .HasMaxLength(100)
+                .HasColumnName("degree");
             entity.Property(e => e.Education)
                 .HasMaxLength(255)
                 .HasColumnName("education");
