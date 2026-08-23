@@ -54,7 +54,8 @@ public partial class ClassSessionService
                     HasPendingReschedule = ResolveHasPendingReschedule(l.RescheduleProposals),
                     IsContinuation = l.Iscontinuation,
                     IsDisputeRelearn = l.Isdisputerelearn,
-                    OriginalClassSessionId = l.Originalsessionid
+                    OriginalClassSessionId = l.Originalsessionid,
+                    SkipConfirmedByBothSides = l.Tutorskipconfirmedat.HasValue && l.Studentskipconfirmedat.HasValue
                 }).ToList()
             })
             .ToList();
@@ -118,7 +119,8 @@ public partial class ClassSessionService
                     HasPendingReschedule = ResolveHasPendingReschedule(l.RescheduleProposals),
                     IsContinuation = l.Iscontinuation,
                     IsDisputeRelearn = l.Isdisputerelearn,
-                    OriginalClassSessionId = l.Originalsessionid
+                    OriginalClassSessionId = l.Originalsessionid,
+                    SkipConfirmedByBothSides = l.Tutorskipconfirmedat.HasValue && l.Studentskipconfirmedat.HasValue
                 }).ToList()
             })
             .ToList();
@@ -186,7 +188,8 @@ public partial class ClassSessionService
             HasPendingReschedule = ResolveHasPendingReschedule(session.RescheduleProposals),
             IsContinuation = session.Iscontinuation,
             IsDisputeRelearn = session.Isdisputerelearn,
-            OriginalClassSessionId = session.Originalsessionid
+            OriginalClassSessionId = session.Originalsessionid,
+            SkipConfirmedByBothSides = session.Tutorskipconfirmedat.HasValue && session.Studentskipconfirmedat.HasValue
         };
     }
 

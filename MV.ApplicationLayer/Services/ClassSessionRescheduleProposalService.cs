@@ -36,6 +36,12 @@ public class ClassSessionRescheduleProposalService(
         if (session.Status != ClassSessionStatus.Scheduled)
             throw new InvalidOperationException("Chỉ có thể đề xuất đổi lịch cho buổi học đang ở trạng thái đã lên lịch.");
 
+        // Cả 2 bên đã đồng ý bỏ hẳn buổi phụ này (ConfirmSkipContinuationAsync) — status vẫn
+        // "scheduled" cho tới khi báo cáo buổi gốc được nộp, nhưng buổi coi như đã "chết" nên
+        // không cho đề xuất đổi lịch mới (mâu thuẫn với ý định đã thống nhất bỏ buổi này).
+        if (session.Tutorskipconfirmedat.HasValue && session.Studentskipconfirmedat.HasValue)
+            throw new InvalidOperationException("Cả 2 bên đã đồng ý bỏ buổi phụ này, không thể đề xuất đổi lịch nữa.");
+
         var approver = ResolveLearnerApprover(session);
         var now = TimeZoneHelper.UtcNow;
 
@@ -164,6 +170,11 @@ public class ClassSessionRescheduleProposalService(
     {
         var session = await LoadSessionAsync(classSessionId, cancellationToken)
             ?? throw new KeyNotFoundException("Không tìm thấy buổi học.");
+
+        // Cả 2 bên đã đồng ý bỏ hẳn buổi phụ này trong lúc đề xuất còn treo — coi như đã hết hiệu
+        // lực, không cho phản hồi nữa (xem guard tương ứng ở ProposeAsync).
+        if (session.Tutorskipconfirmedat.HasValue && session.Studentskipconfirmedat.HasValue)
+            throw new InvalidOperationException("Cả 2 bên đã đồng ý bỏ buổi phụ này, đề xuất đổi lịch không còn hiệu lực.");
 
         var proposal = await db.ClassSessionRescheduleProposals
             .Where(x => x.Classsessionid == classSessionId && x.Status == RescheduleProposalStatus.Pending)
@@ -395,7 +406,9 @@ public class ClassSessionRescheduleProposalService(
                         ? x.Booking.Student.Birthdate
                         : null,
                 x.Iscontinuation,
-                x.Interruptedat))
+                x.Interruptedat,
+                x.Tutorskipconfirmedat,
+                x.Studentskipconfirmedat))
             .FirstOrDefaultAsync(cancellationToken);
 
     // Nhân bản có chủ đích từ ClassSessionScheduleChangeService.ResolveLearnerApprover (private static ở
@@ -427,5 +440,7 @@ public class ClassSessionRescheduleProposalService(
         string? StudentName,
         DateOnly? StudentBirthdate,
         bool Iscontinuation,
-        DateTime? Interruptedat);
+        DateTime? Interruptedat,
+        DateTime? Tutorskipconfirmedat,
+        DateTime? Studentskipconfirmedat);
 }

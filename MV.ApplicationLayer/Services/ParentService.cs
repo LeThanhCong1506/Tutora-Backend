@@ -610,7 +610,8 @@ public class ParentService : IParentService
                         HasPendingReschedule = ResolveHasPendingReschedule(l.RescheduleProposals),
                         IsContinuation = l.Iscontinuation,
                         IsDisputeRelearn = l.Isdisputerelearn,
-                        OriginalClassSessionId = l.Originalsessionid
+                        OriginalClassSessionId = l.Originalsessionid,
+                        SkipConfirmedByBothSides = l.Tutorskipconfirmedat.HasValue && l.Studentskipconfirmedat.HasValue
                     }).ToList()
                 })
                 .ToList();

@@ -745,7 +745,10 @@ public partial class BookingService(
                 ScheduledStart = l.Scheduledstart,
                 ScheduledEnd = l.Scheduledend,
                 Status = l.Status,
-                ClassSessionPrice = l.Lessonprice
+                ClassSessionPrice = l.Lessonprice,
+                IsContinuation = l.Iscontinuation,
+                IsDisputeRelearn = l.Isdisputerelearn,
+                OriginalClassSessionId = l.Originalsessionid
             })
             .ToList();
         var baseAmount = Math.Max((b.Totalamount ?? 0m) - (b.Discountapplied ?? 0m), 0m);

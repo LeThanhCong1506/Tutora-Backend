@@ -815,6 +815,21 @@ public partial class ClassSessionService
         else
             classSession.Studentskipconfirmedat ??= now;
 
+        // Xác nhận này vừa làm cả 2 bên đồng ý xong — mọi đề xuất đổi lịch còn treo cho đúng buổi
+        // phụ này giờ vô nghĩa (2 bên đã thống nhất bỏ hẳn, không phải dời giờ), tự hết hạn luôn
+        // để UI không còn hiện nút Xác nhận/Từ chối chết (xem guard tương ứng ở
+        // ClassSessionRescheduleProposalService.ProposeAsync/RespondAsync).
+        if (classSession.Tutorskipconfirmedat.HasValue && classSession.Studentskipconfirmedat.HasValue)
+        {
+            var pendingProposal = await _context.ClassSessionRescheduleProposals.FirstOrDefaultAsync(
+                x => x.Classsessionid == continuationSessionId && x.Status == RescheduleProposalStatus.Pending);
+            if (pendingProposal != null)
+            {
+                pendingProposal.Status = RescheduleProposalStatus.Expired;
+                pendingProposal.Updatedat = now;
+            }
+        }
+
         await _context.SaveChangesAsync();
 
         return ToSkipResponse(classSession);

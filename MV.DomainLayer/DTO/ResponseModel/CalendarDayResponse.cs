@@ -65,6 +65,10 @@ public class CalendarClassSessionResponse
     public bool? IsDisputeRelearn { get; set; }
     /// <summary>Buổi gốc mà buổi phụ/buổi học lại này trỏ về — null nếu đây là buổi gốc.</summary>
     public int? OriginalClassSessionId { get; set; }
+    /// <summary>True khi đây là buổi phụ mà cả gia sư và học sinh đã đồng ý bỏ (ConfirmSkipContinuationAsync) —
+    /// status vẫn "scheduled" cho tới khi báo cáo buổi gốc được nộp, nhưng buổi này coi như đã "chết" nên
+    /// FE phải ẩn nút "Vào lớp" (xem utils/liveSession.ts canJoinLiveSession).</summary>
+    public bool SkipConfirmedByBothSides { get; set; }
 
     /// <summary>
     /// Color code based on status for UI rendering
