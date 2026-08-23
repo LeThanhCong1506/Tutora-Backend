@@ -798,7 +798,7 @@ public class DisputeService : IDisputeService
         if (!dispute.Bookingid.HasValue)
             throw new ArgumentException("Tranh chấp này không gắn với booking nào để tính hủy khóa học");
 
-        return await _settlementService.PreviewCancelRemainingSessionsAsync(dispute.Bookingid.Value);
+        return await _settlementService.PreviewCancelRemainingSessionsAsync(dispute.Bookingid.Value, dispute.Classsessionid);
     }
 
     public async Task<DisputeStatsResponse> GetDisputeStatsAsync()

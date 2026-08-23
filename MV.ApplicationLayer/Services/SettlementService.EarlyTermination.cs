@@ -190,9 +190,9 @@ public partial class SettlementService
     /// "nghỉ ngang" — không còn tham gia/phản hồi. Không có luồng dispute nào gắn với hành động
     /// này — gia sư báo cáo hoàn toàn ngoài hệ thống (gọi tổng đài), staff xác minh và thao tác
     /// trực tiếp trên CMS.
-    /// Tiền chia theo mặc định công bằng: buổi ĐÃ dạy gia sư giữ nguyên (không đụng tới); buổi
-    /// CHƯA dạy hoàn lại cho phụ huynh theo giá gốc (không gồm 5% phí dịch vụ) — dùng chung công
-    /// thức với "Hủy khóa học & hoàn tiền" của case dispute qua <see cref="CancelRemainingSessionsAsync"/>.
+    /// Tiền chia theo mặc định công bằng: buổi ĐÃ dạy được giải ngân ngay cho gia sư (Frozenbalance
+    /// → Balance); buổi CHƯA dạy hoàn lại cho phụ huynh theo giá gốc (không gồm 5% phí dịch vụ) —
+    /// dùng chung công thức với "Hủy khóa học & hoàn tiền" của case dispute qua <see cref="CancelRemainingSessionsAsync"/>.
     /// Trả về false (no-op, không exception) cho mọi trạng thái không hợp lệ để controller trả lỗi
     /// chung, không 500.
     /// </summary>

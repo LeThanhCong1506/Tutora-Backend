@@ -12,100 +12,30 @@ namespace MV.ApplicationLayer.Tests;
 
 public class ClassSessionScheduleChangeServiceTests
 {
+    // Product decision: the early-join / off-schedule mutual-confirmation gate was removed —
+    // gia sư/học viên vào phòng lúc nào cũng được, không cần đồng thuận đổi lịch, bất kể tuổi
+    // học viên hay giờ đặt lịch (xem IsWithinNormalWindow trong ClassSessionScheduleChangeService).
+    // Các test trước đây phủ nhánh "yêu cầu xác nhận" (theo tuổi/role) đã bị bỏ vì nhánh đó không
+    // còn có thể chạm tới được nữa — thay bằng 1 test xác nhận rõ hành vi mới.
     [Fact]
-    public async Task ExactlySixteenWithoutParent_RequiresStudentAndTutorConfirmation()
+    public async Task OutOfWindowSession_NeverRequiresConfirmation()
     {
         await using var db = CreateContext();
-        SeedSession(db, DateOnly.FromDateTime(TimeZoneHelper.UtcNow).AddYears(-16), managedByParent: false);
+        SeedSession(db, DateOnly.FromDateTime(TimeZoneHelper.UtcNow).AddYears(-15));
         await db.SaveChangesAsync();
         var service = CreateService(db);
 
+        // SeedSession đặt Scheduledstart/Scheduledend trong quá khứ — trước đây rơi ngoài "khung
+        // giờ bình thường" nên bắt buộc đồng thuận trước khi cho vào; giờ luôn cho vào thẳng.
         var tutorState = await service.GetOrCreateStateAsync(1, "tutor-1", UserRole.Tutor);
-        Assert.True(tutorState.RequiresConfirmation);
-        Assert.Equal(UserRole.Student, tutorState.RequiredLearnerRole);
-        Assert.Equal("tutor-1", tutorState.TutorUserId);
-        Assert.Equal("student-user-1", tutorState.LearnerApproverUserId);
-
-        var afterTutor = await service.RespondAsync(1, "tutor-1", UserRole.Tutor, true);
-        Assert.Equal(ScheduleChangeStatus.Pending, afterTutor.Status);
-        Assert.NotNull(afterTutor.TutorConfirmedAt);
-
-        var approved = await service.RespondAsync(1, "student-user-1", UserRole.Student, true);
-        Assert.Equal(ScheduleChangeStatus.Approved, approved.Status);
-        Assert.True(approved.AdmissionAllowed);
-    }
-
-
-    [Fact]
-    public async Task ParentManagedStudent_RequiresParentEvenWhenStudentIsOverSixteen()
-    {
-        await using var db = CreateContext();
-        SeedSession(db, DateOnly.FromDateTime(TimeZoneHelper.UtcNow).AddYears(-17));
-        await db.SaveChangesAsync();
-        var service = CreateService(db);
+        Assert.False(tutorState.RequiresConfirmation);
+        Assert.True(tutorState.AdmissionAllowed);
 
         var studentState = await service.GetOrCreateStateAsync(1, "student-user-1", UserRole.Student);
+        Assert.False(studentState.RequiresConfirmation);
+        Assert.True(studentState.AdmissionAllowed);
 
-        Assert.Equal(UserRole.Parent, studentState.RequiredLearnerRole);
-        Assert.Equal("parent-1", studentState.LearnerApproverUserId);
-        Assert.False(studentState.CanCurrentUserConfirm);
-        await Assert.ThrowsAsync<UnauthorizedAccessException>(
-            () => service.RespondAsync(1, "student-user-1", UserRole.Student, true));
-    }
-
-    [Fact]
-    public async Task ExistingStudentConsentRequest_IsReplacedWhenStudentIsUnderSixteen()
-    {
-        await using var db = CreateContext();
-        SeedSession(db, DateOnly.FromDateTime(TimeZoneHelper.UtcNow).AddYears(-15));
-        await db.SaveChangesAsync();
-        var session = await db.ClassSessions.SingleAsync();
-        var now = TimeZoneHelper.UtcNow;
-        db.ClassSessionScheduleChanges.Add(new ClassSessionScheduleChange
-        {
-            Classsessionid = session.Classsessionid,
-            Originalscheduledstart = session.Scheduledstart,
-            Originalscheduledend = session.Scheduledend,
-            Tutoruserid = "tutor-1",
-            Learnerapproveruserid = "student-user-1",
-            Learnerapproverrole = UserRole.Student,
-            Requestedat = now,
-            Expiresat = now.AddMinutes(30),
-            Status = ScheduleChangeStatus.Pending,
-            Createdat = now,
-            Updatedat = now
-        });
-        await db.SaveChangesAsync();
-        var service = CreateService(db);
-
-        var state = await service.GetOrCreateStateAsync(1, "parent-1", UserRole.Parent);
-        var changes = await db.ClassSessionScheduleChanges.OrderBy(x => x.Schedulechangeid).ToListAsync();
-
-        Assert.Equal(UserRole.Parent, state.RequiredLearnerRole);
-        Assert.True(state.CanCurrentUserConfirm);
-        Assert.Equal(2, changes.Count);
-        Assert.Equal(ScheduleChangeStatus.Expired, changes[0].Status);
-        Assert.Equal("parent-1", changes[1].Learnerapproveruserid);
-    }
-
-    [Fact]
-    public async Task Minor_RequiresParentInsteadOfStudent()
-    {
-        await using var db = CreateContext();
-        SeedSession(db, DateOnly.FromDateTime(TimeZoneHelper.UtcNow).AddYears(-15));
-        await db.SaveChangesAsync();
-        var service = CreateService(db);
-
-        var studentState = await service.GetOrCreateStateAsync(1, "student-user-1", UserRole.Student);
-        Assert.Equal(UserRole.Parent, studentState.RequiredLearnerRole);
-        Assert.False(studentState.CanCurrentUserConfirm);
-
-        await Assert.ThrowsAsync<UnauthorizedAccessException>(
-            () => service.RespondAsync(1, "student-user-1", UserRole.Student, true));
-
-        await service.RespondAsync(1, "tutor-1", UserRole.Tutor, true);
-        var approved = await service.RespondAsync(1, "parent-1", UserRole.Parent, true);
-        Assert.Equal(ScheduleChangeStatus.Approved, approved.Status);
+        Assert.Empty(await db.ClassSessionScheduleChanges.ToListAsync());
     }
 
     [Fact]
@@ -124,23 +54,6 @@ public class ClassSessionScheduleChangeServiceTests
     }
 
     [Fact]
-    public async Task ParentDetailRead_ReturnsRequestCreatedByTutor()
-    {
-        await using var db = CreateContext();
-        SeedSession(db, DateOnly.FromDateTime(TimeZoneHelper.UtcNow).AddYears(-15));
-        await db.SaveChangesAsync();
-        var service = CreateService(db);
-        await service.GetOrCreateStateAsync(1, "tutor-1", UserRole.Tutor);
-
-        var state = await service.GetExistingStateAsync(1, "parent-1", UserRole.Parent);
-
-        Assert.True(state.RequiresConfirmation);
-        Assert.True(state.CanCurrentUserConfirm);
-        Assert.Equal(UserRole.Parent, state.RequiredLearnerRole);
-        Assert.Equal("parent-1", state.LearnerApproverUserId);
-        Assert.Single(await db.ClassSessionScheduleChanges.ToListAsync());
-    }
-    [Fact]
     public async Task AdminCanSupportWithoutCreatingOrConfirmingAChange()
     {
         await using var db = CreateContext();
@@ -155,47 +68,11 @@ public class ClassSessionScheduleChangeServiceTests
         Assert.Empty(await db.ClassSessionScheduleChanges.ToListAsync());
     }
 
-    [Fact]
-    public async Task TutorConflict_KeepsBothConfirmationsButBlocksAdmission()
-    {
-        await using var db = CreateContext();
-        SeedSession(db, DateOnly.FromDateTime(TimeZoneHelper.UtcNow).AddYears(-16), managedByParent: false);
-        AddConflictSession(db, 2, "tutor-1", "another-student", TimeZoneHelper.UtcNow.AddMinutes(10), TimeZoneHelper.UtcNow.AddMinutes(40));
-        await db.SaveChangesAsync();
-        var service = CreateService(db);
-
-        await service.RespondAsync(1, "tutor-1", UserRole.Tutor, true);
-        var approved = await service.RespondAsync(1, "student-user-1", UserRole.Student, true);
-
-        Assert.Equal(ScheduleChangeStatus.Approved, approved.Status);
-        Assert.False(approved.AdmissionAllowed);
-        Assert.NotNull(approved.ScheduleConflict);
-        Assert.Equal("tutor", approved.ScheduleConflict.ConflictingParty);
-        db.ChangeTracker.Clear();
-        var change = await db.ClassSessionScheduleChanges.SingleAsync();
-        Assert.NotNull(change.Tutorconfirmedat);
-        Assert.NotNull(change.Learnerconfirmedat);
-        Assert.Equal(ScheduleChangeStatus.Approved, change.Status);
-    }
-
-    [Fact]
-    public async Task StudentConflict_KeepsBothConfirmationsButBlocksAdmission()
-    {
-        await using var db = CreateContext();
-        SeedSession(db, DateOnly.FromDateTime(TimeZoneHelper.UtcNow).AddYears(-16), managedByParent: false);
-        AddConflictSession(db, 2, "another-tutor", "student-profile-1", TimeZoneHelper.UtcNow.AddMinutes(10), TimeZoneHelper.UtcNow.AddMinutes(40));
-        await db.SaveChangesAsync();
-        var service = CreateService(db);
-
-        await service.RespondAsync(1, "tutor-1", UserRole.Tutor, true);
-        var approved = await service.RespondAsync(1, "student-user-1", UserRole.Student, true);
-
-        Assert.Equal(ScheduleChangeStatus.Approved, approved.Status);
-        Assert.False(approved.AdmissionAllowed);
-        Assert.NotNull(approved.ScheduleConflict);
-        Assert.Equal("student", approved.ScheduleConflict.ConflictingParty);
-    }
-
+    // Double-booking conflict detection (gia sư/học sinh đã có buổi khác trùng giờ) không còn đi
+    // qua RespondAsync nữa (giờ luôn trả sớm vì RequiresConfirmation=false) — nó chạy độc lập ở
+    // SessionLobbyPresenceBroadcaster.BroadcastAsync mỗi khi có người vào lobby, dùng chung
+    // ClassSessionScheduleConflictGuard.FindAsync. Vẫn được phủ bởi 2 test dưới đây, test thẳng
+    // guard đó thay vì qua đường RespondAsync đã không còn dùng tới nữa.
     [Fact]
     public async Task BoundaryTouchingSession_IsAllowed()
     {

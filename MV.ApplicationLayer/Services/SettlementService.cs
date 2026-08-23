@@ -602,22 +602,9 @@ public partial class SettlementService : ISettlementService
                 ? booking.Student!.Linkeduserid
                 : booking.Studentid);
 
-        var parentRefundPerSession = LessonRefundCalculator.ParentRefundPerSessionNoFee(booking);
+        var parentRefundPerSessionNoFee = LessonRefundCalculator.ParentRefundPerSessionNoFee(booking);
+        var parentRefundPerSessionWithFee = LessonRefundCalculator.ParentRefundPerSession(booking);
         var tutorEscrowPerSession = LessonRefundCalculator.TutorEscrowPerSession(booking);
-
-        // Clamp theo số tiền phụ huynh thực đã trả trừ đã hoàn trước đó — cùng pattern chống hoàn
-        // vượt mức đã dùng ở ProcessRefundAsync.
-        var totalPaidByParent = booking.Remainingpaidat.HasValue
-            ? (booking.Finalprice ?? 0)
-            : (booking.Depositpaidat.HasValue ? (booking.Depositamount ?? 0) : 0m);
-        var totalAlreadyRefunded = await _context.Wallettransactions
-            .Where(wt => wt.Referencetable == ReferenceTable.Booking
-                      && wt.Referenceid == bookingId
-                      && wt.Transactiontype == TransactionType.Refund)
-            .SumAsync(wt => wt.Amount ?? 0, ct);
-        var maxParentRefund = Math.Max(0, totalPaidByParent - totalAlreadyRefunded);
-
-        var parentTotalRefund = Math.Round(Math.Min(remainingCount * parentRefundPerSession, maxParentRefund), 2);
 
         var tutorWallet = !string.IsNullOrWhiteSpace(booking.Tutorid)
             ? await _context.Wallets.FromSqlRaw(SqlQueries.LockWalletByUserId, booking.Tutorid).FirstOrDefaultAsync(ct)
@@ -638,10 +625,28 @@ public partial class SettlementService : ISettlementService
         var deliveredCount = await _context.ClassSessions
             .CountAsync(s => s.Bookingid == bookingId && (s.Status == Completed || s.Issettled == true), ct);
 
+        var totalPaidByParent = booking.Remainingpaidat.HasValue
+            ? (booking.Finalprice ?? 0)
+            : (booking.Depositpaidat.HasValue ? (booking.Depositamount ?? 0) : 0m);
+        var totalAlreadyRefunded = await _context.Wallettransactions
+            .Where(wt => wt.Referencetable == ReferenceTable.Booking
+                      && wt.Referenceid == bookingId
+                      && wt.Transactiontype == TransactionType.Refund)
+            .SumAsync(wt => wt.Amount ?? 0, ct);
+
+        // deliveredTutorTarget bị trừ khỏi pool hoàn cho phụ huynh — nếu không, tiền của buổi đã dạy
+        // vừa được giải ngân cho gia sư (bên dưới) vừa không bị loại khỏi số tiền có thể hoàn, khiến
+        // cùng một khoản tiền bị trả cho CẢ HAI bên (tổng chi vượt quá số tiền phụ huynh thực đã trả
+        // vào escrow — bug thật đã phát hiện qua test booking #287: escrow chỉ giữ 47.500đ nhưng hệ
+        // thống trả ra 52.500đ hoàn + 47.500đ giải ngân = 100.000đ). Xem
+        // LessonRefundCalculator.SplitCancelRemainingSessions.
+        var (deliveredTutorTarget, parentTotalRefund) = LessonRefundCalculator.SplitCancelRemainingSessions(
+            totalPaidByParent, totalAlreadyRefunded, parentRefundPerSessionNoFee, parentRefundPerSessionWithFee,
+            tutorEscrowPerSession, remainingCount, deliveredCount);
+
         var tutorEscrowRelease = 0m;
         if (tutorWallet != null && deliveredCount > 0)
         {
-            var releaseTarget = Math.Round(tutorEscrowPerSession * deliveredCount, 2);
             var alreadyReleased = await _context.Wallettransactions
                 .Where(t => t.Walletid == tutorWallet.Walletid
                             && t.Referencetable == ReferenceTable.Booking
@@ -649,7 +654,7 @@ public partial class SettlementService : ISettlementService
                             && t.Transactiontype == TransactionType.EscrowRelease)
                 .SumAsync(t => t.Amount ?? 0, ct);
             tutorEscrowRelease = Math.Round(
-                Math.Min(Math.Max(0, releaseTarget - alreadyReleased), Math.Max(0, tutorWallet.Frozenbalance ?? 0)), 2);
+                Math.Min(Math.Max(0, deliveredTutorTarget - alreadyReleased), Math.Max(0, tutorWallet.Frozenbalance ?? 0)), 2);
         }
 
         if (tutorWallet != null && tutorEscrowRelease > 0)
@@ -793,8 +798,14 @@ public partial class SettlementService : ISettlementService
     /// Dry-run của <see cref="CancelRemainingSessionsAsync"/> — cùng công thức, chỉ đọc
     /// (AsNoTracking), không ghi ví/booking/notification. Dùng cho màn hình admin xem trước trước
     /// khi resolve dispute bằng "Hủy khóa học & hoàn tiền".
+    /// <paramref name="disputedSessionId"/>: buổi đang khiếu nại (nếu preview này gọi từ 1 dispute cụ
+    /// thể) — <see cref="DisputeService.ResolveDisputeAsync"/> luôn settle buổi này như đã dạy đủ
+    /// TRƯỚC khi hủy phần còn lại, nên preview phải tính nó vào <c>deliveredCount</c> dù CSDL hiện
+    /// tại chưa Completed/Issettled, nếu không sẽ hiện nhầm tiền của buổi đã dạy là "sẽ hoàn cho
+    /// phụ huynh" thay vì "sẽ giải ngân cho gia sư".
     /// </summary>
-    public async Task<CourseCancelPreviewResponse> PreviewCancelRemainingSessionsAsync(int bookingId, CancellationToken ct = default)
+    public async Task<CourseCancelPreviewResponse> PreviewCancelRemainingSessionsAsync(
+        int bookingId, int? disputedSessionId = null, CancellationToken ct = default)
     {
         var booking = await _context.Bookings
             .AsNoTracking()
@@ -806,7 +817,21 @@ public partial class SettlementService : ISettlementService
             .AsNoTracking()
             .CountAsync(s => s.Bookingid == bookingId && (s.Status == Scheduled || s.Status == Reserved), ct);
 
-        var parentRefundPerSession = LessonRefundCalculator.ParentRefundPerSessionNoFee(booking);
+        var deliveredCount = await _context.ClassSessions
+            .AsNoTracking()
+            .CountAsync(s => s.Bookingid == bookingId && (s.Status == Completed || s.Issettled == true), ct);
+        if (disputedSessionId.HasValue)
+        {
+            var disputedAlreadyCounted = await _context.ClassSessions
+                .AsNoTracking()
+                .AnyAsync(s => s.Classsessionid == disputedSessionId.Value
+                    && (s.Status == Completed || s.Issettled == true), ct);
+            if (!disputedAlreadyCounted)
+                deliveredCount += 1;
+        }
+
+        var parentRefundPerSessionNoFee = LessonRefundCalculator.ParentRefundPerSessionNoFee(booking);
+        var parentRefundPerSessionWithFee = LessonRefundCalculator.ParentRefundPerSession(booking);
         var tutorEscrowPerSession = LessonRefundCalculator.TutorEscrowPerSession(booking);
 
         var totalPaidByParent = booking.Remainingpaidat.HasValue
@@ -818,31 +843,51 @@ public partial class SettlementService : ISettlementService
                       && wt.Referenceid == bookingId
                       && wt.Transactiontype == TransactionType.Refund)
             .SumAsync(wt => wt.Amount ?? 0, ct);
-        var maxParentRefund = Math.Max(0, totalPaidByParent - totalAlreadyRefunded);
 
-        var tutorFrozenBalance = !string.IsNullOrWhiteSpace(booking.Tutorid)
-            ? (await _context.Wallets.AsNoTracking().FirstOrDefaultAsync(w => w.Userid == booking.Tutorid, ct))?.Frozenbalance ?? 0
+        var (deliveredTutorTarget, parentRefund) = LessonRefundCalculator.SplitCancelRemainingSessions(
+            totalPaidByParent, totalAlreadyRefunded, parentRefundPerSessionNoFee, parentRefundPerSessionWithFee,
+            tutorEscrowPerSession, remainingCount, deliveredCount);
+
+        var tutorWallet = !string.IsNullOrWhiteSpace(booking.Tutorid)
+            ? await _context.Wallets.AsNoTracking().FirstOrDefaultAsync(w => w.Userid == booking.Tutorid, ct)
+            : null;
+        var tutorFrozenBalance = tutorWallet?.Frozenbalance ?? 0;
+
+        var alreadyReleased = tutorWallet != null
+            ? await _context.Wallettransactions
+                .AsNoTracking()
+                .Where(t => t.Walletid == tutorWallet.Walletid
+                            && t.Referencetable == ReferenceTable.Booking
+                            && t.Referenceid == bookingId
+                            && t.Transactiontype == TransactionType.EscrowRelease)
+                .SumAsync(t => t.Amount ?? 0, ct)
             : 0m;
+        var tutorEscrowReleased = Math.Round(
+            Math.Min(Math.Max(0, deliveredTutorTarget - alreadyReleased), Math.Max(0, tutorFrozenBalance)), 2);
 
-        var rawParentRefund = Math.Round(remainingCount * parentRefundPerSession, 2);
-        var parentRefund = Math.Round(Math.Min(rawParentRefund, maxParentRefund), 2);
-
-        var rawTutorEscrow = Math.Round(remainingCount * tutorEscrowPerSession, 2);
-        var tutorEscrowReversed = Math.Round(Math.Min(rawTutorEscrow, Math.Max(0, tutorFrozenBalance)), 2);
+        // Phần còn lại của Frozenbalance sau khi trừ đi phần vừa giải ngân cho buổi đã dạy — đây mới
+        // là số thực sự còn để rút lại cho các buổi CHƯA dạy.
+        var frozenAfterRelease = Math.Max(0, tutorFrozenBalance - tutorEscrowReleased);
+        var rawTutorEscrowReverse = Math.Round(remainingCount * tutorEscrowPerSession, 2);
+        var tutorEscrowReversed = Math.Round(Math.Min(rawTutorEscrowReverse, frozenAfterRelease), 2);
 
         var warnings = new List<string>();
+        var rawParentRefund = Math.Round(remainingCount * parentRefundPerSessionNoFee, 2);
         if (parentRefund < rawParentRefund)
             warnings.Add(
-                $"Số tiền hoàn phụ huynh bị giới hạn còn {parentRefund:N0}đ (thay vì {rawParentRefund:N0}đ) vì mới thu được {totalPaidByParent:N0}đ cho booking này" +
+                $"Số tiền hoàn phụ huynh bị giới hạn còn {parentRefund:N0}đ (thay vì {rawParentRefund:N0}đ) vì mới thu được {totalPaidByParent:N0}đ cho booking này, " +
+                $"trong đó {Math.Round(parentRefundPerSessionWithFee * deliveredCount, 2):N0}đ (gồm cả phí dịch vụ) đã tính cho {deliveredCount} buổi đã dạy" +
                 (totalAlreadyRefunded > 0 ? $" (đã hoàn {totalAlreadyRefunded:N0}đ trước đó)." : "."));
-        if (tutorEscrowReversed < rawTutorEscrow)
-            warnings.Add($"Escrow gia sư không đủ — chỉ giải phóng được {tutorEscrowReversed:N0}đ thay vì {rawTutorEscrow:N0}đ (số dư đóng băng hiện tại: {tutorFrozenBalance:N0}đ).");
+        if (tutorEscrowReversed < rawTutorEscrowReverse)
+            warnings.Add($"Escrow gia sư không đủ — chỉ giải phóng được {tutorEscrowReversed:N0}đ thay vì {rawTutorEscrowReverse:N0}đ (số dư đóng băng hiện tại: {tutorFrozenBalance:N0}đ).");
 
         return new CourseCancelPreviewResponse
         {
             BookingId = bookingId,
             RemainingSessionsCount = remainingCount,
             ParentRefundAmount = parentRefund,
+            DeliveredSessionsCount = deliveredCount,
+            TutorEscrowReleased = tutorEscrowReleased,
             TutorEscrowReversed = tutorEscrowReversed,
             TutorFrozenBalance = tutorFrozenBalance,
             Warnings = warnings

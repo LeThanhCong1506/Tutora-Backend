@@ -83,5 +83,6 @@ public interface ISettlementService
     /// Dry-run của <see cref="CancelRemainingSessionsAsync"/> — cùng công thức, không side effect.
     /// Dùng để admin xem trước số tiền/số buổi trước khi resolve dispute bằng "Hủy khóa học & hoàn tiền".
     /// </summary>
-    Task<CourseCancelPreviewResponse> PreviewCancelRemainingSessionsAsync(int bookingId, CancellationToken ct = default);
+    Task<CourseCancelPreviewResponse> PreviewCancelRemainingSessionsAsync(
+        int bookingId, int? disputedSessionId = null, CancellationToken ct = default);
 }
