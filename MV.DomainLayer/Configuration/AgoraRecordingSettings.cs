@@ -61,4 +61,10 @@ public class AgoraRecordingSettings
     public int VideoHeight { get; set; } = 720;
     public int VideoFps { get; set; } = 15;
     public int VideoBitrate { get; set; } = 1500;
+
+    /// <summary>
+    /// Số giây channel trống (không có luồng audio/video nào) trước khi Agora tự dừng recorder
+    /// (maxIdleTime của Cloud Recording). Khoảng hợp lệ theo Agora: [5, 2592000].
+    /// </summary>
+    public int MaxIdleTimeSeconds { get; set; } = 300;
 }

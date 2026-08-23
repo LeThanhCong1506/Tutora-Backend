@@ -3,7 +3,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using MV.ApplicationLayer.ServiceInterfaces;
 using MV.ApplicationLayer.Services;
-using MV.ApplicationLayer.Interfaces;
+using MV.ApplicationLayer.RepositoryInterfaces;
 using MV.DomainLayer.DTO.RequestModel;
 using MV.PresentationLayer.Authorization;
 using System.Security.Claims;
@@ -16,18 +16,18 @@ namespace MV.PresentationLayer.Controllers
     {
         private readonly INotificationService _notificationService;
         private readonly IFirebasePushNotificationService _firebasePushNotificationService;
-        private readonly IUnitOfWork _unitOfWork;
+        private readonly IUserRepository _userRepository;
         private readonly ILogger<NotificationsController> _logger;
 
         public NotificationsController(
             INotificationService notificationService,
             IFirebasePushNotificationService firebasePushNotificationService,
-            IUnitOfWork unitOfWork,
+            IUserRepository userRepository,
             ILogger<NotificationsController> logger)
         {
             _notificationService = notificationService;
             _firebasePushNotificationService = firebasePushNotificationService;
-            _unitOfWork = unitOfWork;
+            _userRepository = userRepository;
             _logger = logger;
         }
 
@@ -43,7 +43,7 @@ namespace MV.PresentationLayer.Controllers
             if (string.IsNullOrEmpty(userId))
                 return Unauthorized();
 
-            var user = await _unitOfWork.UserRepository.GetUserByIdAsync(userId);
+            var user = await _userRepository.GetUserByIdAsync(userId);
             if (user == null)
                 return NotFound(new { message = "Không tìm thấy user." });
 

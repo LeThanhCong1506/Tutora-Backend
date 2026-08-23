@@ -40,6 +40,12 @@ public partial class ClassSessionService
             IsMakeup = classSession.Ismakeup,
             OriginalClassSessionId = classSession.Originalsessionid,
             NoShowAction = classSession.Noshowaction,
+            IsContinuation = classSession.Iscontinuation,
+            IsDisputeRelearn = classSession.Isdisputerelearn,
+            SkipConfirmedByBothSides = classSession.Tutorskipconfirmedat.HasValue && classSession.Studentskipconfirmedat.HasValue,
+            InterruptedAt = classSession.Interruptedat,
+            InterruptReason = classSession.Interruptreason,
+            InterruptedByName = classSession.InterruptedbyNavigation?.Fullname,
             Student = classSession.Booking?.Student != null ? new ClassSessionStudentResponse
             {
                 StudentId = classSession.Booking.Student.Studentid,

@@ -18,18 +18,27 @@ namespace MV.ApplicationLayer.Services
         // (round-trip + xử lý của 1 race hợp lệ thường dưới vài giây).
         private static readonly TimeSpan ReuseGracePeriod = TimeSpan.FromSeconds(10);
 
-        private readonly IUnitOfWork _unitOfWork;
+        private readonly IRefreshTokenRepository _refreshTokenRepository;
+        private readonly IUserRepository _userRepository;
+        private readonly IStudentRepository _studentRepository;
+        private readonly IAppDbContext _dbContext;
         private readonly IAuthenticationRepository _authenticationRepository;
         private readonly IConfiguration _configuration;
         private readonly ILogger<RefreshTokenService> _logger;
 
         public RefreshTokenService(
-            IUnitOfWork unitOfWork,
+            IRefreshTokenRepository refreshTokenRepository,
+            IUserRepository userRepository,
+            IStudentRepository studentRepository,
+            IAppDbContext dbContext,
             IAuthenticationRepository authenticationRepository,
             IConfiguration configuration,
             ILogger<RefreshTokenService> logger)
         {
-            _unitOfWork = unitOfWork;
+            _refreshTokenRepository = refreshTokenRepository;
+            _userRepository = userRepository;
+            _studentRepository = studentRepository;
+            _dbContext = dbContext;
             _authenticationRepository = authenticationRepository;
             _configuration = configuration;
             _logger = logger;
@@ -54,7 +63,7 @@ namespace MV.ApplicationLayer.Services
 
                 // 2. Tìm refresh token trong DB theo hash
                 var tokenHash = _authenticationRepository.HashToken(refreshToken);
-                var storedToken = await _unitOfWork.RefreshTokenRepository.GetByTokenHashAsync(tokenHash);
+                var storedToken = await _refreshTokenRepository.GetByTokenHashAsync(tokenHash);
 
                 if (storedToken == null)
                 {
@@ -77,8 +86,8 @@ namespace MV.ApplicationLayer.Services
                     {
                         _logger.LogWarning("[RefreshToken] Reuse attack detected for family {Family}, userId {UserId}",
                             storedToken.Tokenfamily, userId);
-                        await _unitOfWork.RefreshTokenRepository.RevokeAllByFamilyAsync(storedToken.Tokenfamily);
-                        await _unitOfWork.SaveChangesAsync();
+                        await _refreshTokenRepository.RevokeAllByFamilyAsync(storedToken.Tokenfamily);
+                        await _dbContext.SaveChangesAsync();
                         return new TokenResponse { ErrorMessage = "Refresh token đã bị thu hồi. Vui lòng đăng nhập lại." };
                     }
 
@@ -100,7 +109,7 @@ namespace MV.ApplicationLayer.Services
                 }
 
                 // 6. Kiểm tra user còn active không
-                var user = await _unitOfWork.UserRepository.GetUserByIdAsync(userId);
+                var user = await _userRepository.GetUserByIdAsync(userId);
                 if (user == null || user.Status == 0)
                 {
                     return new TokenResponse { ErrorMessage = "Tài khoản không tồn tại hoặc đã bị khóa." };
@@ -116,8 +125,8 @@ namespace MV.ApplicationLayer.Services
                     && !await IsParentManagedChildAccountAsync(userId)
                     && (string.IsNullOrWhiteSpace(user.Phone) || user.Isphoneverified != true))
                 {
-                    await _unitOfWork.RefreshTokenRepository.RevokeAllByUserIdAsync(userId);
-                    await _unitOfWork.SaveChangesAsync();
+                    await _refreshTokenRepository.RevokeAllByUserIdAsync(userId);
+                    await _dbContext.SaveChangesAsync();
                     return new TokenResponse
                     {
                         ErrorMessage = "Tài khoản phải có số điện thoại đã xác thực. Vui lòng đăng nhập lại và hoàn tất xác thực OTP.",
@@ -128,7 +137,7 @@ namespace MV.ApplicationLayer.Services
                 }
 
                 // 7. Lấy role
-                var role = await _unitOfWork.UserRepository.GetUserRoleByIdAsync(userId);
+                var role = await _userRepository.GetUserRoleByIdAsync(userId);
                 if (string.IsNullOrEmpty(role))
                 {
                     return new TokenResponse { ErrorMessage = "Không tìm thấy role của user." };
@@ -165,8 +174,8 @@ namespace MV.ApplicationLayer.Services
                 // 10. Revoke token cũ, lưu token mới
                 storedToken.Revokedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
                 storedToken.Replacedbytokenhash = newTokenHash;
-                await _unitOfWork.RefreshTokenRepository.CreateAsync(newRefreshToken);
-                await _unitOfWork.SaveChangesAsync();
+                await _refreshTokenRepository.CreateAsync(newRefreshToken);
+                await _dbContext.SaveChangesAsync();
 
                 return new TokenResponse
                 {
@@ -187,13 +196,13 @@ namespace MV.ApplicationLayer.Services
             try
             {
                 var tokenHash = _authenticationRepository.HashToken(refreshToken);
-                var storedToken = await _unitOfWork.RefreshTokenRepository.GetByTokenHashAsync(tokenHash);
+                var storedToken = await _refreshTokenRepository.GetByTokenHashAsync(tokenHash);
 
                 if (storedToken != null && !storedToken.Revokedat.HasValue)
                 {
-                    await _unitOfWork.RefreshTokenRepository.RevokeAllByFamilyAsync(storedToken.Tokenfamily);
-                    await _unitOfWork.UserRepository.UpdateLastLoginAtAsync(storedToken.Userid, MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow);
-                    await _unitOfWork.SaveChangesAsync();
+                    await _refreshTokenRepository.RevokeAllByFamilyAsync(storedToken.Tokenfamily);
+                    await _userRepository.UpdateLastLoginAtAsync(storedToken.Userid, MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow);
+                    await _dbContext.SaveChangesAsync();
                 }
             }
             catch (Exception ex)
@@ -210,7 +219,7 @@ namespace MV.ApplicationLayer.Services
         /// </summary>
         private async Task<bool> IsParentManagedChildAccountAsync(string userId)
         {
-            var profile = await _unitOfWork.StudentRepository.FindByStudentOrLinkedUserAsync(userId);
+            var profile = await _studentRepository.FindByStudentOrLinkedUserAsync(userId);
             return profile?.Parentid != null;
         }
     }

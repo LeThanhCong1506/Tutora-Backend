@@ -21,18 +21,18 @@ namespace MV.ApplicationLayer.Services
         /// </summary>
         public async Task<CccdUploadResponse> VerifyStudentCccdAsync(string studentUserId, UploadCccdRequest request)
         {
-            var user = await _unitOfWork.UserRepository.GetUserByIdAsync(studentUserId)
+            var user = await _userRepository.GetUserByIdAsync(studentUserId)
                 ?? throw new StudentNotFoundException();
 
             var result = await _identity.VerifyAndApplyAsync(user, request, AgeHelper.MinSelfBookingAge);
 
-            await _unitOfWork.UserRepository.UpdateUserAsync(user);
+            await _userRepository.UpdateUserAsync(user);
 
             // Đồng bộ ngày sinh + họ tên sang Studentprofile để 2 bảng nhất quán.
             // Họ tên phải đồng bộ cả khi Studentprofile đã có sẵn giá trị: users.full_name vừa được
             // ghi đè theo CCCD, nếu ở đây chỉ điền-khi-trống thì trang Hồ sơ (đọc student_profiles)
             // và trang Tài khoản (đọc users) sẽ hiện hai cái tên khác nhau.
-            var profile = await _unitOfWork.StudentRepository.FindByStudentOrLinkedUserAsync(studentUserId);
+            var profile = await _studentRepository.FindByStudentOrLinkedUserAsync(studentUserId);
             if (profile == null)
             {
                 // Có tài khoản học sinh nhưng thiếu hẳn dòng trong student_profiles (dữ liệu lệch từ
@@ -45,7 +45,7 @@ namespace MV.ApplicationLayer.Services
                     Parentid = null,
                     Createdat = TimeZoneHelper.UtcNow
                 };
-                await _unitOfWork.StudentRepository.CreateAsync(profile);
+                await _studentRepository.CreateAsync(profile);
                 _logger.LogWarning(
                     "Student {UserId} thiếu Studentprofile, đã tạo bù trong lúc xác minh CCCD.", studentUserId);
             }
@@ -73,7 +73,7 @@ namespace MV.ApplicationLayer.Services
                 }
             }
 
-            await _unitOfWork.SaveChangesAsync();
+            await _dbContext.SaveChangesAsync();
 
             _logger.LogInformation("Student {UserId} verified age, verified={Verified}", studentUserId, result.Verified);
 
@@ -86,8 +86,8 @@ namespace MV.ApplicationLayer.Services
         /// </summary>
         public async Task<StudentBookingEligibilityResponse> GetBookingEligibilityAsync(string studentUserId)
         {
-            var profile = await _unitOfWork.StudentRepository.FindByStudentOrLinkedUserAsync(studentUserId);
-            var user = await _unitOfWork.UserRepository.GetUserByIdAsync(studentUserId);
+            var profile = await _studentRepository.FindByStudentOrLinkedUserAsync(studentUserId);
+            var user = await _userRepository.GetUserByIdAsync(studentUserId);
 
             var resp = new StudentBookingEligibilityResponse();
 
@@ -145,7 +145,7 @@ namespace MV.ApplicationLayer.Services
         /// </summary>
         public async Task<string?> SetParentPhoneAsync(string studentUserId, string? parentPhone)
         {
-            var profile = await _unitOfWork.StudentRepository.FindByStudentOrLinkedUserAsync(studentUserId)
+            var profile = await _studentRepository.FindByStudentOrLinkedUserAsync(studentUserId)
                 ?? throw new StudentNotFoundException();
 
             var trimmed = string.IsNullOrWhiteSpace(parentPhone) ? null : parentPhone.Trim();
@@ -160,8 +160,8 @@ namespace MV.ApplicationLayer.Services
 
                 // Users.Phone không được chuẩn hóa lúc lưu (có thể là "0..." hoặc "+84..." tùy nơi
                 // nhập), nên phải thử cả hai dạng để không lọt số đã đăng ký ở dạng khác.
-                var owner = await _unitOfWork.UserRepository.GetUserByPhoneAsync(localForm)
-                    ?? await _unitOfWork.UserRepository.GetUserByPhoneAsync(e164Form);
+                var owner = await _userRepository.GetUserByPhoneAsync(localForm)
+                    ?? await _userRepository.GetUserByPhoneAsync(e164Form);
 
                 if (owner != null)
                 {
@@ -172,7 +172,7 @@ namespace MV.ApplicationLayer.Services
             }
 
             profile.Parentphone = trimmed;
-            await _unitOfWork.SaveChangesAsync();
+            await _dbContext.SaveChangesAsync();
 
             return profile.Parentphone;
         }

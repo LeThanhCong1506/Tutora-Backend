@@ -9,6 +9,9 @@ namespace MV.ApplicationLayer.ServiceInterfaces;
 /// </summary>
 public interface IClassSessionVideoAiService
 {
+    /// <summary>Tóm tắt (+ chép lời) dựa trên MỌI video hiện có trong chuỗi buổi bù/phụ/học lại chứa
+    /// classSessionId — 1 video thì tóm tắt đúng video đó, ≥2 video thì tự động hợp nhất. Job luôn lưu
+    /// dưới id buổi GỐC của chuỗi nên trigger từ bất kỳ buổi nào trong chuỗi đều dùng chung 1 job.</summary>
     Task<ClassSessionAiJobResponse> TriggerStudentSummaryAsync(int classSessionId, string studentUserId, CancellationToken ct = default);
     Task<ClassSessionAiJobResponse> GetStudentSummaryStatusAsync(int classSessionId, string studentUserId, CancellationToken ct = default);
     Task<string> AskFollowUpAsync(int classSessionId, string studentUserId, string question, CancellationToken ct = default);
@@ -26,4 +29,8 @@ public interface IClassSessionVideoAiService
 
     /// <summary>Hangfire job target. swallowFailure=true cho nhánh chạy nền.</summary>
     Task RunTutorReportFillJobAsync(Guid jobId, bool swallowFailure);
+
+    /// <summary>Hangfire job target — tóm tắt hợp nhất chuỗi (≥2 video). Tự tóm tắt + chép lời (và cache
+    /// lại) mọi buổi trong chuỗi còn thiếu, rồi gọi 1 lượt Gemini text-only để hợp nhất phần tóm tắt.</summary>
+    Task RunChainSummaryJobAsync(Guid jobId, bool swallowFailure);
 }

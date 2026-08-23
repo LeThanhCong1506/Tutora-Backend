@@ -319,12 +319,37 @@ public partial class PaymentService
 
         if (reserved.Count == 0) return;
 
+        var now = TimeZoneHelper.UtcNow;
+        var shiftedCount = 0;
+
         foreach (var classSession in reserved)
         {
+            // Lưới an toàn: RemainingPaymentDeadlinePolicy đã chặn hạn 48h không vượt quá giờ học
+            // buổi reserved gần nhất, nhưng vẫn có thể có trường hợp hoạt động này chạy trễ (job
+            // hangfire kẹt, admin can thiệp tay...) khiến Scheduledstart đã trôi vào quá khứ. Nếu
+            // cứ Scheduled với giờ cũ, buổi đó coi như đã mất — không ai từng vào phòng đúng giờ đã
+            // đặt. Tự dời sang cùng giờ, +7 ngày mỗi vòng cho tới khi ở tương lai, thay vì kích hoạt
+            // mù với giờ đã qua.
+            if (classSession.Scheduledstart <= now)
+            {
+                var (newStart, newEnd) = PastDueSessionShiftPolicy.ShiftIntoFuture(
+                    classSession.Scheduledstart, classSession.Scheduledend, now);
+                classSession.Scheduledstart = newStart;
+                classSession.Scheduledend = newEnd;
+                shiftedCount++;
+            }
+
             classSession.Status = ClassSessionStatus.Scheduled;
             // Agora RTC: channel = classSessionId (deterministic), same convention as first session.
             if (string.IsNullOrWhiteSpace(classSession.Meetinglink))
                 classSession.Meetinglink = classSession.Classsessionid.ToString();
+        }
+
+        if (shiftedCount > 0)
+        {
+            logger.LogWarning(
+                "Booking {BookingId}: {Count} session(s) đã quá giờ học khi kích hoạt (thanh toán về trễ) — đã tự dời +7 ngày mỗi vòng.",
+                bookingId, shiftedCount);
         }
 
         logger.LogInformation("Activated {Count} remaining sessions for booking {BookingId} after remaining payment",

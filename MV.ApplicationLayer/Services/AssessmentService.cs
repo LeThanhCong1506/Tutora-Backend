@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using MV.ApplicationLayer.Interfaces;
+using MV.ApplicationLayer.RepositoryInterfaces;
 using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO.RequestModel;
@@ -11,12 +12,14 @@ namespace MV.ApplicationLayer.Services;
 
 public class AssessmentService : IAssessmentService
 {
-    private readonly IUnitOfWork _unitOfWork;
+    private readonly IAssessmentRepository _assessmentRepository;
+    private readonly IAppDbContext _dbContext;
     private readonly ILogger<AssessmentService> _logger;
 
-    public AssessmentService(IUnitOfWork unitOfWork, ILogger<AssessmentService> logger)
+    public AssessmentService(IAssessmentRepository assessmentRepository, IAppDbContext dbContext, ILogger<AssessmentService> logger)
     {
-        _unitOfWork = unitOfWork;
+        _assessmentRepository = assessmentRepository;
+        _dbContext = dbContext;
         _logger = logger;
     }
 
@@ -43,11 +46,11 @@ public class AssessmentService : IAssessmentService
             CreatedBy = createdBy,
         };
 
-        await _unitOfWork.AssessmentRepository.AddAsync(entity);
-        await _unitOfWork.SaveChangesAsync();
+        await _assessmentRepository.AddAsync(entity);
+        await _dbContext.SaveChangesAsync();
 
         // Đọc lại để có nav Subject/Gradelevel cho response.
-        var saved = await _unitOfWork.AssessmentRepository.GetByIdAsync(entity.Id);
+        var saved = await _assessmentRepository.GetByIdAsync(entity.Id);
         return ToResponse(saved ?? entity, 0, 0);
     }
 
@@ -57,11 +60,11 @@ public class AssessmentService : IAssessmentService
         string? sortBy, string? sortDir,
         CancellationToken ct = default)
     {
-        var paged = await _unitOfWork.AssessmentRepository.GetPagedAsync(
+        var paged = await _assessmentRepository.GetPagedAsync(
             pageNumber, pageSize, subjectId, gradeLevelId, status, search, sortBy, sortDir);
 
         // 1 query cho cả trang, tránh N+1.
-        var stats = await _unitOfWork.AssessmentRepository.GetQuestionStatsAsync(
+        var stats = await _assessmentRepository.GetQuestionStatsAsync(
             paged.Select(a => a.Id).ToList());
 
         var items = paged.Select(a =>
@@ -75,7 +78,7 @@ public class AssessmentService : IAssessmentService
 
     public async Task<AssessmentDetailResponse?> GetByIdAsync(Guid id, CancellationToken ct = default)
     {
-        var entity = await _unitOfWork.AssessmentRepository.GetByIdWithQuestionsAsync(id);
+        var entity = await _assessmentRepository.GetByIdWithQuestionsAsync(id);
         if (entity == null) return null;
 
         var count = entity.Questions.Count;
@@ -110,7 +113,7 @@ public class AssessmentService : IAssessmentService
     public async Task<AssessmentResponse?> UpdateAsync(
         Guid id, UpdateAssessmentRequest request, CancellationToken ct = default)
     {
-        var entity = await _unitOfWork.AssessmentRepository.GetByIdAsync(id);
+        var entity = await _assessmentRepository.GetByIdAsync(id);
         if (entity == null) return null;
 
         entity.Title = request.Title.Trim();
@@ -126,10 +129,10 @@ public class AssessmentService : IAssessmentService
         if (AssessmentStatus.IsValid(request.Status) && request.Status != AssessmentStatus.Published)
             entity.Status = request.Status!;
 
-        _unitOfWork.AssessmentRepository.Update(entity);
-        await _unitOfWork.SaveChangesAsync();
+        _assessmentRepository.Update(entity);
+        await _dbContext.SaveChangesAsync();
 
-        var stats = await _unitOfWork.AssessmentRepository.GetQuestionStatsAsync(new[] { id });
+        var stats = await _assessmentRepository.GetQuestionStatsAsync(new[] { id });
         var (count, points) = stats.TryGetValue(id, out var s) ? s : (0, 0m);
         return ToResponse(entity, count, points);
     }
@@ -140,10 +143,10 @@ public class AssessmentService : IAssessmentService
         if (!AssessmentStatus.IsValid(status))
             return (null, "Trạng thái không hợp lệ.");
 
-        var entity = await _unitOfWork.AssessmentRepository.GetByIdAsync(id);
+        var entity = await _assessmentRepository.GetByIdAsync(id);
         if (entity == null) return (null, null);   // null cả 2 = không tìm thấy
 
-        var stats = await _unitOfWork.AssessmentRepository.GetQuestionStatsAsync(new[] { id });
+        var stats = await _assessmentRepository.GetQuestionStatsAsync(new[] { id });
         var (count, points) = stats.TryGetValue(id, out var s) ? s : (0, 0m);
 
         // Chặn phát hành đề thiếu câu.
@@ -156,19 +159,19 @@ public class AssessmentService : IAssessmentService
         }
 
         entity.Status = status;
-        _unitOfWork.AssessmentRepository.Update(entity);
-        await _unitOfWork.SaveChangesAsync();
+        _assessmentRepository.Update(entity);
+        await _dbContext.SaveChangesAsync();
 
         return (ToResponse(entity, count, points), null);
     }
 
     public async Task<bool> DeleteAsync(Guid id, CancellationToken ct = default)
     {
-        var entity = await _unitOfWork.AssessmentRepository.GetByIdAsync(id);
+        var entity = await _assessmentRepository.GetByIdAsync(id);
         if (entity == null) return false;
 
-        _unitOfWork.AssessmentRepository.Remove(entity);   // cascade xoá câu
-        await _unitOfWork.SaveChangesAsync();
+        _assessmentRepository.Remove(entity);   // cascade xoá câu
+        await _dbContext.SaveChangesAsync();
         return true;
     }
 
@@ -176,7 +179,7 @@ public class AssessmentService : IAssessmentService
     public async Task<(AssessmentQuestionResponse? Result, string? Error)> AddQuestionAsync(
         Guid assessmentId, CreateAssessmentQuestionRequest request, CancellationToken ct = default)
     {
-        var assessment = await _unitOfWork.AssessmentRepository.GetByIdAsync(assessmentId);
+        var assessment = await _assessmentRepository.GetByIdAsync(assessmentId);
         if (assessment == null) return (null, null);   // null cả 2 = không tìm thấy đề
 
         var (format, formatError) = await ResolveFormatAsync(request.QuestionTypeId);
@@ -187,7 +190,7 @@ public class AssessmentService : IAssessmentService
 
         // Bỏ trống DisplayOrder = thêm vào cuối đề.
         var order = request.DisplayOrder
-            ?? await _unitOfWork.AssessmentRepository.GetMaxDisplayOrderAsync(assessmentId) + 1;
+            ?? await _assessmentRepository.GetMaxDisplayOrderAsync(assessmentId) + 1;
 
         var entity = new AssessmentQuestion
         {
@@ -207,17 +210,17 @@ public class AssessmentService : IAssessmentService
             ImageUrls = request.ImageUrls ?? new(),
         };
 
-        await _unitOfWork.AssessmentRepository.AddQuestionAsync(entity);
-        await _unitOfWork.SaveChangesAsync();
+        await _assessmentRepository.AddQuestionAsync(entity);
+        await _dbContext.SaveChangesAsync();
 
-        var saved = await _unitOfWork.AssessmentRepository.GetQuestionByIdAsync(entity.Id);
+        var saved = await _assessmentRepository.GetQuestionByIdAsync(entity.Id);
         return (ToQuestionResponse(saved ?? entity), null);
     }
 
     public async Task<(AssessmentQuestionResponse? Result, string? Error)> UpdateQuestionAsync(
         Guid assessmentId, Guid questionId, UpdateAssessmentQuestionRequest request, CancellationToken ct = default)
     {
-        var entity = await _unitOfWork.AssessmentRepository.GetQuestionByIdAsync(questionId);
+        var entity = await _assessmentRepository.GetQuestionByIdAsync(questionId);
         // Chặn sửa chéo đề qua URL.
         if (entity == null || entity.AssessmentId != assessmentId) return (null, null);
 
@@ -241,25 +244,25 @@ public class AssessmentService : IAssessmentService
         if (request.DisplayOrder.HasValue)
             entity.DisplayOrder = request.DisplayOrder.Value;
 
-        _unitOfWork.AssessmentRepository.UpdateQuestion(entity);
-        await _unitOfWork.SaveChangesAsync();
+        _assessmentRepository.UpdateQuestion(entity);
+        await _dbContext.SaveChangesAsync();
 
-        var saved = await _unitOfWork.AssessmentRepository.GetQuestionByIdAsync(questionId);
+        var saved = await _assessmentRepository.GetQuestionByIdAsync(questionId);
         return (ToQuestionResponse(saved ?? entity), null);
     }
 
     public async Task<bool> DeleteQuestionAsync(Guid assessmentId, Guid questionId, CancellationToken ct = default)
     {
-        var entity = await _unitOfWork.AssessmentRepository.GetQuestionByIdAsync(questionId);
+        var entity = await _assessmentRepository.GetQuestionByIdAsync(questionId);
         if (entity == null || entity.AssessmentId != assessmentId) return false;
 
-        _unitOfWork.AssessmentRepository.RemoveQuestion(entity);
-        await _unitOfWork.SaveChangesAsync();
+        _assessmentRepository.RemoveQuestion(entity);
+        await _dbContext.SaveChangesAsync();
 
         // Dồn lại thứ tự: 1,2,4 -> 1,2,3.
-        var remaining = await _unitOfWork.AssessmentRepository.GetQuestionsByAssessmentAsync(assessmentId);
+        var remaining = await _assessmentRepository.GetQuestionsByAssessmentAsync(assessmentId);
         ApplyOrder(remaining);
-        await _unitOfWork.SaveChangesAsync();
+        await _dbContext.SaveChangesAsync();
 
         return true;
     }
@@ -267,7 +270,7 @@ public class AssessmentService : IAssessmentService
     public async Task<(bool Ok, string? Error)> ReorderQuestionsAsync(
         Guid assessmentId, IReadOnlyList<Guid> questionIds, CancellationToken ct = default)
     {
-        var questions = await _unitOfWork.AssessmentRepository.GetQuestionsByAssessmentAsync(assessmentId);
+        var questions = await _assessmentRepository.GetQuestionsByAssessmentAsync(assessmentId);
         if (questions.Count == 0) return (false, null);   // đề không tồn tại / chưa có câu
 
         // Phải liệt kê ĐỦ câu của đề, thiếu 1 câu thì thứ tự thành mơ hồ.
@@ -280,9 +283,9 @@ public class AssessmentService : IAssessmentService
         {
             var q = byId[ids[i]];
             q.DisplayOrder = i + 1;
-            _unitOfWork.AssessmentRepository.UpdateQuestion(q);
+            _assessmentRepository.UpdateQuestion(q);
         }
-        await _unitOfWork.SaveChangesAsync();
+        await _dbContext.SaveChangesAsync();
 
         return (true, null);
     }
@@ -295,14 +298,14 @@ public class AssessmentService : IAssessmentService
         {
             if (questions[i].DisplayOrder == i + 1) continue;
             questions[i].DisplayOrder = i + 1;
-            _unitOfWork.AssessmentRepository.UpdateQuestion(questions[i]);
+            _assessmentRepository.UpdateQuestion(questions[i]);
         }
     }
 
     /// <summary>Cách chấm suy từ slug. Mọi loại đều dùng được; loại lạ -> tự luận.</summary>
     private async Task<(string? Format, string? Error)> ResolveFormatAsync(int questionTypeId)
     {
-        var slug = await _unitOfWork.AssessmentRepository.GetQuestionTypeSlugAsync(questionTypeId);
+        var slug = await _assessmentRepository.GetQuestionTypeSlugAsync(questionTypeId);
         return slug == null
             ? (null, "Loại câu hỏi không tồn tại hoặc đã ngừng dùng.")
             : (QuestionTypeFormatMapper.Resolve(slug), null);

@@ -23,6 +23,7 @@ namespace MV.DomainLayer.DTO.ResponseModel
 
         // --- Introduction ---
         public string? Bio { get; set; }
+        public string? Degree { get; set; }
         public string? Education { get; set; }
         public double? Gpa { get; set; }
         public double? GpaScale { get; set; }
