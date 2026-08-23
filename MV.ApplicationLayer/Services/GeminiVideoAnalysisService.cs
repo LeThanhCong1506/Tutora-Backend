@@ -241,7 +241,7 @@ public class GeminiVideoAnalysisService : IGeminiVideoAnalysisService
         // form báo cáo gửi phụ huynh — để trống trông như gia sư quên điền, nên ghi rõ là không có.
         // Chuẩn hoá ở đây thay vì dặn trong prompt: prompt thì model có thể bỏ qua, code thì không.
         if (string.IsNullOrWhiteSpace(parsed.Homework))
-            parsed.Homework = "Không có.";
+            parsed.Homework = "Không có bài tập về nhà.";
 
         return parsed;
     }
