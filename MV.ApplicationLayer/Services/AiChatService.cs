@@ -389,7 +389,12 @@ public class AiChatService(
                 tutor_gender = dto.CurrentFilters.TutorGender,
                 subject_id = dto.CurrentFilters.SubjectId,
                 desired_count = dto.CurrentFilters.DesiredCount
-            }
+            },
+            shown_tutors = dto.ShownTutors.Select(t => new
+            {
+                tutor_id = t.TutorId,
+                name = t.Name
+            }).ToList()
         };
 
         using var req = new HttpRequestMessage(HttpMethod.Post, "/api/v1/assistant/respond")
@@ -502,6 +507,15 @@ public class AiChatService(
                 };
 
             res.Suggestions = GetStrList(root, "suggestions");
+
+            if (root.TryGetProperty("shown_tutors", out var shown) && shown.ValueKind == JsonValueKind.Array)
+                foreach (var t in shown.EnumerateArray())
+                    res.ShownTutors.Add(new AssistantShownTutorOut
+                    {
+                        TutorId = GetStr(t, "tutor_id") ?? "",
+                        Name = GetStr(t, "name")
+                    });
+
             return res;
         }
         catch (JsonException ex)
