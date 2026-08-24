@@ -137,6 +137,9 @@ namespace MV.ApplicationLayer.Services
                 MinHourlyRate = request.MinRate,
                 MaxHourlyRate = request.MaxRate,
                 Gender = request.Gender,
+                AvailableDaysOfWeek = request.AvailableDaysOfWeek,
+                AvailableFrom = request.AvailableFrom,
+                AvailableTo = request.AvailableTo,
                 SortBy = TutorSearchSortBy.Default
             };
         }
