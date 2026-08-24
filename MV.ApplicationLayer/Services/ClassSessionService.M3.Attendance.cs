@@ -497,8 +497,7 @@ public partial class ClassSessionService
             // ReportTutorNoShowAsync (PHHS báo tutor không tới) đều có thể chuyển Status từ
             // Scheduled cho CÙNG 1 session — không lock sẽ để bên ghi sau âm thầm đè lên claim
             // của bên trước (ClassSession không có concurrency token).
-            var classSession = await _context.ClassSessions
-                .FromSqlRaw(SqlQueries.LockClassSessionById, classSessionId)
+            var classSession = await ClassSessionLockHelper.LockById(_context, classSessionId)
                 .Include(l => l.Booking)
                     .ThenInclude(b => b!.Student)
                 .Include(l => l.ClassSessionReport)

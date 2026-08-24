@@ -434,8 +434,7 @@ public class DisputeService : IDisputeService
                 if (!dispute.Classsessionid.HasValue)
                     throw new InvalidOperationException("Tranh chấp không gắn với buổi học");
 
-                var classSession = await _context.ClassSessions
-                    .FromSqlRaw(SqlQueries.LockClassSessionById, dispute.Classsessionid.Value)
+                var classSession = await ClassSessionLockHelper.LockById(_context, dispute.Classsessionid.Value)
                     .SingleOrDefaultAsync()
                     ?? throw new InvalidOperationException("Không tìm thấy buổi học của tranh chấp");
 
@@ -559,8 +558,7 @@ public class DisputeService : IDisputeService
                 ClassSession? classSession = null;
                 if (dispute.Classsessionid.HasValue)
                 {
-                    classSession = await _context.ClassSessions
-                        .FromSqlRaw(SqlQueries.LockClassSessionById, dispute.Classsessionid.Value)
+                    classSession = await ClassSessionLockHelper.LockById(_context, dispute.Classsessionid.Value)
                         .Include(l => l.Booking)
                             .ThenInclude(b => b!.Student)
                         .SingleOrDefaultAsync()
@@ -763,8 +761,7 @@ public class DisputeService : IDisputeService
                 ClassSession? classSession = null;
                 if (dispute.Classsessionid.HasValue)
                 {
-                    classSession = await _context.ClassSessions
-                        .FromSqlRaw(SqlQueries.LockClassSessionById, dispute.Classsessionid.Value)
+                    classSession = await ClassSessionLockHelper.LockById(_context, dispute.Classsessionid.Value)
                         .Include(l => l.Booking)
                             .ThenInclude(b => b!.Student)
                         .SingleOrDefaultAsync()
@@ -1126,8 +1123,7 @@ public class DisputeService : IDisputeService
                     .SingleOrDefaultAsync()
                     ?? throw new ArgumentException("Không tìm thấy booking của buổi học");
 
-                var classSession = await _context.ClassSessions
-                    .FromSqlRaw(SqlQueries.LockClassSessionById, classSessionId)
+                var classSession = await ClassSessionLockHelper.LockById(_context, classSessionId)
                     .SingleOrDefaultAsync()
                     ?? throw new ArgumentException("Không tìm thấy buổi học");
 

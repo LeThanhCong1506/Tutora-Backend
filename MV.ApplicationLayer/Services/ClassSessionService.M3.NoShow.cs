@@ -78,8 +78,7 @@ public partial class ClassSessionService
             // mặt" nếu SubmitReportAsync (nhánh solo tutor no-show) vừa commit trước trên đúng
             // buổi này (2 actor có thể cùng nhắm vào field Status của 1 session không có
             // concurrency token, xem ClassSessionService.M3.Attendance.cs).
-            classSession = await _context.ClassSessions
-                .FromSqlRaw(SqlQueries.LockClassSessionById, classSessionId)
+            classSession = await ClassSessionLockHelper.LockById(_context, classSessionId)
                 .Include(l => l.Booking)
                 .SingleOrDefaultAsync()
                 ?? throw new ClassSessionException(ClassSessionErrorCodes.ClassSessionNotFound, "Không tìm thấy buổi học", 404);
@@ -237,8 +236,7 @@ public partial class ClassSessionService
                     "Báo cáo vắng mặt chưa được admin xác nhận. Vui lòng chờ kết quả kiểm tra.",
                     409);
 
-            var classSession = await _context.ClassSessions
-                .FromSqlRaw(SqlQueries.LockClassSessionById, classSessionId)
+            var classSession = await ClassSessionLockHelper.LockById(_context, classSessionId)
                 .Include(l => l.Booking)
                     .ThenInclude(b => b!.Student)
                 .SingleOrDefaultAsync()
