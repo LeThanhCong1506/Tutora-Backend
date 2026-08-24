@@ -19,10 +19,10 @@ public class WalletService(
     [FromKeyedServices(ServiceKeys.PayOS.Checkout)] PayOSClient payOS,
     INotificationService notificationService,
     IFileStorageService fileStorageService,
+    IWithdrawalLimitService withdrawalLimitService,
     ILogger<WalletService> logger) : IWalletService
 {
     private readonly PayOSClient _payOS = payOS;
-    private const decimal MinWithdrawalAmount = 10000m;
 
     public async Task ProcessTopupWebhookAsync(
         PaymentWebhookRequest request,
@@ -471,8 +471,9 @@ public class WalletService(
                 || string.IsNullOrEmpty(bankAccount.Accountholdername))
                 throw new BankInfoRequiredException();
 
-            if (request.Amount < MinWithdrawalAmount)
-                throw new WithdrawalAmountTooLowException(MinWithdrawalAmount);
+            var minWithdrawalAmount = await withdrawalLimitService.GetMinWithdrawalAmountAsync(ct);
+            if (request.Amount < minWithdrawalAmount)
+                throw new WithdrawalAmountTooLowException(minWithdrawalAmount);
 
             wallet.Balance -= request.Amount;
             wallet.Lastupdated = TimeZoneHelper.UtcNow;

@@ -34,6 +34,9 @@ public class AdminBookingDetailResponse
     public List<BookingTimelineEvent> Timeline { get; set; } = new();
     public List<AdminBookingClassSessionItem> ClassSessions { get; set; } = new();
     public AdminBookingPaymentBreakdown PaymentBreakdown { get; set; } = new();
+
+    /// <summary>Lịch sử từng dòng Wallettransaction gắn với booking này (mới nhất trước).</summary>
+    public List<AdminBookingWalletTransactionItem> Transactions { get; set; } = new();
 }
 
 public class AdminBookingPartyInfo
@@ -111,6 +114,12 @@ public class AdminBookingClassSessionItem
     public decimal? ClassSessionPrice { get; set; }
     public bool? IsSettled { get; set; }
     public bool? IsMakeup { get; set; }
+    /// <summary>Buổi phụ (Link 2) — sinh ra khi <see cref="OriginalClassSessionId"/> bị báo ngắt giữa chừng.</summary>
+    public bool? IsContinuation { get; set; }
+    /// <summary>Buổi học lại (Link 3) — sinh ra khi hoà giải dispute chọn "học lại".</summary>
+    public bool? IsDisputeRelearn { get; set; }
+    /// <summary>Buổi gốc mà buổi bù/buổi phụ/buổi học lại này trỏ về — null nếu đây là buổi gốc.</summary>
+    public int? OriginalClassSessionId { get; set; }
     public string? TutorNotes { get; set; }
     public string? MeetingLink { get; set; }
 }
@@ -134,4 +143,23 @@ public class AdminBookingPaymentBreakdown
     public string? RefundStatus { get; set; }
     public string? PaymentStatus { get; set; }
     public DateTime? PaymentDueAt { get; set; }
+}
+
+// ── Wallet transaction history ────────────────────────────────────────────────
+
+public class AdminBookingWalletTransactionItem
+{
+    public int TransactionId { get; set; }
+
+    /// <summary>Deposit / DepositPayment / RemainingPayment / EscrowCredit / EscrowRelease / EscrowReversal / Refund / ...</summary>
+    public string? TransactionType { get; set; }
+
+    /// <summary>Số dương = tiền vào ví; số âm = tiền bị rút khỏi ví (vd EscrowReversal).</summary>
+    public decimal? Amount { get; set; }
+    public string? Description { get; set; }
+    public DateTime? CreatedAt { get; set; }
+
+    /// <summary>"tutor" | "parent" | "student" | null (không xác định được chủ ví).</summary>
+    public string? WalletOwnerRole { get; set; }
+    public string? WalletOwnerName { get; set; }
 }

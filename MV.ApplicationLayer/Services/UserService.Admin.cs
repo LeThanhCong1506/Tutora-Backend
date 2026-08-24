@@ -203,11 +203,11 @@ namespace MV.ApplicationLayer.Services
                 throw new InvalidOperationException("Vai trò không hợp lệ. Chỉ được tạo tài khoản Student, Parent hoặc Tutor.");
 
             var phone = request.Phone.Trim();
-            if (!await _unitOfWork.UserRepository.IsPhoneUniqueAsync(phone))
+            if (!await _userRepository.IsPhoneUniqueAsync(phone))
                 throw new PhoneAlreadyExistsException();
 
             var email = string.IsNullOrWhiteSpace(request.Email) ? null : request.Email.Trim();
-            if (email != null && !await _unitOfWork.UserRepository.IsEmailUniqueAsync(email))
+            if (email != null && !await _userRepository.IsEmailUniqueAsync(email))
                 throw new EmailAlreadyExistsException();
 
             var now = TimeZoneHelper.UtcNow;
@@ -260,15 +260,15 @@ namespace MV.ApplicationLayer.Services
                 };
             }
 
-            await _unitOfWork.UserRepository.CreateUserAsync(newUser);
-            await _unitOfWork.SaveChangesAsync();
+            await _userRepository.CreateUserAsync(newUser);
+            await _context.SaveChangesAsync();
 
             return await GetUserByIdAsync(userId);
         }
 
         public async Task AdminUpdateUserAsync(string userId, AdminUpdateUserRequest request)
         {
-            var user = await _unitOfWork.UserRepository.GetUserByIdAsync(userId)
+            var user = await _userRepository.GetUserByIdAsync(userId)
                 ?? throw new UserNotFoundException(userId);
 
             if (request.Fullname != null) user.Fullname = request.Fullname;
@@ -282,8 +282,8 @@ namespace MV.ApplicationLayer.Services
 
             await SyncStudentProfileAsync(user);
 
-            await _unitOfWork.UserRepository.UpdateUserAsync(user);
-            await _unitOfWork.SaveChangesAsync();
+            await _userRepository.UpdateUserAsync(user);
+            await _context.SaveChangesAsync();
         }
 
         public async Task<ChangeUserRoleResponse> AdminChangeUserRoleAsync(string targetUserId, string newRole, string adminUserId)
@@ -293,7 +293,7 @@ namespace MV.ApplicationLayer.Services
                 throw new InvalidOperationException(
                     $"Role '{newRole}' không hợp lệ. Các role được phép gán: {string.Join(", ", UserRole.AssignableByAdmin)}.");
 
-            var targetUser = await _unitOfWork.UserRepository.GetUserByIdAsync(targetUserId)
+            var targetUser = await _userRepository.GetUserByIdAsync(targetUserId)
                 ?? throw new UserNotFoundException(targetUserId);
 
             // Không cho phép Admin tự thay đổi role của chính mình
@@ -313,12 +313,12 @@ namespace MV.ApplicationLayer.Services
             if (string.Equals(previousRole, UserRole.Staff, StringComparison.OrdinalIgnoreCase)
                 && !string.Equals(newRole, UserRole.Staff, StringComparison.OrdinalIgnoreCase))
             {
-                await _unitOfWork.StaffPermissionRepository.RevokeGroupAssignmentAsync(
+                await _staffPermissionRepository.RevokeGroupAssignmentAsync(
                     targetUserId, adminUserId, MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow);
             }
 
-            await _unitOfWork.UserRepository.UpdateUserAsync(targetUser);
-            await _unitOfWork.SaveChangesAsync();
+            await _userRepository.UpdateUserAsync(targetUser);
+            await _context.SaveChangesAsync();
 
             return new ChangeUserRoleResponse
             {
@@ -333,34 +333,34 @@ namespace MV.ApplicationLayer.Services
 
         public async Task AdminDeactivateUserAsync(string userId)
         {
-            var user = await _unitOfWork.UserRepository.GetUserByIdAsync(userId)
+            var user = await _userRepository.GetUserByIdAsync(userId)
                 ?? throw new UserNotFoundException(userId);
 
             user.Status = 0;
             user.Isdeactivated = true;
             user.Deactivatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
-            await _unitOfWork.UserRepository.UpdateUserAsync(user);
+            await _userRepository.UpdateUserAsync(user);
 
             // Also hide tutor profile from search results
-            var tutorProfile = await _unitOfWork.UserRepository.GetTutorProfileByIdAsync(userId);
+            var tutorProfile = await _userRepository.GetTutorProfileByIdAsync(userId);
             if (tutorProfile != null)
             {
                 tutorProfile.Ispublic = false;
-                await _unitOfWork.UserRepository.UpdateTutorProfileAsync(tutorProfile);
+                await _userRepository.UpdateTutorProfileAsync(tutorProfile);
             }
 
-            await _unitOfWork.SaveChangesAsync();
+            await _context.SaveChangesAsync();
         }
 
         public async Task AdminReactivateUserAsync(string userId)
         {
-            var user = await _unitOfWork.UserRepository.GetUserByIdAsync(userId)
+            var user = await _userRepository.GetUserByIdAsync(userId)
                 ?? throw new UserNotFoundException(userId);
 
             user.Status = 1;
             user.Isdeactivated = false;
             user.Deactivatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
-            await _unitOfWork.UserRepository.UpdateUserAsync(user);
+            await _userRepository.UpdateUserAsync(user);
 
             // Chặn/mở khóa và tạm ngưng cùng ghi vào users.Status, nên bỏ qua bảng
             // suspension ở đây để lại bản ghi "đang áp dụng" của một tài khoản đã
@@ -378,22 +378,22 @@ namespace MV.ApplicationLayer.Services
             }
 
             // Nếu là gia sư và profile đang Active → khôi phục hiển thị công khai
-            var tutorProfile = await _unitOfWork.UserRepository.GetTutorProfileByIdAsync(userId);
+            var tutorProfile = await _userRepository.GetTutorProfileByIdAsync(userId);
             if (tutorProfile != null &&
                 string.Equals(tutorProfile.Profilestatus, TutorProfileStatus.Active, StringComparison.OrdinalIgnoreCase))
             {
                 tutorProfile.Ispublic = true;
-                await _unitOfWork.UserRepository.UpdateTutorProfileAsync(tutorProfile);
+                await _userRepository.UpdateTutorProfileAsync(tutorProfile);
             }
 
-            await _unitOfWork.SaveChangesAsync();
+            await _context.SaveChangesAsync();
         }
 
         // ─── Admin: xem ảnh CCCD (signed URL, có hiệu lực 15 phút) — dùng chung Tutor/Student ──────────────
 
         public async Task<UserCccdUrlsResponse> GetUserCccdUrlsAsync(string userId)
         {
-            var user = await _unitOfWork.UserRepository.GetUserByIdAsync(userId)
+            var user = await _userRepository.GetUserByIdAsync(userId)
                 ?? throw new UserNotFoundException(userId);
 
             // URL lưu trong DB là private. Phải tạo signed URL mới xem được.

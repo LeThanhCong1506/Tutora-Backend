@@ -163,9 +163,19 @@ public class DisputeService : IDisputeService
         var confirmerNames = await _context.Users.AsNoTracking()
             .Where(x => confirmerIds.Contains(x.Userid))
             .ToDictionaryAsync(x => x.Userid, x => x.Fullname ?? x.Username ?? x.Email);
+
+        var relearnAvailable = true;
+        if (dispute.Classsessionid.HasValue)
+        {
+            var existingSessionCount = await DisputeRelearnPolicy.CountSessionsInChainAsync(
+                _context, dispute.Classsessionid.Value);
+            relearnAvailable = existingSessionCount < DisputeRelearnPolicy.MaxRelearnSessionsPerChain;
+        }
+
         return new DisputeDetailResponse
         {
             DisputeId = dispute.Disputeid,
+            RelearnAvailable = relearnAvailable,
             BookingId = dispute.Bookingid,
             ClassSessionId = dispute.Classsessionid,
             DisputeType = dispute.Disputetype,
@@ -302,17 +312,24 @@ public class DisputeService : IDisputeService
         var dispute = await _disputeRepo.FindWithClassSessionAsync(disputeId)
             ?? throw new ArgumentException("Không tìm thấy tranh chấp");
 
-        var cs = dispute.ClassSession;
-        var (status, url) = RecordingStatusResolver.Resolve(cs?.Recordingurl, cs?.Recordings3key, cs?.Recordingsid, cs?.Checkouttime.HasValue ?? false);
-        var streamUrl = BuildRecordingStreamUrl(dispute.Classsessionid, actorId, url);
+        var chain = dispute.Classsessionid.HasValue
+            ? await ClassSessionRecordingChainHelper.GetChainAsync(_context, dispute.Classsessionid.Value) ?? []
+            : [];
+
+        foreach (var item in chain)
+        {
+            item.IsCurrent = item.ClassSessionId == dispute.Classsessionid;
+            if (item.Available)
+            {
+                var token = _recordingAccessTokenService.Issue(item.ClassSessionId, actorId, RecordingTokenLifetime);
+                item.StreamUrl = $"/api/class-sessions/{item.ClassSessionId}/recording/stream?token={Uri.EscapeDataString(token)}";
+            }
+        }
 
         return new DisputeRecordingResponse
         {
             DisputeId = dispute.Disputeid,
-            ClassSessionId = dispute.Classsessionid,
-            Status = status,
-            RecordingUrl = streamUrl,
-            Available = streamUrl != null
+            Chain = chain
         };
     }
 
@@ -417,8 +434,7 @@ public class DisputeService : IDisputeService
                 if (!dispute.Classsessionid.HasValue)
                     throw new InvalidOperationException("Tranh chấp không gắn với buổi học");
 
-                var classSession = await _context.ClassSessions
-                    .FromSqlRaw(SqlQueries.LockClassSessionById, dispute.Classsessionid.Value)
+                var classSession = await ClassSessionLockHelper.LockById(_context, dispute.Classsessionid.Value)
                     .SingleOrDefaultAsync()
                     ?? throw new InvalidOperationException("Không tìm thấy buổi học của tranh chấp");
 
@@ -491,6 +507,10 @@ public class DisputeService : IDisputeService
         if (!CloseDisputeOutcomes.All.Contains(request.ClassSessionOutcome))
             throw new ArgumentException("Trạng thái buổi học không hợp lệ");
 
+        // Link 3: buổi học lại là 1 ClassSession MỚI (không dùng lại buổi gốc) nên bắt buộc phải có
+        // giờ học do Admin/Staff chọn ngay lúc đóng dispute — không có bước nào khác để nhập giờ này.
+        DisputeRelearnPolicy.ValidateRelearnRequest(request, TimeZoneHelper.UtcNow);
+
         var snapshot = await _context.Disputes
             .AsNoTracking()
             .Where(d => d.Disputeid == disputeId)
@@ -500,6 +520,11 @@ public class DisputeService : IDisputeService
 
         string? createdBy;
         int? classSessionId;
+        int? relearnSessionId = null;
+        string? relearnTutorId = null;
+        string? relearnStudentUserId = null;
+        string? relearnParentId = null;
+        DateTime? relearnScheduledStart = null;
 
         await using (var tx = await _context.Database.BeginTransactionAsync())
         {
@@ -533,9 +558,9 @@ public class DisputeService : IDisputeService
                 ClassSession? classSession = null;
                 if (dispute.Classsessionid.HasValue)
                 {
-                    classSession = await _context.ClassSessions
-                        .FromSqlRaw(SqlQueries.LockClassSessionById, dispute.Classsessionid.Value)
+                    classSession = await ClassSessionLockHelper.LockById(_context, dispute.Classsessionid.Value)
                         .Include(l => l.Booking)
+                            .ThenInclude(b => b!.Student)
                         .SingleOrDefaultAsync()
                         ?? throw new InvalidOperationException("Không tìm thấy buổi học của tranh chấp");
                 }
@@ -557,19 +582,43 @@ public class DisputeService : IDisputeService
                             throw new InvalidOperationException(
                                 "Buổi học này đã được quyết toán, không thể đưa về trạng thái học lại.");
 
-                        // Học lại thì lần dạy hỏng trước đó không được để lại dấu vết, nếu không buổi mới
-                        // sẽ mang sẵn giờ check-in/điểm danh cũ và báo cáo cũ của lần trước.
-                        classSession.Status = Scheduled;
-                        classSession.Checkintime = null;
-                        classSession.Checkouttime = null;
-                        classSession.Realstart = null;
-                        classSession.Realend = null;
-                        classSession.Istutorpresent = null;
-                        classSession.Isstudentpresent = null;
-                        classSession.Attendancenote = null;
-                        classSession.Noshowaction = null;
-                        classSession.Submittedat = null;
-                        classSession.Confirmdeadline = null;
+                        // Chuỗi (buổi gốc + mọi buổi bù/phụ do gián đoạn + mọi buổi học lại do hoà giải)
+                        // đã đủ MaxRelearnSessionsPerChain buổi thì buổi cuối cùng trong chuỗi là buổi
+                        // CUỐI CÙNG còn được học lại — nếu chính buổi đó lại bị khiếu nại, bắt buộc xử
+                        // lý bằng hoàn tiền, không được tạo thêm buổi nào nữa (tránh chuỗi kéo dài vô
+                        // hạn). Đếm TỔNG số buổi trong chuỗi, không riêng buổi Isdisputerelearn — nếu
+                        // không thì 1 buổi bù do gián đoạn (Iscontinuation) xen giữa chuỗi sẽ không bị
+                        // tính vào cap, cho phép tạo buổi vượt quá 3 buổi thực tế.
+                        var existingSessionCount = await DisputeRelearnPolicy.CountSessionsInChainAsync(
+                            _context, classSession.Classsessionid);
+                        if (existingSessionCount >= DisputeRelearnPolicy.MaxRelearnSessionsPerChain)
+                            throw new InvalidOperationException(
+                                $"Chuỗi buổi học này đã có {DisputeRelearnPolicy.MaxRelearnSessionsPerChain} buổi — " +
+                                "không thể tạo thêm buổi học lại nữa, hãy xử lý bằng hoàn tiền qua \"Ra quyết định\".");
+
+                        // Link 3: tạo BUỔI HỌC LẠI mới thay vì dùng lại đúng row cũ — giữ nguyên toàn
+                        // bộ dữ liệu buổi gốc (check-in, điểm danh, ghi hình) để tra cứu/làm bằng
+                        // chứng nếu sau này lại có tranh chấp về buổi học lại. Vì phòng Agora = hàm
+                        // của Classsessionid, buổi mới tự động có phòng riêng, không lẫn với buổi cũ.
+                        classSession.Status = Cancelled;
+
+                        var relearnSession = DisputeRelearnPolicy.BuildRelearnSession(
+                            classSession, request.RelearnScheduledStart!.Value, now);
+                        _context.ClassSessions.Add(relearnSession);
+
+                        relearnTutorId = classSession.Tutorid;
+                        relearnStudentUserId = classSession.Booking?.Student?.Linkeduserid;
+                        relearnParentId = classSession.Booking?.Student?.Parentid ?? classSession.Booking?.Parentid;
+                        relearnScheduledStart = relearnSession.Scheduledstart;
+
+                        // Classsessionid do DB tự sinh — chỉ có giá trị thật sau SaveChangesAsync.
+                        await _context.SaveChangesAsync();
+                        relearnSessionId = relearnSession.Classsessionid;
+
+                        // Meetinglink KHÔNG phải link thật — toàn hệ thống dùng chính Classsessionid
+                        // làm "cờ đã kích hoạt vào học online" (ClassSessionService.cs/PaymentService.
+                        // Wallet.cs); thiếu field này thì FE (canJoinLiveSession) ẩn hẳn nút "Vào lớp".
+                        relearnSession.Meetinglink = relearnSession.Classsessionid.ToString();
                     }
                 }
 
@@ -619,6 +668,52 @@ public class DisputeService : IDisputeService
             _logger.LogWarning(ex, "Failed to send dispute close notification for dispute {DisputeId}", disputeId);
         }
 
+        // Link 3: báo riêng cho Tutor + Student + Parent về buổi học lại mới (khác thông báo
+        // "phản ánh đã đóng" ở trên, vốn chỉ gửi cho người tạo dispute).
+        if (relearnSessionId.HasValue)
+        {
+            try
+            {
+                var relearnMessage = $"Buổi học #{classSessionId} có tranh chấp đã được hoà giải và sẽ học lại. " +
+                    $"Buổi học lại #{relearnSessionId} đã được lên lịch vào {relearnScheduledStart:HH:mm 'ngày' dd/MM/yyyy}.";
+                var relearnNotifications = new List<NotificationRequest>();
+                if (!string.IsNullOrWhiteSpace(relearnTutorId))
+                    relearnNotifications.Add(new NotificationRequest
+                    {
+                        Userid = relearnTutorId,
+                        Title = "Buổi học lại đã được lên lịch",
+                        Message = relearnMessage,
+                        Type = NotificationType.DisputeRelearnScheduled,
+                        Referenceid = relearnSessionId.Value.ToString()
+                    });
+                if (!string.IsNullOrWhiteSpace(relearnStudentUserId))
+                    relearnNotifications.Add(new NotificationRequest
+                    {
+                        Userid = relearnStudentUserId,
+                        Title = "Buổi học lại đã được lên lịch",
+                        Message = relearnMessage,
+                        Type = NotificationType.DisputeRelearnScheduled,
+                        Referenceid = relearnSessionId.Value.ToString()
+                    });
+                if (!string.IsNullOrWhiteSpace(relearnParentId))
+                    relearnNotifications.Add(new NotificationRequest
+                    {
+                        Userid = relearnParentId,
+                        Title = "Buổi học lại đã được lên lịch",
+                        Message = relearnMessage,
+                        Type = NotificationType.DisputeRelearnScheduled,
+                        Referenceid = relearnSessionId.Value.ToString()
+                    });
+
+                if (relearnNotifications.Count > 0)
+                    await _notificationService.CreateNotificationsAsync(relearnNotifications);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Không thể gửi thông báo buổi học lại cho dispute {DisputeId}", disputeId);
+            }
+        }
+
         return (await GetDisputeDetailAsync(disputeId, adminId))!;
     }
 
@@ -639,6 +734,7 @@ public class DisputeService : IDisputeService
 
         string? createdBy;
         string? tutorId;
+        decimal courseCancelRefund = 0;
 
         await using (var tx = await _context.Database.BeginTransactionAsync())
         {
@@ -665,8 +761,7 @@ public class DisputeService : IDisputeService
                 ClassSession? classSession = null;
                 if (dispute.Classsessionid.HasValue)
                 {
-                    classSession = await _context.ClassSessions
-                        .FromSqlRaw(SqlQueries.LockClassSessionById, dispute.Classsessionid.Value)
+                    classSession = await ClassSessionLockHelper.LockById(_context, dispute.Classsessionid.Value)
                         .Include(l => l.Booking)
                             .ThenInclude(b => b!.Student)
                         .SingleOrDefaultAsync()
@@ -680,6 +775,10 @@ public class DisputeService : IDisputeService
                     ResolutionTypes.Refund50 => 50,
                     ResolutionTypes.Refund100 => 100,
                     ResolutionTypes.Custom => request.CustomRefundPercentage!.Value,
+                    // Buổi đang bị khiếu nại được settle như đã dạy đủ (gia sư giữ tiền buổi đó) —
+                    // phần hoàn tiền của lựa chọn này nằm ở CancelRemainingSessionsAsync bên dưới,
+                    // áp dụng cho các buổi CHƯA diễn ra của cả khóa học, không phải buổi này.
+                    ResolutionTypes.CancelCourse => 0,
                     _ => 0
                 };
 
@@ -689,6 +788,14 @@ public class DisputeService : IDisputeService
                         await _settlementService.ProcessRefundAsync(classSession.Classsessionid, refundPercentage, adminId);
                     else
                         await _settlementService.SettleDisputedClassSessionAsync(classSession.Classsessionid, adminId);
+
+                    if (request.ResolutionType == ResolutionTypes.CancelCourse && dispute.Bookingid.HasValue)
+                        courseCancelRefund = await _settlementService.CancelRemainingSessionsAsync(
+                            dispute.Bookingid.Value,
+                            adminId,
+                            BookingStatus.CancelledByDispute,
+                            $"Hủy khóa học theo giải quyết tranh chấp #{disputeId}: {request.ResolutionNote}",
+                            CancellationToken.None);
                 }
 
                 dispute.Status = DisputeStatus.Resolved;
@@ -731,14 +838,19 @@ public class DisputeService : IDisputeService
         {
             var notifications = new List<NotificationRequest>();
             if (!string.IsNullOrWhiteSpace(createdBy))
+            {
+                var courseCancelSuffix = request.ResolutionType == ResolutionTypes.CancelCourse
+                    ? $" Khóa học đã bị hủy, bạn đã nhận hoàn {courseCancelRefund:N0}đ cho các buổi chưa học."
+                    : "";
                 notifications.Add(new NotificationRequest
                 {
                     Userid = createdBy,
                     Title = "Tranh chấp đã được giải quyết",
-                    Message = $"Tranh chấp #{disputeId} đã được giải quyết. Kết quả: {request.ResolutionType}. Ghi chú: {request.ResolutionNote}",
+                    Message = $"Tranh chấp #{disputeId} đã được giải quyết. Kết quả: {request.ResolutionType}. Ghi chú: {request.ResolutionNote}{courseCancelSuffix}",
                     Type = NotificationType.DisputeResolved,
                     Referenceid = snapshot.Classsessionid?.ToString()
                 });
+            }
 
             if (tutorId != null)
                 notifications.Add(new NotificationRequest { Userid = tutorId, Title = "Thông báo giải quyết tranh chấp",
@@ -766,6 +878,21 @@ public class DisputeService : IDisputeService
             throw new ArgumentException("Tranh chấp này không gắn với buổi học nào để tính hoàn tiền");
 
         return await _settlementService.PreviewRefundAsync(dispute.Classsessionid.Value, percentage);
+    }
+
+    /// <summary>
+    /// Xem trước số buổi/số tiền sẽ hủy+hoàn nếu resolve dispute bằng "Hủy khóa học & hoàn tiền"
+    /// (ResolutionTypes.CancelCourse) — không side effect.
+    /// </summary>
+    public async Task<CourseCancelPreviewResponse> GetCancelCoursePreviewAsync(int disputeId)
+    {
+        var dispute = await _context.Disputes.AsNoTracking().FirstOrDefaultAsync(d => d.Disputeid == disputeId)
+            ?? throw new ArgumentException("Không tìm thấy tranh chấp");
+
+        if (!dispute.Bookingid.HasValue)
+            throw new ArgumentException("Tranh chấp này không gắn với booking nào để tính hủy khóa học");
+
+        return await _settlementService.PreviewCancelRemainingSessionsAsync(dispute.Bookingid.Value, dispute.Classsessionid);
     }
 
     public async Task<DisputeStatsResponse> GetDisputeStatsAsync()
@@ -996,8 +1123,7 @@ public class DisputeService : IDisputeService
                     .SingleOrDefaultAsync()
                     ?? throw new ArgumentException("Không tìm thấy booking của buổi học");
 
-                var classSession = await _context.ClassSessions
-                    .FromSqlRaw(SqlQueries.LockClassSessionById, classSessionId)
+                var classSession = await ClassSessionLockHelper.LockById(_context, classSessionId)
                     .SingleOrDefaultAsync()
                     ?? throw new ArgumentException("Không tìm thấy buổi học");
 

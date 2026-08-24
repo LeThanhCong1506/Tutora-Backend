@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using MV.ApplicationLayer.Interfaces;
+using MV.ApplicationLayer.RepositoryInterfaces;
 using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO.RequestModel;
@@ -15,18 +16,18 @@ namespace MV.ApplicationLayer.Services
     {
         private const int CandidatePoolSize = 50;
 
-        private readonly IUnitOfWork _unitOfWork;
+        private readonly ITutorSearchRepository _tutorSearchRepository;
         private readonly IAppDbContext _dbContext;
         private readonly ITutorAiClient _aiClient;
         private readonly ILogger<TutorRecommendService> _logger;
 
         public TutorRecommendService(
-            IUnitOfWork unitOfWork,
+            ITutorSearchRepository tutorSearchRepository,
             IAppDbContext dbContext,
             ITutorAiClient aiClient,
             ILogger<TutorRecommendService> logger)
         {
-            _unitOfWork = unitOfWork;
+            _tutorSearchRepository = tutorSearchRepository;
             _dbContext = dbContext;
             _aiClient = aiClient;
             _logger = logger;
@@ -48,7 +49,7 @@ namespace MV.ApplicationLayer.Services
             }
 
             var searchParams = BuildSearchParameters(request, gradeName);
-            var searchResult = await _unitOfWork.TutorSearchRepository
+            var searchResult = await _tutorSearchRepository
                 .SearchTutorsAsync(searchParams);
 
             var candidateIds = searchResult.Items

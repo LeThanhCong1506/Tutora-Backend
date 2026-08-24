@@ -146,6 +146,8 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
 
     public virtual DbSet<Systemconfig> Systemconfigs { get; set; }
 
+    public virtual DbSet<CommissionConfigHistory> CommissionConfigHistories { get; set; }
+
     public virtual DbSet<Topuprequest> Topuprequests { get; set; }
 
     public virtual DbSet<Tutoravailability> Tutoravailabilities { get; set; }
@@ -1702,6 +1704,25 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
             entity.Property(e => e.Ismakeup)
                 .HasDefaultValue(false)
                 .HasColumnName("is_makeup");
+            entity.Property(e => e.Iscontinuation)
+                .HasDefaultValue(false)
+                .HasColumnName("is_continuation");
+            entity.Property(e => e.Isdisputerelearn)
+                .HasDefaultValue(false)
+                .HasColumnName("is_dispute_relearn");
+            entity.Property(e => e.Interruptedat)
+                .HasColumnType("timestamp without time zone")
+                .HasColumnName("interrupted_at");
+            entity.Property(e => e.Interruptreason).HasColumnName("interrupt_reason");
+            entity.Property(e => e.Interruptedby)
+                .HasMaxLength(50)
+                .HasColumnName("interrupted_by");
+            entity.Property(e => e.Tutorskipconfirmedat)
+                .HasColumnType("timestamp without time zone")
+                .HasColumnName("tutor_skip_confirmed_at");
+            entity.Property(e => e.Studentskipconfirmedat)
+                .HasColumnType("timestamp without time zone")
+                .HasColumnName("student_skip_confirmed_at");
             entity.Property(e => e.Issettled)
                 .HasDefaultValue(false)
                 .HasColumnName("is_settled");
@@ -1789,6 +1810,10 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
             entity.HasOne(d => d.Tutor).WithMany(p => p.ClassSessions)
                 .HasForeignKey(d => d.Tutorid)
                 .HasConstraintName("lessons_tutorid_fkey");
+
+            entity.HasOne(d => d.InterruptedbyNavigation).WithMany()
+                .HasForeignKey(d => d.Interruptedby)
+                .HasConstraintName("class_sessions_interrupted_by_fkey");
         });
 
         modelBuilder.Entity<ClassSessionReport>(entity =>
@@ -2283,6 +2308,28 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
                 .HasConstraintName("systemconfigs_updatedby_fkey");
         });
 
+        modelBuilder.Entity<CommissionConfigHistory>(entity =>
+        {
+            entity.HasKey(e => e.Historyid).HasName("commission_config_history_pkey");
+
+            entity.ToTable("commission_config_history");
+
+            entity.Property(e => e.Historyid).HasColumnName("history_id");
+            entity.Property(e => e.Parentfeepercent).HasColumnName("parent_fee_percent");
+            entity.Property(e => e.Tutorfeepercent).HasColumnName("tutor_fee_percent");
+            entity.Property(e => e.Changedby)
+                .HasMaxLength(50)
+                .HasColumnName("changed_by");
+            entity.Property(e => e.Changedat)
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
+                .HasColumnType("timestamp without time zone")
+                .HasColumnName("changed_at");
+
+            entity.HasOne(d => d.ChangedbyNavigation).WithMany(p => p.CommissionConfigHistories)
+                .HasForeignKey(d => d.Changedby)
+                .HasConstraintName("commission_config_history_changed_by_fkey");
+        });
+
         modelBuilder.Entity<Tutoravailability>(entity =>
         {
             entity.HasKey(e => e.Availabilityid).HasName("tutoravailability_pkey");
@@ -2415,9 +2462,15 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnType("timestamp without time zone")
                 .HasColumnName("created_at");
+            entity.Property(e => e.Degree)
+                .HasMaxLength(100)
+                .HasColumnName("degree");
             entity.Property(e => e.Education)
                 .HasMaxLength(255)
                 .HasColumnName("education");
+            entity.Property(e => e.Degree)
+                .HasMaxLength(100)
+                .HasColumnName("degree");
             entity.Property(e => e.Experience).HasColumnName("experience");
             entity.Property(e => e.Gpa).HasColumnName("gpa");
             entity.Property(e => e.Gpascale).HasColumnName("gpa_scale");

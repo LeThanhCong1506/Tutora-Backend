@@ -25,6 +25,9 @@ namespace MV.DomainLayer.DTO.ResponseModel
         public string? CurrentBio { get; set; }
         public string? ProposedBio { get; set; }
 
+        public string? CurrentDegree { get; set; }
+        public string? ProposedDegree { get; set; }
+
         public string? CurrentEducation { get; set; }
         public string? ProposedEducation { get; set; }
 

@@ -90,7 +90,8 @@ public partial class BookingService
         booking.Promotionid = promoResult.PromotionId;
         booking.Discountapplied = promoResult.DiscountAmount;
         var baseAmount = Math.Max(price - promoResult.DiscountAmount, 0);
-        var fees = BookingFeeCalculator.Calculate(baseAmount);
+        var (parentFeePct, tutorFeePct) = await commissionConfigService.GetFeePercentsAsync();
+        var fees = BookingFeeCalculator.Calculate(baseAmount, parentFeePct, tutorFeePct);
         var totalSessions = ResolvePaymentPhaseSessionCount(booking);
         var (depositAmount, remainingAmount) = BookingFeeCalculator.CalculatePaymentPhases(
             fees.FinalPrice, totalSessions);
@@ -105,7 +106,7 @@ public partial class BookingService
         await UpdatePromotionUsageCountAsync(previousPromotionId, promoResult.PromotionId.Value);
 
         await context.SaveChangesAsync();
-        return MapToResponse(booking, booking.Student, booking.Tutor, booking.Tutorsubjectgradeprice?.Subject);
+        return MapToResponse(booking, booking.Student, booking.Tutor, booking.Tutorsubjectgradeprice?.Subject, parentFeePct, tutorFeePct);
     }
 
     public async Task<PromotionCreatedResponse> CreatePromotionAsync(CreatePromotionRequest dto)

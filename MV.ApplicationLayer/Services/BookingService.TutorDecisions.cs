@@ -79,13 +79,14 @@ public partial class BookingService
         }
 
         var (counterpartId, counterpartIsStudent) = BookingPayerResolver.Resolve(booking);
+        var (parentFeePct, tutorFeePct) = await commissionConfigService.GetFeePercentsAsync();
 
         if (alreadyAccepted)
         {
             var existingChannelId = await chatService.GetOrCreateChannelAsync(counterpartId!, tutorId, counterpartIsStudent);
             return new TutorDecisionResponse
             {
-                Booking = MapToResponse(booking, booking.Student, booking.Tutor, booking.Tutorsubjectgradeprice?.Subject),
+                Booking = MapToResponse(booking, booking.Student, booking.Tutor, booking.Tutorsubjectgradeprice?.Subject, parentFeePct, tutorFeePct),
                 ChannelId = existingChannelId
             };
         }
@@ -143,7 +144,7 @@ public partial class BookingService
 
         return new TutorDecisionResponse
         {
-            Booking = MapToResponse(booking, booking.Student, booking.Tutor, booking.Tutorsubjectgradeprice?.Subject),
+            Booking = MapToResponse(booking, booking.Student, booking.Tutor, booking.Tutorsubjectgradeprice?.Subject, parentFeePct, tutorFeePct),
             ChannelId = channelId
         };
     }
@@ -219,7 +220,8 @@ public partial class BookingService
             logger.LogError(ex, "Failed to send decline notification for booking {BookingId}", bookingId);
         }
 
-        return MapToResponse(booking, booking.Student, booking.Tutor, booking.Tutorsubjectgradeprice?.Subject);
+        var (parentFeePct, tutorFeePct) = await commissionConfigService.GetFeePercentsAsync();
+        return MapToResponse(booking, booking.Student, booking.Tutor, booking.Tutorsubjectgradeprice?.Subject, parentFeePct, tutorFeePct);
     }
 
     private async Task RefundPaidBookingAsync(Booking booking, string description)

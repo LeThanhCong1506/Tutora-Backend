@@ -31,5 +31,10 @@ namespace MV.ApplicationLayer.ServiceInterfaces
         /// <summary>Trả lời câu hỏi tiếp theo dựa trên tóm tắt đã có + lịch sử hội thoại — không cần video nữa.</summary>
         Task<string> AskFollowUpAsync(
             string summaryText, IReadOnlyList<GeminiChatTurn> history, string question, CancellationToken ct = default);
+
+        /// <summary>Hợp nhất nhiều tóm tắt (mỗi buổi trong 1 chuỗi bù/phụ/học lại đã có tóm tắt riêng)
+        /// thành 1 bản tóm tắt liền mạch duy nhất — chỉ gửi text, không upload/đọc lại video nào.</summary>
+        Task<string> SynthesizeChainSummaryAsync(
+            IReadOnlyList<(string Label, string Summary)> legSummaries, CancellationToken ct = default);
     }
 }

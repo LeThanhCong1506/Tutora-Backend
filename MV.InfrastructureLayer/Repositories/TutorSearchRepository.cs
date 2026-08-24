@@ -87,6 +87,9 @@ namespace MV.InfrastructureLayer.Repositories
                     EF.Functions.ILike(AgoraDbContext.Unaccent(u.Fullname ?? ""), AgoraDbContext.Unaccent(searchPattern)) ||
                     EF.Functions.ILike(AgoraDbContext.Unaccent(u.Tutorprofile!.Headline ?? ""), AgoraDbContext.Unaccent(searchPattern)) ||
                     EF.Functions.ILike(AgoraDbContext.Unaccent(u.Tutorprofile!.Education ?? ""), AgoraDbContext.Unaccent(searchPattern)) ||
+                    // Học vị tách khỏi education từ 23/08/2026 — không thêm vế này thì gõ
+                    // "thac si" sẽ ngừng ra kết quả với những hồ sơ lưu theo schema mới.
+                    EF.Functions.ILike(AgoraDbContext.Unaccent(u.Tutorprofile!.Degree ?? ""), AgoraDbContext.Unaccent(searchPattern)) ||
                     u.Tutorprofile.Tutorsubjectgradeprices.Any(ts =>
                         ts.Subject!.IsActive &&
                         EF.Functions.ILike(AgoraDbContext.Unaccent(ts.Subject!.Subjectname ?? ""), AgoraDbContext.Unaccent(searchPattern)))
@@ -613,8 +616,12 @@ namespace MV.InfrastructureLayer.Repositories
                 ? label
                 : profile.Subscriptiontype?.ToUpper();
 
-            // Extract degree level from education
-            var degreeLevel = ExtractDegreeLevel(profile.Education);
+            // Học vị: hồ sơ mới có cột riêng, dùng thẳng. Hồ sơ cũ (degree NULL) vẫn phải đoán
+            // từ chuỗi education gộp như trước, nếu không thẻ gia sư trên trang tìm kiếm sẽ
+            // trống chỗ "bằng cấp" với toàn bộ dữ liệu trước 23/08/2026.
+            var degreeLevel = !string.IsNullOrWhiteSpace(profile.Degree)
+                ? profile.Degree
+                : ExtractDegreeLevel(profile.Education);
 
             // Lowest active price across all subject/grade offerings (for "Từ X đ/giờ").
             var minPricePerHour = profile.Tutorsubjectgradeprices?

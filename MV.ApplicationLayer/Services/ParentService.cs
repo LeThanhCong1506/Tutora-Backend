@@ -115,6 +115,7 @@ public class ParentService : IParentService
             .Include(l => l.Tutor)
                 .ThenInclude(t => t!.Tutor)
             .Include(l => l.ClassSessionReport)
+            .Include(l => l.InterruptedbyNavigation)
             .FirstOrDefaultAsync();
 
         if (classSession == null) return null;
@@ -172,6 +173,13 @@ public class ParentService : IParentService
             MeetingLink = classSession.Meetinglink,
             RequiresRemainingPayment = requiresRemainingPayment,
             ClassSessionPrice = classSession.Lessonprice,
+            IsContinuation = classSession.Iscontinuation,
+            IsDisputeRelearn = classSession.Isdisputerelearn,
+            SkipConfirmedByBothSides = classSession.Tutorskipconfirmedat.HasValue && classSession.Studentskipconfirmedat.HasValue,
+            OriginalClassSessionId = classSession.Originalsessionid,
+            InterruptedAt = classSession.Interruptedat,
+            InterruptReason = classSession.Interruptreason,
+            InterruptedByName = classSession.InterruptedbyNavigation?.Fullname,
             Student = classSession.Booking?.Student != null ? new ClassSessionStudentResponse
             {
                 StudentId = classSession.Booking.Student.Studentid,
@@ -339,8 +347,7 @@ public class ParentService : IParentService
                         .SingleOrDefaultAsync()
                         ?? throw new ClassSessionException(ClassSessionErrorCodes.ClassSessionNotFound, "Không tìm thấy booking của buổi học", 404);
 
-                    classSession = await _context.ClassSessions
-                        .FromSqlRaw(SqlQueries.LockClassSessionById, classSessionId)
+                    classSession = await ClassSessionLockHelper.LockById(_context, classSessionId)
                         .SingleOrDefaultAsync()
                         ?? throw new ClassSessionException(ClassSessionErrorCodes.ClassSessionNotFound, "Không tìm thấy buổi học", 404);
 
@@ -599,7 +606,11 @@ public class ParentService : IParentService
                         MeetingLink = l.Meetinglink,
                         CheckOutTime = l.Checkouttime,
                         HasRecording = RecordingStatusResolver.Resolve(l.Recordingurl, l.Recordings3key, l.Recordingsid, l.Checkouttime.HasValue).Status == "available",
-                        HasPendingReschedule = ResolveHasPendingReschedule(l.RescheduleProposals)
+                        HasPendingReschedule = ResolveHasPendingReschedule(l.RescheduleProposals),
+                        IsContinuation = l.Iscontinuation,
+                        IsDisputeRelearn = l.Isdisputerelearn,
+                        OriginalClassSessionId = l.Originalsessionid,
+                        SkipConfirmedByBothSides = l.Tutorskipconfirmedat.HasValue && l.Studentskipconfirmedat.HasValue
                     }).ToList()
                 })
                 .ToList();

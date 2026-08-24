@@ -96,7 +96,8 @@ public partial class PaymentService
                 var baseAmount = Math.Max(
                     (booking.Totalamount ?? 0) - (booking.Discountapplied ?? 0),
                     0);
-                var fees = BookingFeeCalculator.Calculate(baseAmount);
+                var (parentPct1, tutorPct1) = await commissionConfigService.GetFeePercentsAsync();
+                var fees = BookingFeeCalculator.Calculate(baseAmount, parentPct1, tutorPct1);
                 booking.Finalprice = fees.FinalPrice;
                 booking.Parentfee = fees.ParentFee;
                 booking.Platformfee = fees.PlatformFee;
@@ -183,7 +184,8 @@ public partial class PaymentService
             var baseAmount = Math.Max(
                 (booking.Totalamount ?? 0) - (booking.Discountapplied ?? 0),
                 0);
-            var fees = BookingFeeCalculator.Calculate(baseAmount);
+            var (parentPct1, tutorPct1) = await commissionConfigService.GetFeePercentsAsync();
+            var fees = BookingFeeCalculator.Calculate(baseAmount, parentPct1, tutorPct1);
             booking.Finalprice = fees.FinalPrice;
             booking.Parentfee = fees.ParentFee;
             booking.Platformfee = fees.PlatformFee;
@@ -214,15 +216,27 @@ public partial class PaymentService
                 409);
         }
 
+        var remainingDueAtFallback = booking.Paymentdueat ?? RemainingPaymentDeadlinePolicy.ComputeDeadline(
+            MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow,
+            await GetEarliestReservedSessionStartAsync(booking.Bookingid));
+
         return await GetOrCreatePaymentRequestInfoAsync(
             booking,
             userId,
             PaymentRequestPhase.Remaining,
             (int)(booking.Remainingamount ?? 0),
-            booking.Paymentdueat
-                ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow.AddHours(48),
+            remainingDueAtFallback,
             $"Tra not Booking #{booking.Bookingid}");
     }
+
+    /// <summary>Dùng cho fallback khi Booking.Paymentdueat chưa từng được gán (không nên xảy ra ở
+    /// đường bình thường, chỉ phòng hộ) — xem RemainingPaymentDeadlinePolicy.</summary>
+    private Task<DateTime?> GetEarliestReservedSessionStartAsync(int bookingId)
+        => context.ClassSessions
+            .Where(x => x.Bookingid == bookingId && x.Status == ClassSessionStatus.Reserved)
+            .OrderBy(x => x.Scheduledstart)
+            .Select(x => (DateTime?)x.Scheduledstart)
+            .FirstOrDefaultAsync();
 
     private async Task<PaymentInfoResponse> GetOrCreatePaymentRequestInfoAsync(
         Booking booking,
@@ -828,7 +842,8 @@ public partial class PaymentService
                     (booking.Totalamount ?? 0)
                     - (booking.Discountapplied ?? 0),
                     0);
-                var fees = BookingFeeCalculator.Calculate(baseAmount);
+                var (parentPct1, tutorPct1) = await commissionConfigService.GetFeePercentsAsync();
+                var fees = BookingFeeCalculator.Calculate(baseAmount, parentPct1, tutorPct1);
                 booking.Finalprice = fees.FinalPrice;
                 booking.Parentfee = fees.ParentFee;
                 booking.Platformfee = fees.PlatformFee;
@@ -880,7 +895,9 @@ public partial class PaymentService
         }
 
         var remainingDueAt = booking.Paymentdueat
-            ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow.AddHours(48);
+            ?? RemainingPaymentDeadlinePolicy.ComputeDeadline(
+                MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow,
+                await GetEarliestReservedSessionStartAsync(booking.Bookingid));
         if (remainingDueAt <= MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow)
         {
             throw new BookingException(

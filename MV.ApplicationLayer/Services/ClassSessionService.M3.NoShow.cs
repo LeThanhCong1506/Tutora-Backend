@@ -24,7 +24,8 @@ public partial class ClassSessionService
             ? await _context.Studentprofiles.Where(s => s.Parentid == userId).Select(s => s.Studentid).ToListAsync()
             : await _context.Studentprofiles.Where(s => s.Studentid == userId || s.Linkeduserid == userId).Select(s => s.Studentid).ToListAsync();
 
-        var classSession = await _context.ClassSessions
+        var ownedSession = await _context.ClassSessions
+            .AsNoTracking()
             .Include(l => l.Booking)
             .FirstOrDefaultAsync(l => l.Classsessionid == classSessionId && studentIds.Contains(l.Studentid!))
             ?? throw new ClassSessionException(ClassSessionErrorCodes.ClassSessionNotFound, "Không tìm thấy buổi học hoặc bạn không có quyền truy cập", 404);
@@ -36,15 +37,14 @@ public partial class ClassSessionService
                 throw new ClassSessionException(BookingErrorCodes.StudentManagedByParent, "Tài khoản học sinh do phụ huynh quản lý không thể tự báo cáo vắng mặt", 403);
         }
 
-        var now = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
-
-        if (classSession.Status != Scheduled)
+        // Fast-fail trước khi upload evidence (UX) — nguồn sự thật thật sự là re-check sau khi
+        // lock bên dưới, vì đọc không lock ở đây có thể đã cũ (stale) so với lúc ghi thật.
+        if (ownedSession.Status != Scheduled)
             throw new ClassSessionException(ClassSessionErrorCodes.InvalidClassSessionStatus, "Buổi học không ở trạng thái đã lên lịch", 400);
-        if (DisputeSettlementPolicy.IsTerminalBooking(classSession.Booking?.Status))
+        if (DisputeSettlementPolicy.IsTerminalBooking(ownedSession.Booking?.Status))
             throw new ClassSessionException(ClassSessionErrorCodes.InvalidClassSessionStatus, "Booking đã kết thúc, không thể tạo báo cáo mới", 400);
 
-        classSession.Status = NoShow;
-        classSession.Istutorpresent = false;
+        var now = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 
         // Reported time is advisory context for admin only — not a gate (no more 15-minute
         // requirement, per product decision to let the reporter flag no-show any time the
@@ -57,7 +57,9 @@ public partial class ClassSessionService
         var uploadedEvidence = new List<string>();
         var evidenceFolder = $"dispute-evidence-{classSessionId}";
         Dispute dispute;
+        ClassSession classSession;
 
+        await using var tx = await _context.Database.BeginTransactionAsync();
         try
         {
             if (request?.Files?.Count > 0)
@@ -71,6 +73,23 @@ public partial class ClassSessionService
                         file));
                 }
             }
+
+            // Lock + re-check ngay trước khi ghi Status — tránh đè lên claim "chỉ mình gia sư có
+            // mặt" nếu SubmitReportAsync (nhánh solo tutor no-show) vừa commit trước trên đúng
+            // buổi này (2 actor có thể cùng nhắm vào field Status của 1 session không có
+            // concurrency token, xem ClassSessionService.M3.Attendance.cs).
+            classSession = await ClassSessionLockHelper.LockById(_context, classSessionId)
+                .Include(l => l.Booking)
+                .SingleOrDefaultAsync()
+                ?? throw new ClassSessionException(ClassSessionErrorCodes.ClassSessionNotFound, "Không tìm thấy buổi học", 404);
+
+            if (classSession.Status != Scheduled)
+                throw new ClassSessionException(ClassSessionErrorCodes.InvalidClassSessionStatus, "Buổi học không còn ở trạng thái đã lên lịch (có thể vừa được xử lý bởi luồng khác)", 400);
+            if (DisputeSettlementPolicy.IsTerminalBooking(classSession.Booking?.Status))
+                throw new ClassSessionException(ClassSessionErrorCodes.InvalidClassSessionStatus, "Booking đã kết thúc, không thể tạo báo cáo mới", 400);
+
+            classSession.Status = NoShow;
+            classSession.Istutorpresent = false;
 
             // Auto-create dispute record to track no-show, including evidence in the same request.
             dispute = new Dispute
@@ -87,9 +106,11 @@ public partial class ClassSessionService
             _context.Disputes.Add(dispute);
 
             await _context.SaveChangesAsync();
+            await tx.CommitAsync();
         }
         catch
         {
+            await tx.RollbackAsync();
             foreach (var fileUrl in uploadedEvidence)
             {
                 try
@@ -215,8 +236,7 @@ public partial class ClassSessionService
                     "Báo cáo vắng mặt chưa được admin xác nhận. Vui lòng chờ kết quả kiểm tra.",
                     409);
 
-            var classSession = await _context.ClassSessions
-                .FromSqlRaw(SqlQueries.LockClassSessionById, classSessionId)
+            var classSession = await ClassSessionLockHelper.LockById(_context, classSessionId)
                 .Include(l => l.Booking)
                     .ThenInclude(b => b!.Student)
                 .SingleOrDefaultAsync()

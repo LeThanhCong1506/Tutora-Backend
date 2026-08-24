@@ -14,11 +14,11 @@ namespace MV.ApplicationLayer.Services
 
         public async Task<VerificationProgressResponse?> GetVerificationProgressAsync(string userId)
         {
-            var user = await _unitOfWork.UserRepository.GetUserByIdAsync(userId);
+            var user = await _userRepository.GetUserByIdAsync(userId);
             if (user == null) return null;
 
-            var profile = await _unitOfWork.TutorRepository.GetTutorProfileByIdAsync(userId);
-            var certificates = await _unitOfWork.TutorRepository.GetCertificatesByTutorIdAsync(userId);
+            var profile = await _tutorRepository.GetTutorProfileByIdAsync(userId);
+            var certificates = await _tutorRepository.GetCertificatesByTutorIdAsync(userId);
 
             // Nếu tutor đã Active và có 1 bản chỉnh sửa đang chờ Admin duyệt (Redis), hiển thị
             // cho CHÍNH tutor đó nội dung họ vừa nộp — KHÔNG áp dụng lên `profile` (tracked
@@ -37,6 +37,7 @@ namespace MV.ApplicationLayer.Services
                         Teachingareacity = pendingUpdate.TeachingAreaCity ?? profile.Teachingareacity,
                         Teachingareadistrict = pendingUpdate.TeachingAreaDistrict ?? profile.Teachingareadistrict,
                         Bio = pendingUpdate.Bio ?? profile.Bio,
+                        Degree = pendingUpdate.Degree ?? profile.Degree,
                         Education = pendingUpdate.Education ?? profile.Education,
                         Gpa = pendingUpdate.Gpa ?? profile.Gpa,
                         Gpascale = pendingUpdate.GpaScale ?? profile.Gpascale,
@@ -100,6 +101,7 @@ namespace MV.ApplicationLayer.Services
                 Status = isComplete ? SectionStatus.Updated : SectionStatus.InProgress,
                 UpdatedAt = isComplete && profile?.Updatedat != null ? profile.Updatedat.Value : (DateTime?)null,
                 Bio = profile?.Bio,
+                Degree = profile?.Degree,
                 Education = profile?.Education,
                 Gpa = profile?.Gpa,
                 GpaScale = profile?.Gpascale,

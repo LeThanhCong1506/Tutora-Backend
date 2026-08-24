@@ -8,6 +8,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
+using System.Text.RegularExpressions;
 using System.Threading.RateLimiting;
 using MV.ApplicationLayer.Hubs;
 using MV.ApplicationLayer.Interfaces;
@@ -23,7 +24,6 @@ using MV.DomainLayer.Configuration;
 using MV.DomainLayer.Interfaces;
 using MV.DomainLayer.Settings;
 using MV.DomainLayer.DTO;
-using MV.InfrastructureLayer;
 using MV.InfrastructureLayer.DBContext;
 using MV.InfrastructureLayer.ExternalServices;
 using MV.InfrastructureLayer.Repositories;
@@ -191,13 +191,24 @@ builder.Services.AddMemoryCache();
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
 
+// Khớp origin http(s)://<private-lan-ip>:<port> — dùng cho SetIsOriginAllowed ở policy CORS bên dưới.
+static bool IsLocalNetworkOrigin(string origin)
+{
+    if (!Uri.TryCreate(origin, UriKind.Absolute, out var uri))
+        return false;
+
+    return Regex.IsMatch(uri.Host,
+        @"^(192\.168\.\d{1,3}\.\d{1,3}|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3})$");
+}
+
 // Thêm CORS
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowReactApp",
         policy =>
         {
-            policy.WithOrigins(
+            var allowedOrigins = new HashSet<string>(new[]
+            {
                     "https://localhost:7203", "http://localhost:5173", "http://localhost:5174", "http://localhost:5166",
                     "http://localhost:5180",
                     // Next.js dev server (apps/web-next)
@@ -210,7 +221,14 @@ builder.Services.AddCors(options =>
                     // Developer app
                     "https://tutora-developer.vercel.app", "https://cms-tutora-fe.vercel.app", "https://cms.tutora.vn",
                     // Zalo Mini App domains
-                    "https://h5.zalo.me", "https://h5.zadn.vn", "https://h5.zdn.vn", "https://miniapp-cdn.zalo.me")
+                    "https://h5.zalo.me", "https://h5.zadn.vn", "https://h5.zdn.vn", "https://miniapp-cdn.zalo.me",
+            });
+
+            policy.SetIsOriginAllowed(origin =>
+                    allowedOrigins.Contains(origin)
+                    // Dev-only: cho phép mở FE (vite --host) từ điện thoại/thiết bị khác cùng
+                    // mạng LAN để test giao diện, mà không phải hardcode IP máy từng dev vào đây.
+                    || (builder.Environment.IsDevelopment() && IsLocalNetworkOrigin(origin)))
                   .AllowAnyHeader()
                   .AllowAnyMethod()
                   // AllowAnyHeader chỉ áp dụng cho REQUEST header. Muốn JS đọc được
@@ -320,6 +338,9 @@ builder.Services.AddScoped<ITutorSearchRepository, TutorSearchRepository>();
 builder.Services.AddScoped<IStaffPermissionRepository, StaffPermissionRepository>();
 builder.Services.AddScoped<IPermissionGroupRepository, PermissionGroupRepository>();
 builder.Services.AddScoped<ILearningMaterialRepository, LearningMaterialRepository>();
+builder.Services.AddScoped<IAssessmentRepository, AssessmentRepository>();
+builder.Services.AddScoped<IQuestionRepository, QuestionRepository>();
+builder.Services.AddScoped<ISourceDocumentRepository, SourceDocumentRepository>();
 
 // Service injection
 builder.Services.AddScoped<ITutorVerificationService, TutorVerificationService>();
@@ -362,6 +383,8 @@ builder.Services.AddScoped<IQuestionNoteService, QuestionNoteService>();
 builder.Services.AddScoped<IPaymentService, PaymentService>();
 builder.Services.AddScoped<IWalletService, WalletService>();
 builder.Services.AddScoped<IAiCreditService, AiCreditService>();
+builder.Services.AddScoped<ICommissionConfigService, CommissionConfigService>();
+builder.Services.AddScoped<IWithdrawalLimitService, WithdrawalLimitService>();
 builder.Services.AddScoped<IClassSessionService, ClassSessionService>();
 builder.Services.AddScoped<ISessionLogService, SessionLogService>();
 builder.Services.AddScoped<IClassSessionScheduleChangeService, ClassSessionScheduleChangeService>();
@@ -471,8 +494,6 @@ builder.Services.AddScoped<ITutorAiClient, TutorAiClient>();
 builder.Services.AddScoped<ITutorRecommendService, TutorRecommendService>();
 builder.Services.AddScoped<ITutorSuggestionService, TutorSuggestionService>();
 
-//Unit of work
-builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
 
 // Background job
 //builder.Services.AddHostedService<EmailConsumerService>();
@@ -485,6 +506,7 @@ builder.Services.AddHostedService<ClassSessionReminderJob>();
 builder.Services.AddHostedService<ClassSessionRescheduleProposalExpiryJob>();
 builder.Services.AddHostedService<RemainingPaymentTriggerJob>();
 builder.Services.AddHostedService<AutoEndLiveSessionJob>();
+builder.Services.AddHostedService<InterruptedSessionAutoCloseJob>();
 builder.Services.AddHostedService<GhostUserCleanupJob>();
 builder.Services.AddHostedService<ZaloTokenRefreshJob>();
 builder.Services.AddSingleton<ITutorEmbedQueue, TutorEmbedQueue>();
@@ -678,13 +700,14 @@ if (app.Environment.IsDevelopment())
 
 // ffmpeg cho ClassSessionVideoAiService (tách audio khỏi video buổi học trước khi gửi Gemini) —
 // production có sẵn qua Dockerfile (apt-get install ffmpeg, nằm trên PATH hệ thống của container).
-// Máy dev thường KHÔNG tự có ffmpeg, và PATH mới cài (winget/choco) không được các tiến trình đã
-// chạy sẵn từ trước đó (VS, terminal cũ...) nhận ngay — phải đóng mở lại mọi cửa sổ liên quan mới
-// thấy. Nếu vẫn không ăn thua (hoặc muốn né hẳn vụ đó), set biến môi trường FFMPEG_BINARY_FOLDER
-// trỏ thẳng tới thư mục chứa ffmpeg.exe trên máy bạn — set 1 lần ở System/User Environment Variables
-// (không phải file trong repo, nên không đụng máy người khác). Để trống thì dùng PATH hệ thống bình
-// thường như production.
-var ffmpegBinaryFolder = Environment.GetEnvironmentVariable("FFMPEG_BINARY_FOLDER");
+// Máy dev thường KHÔNG tự có ffmpeg. Ưu tiên đọc từ appsettings.Development.json (đọc lại mỗi lần
+// process khởi động, không phụ thuộc việc Windows đã broadcast WM_SETTINGCHANGE cho tiến trình nào
+// hay chưa — set biến môi trường User/System xong vẫn cần đóng HẲN mọi tiến trình đang chạy từ
+// trước đó rồi mở lại mới thấy, nên dùng appsettings chắc ăn hơn để tự set 1 lần là chạy được ngay).
+// Env var FFMPEG_BINARY_FOLDER vẫn được đọc làm phương án dự phòng (không có trong appsettings thì
+// dùng cái này, để trống cả 2 thì dùng PATH hệ thống bình thường như production).
+var ffmpegBinaryFolder = builder.Configuration["FFMPEG_BINARY_FOLDER"]
+    ?? Environment.GetEnvironmentVariable("FFMPEG_BINARY_FOLDER");
 if (!string.IsNullOrWhiteSpace(ffmpegBinaryFolder))
     GlobalFFOptions.Configure(new FFOptions { BinaryFolder = ffmpegBinaryFolder });
 
