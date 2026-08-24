@@ -16,6 +16,39 @@ namespace MV.ApplicationLayer.Helpers
         public readonly record struct CommittedSession(DateTime Start, DateTime End);
 
         /// <summary>
+        /// Tên thứ tiếng Việt từ ISO day-of-week (1=Thứ Hai..6=Thứ Bảy, 7=Chủ Nhật) — dùng cho
+        /// thông báo lỗi. KHÔNG được in thẳng số ISO với tiền tố "thứ" (vd "thứ 6" cho ISO 6) vì
+        /// ISO 6 = Thứ Bảy, không phải Thứ Sáu — lệch 1 so với cách đọc số của tiếng Việt.
+        /// </summary>
+        public static string IsoDayOfWeekToVietnameseName(int isoDayOfWeek) => isoDayOfWeek switch
+        {
+            1 => "Thứ Hai",
+            2 => "Thứ Ba",
+            3 => "Thứ Tư",
+            4 => "Thứ Năm",
+            5 => "Thứ Sáu",
+            6 => "Thứ Bảy",
+            7 => "Chủ Nhật",
+            _ => $"thứ {isoDayOfWeek}",
+        };
+
+        /// <summary>
+        /// "HH:mm" đã lưu (giờ UTC) → giờ Việt Nam (+7), CHỈ dùng để đưa vào thông báo lỗi cho
+        /// người đọc — không dùng cho logic lưu trữ/so sánh (những chỗ đó vẫn giữ nguyên UTC như
+        /// cũ). Đúng cho khung giờ dạy học thông thường (không vượt mốc nửa đêm UTC — vd 07:00–22:00
+        /// giờ VN tương ứng 00:00–15:00 UTC), khớp cách FE tự quy đổi hiển thị (utils/datetime.ts).
+        /// Trả về nguyên chuỗi gốc nếu parse thất bại thay vì ném lỗi — đây chỉ là câu chữ hiển thị.
+        /// </summary>
+        public static string UtcTimeOfDayToVietnameseLocal(string hhmm)
+        {
+            if (!TimeOnly.TryParse(hhmm, out var time))
+                return hhmm;
+
+            var totalMinutes = (time.Hour * 60 + time.Minute + 7 * 60) % 1440;
+            return $"{totalMinutes / 60:D2}:{totalMinutes % 60:D2}";
+        }
+
+        /// <summary>
         /// Lấy các buổi dạy TƯƠNG LAI còn hiệu lực của tutor (đã đặt, chưa hủy/hoàn tất/vắng).
         /// Truyền packageId để chỉ lấy buổi thuộc 1 package cụ thể.
         /// </summary>

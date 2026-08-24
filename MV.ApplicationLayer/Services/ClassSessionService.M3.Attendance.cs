@@ -162,6 +162,17 @@ public partial class ClassSessionService
                 }
             }
         }
+        else if (classSession.Status == Scheduled && tutorPresent && !studentPresent && !roomClosed
+                 && classSession.Istutorpresent != true)
+        {
+            // Chỉ gia sư có mặt: ghi nhận NGAY (không đợi cả hai) để làm bằng chứng cho việc gửi
+            // báo cáo "học viên vắng mặt" sau này (SubmitReportAsync) — không đổi Status, buổi vẫn
+            // Scheduled bình thường, chỉ persist đúng 1 lần khi lần đầu phát hiện tutor solo.
+            await _context.ClassSessions
+                .Where(l => l.Classsessionid == classSessionId && l.Status == Scheduled)
+                .ExecuteUpdateAsync(s => s.SetProperty(l => l.Istutorpresent, true));
+            classSession.Istutorpresent = true;
+        }
 
         // Ghi hình đang chạy khi đã có Sid (được TryStartRecordingAsync gán, hoặc nạp sẵn từ DB
         // nếu buổi record ở nhịp heartbeat trước). Tính sau khối auto check-in để bắt cả 2 trường hợp.
@@ -482,18 +493,37 @@ public partial class ClassSessionService
         await using var tx = await _context.Database.BeginTransactionAsync();
         try
         {
+            // Lock trước khi đọc Status: nhánh "chỉ tutor có mặt" bên dưới và
+            // ReportTutorNoShowAsync (PHHS báo tutor không tới) đều có thể chuyển Status từ
+            // Scheduled cho CÙNG 1 session — không lock sẽ để bên ghi sau âm thầm đè lên claim
+            // của bên trước (ClassSession không có concurrency token).
             var classSession = await _context.ClassSessions
+                .FromSqlRaw(SqlQueries.LockClassSessionById, classSessionId)
                 .Include(l => l.Booking)
                     .ThenInclude(b => b!.Student)
                 .Include(l => l.ClassSessionReport)
-                .FirstOrDefaultAsync(l => l.Classsessionid == classSessionId && l.Tutorid == tutorId)
+                .SingleOrDefaultAsync()
                 ?? throw new ClassSessionException(ClassSessionErrorCodes.ClassSessionNotFound, "Không tìm thấy buổi học", 404);
 
-            // Yêu cầu buổi đã được check-in (in_progress). Check-in nay là auto khi cả gia sư và
-            // học viên cùng vào phòng, nên điều kiện này đảm bảo chỉ những buổi thật sự diễn ra
-            // (cả 2 có mặt) mới gửi được báo cáo → mới đi tiếp tới thanh toán.
+            if (classSession.Tutorid != tutorId)
+                throw new ClassSessionException(ClassSessionErrorCodes.ClassSessionNotFound, "Không tìm thấy buổi học", 404);
+
+            var now = TimeZoneHelper.UtcNow;
+
+            // Nhánh bình thường: buổi đã check-in (cả hai có mặt) → InProgress. Check-in nay là auto
+            // khi cả gia sư và học viên cùng vào phòng, nên điều kiện này đảm bảo chỉ những buổi thật
+            // sự diễn ra (cả 2 có mặt) mới gửi được báo cáo → mới đi tiếp tới thanh toán.
             //
-            // Ngoại lệ: buổi bị báo ngắt (status=interrupted) không bao giờ tự quay lại in_progress
+            // Ngoại lệ 1: chỉ gia sư có mặt (đã ghi Istutorpresent=true ở TryAutoCheckInAsync khi
+            // học viên không vào phòng) và đã qua giờ kết thúc dự kiến — coi như học viên vắng mặt,
+            // cho gia sư tự báo cáo để đi tiếp vào đúng pipeline xác nhận/tự-động-thanh-toán 12h sẵn
+            // có (PHHS vẫn có cửa sổ đó để phản đối nếu thấy không hợp lý).
+            var isSoloTutorNoShow = classSession.Status == Scheduled
+                && classSession.Istutorpresent == true
+                && classSession.Isstudentpresent != true
+                && now > classSession.Scheduledend;
+
+            // Ngoại lệ 2: buổi bị báo ngắt (status=interrupted) không bao giờ tự quay lại in_progress
             // được nữa (xem RequestInterruptionAsync), nên nếu không xử lý riêng, gia sư sẽ vĩnh
             // viễn không gửi được báo cáo cho phần ĐÃ dạy thật (VD 80%) khi 2 bên đồng ý bỏ hẳn
             // buổi phụ thay vì học nốt. Cho phép gửi báo cáo khi CẢ 2 bên đã xác nhận bỏ buổi phụ
@@ -507,23 +537,24 @@ public partial class ClassSessionService
             var bothSidesSkippedContinuation = continuationToCancel?.Tutorskipconfirmedat != null
                 && continuationToCancel.Studentskipconfirmedat != null;
 
-            if (classSession.Status != InProgress && !bothSidesSkippedContinuation)
+            // Yêu cầu buổi đã được check-in (in_progress), HOẶC là 1 trong 2 ngoại lệ ở trên.
+            if (classSession.Status != InProgress && !isSoloTutorNoShow && !bothSidesSkippedContinuation)
                 throw new ClassSessionException(
                     ClassSessionErrorCodes.InvalidClassSessionStatus,
-                    "Buổi học phải đang diễn ra (đã điểm danh vào), hoặc đã bị ngắt và cả 2 bên đã đồng ý bỏ buổi phụ, mới gửi được báo cáo",
+                    "Buổi học phải đang diễn ra (đã điểm danh vào), hoặc học viên không vào lớp sau giờ kết thúc, hoặc đã bị ngắt và cả 2 bên đã đồng ý bỏ buổi phụ, mới gửi được báo cáo",
                     400);
 
             if (classSession.ClassSessionReport != null)
                 throw new ClassSessionException(ClassSessionErrorCodes.ReportAlreadySubmitted, "Báo cáo buổi học đã được gửi rồi", 400);
-
-            var now = TimeZoneHelper.UtcNow;
 
             classSession.Lessoncontent = request.ContentCovered;
             classSession.Homework = request.HomeworkAssigned;
             classSession.Tutornotes = request.TutorNotes;
             // Điểm danh có mặt (Istutorpresent/Isstudentpresent) đã được ghi lúc auto check-in từ
             // presence THẬT — không ghi đè bằng giá trị tự khai trong request. Chỉ nhận ghi chú.
-            classSession.Attendancenote = request.AttendanceNote;
+            classSession.Attendancenote = isSoloTutorNoShow
+                ? $"[Học viên không vào lớp] {request.AttendanceNote}".Trim()
+                : request.AttendanceNote;
             classSession.Status = PendingConfirmation;
             classSession.Submittedat = now;
             classSession.Confirmdeadline = now.AddHours(12);

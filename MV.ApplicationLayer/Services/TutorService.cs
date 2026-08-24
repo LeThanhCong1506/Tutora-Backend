@@ -396,7 +396,7 @@ namespace MV.ApplicationLayer.Services
                 var slotEnd = TimeOnly.Parse(s.EndTime).ToTimeSpan();
                 if (TutorScheduleGuard.OverlapsWeeklySlot(committed, s.DayOfWeek, slotStart, slotEnd))
                     throw new InvalidOperationException(
-                        $"Không thể tạo khung {s.StartTime}-{s.EndTime} (thứ {s.DayOfWeek}) vì đã có buổi dạy được đặt ở khung giờ này.");
+                        $"Không thể tạo khung {TutorScheduleGuard.UtcTimeOfDayToVietnameseLocal(s.StartTime)}-{TutorScheduleGuard.UtcTimeOfDayToVietnameseLocal(s.EndTime)} ({TutorScheduleGuard.IsoDayOfWeekToVietnameseName(s.DayOfWeek)}) vì đã có buổi dạy được đặt ở khung giờ này.");
             }
 
             var now = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
@@ -509,7 +509,7 @@ namespace MV.ApplicationLayer.Services
                 var slotEnd = TimeOnly.Parse(s.EndTime).ToTimeSpan();
                 if (TutorScheduleGuard.OverlapsWeeklySlot(allCommitted, s.DayOfWeek, slotStart, slotEnd))
                     throw new InvalidOperationException(
-                        $"Không thể đặt khung {s.StartTime}-{s.EndTime} (thứ {s.DayOfWeek}) vì đã có buổi dạy được đặt ở khung giờ này.");
+                        $"Không thể đặt khung {TutorScheduleGuard.UtcTimeOfDayToVietnameseLocal(s.StartTime)}-{TutorScheduleGuard.UtcTimeOfDayToVietnameseLocal(s.EndTime)} ({TutorScheduleGuard.IsoDayOfWeekToVietnameseName(s.DayOfWeek)}) vì đã có buổi dạy được đặt ở khung giờ này.");
             }
 
             var now = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;

@@ -23,4 +23,11 @@ public interface IAdminBookingService
     /// Returns null when bookingId does not exist.
     /// </summary>
     Task<AdminBookingDetailResponse?> GetAdminBookingDetailAsync(int bookingId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Staff hủy booking sau khi xác minh NGOÀI hệ thống (qua tổng đài) rằng phụ huynh đã "nghỉ
+    /// ngang". Giải ngân toàn bộ escrow còn lại cho gia sư. Trả về false nếu booking không tồn
+    /// tại hoặc không ở trạng thái hợp lệ để hủy (đã terminal, hoặc có buổi đang mid-flight).
+    /// </summary>
+    Task<bool> CancelGhostBookingAsync(int bookingId, string adminId, string reason, CancellationToken ct = default);
 }

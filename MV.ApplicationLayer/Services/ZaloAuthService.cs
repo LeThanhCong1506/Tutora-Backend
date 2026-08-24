@@ -125,8 +125,14 @@ namespace MV.ApplicationLayer.Services
                 ?? _configuration[ConfigurationKeys.ZaloOA.AppSecretKey]
                 ?? string.Empty;
 
-            var url = $"{GraphMeEndpoint}?access_token={Uri.EscapeDataString(accessToken)}&fields=id,name,picture";
+            // access_token PHẢI đi qua header, không phải query string — Zalo vẫn trả 200 OK khi
+            // truyền qua query (kiểu cũ/deprecated) kèm cảnh báo "AccessToken should be placed in
+            // header", NHƯNG "id" trả về ở chế độ đó KHÔNG ổn định giữa các lần đăng nhập (đổi mỗi
+            // lần access_token mới), khiến GetUserByZaloIdAsync không bao giờ khớp lại được tài
+            // khoản cũ khi đăng nhập từ trình duyệt/thiết bị khác.
+            var url = $"{GraphMeEndpoint}?fields=id,name,picture";
             var httpRequest = new HttpRequestMessage(HttpMethod.Get, url);
+            httpRequest.Headers.Add("access_token", accessToken);
             if (!string.IsNullOrEmpty(appSecret))
                 httpRequest.Headers.Add("secret_key", appSecret);
 
