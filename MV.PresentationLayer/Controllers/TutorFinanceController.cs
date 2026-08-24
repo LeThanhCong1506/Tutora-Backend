@@ -92,6 +92,14 @@ public class TutorFinanceController(ITutorFinanceService financeService) : Contr
         }
     }
 
+    [HttpGet("finance/escrow-status")]
+    public async Task<IActionResult> GetEscrowStatus(CancellationToken ct)
+    {
+        SetNoCacheResponseHeaders();
+        var result = await financeService.GetEscrowStatusAsync(TutorId, ct);
+        return Ok(APIResponse<object>.Success(result));
+    }
+
     // GET/PUT/DELETE bank — moved to BankAccountController (api/bank-account), shared with
     // Parent/Student, now OTP-gated.
 

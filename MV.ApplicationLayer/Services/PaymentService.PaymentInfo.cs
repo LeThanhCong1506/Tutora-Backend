@@ -96,7 +96,8 @@ public partial class PaymentService
                 var baseAmount = Math.Max(
                     (booking.Totalamount ?? 0) - (booking.Discountapplied ?? 0),
                     0);
-                var fees = BookingFeeCalculator.Calculate(baseAmount);
+                var (parentPct1, tutorPct1) = await commissionConfigService.GetFeePercentsAsync();
+                var fees = BookingFeeCalculator.Calculate(baseAmount, parentPct1, tutorPct1);
                 booking.Finalprice = fees.FinalPrice;
                 booking.Parentfee = fees.ParentFee;
                 booking.Platformfee = fees.PlatformFee;
@@ -183,7 +184,8 @@ public partial class PaymentService
             var baseAmount = Math.Max(
                 (booking.Totalamount ?? 0) - (booking.Discountapplied ?? 0),
                 0);
-            var fees = BookingFeeCalculator.Calculate(baseAmount);
+            var (parentPct1, tutorPct1) = await commissionConfigService.GetFeePercentsAsync();
+            var fees = BookingFeeCalculator.Calculate(baseAmount, parentPct1, tutorPct1);
             booking.Finalprice = fees.FinalPrice;
             booking.Parentfee = fees.ParentFee;
             booking.Platformfee = fees.PlatformFee;
@@ -840,7 +842,8 @@ public partial class PaymentService
                     (booking.Totalamount ?? 0)
                     - (booking.Discountapplied ?? 0),
                     0);
-                var fees = BookingFeeCalculator.Calculate(baseAmount);
+                var (parentPct1, tutorPct1) = await commissionConfigService.GetFeePercentsAsync();
+                var fees = BookingFeeCalculator.Calculate(baseAmount, parentPct1, tutorPct1);
                 booking.Finalprice = fees.FinalPrice;
                 booking.Parentfee = fees.ParentFee;
                 booking.Platformfee = fees.PlatformFee;

@@ -64,5 +64,13 @@ public static class ResolutionTypes
     /// </summary>
     public const string Custom = "custom";
 
-    public static readonly string[] All = { Release, Refund50, Refund100, Custom };
+    /// <summary>
+    /// Hủy toàn bộ các buổi CHƯA diễn ra còn lại của khóa học (đợt thanh toán 2 trở đi) và hoàn
+    /// cho phụ huynh theo giá gốc, KHÔNG gồm 5% phí dịch vụ (khác buổi học thử). Buổi đang bị
+    /// khiếu nại được settle bình thường như <see cref="Release"/> (gia sư giữ nguyên tiền buổi
+    /// đó nếu đã dạy đủ) — không nằm trong phần hoàn tiền của lựa chọn này.
+    /// </summary>
+    public const string CancelCourse = "cancel_course";
+
+    public static readonly string[] All = { Release, Refund50, Refund100, Custom, CancelCourse };
 }

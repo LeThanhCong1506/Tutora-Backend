@@ -731,6 +731,15 @@ public class ClassSessionAutoCloseInterruptedSessionsTests
 
         public Task<bool> FinalizeBookingEarlyByUserAsync(int bookingId, string userId, string? reason = null, CancellationToken ct = default)
             => throw new NotImplementedException();
+
+        public Task<bool> CancelGhostBookingAsync(int bookingId, string adminId, string? reason = null, CancellationToken ct = default)
+            => throw new NotImplementedException();
+
+        public Task<decimal> CancelRemainingSessionsAsync(int bookingId, string processedBy, string bookingStatus, string? reason, CancellationToken ct = default)
+            => throw new NotImplementedException();
+
+        public Task<CourseCancelPreviewResponse> PreviewCancelRemainingSessionsAsync(int bookingId, int? disputedSessionId = null, CancellationToken ct = default)
+            => throw new NotImplementedException();
     }
 }
 

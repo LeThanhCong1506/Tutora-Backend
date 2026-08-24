@@ -13,7 +13,9 @@ public static class DisputeSettlementPolicy
     public static bool IsTerminalBooking(string? bookingStatus)
         => bookingStatus is BookingStatus.Completed
             or BookingStatus.Cancelled
-            or BookingStatus.CancelledNoshow;
+            or BookingStatus.CancelledNoshow
+            or BookingStatus.CancelledByStaff
+            or BookingStatus.CancelledByDispute;
 
     public static bool IsEligibleClassSession(string? classSessionStatus)
         => classSessionStatus is PendingConfirmation or Completed;

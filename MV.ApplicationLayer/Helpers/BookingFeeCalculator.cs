@@ -2,13 +2,15 @@ namespace MV.ApplicationLayer.Helpers;
 
 public static class BookingFeeCalculator
 {
-    private const decimal ParentFeePercent = 0.05m;
-    private const decimal TutorFeePercent = 0.05m;
-
-    public static FeeResult Calculate(decimal baseAmount)
+    /// <summary>
+    /// parentFeePercent/tutorFeePercent là phân số (0.05 = 5%), lấy từ
+    /// ICommissionConfigService.GetFeePercentsAsync — admin chỉnh qua CMS, không còn hardcode ở
+    /// đây. Calculator giữ nguyên là hàm thuần (không tự đọc DB) để dễ test/tái sử dụng.
+    /// </summary>
+    public static FeeResult Calculate(decimal baseAmount, decimal parentFeePercent, decimal tutorFeePercent)
     {
-        var parentFee = Math.Round(baseAmount * ParentFeePercent, 2);
-        var tutorFeeCut = Math.Round(baseAmount * TutorFeePercent, 2);
+        var parentFee = Math.Round(baseAmount * parentFeePercent, 2);
+        var tutorFeeCut = Math.Round(baseAmount * tutorFeePercent, 2);
         var platformFee = parentFee + tutorFeeCut;
         var finalPrice = baseAmount + parentFee;
         var tutorReceivable = baseAmount - tutorFeeCut;
