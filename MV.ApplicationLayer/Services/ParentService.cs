@@ -347,8 +347,7 @@ public class ParentService : IParentService
                         .SingleOrDefaultAsync()
                         ?? throw new ClassSessionException(ClassSessionErrorCodes.ClassSessionNotFound, "Không tìm thấy booking của buổi học", 404);
 
-                    classSession = await _context.ClassSessions
-                        .FromSqlRaw(SqlQueries.LockClassSessionById, classSessionId)
+                    classSession = await ClassSessionLockHelper.LockById(_context, classSessionId)
                         .SingleOrDefaultAsync()
                         ?? throw new ClassSessionException(ClassSessionErrorCodes.ClassSessionNotFound, "Không tìm thấy buổi học", 404);
 

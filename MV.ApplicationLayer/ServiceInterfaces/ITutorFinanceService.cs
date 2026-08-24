@@ -25,6 +25,12 @@ public interface ITutorFinanceService
     /// </summary>
     Task<TransactionHistoryResponse> GetTransactionDetailAsync(string tutorId, int transactionId, CancellationToken ct = default);
 
+    /// <summary>
+    /// Net escrow currently held per booking (EscrowCredit - EscrowRelease - EscrowReversal, only
+    /// bookings where the net is still positive) — for the "current escrow status" dashboard section.
+    /// </summary>
+    Task<EscrowStatusResponse> GetEscrowStatusAsync(string tutorId, CancellationToken ct = default);
+
     // Bank account CRUD moved to IBankAccountService (api/bank-account, shared with Parent/Student,
     // now OTP-gated).
 

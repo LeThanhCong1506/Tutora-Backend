@@ -230,6 +230,57 @@ public class TutorFinanceService(
         };
     }
 
+    public async Task<EscrowStatusResponse> GetEscrowStatusAsync(string tutorId, CancellationToken ct = default)
+    {
+        var netByBooking = await context.Wallettransactions
+            .AsNoTracking()
+            .Where(t => t.Wallet!.Userid == tutorId
+                && t.Referenceid != null
+                && (t.Transactiontype == TransactionType.EscrowCredit
+                    || t.Transactiontype == TransactionType.EscrowRelease
+                    || t.Transactiontype == TransactionType.EscrowReversal))
+            .GroupBy(t => t.Referenceid)
+            .Select(g => new { BookingId = g.Key!.Value, HeldAmount = g.Sum(t => t.Amount ?? 0) })
+            .Where(x => x.HeldAmount > 0)
+            .ToListAsync(ct);
+
+        if (netByBooking.Count == 0)
+            return new EscrowStatusResponse();
+
+        var bookingIds = netByBooking.Select(x => x.BookingId).ToList();
+
+        var bookings = await context.Bookings
+            .AsNoTracking()
+            .Where(b => bookingIds.Contains(b.Bookingid))
+            .Include(b => b.Parent)
+            .Include(b => b.Student)
+            .Include(b => b.Tutorsubjectgradeprice).ThenInclude(t => t!.Subject)
+            .ToListAsync(ct);
+
+        var items = netByBooking
+            .Select(x =>
+            {
+                var booking = bookings.FirstOrDefault(b => b.Bookingid == x.BookingId);
+                return new EscrowStatusItemResponse
+                {
+                    BookingId = x.BookingId,
+                    HeldAmount = Math.Round(x.HeldAmount, 2),
+                    ParentName = booking?.Parent?.Fullname ?? "—",
+                    StudentName = booking?.Student?.Fullname ?? "—",
+                    SubjectName = booking?.Subject?.Subjectname,
+                    BookingStatus = booking?.Status
+                };
+            })
+            .OrderByDescending(i => i.HeldAmount)
+            .ToList();
+
+        return new EscrowStatusResponse
+        {
+            Items = items,
+            TotalHeld = items.Sum(i => i.HeldAmount)
+        };
+    }
+
     // Bank account CRUD (GetBankInfoAsync/UpdateBankInfoAsync/DeleteBankInfoAsync) moved to the
     // shared BankAccountService/BankAccountController (api/bank-account) — Parent/Student now
     // need the same feature, and it now requires OTP verification on every write.
