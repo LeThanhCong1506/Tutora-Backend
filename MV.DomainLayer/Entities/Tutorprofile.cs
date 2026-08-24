@@ -14,10 +14,14 @@ public partial class Tutorprofile
 
     public string? Videointrourl { get; set; }
 
-    public string? Education { get; set; }
-
-    /// <summary>Học vị (Cử nhân, Thạc sĩ, Tiến sĩ...). Education chỉ còn dùng cho tên trường.</summary>
+    /// <summary>
+    /// Học vị (Cử nhân, Thạc sĩ, Tiến sĩ...) — chọn từ danh sách cố định ở FE.
+    /// NULL với hồ sơ tạo trước 23/08/2026, khi học vị còn nằm lẫn trong <see cref="Education"/>.
+    /// </summary>
     public string? Degree { get; set; }
+
+    /// <summary>Tên trường. Từ 23/08/2026 KHÔNG còn chứa học vị — xem <see cref="Degree"/>.</summary>
+    public string? Education { get; set; }
 
     public double? Gpascale { get; set; }
 

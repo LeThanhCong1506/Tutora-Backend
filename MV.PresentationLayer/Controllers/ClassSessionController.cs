@@ -70,6 +70,25 @@ public class ClassSessionController(
     }
 
     /// <summary>
+    /// GET /api/class-sessions/{id}/recording-chain
+    /// Toàn bộ chuỗi buổi liên kết (bù/phụ/học lại) chứa buổi này, kèm trạng thái ghi hình riêng
+    /// từng buổi — chuỗi chỉ có 1 phần tử (chính buổi này) khi chưa từng liên kết.
+    /// </summary>
+    [HttpGet("class-sessions/{id}/recording-chain")]
+    [Authorize(Roles = UserRole.ParentOrStudentOrTutor)]
+    public async Task<IActionResult> GetClassSessionRecordingChain([FromRoute] int id)
+    {
+        var userId = UserId ?? string.Empty;
+        var isParent = User.IsInRole(UserRole.Parent);
+        var result = await classSessionService.GetClassSessionRecordingChainAsync(id, userId, isParent);
+
+        if (result == null)
+            return NotFound(new { message = ApiMessages.ClassSessionNotFound });
+
+        return Ok(MV.DomainLayer.DTO.APIResponse<List<ClassSessionRecordingChainItem>>.Success(result, ApiMessages.Success));
+    }
+
+    /// <summary>
     /// GET /api/class-sessions/{id}/recording/stream?token=...
     /// Proxy phát video từ Google Drive (file luôn ở chế độ private trên Drive). Quyền xem do
     /// chính token ngắn hạn (phát bởi GetClassSessionRecordingAsync / DisputeService) quyết định —
@@ -197,6 +216,105 @@ public class ClassSessionController(
         catch (ClassSessionException ex)
         {
             return StatusCode(ex.HttpStatus, MV.DomainLayer.DTO.APIResponse<object>.Fail(ex.Message, ex.HttpStatus));
+        }
+    }
+
+    /// <summary>
+    /// POST /api/class-sessions/{id}/request-interruption
+    /// Gia sư/học sinh/phụ huynh báo buổi đang in_progress bị ngắt giữa chừng vì sự cố đột xuất.
+    /// Tạo buổi phụ (Iscontinuation=true) để học nốt trong ngày; buổi gốc chuyển "interrupted".
+    /// </summary>
+    [HttpPost("class-sessions/{id:int}/request-interruption")]
+    [Authorize(Roles = UserRole.ParentOrStudentOrTutor)]
+    public async Task<IActionResult> RequestInterruption([FromRoute] int id, [FromBody] RequestInterruptionRequest? request)
+    {
+        var userId = UserId ?? throw new UnauthorizedAccessException();
+        try
+        {
+            var result = await classSessionService.RequestInterruptionAsync(id, userId, request?.Reason);
+            return Ok(MV.DomainLayer.DTO.APIResponse<ClassSessionDetailResponse>.Success(result, "Đã báo buổi học bị ngắt, buổi phụ đã được tạo."));
+        }
+        catch (ClassSessionException ex)
+        {
+            return StatusCode(ex.HttpStatus, MV.DomainLayer.DTO.APIResponse<object>.Fail(ex.Message, ex.HttpStatus));
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(403, MV.DomainLayer.DTO.APIResponse<object>.Fail(ex.Message, 403));
+        }
+    }
+
+    /// <summary>
+    /// GET /api/class-sessions/{id}/interruption-eligibility
+    /// Cho FE biết ngay trong lúc học buổi đang in_progress đã đủ % tối thiểu để báo ngắt giữa
+    /// chừng chưa — tránh phải bấm "Báo buổi học bị ngắt" mới biết bị từ chối.
+    /// </summary>
+    [HttpGet("class-sessions/{id:int}/interruption-eligibility")]
+    [Authorize(Roles = UserRole.ParentOrStudentOrTutor)]
+    public async Task<IActionResult> GetInterruptionEligibility([FromRoute] int id)
+    {
+        var userId = UserId ?? throw new UnauthorizedAccessException();
+        try
+        {
+            var result = await classSessionService.GetInterruptionEligibilityAsync(id, userId);
+            return Ok(MV.DomainLayer.DTO.APIResponse<ClassSessionInterruptionEligibilityResponse>.Success(result, ApiMessages.Success));
+        }
+        catch (ClassSessionException ex)
+        {
+            return StatusCode(ex.HttpStatus, MV.DomainLayer.DTO.APIResponse<object>.Fail(ex.Message, ex.HttpStatus));
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(403, MV.DomainLayer.DTO.APIResponse<object>.Fail(ex.Message, 403));
+        }
+    }
+
+    /// <summary>
+    /// GET /api/class-sessions/{id}/skip-continuation
+    /// Trạng thái đồng ý bỏ buổi phụ hiện tại — {id} là ID của chính buổi phụ (Iscontinuation=true).
+    /// </summary>
+    [HttpGet("class-sessions/{id:int}/skip-continuation")]
+    [Authorize(Roles = UserRole.ParentOrStudentOrTutor)]
+    public async Task<IActionResult> GetSkipContinuationStatus([FromRoute] int id)
+    {
+        var userId = UserId ?? throw new UnauthorizedAccessException();
+        try
+        {
+            var result = await classSessionService.GetSkipContinuationStatusAsync(id, userId);
+            return Ok(MV.DomainLayer.DTO.APIResponse<ClassSessionSkipContinuationResponse>.Success(result, ApiMessages.Success));
+        }
+        catch (ClassSessionException ex)
+        {
+            return StatusCode(ex.HttpStatus, MV.DomainLayer.DTO.APIResponse<object>.Fail(ex.Message, ex.HttpStatus));
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(403, MV.DomainLayer.DTO.APIResponse<object>.Fail(ex.Message, 403));
+        }
+    }
+
+    /// <summary>
+    /// POST /api/class-sessions/{id}/skip-continuation
+    /// Gia sư HOẶC học sinh/phụ huynh xác nhận đồng ý bỏ hẳn buổi phụ này (không học nốt phần còn
+    /// lại) — khi cả 2 cùng xác nhận, buổi GỐC mới gửi được báo cáo (xem SubmitReportAsync).
+    /// </summary>
+    [HttpPost("class-sessions/{id:int}/skip-continuation")]
+    [Authorize(Roles = UserRole.ParentOrStudentOrTutor)]
+    public async Task<IActionResult> ConfirmSkipContinuation([FromRoute] int id)
+    {
+        var userId = UserId ?? throw new UnauthorizedAccessException();
+        try
+        {
+            var result = await classSessionService.ConfirmSkipContinuationAsync(id, userId);
+            return Ok(MV.DomainLayer.DTO.APIResponse<ClassSessionSkipContinuationResponse>.Success(result, "Đã ghi nhận xác nhận."));
+        }
+        catch (ClassSessionException ex)
+        {
+            return StatusCode(ex.HttpStatus, MV.DomainLayer.DTO.APIResponse<object>.Fail(ex.Message, ex.HttpStatus));
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(403, MV.DomainLayer.DTO.APIResponse<object>.Fail(ex.Message, 403));
         }
     }
 

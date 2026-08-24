@@ -187,8 +187,23 @@ public class DisputeController : ControllerBase
     public async Task<ActionResult<APIResponse<DisputeDetailResponse>>> Close(int id, [FromBody] CloseDisputeRequest request)
     {
         var adminId = UserHelper.GetUserId(User);
-        var result = await _disputeService.CloseDisputeAsync(id, adminId, request);
-        return Ok(APIResponse<DisputeDetailResponse>.Success(result, "Đã đóng phản ánh do hai bên hoà giải."));
+        try
+        {
+            var result = await _disputeService.CloseDisputeAsync(id, adminId, request);
+            return Ok(APIResponse<DisputeDetailResponse>.Success(result, "Đã đóng phản ánh do hai bên hoà giải."));
+        }
+        // Không có catch trước đây: mọi lỗi (kể cả các thông báo cụ thể như "đã học lại N lần,
+        // không thể học lại tiếp" hay "giờ học lại phải ở tương lai") đều rơi vào
+        // ExceptionHandlingMiddleware và bị thay bằng message tiếng Anh chung chung, làm admin
+        // không biết lý do thật. Bắt riêng ở đây để trả đúng message như các action tranh chấp khác.
+        catch (ArgumentException ex)
+        {
+            return NotFound(APIResponse<DisputeDetailResponse>.Fail(ex.Message));
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(APIResponse<DisputeDetailResponse>.Fail(ex.Message));
+        }
     }
 
     /// <summary>

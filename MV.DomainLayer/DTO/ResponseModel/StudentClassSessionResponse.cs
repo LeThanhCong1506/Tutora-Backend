@@ -20,6 +20,12 @@ public class StudentClassSessionSummaryResponse
     public string? SubjectName { get; set; }
     public string? TutorName { get; set; }
     public int? BookingId { get; set; }
+    /// <summary>True nếu đây là buổi phụ (Link 2), sinh ra khi buổi gốc (<see cref="OriginalClassSessionId"/>) bị báo ngắt giữa chừng.</summary>
+    public bool? IsContinuation { get; set; }
+    /// <summary>True nếu đây là buổi học lại (Link 3), sinh ra khi hoà giải dispute chọn "học lại".</summary>
+    public bool? IsDisputeRelearn { get; set; }
+    /// <summary>Buổi gốc mà buổi phụ/buổi học lại này trỏ về — null nếu đây là buổi gốc.</summary>
+    public int? OriginalClassSessionId { get; set; }
 }
 
 /// <summary>
@@ -33,6 +39,11 @@ public class StudentClassSessionDetailResponse : StudentClassSessionSummaryRespo
     public DateTime? CheckoutTime { get; set; }
     public string? TutorAvatar { get; set; }
     public StudentClassSessionReportResponse? Report { get; set; }
+
+    /// <summary>True khi CHÍNH buổi này là buổi phụ (<see cref="StudentClassSessionSummaryResponse.IsContinuation"/>)
+    /// và cả 2 phía đã đồng ý bỏ nó — FE dùng để khoá "Vào học nhanh"/"Đề xuất đổi lịch" dù status
+    /// vẫn còn Scheduled cho tới khi gia sư nộp báo cáo xong.</summary>
+    public bool SkipConfirmedByBothSides { get; set; }
 
     /// <summary>
     /// True nếu buổi tiếp theo bị khóa do phụ huynh chưa thanh toán đợt 2.

@@ -359,6 +359,9 @@ public class AdminBookingService(IAppDbContext context, ISettlementService settl
                 l.Lessonprice,
                 l.Issettled,
                 l.Ismakeup,
+                l.Iscontinuation,
+                l.Isdisputerelearn,
+                l.Originalsessionid,
                 l.Tutornotes,
                 l.Meetinglink
             })
@@ -426,6 +429,9 @@ public class AdminBookingService(IAppDbContext context, ISettlementService settl
                 ClassSessionPrice    = l.Lessonprice,
                 IsSettled      = l.Issettled,
                 IsMakeup       = l.Ismakeup,
+                IsContinuation = l.Iscontinuation,
+                IsDisputeRelearn = l.Isdisputerelearn,
+                OriginalClassSessionId = l.Originalsessionid,
                 TutorNotes     = l.Tutornotes,
                 MeetingLink    = l.Meetinglink
             })

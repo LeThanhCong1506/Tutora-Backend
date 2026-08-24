@@ -1695,6 +1695,25 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
             entity.Property(e => e.Ismakeup)
                 .HasDefaultValue(false)
                 .HasColumnName("is_makeup");
+            entity.Property(e => e.Iscontinuation)
+                .HasDefaultValue(false)
+                .HasColumnName("is_continuation");
+            entity.Property(e => e.Isdisputerelearn)
+                .HasDefaultValue(false)
+                .HasColumnName("is_dispute_relearn");
+            entity.Property(e => e.Interruptedat)
+                .HasColumnType("timestamp without time zone")
+                .HasColumnName("interrupted_at");
+            entity.Property(e => e.Interruptreason).HasColumnName("interrupt_reason");
+            entity.Property(e => e.Interruptedby)
+                .HasMaxLength(50)
+                .HasColumnName("interrupted_by");
+            entity.Property(e => e.Tutorskipconfirmedat)
+                .HasColumnType("timestamp without time zone")
+                .HasColumnName("tutor_skip_confirmed_at");
+            entity.Property(e => e.Studentskipconfirmedat)
+                .HasColumnType("timestamp without time zone")
+                .HasColumnName("student_skip_confirmed_at");
             entity.Property(e => e.Issettled)
                 .HasDefaultValue(false)
                 .HasColumnName("is_settled");
@@ -1782,6 +1801,10 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
             entity.HasOne(d => d.Tutor).WithMany(p => p.ClassSessions)
                 .HasForeignKey(d => d.Tutorid)
                 .HasConstraintName("lessons_tutorid_fkey");
+
+            entity.HasOne(d => d.InterruptedbyNavigation).WithMany()
+                .HasForeignKey(d => d.Interruptedby)
+                .HasConstraintName("class_sessions_interrupted_by_fkey");
         });
 
         modelBuilder.Entity<ClassSessionReport>(entity =>
@@ -2430,6 +2453,9 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnType("timestamp without time zone")
                 .HasColumnName("created_at");
+            entity.Property(e => e.Degree)
+                .HasMaxLength(100)
+                .HasColumnName("degree");
             entity.Property(e => e.Education)
                 .HasMaxLength(255)
                 .HasColumnName("education");

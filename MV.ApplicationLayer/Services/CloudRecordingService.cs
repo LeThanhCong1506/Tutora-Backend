@@ -85,7 +85,7 @@ public class CloudRecordingService : ICloudRecordingService
                 {
                     channelType = 0,                        // 0 = communication (client dùng mode 'rtc')
                     streamTypes = 2,                        // 0 audio, 1 video, 2 audio+video
-                    maxIdleTime = 300,                      // tự dừng nếu channel trống 5 phút
+                    maxIdleTime = _rec.MaxIdleTimeSeconds,   // tự dừng nếu channel trống quá lâu
                     subscribeAudioUids = new[] { "#allstream#" },
                     subscribeVideoUids = new[] { "#allstream#" },
                     transcodingConfig = new

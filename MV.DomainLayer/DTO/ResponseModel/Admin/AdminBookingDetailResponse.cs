@@ -114,6 +114,12 @@ public class AdminBookingClassSessionItem
     public decimal? ClassSessionPrice { get; set; }
     public bool? IsSettled { get; set; }
     public bool? IsMakeup { get; set; }
+    /// <summary>Buổi phụ (Link 2) — sinh ra khi <see cref="OriginalClassSessionId"/> bị báo ngắt giữa chừng.</summary>
+    public bool? IsContinuation { get; set; }
+    /// <summary>Buổi học lại (Link 3) — sinh ra khi hoà giải dispute chọn "học lại".</summary>
+    public bool? IsDisputeRelearn { get; set; }
+    /// <summary>Buổi gốc mà buổi bù/buổi phụ/buổi học lại này trỏ về — null nếu đây là buổi gốc.</summary>
+    public int? OriginalClassSessionId { get; set; }
     public string? TutorNotes { get; set; }
     public string? MeetingLink { get; set; }
 }

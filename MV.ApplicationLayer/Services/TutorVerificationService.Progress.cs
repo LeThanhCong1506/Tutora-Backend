@@ -37,6 +37,7 @@ namespace MV.ApplicationLayer.Services
                         Teachingareacity = pendingUpdate.TeachingAreaCity ?? profile.Teachingareacity,
                         Teachingareadistrict = pendingUpdate.TeachingAreaDistrict ?? profile.Teachingareadistrict,
                         Bio = pendingUpdate.Bio ?? profile.Bio,
+                        Degree = pendingUpdate.Degree ?? profile.Degree,
                         Education = pendingUpdate.Education ?? profile.Education,
                         Gpa = pendingUpdate.Gpa ?? profile.Gpa,
                         Gpascale = pendingUpdate.GpaScale ?? profile.Gpascale,

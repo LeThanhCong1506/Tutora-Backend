@@ -60,10 +60,23 @@ public interface IClassSessionService
     Task<ClassSessionRecordingResponse?> GetClassSessionRecordingAsync(int classSessionId, string userId, bool isParent);
 
     /// <summary>
+    /// Toàn bộ chuỗi buổi liên kết (bù/phụ/học lại) chứa buổi này, kèm trạng thái ghi hình riêng
+    /// từng buổi — null nếu không có quyền xem. Chuỗi chỉ có 1 buổi (chính nó) khi chưa từng liên kết.
+    /// </summary>
+    Task<List<ClassSessionRecordingChainItem>?> GetClassSessionRecordingChainAsync(int classSessionId, string userId, bool isParent);
+
+    /// <summary>
     /// Trích fileId Google Drive từ Recordingurl của buổi học — dùng nội bộ cho endpoint stream
     /// (đã được xác thực bằng token riêng, không cần kiểm tra ownership lại ở đây).
     /// </summary>
     Task<string?> GetRecordingDriveFileIdAsync(int classSessionId);
+
+    /// <summary>
+    /// Bản rút gọn của GetClassSessionRecordingChainAsync dùng nội bộ cho pipeline AI tóm tắt chuỗi
+    /// (ClassSessionVideoAiService) — không cần token stream/userId, caller đã xác thực quyền trên
+    /// classSessionId đầu vào rồi.
+    /// </summary>
+    Task<List<ClassSessionRecordingChainItem>?> GetClassSessionAiChainAsync(int classSessionId);
 
     // ── Calendar & Dashboard ───────────────────────────────────────────────
 
@@ -111,9 +124,43 @@ public interface IClassSessionService
     Task<int> AutoCloseExpiredLiveSessionsAsync(CancellationToken ct = default);
 
     /// <summary>
+    /// Tự động đóng các buổi học bị ngắt giữa chừng (<c>interrupted</c>) đã qua nửa đêm của ngày bị
+    /// ngắt (UTC thuần) mà chưa được xử lý — dùng bởi background job. Buổi gốc → <c>completed</c>
+    /// qua settle-bỏ-qua-status-guard (giống dispute), trừ Sessionsremaining đúng 1 lần; buổi phụ
+    /// chưa dùng (nếu có, còn <c>scheduled</c>) → <c>cancelled</c>. Trả về số buổi đã tự đóng.
+    /// </summary>
+    Task<int> AutoCloseExpiredInterruptedSessionsAsync(CancellationToken ct = default);
+
+    /// <summary>
     /// Tutor submits a post-classSession report (homework, notes, rating).
     /// </summary>
     Task<ClassSessionDetailResponse> SubmitReportAsync(int classSessionId, string tutorId, SubmitReportRequest request);
+
+    /// <summary>
+    /// Gia sư hoặc học viên/phụ huynh báo buổi học (đang <c>in_progress</c>) phải ngắt giữa chừng vì
+    /// sự cố đột xuất. Chỉ được phép khi đã học đủ ngưỡng % tối thiểu (xem
+    /// <see cref="MV.ApplicationLayer.Helpers.ClassSessionInterruptionPolicy"/>) — chống lạm dụng
+    /// làm phương án "dời lịch" trá hình. Buổi gốc chuyển sang <c>interrupted</c> (trạng thái cụt,
+    /// không tự quyết toán); đồng thời sinh ra 1 buổi phụ (<c>Iscontinuation=true</c>, cùng
+    /// booking/tutor/student, thời lượng bằng phần lý thuyết còn lại) để học nốt trong cùng ngày.
+    /// </summary>
+    Task<ClassSessionDetailResponse> RequestInterruptionAsync(int classSessionId, string requestingUserId, string? reason);
+
+    /// <summary>
+    /// Cho biết buổi đang <c>in_progress</c> đã đủ điều kiện báo ngắt giữa chừng chưa, cùng % thật
+    /// hiện tại và ngưỡng cần đạt — để FE hiện/khoá nút "Báo buổi học bị ngắt" đúng thời điểm, không
+    /// phải đoán bằng đồng hồ tường. Không throw khi buổi chưa in_progress — trả Eligible=false.
+    /// </summary>
+    Task<ClassSessionInterruptionEligibilityResponse> GetInterruptionEligibilityAsync(int classSessionId, string requestingUserId);
+
+    /// <summary>Trạng thái đồng ý bỏ buổi phụ (link 2) hiện tại — FE dùng hiện "đang chờ bên kia" /
+    /// "cả 2 đã đồng ý". continuationSessionId là ID của chính buổi phụ (Iscontinuation=true).</summary>
+    Task<ClassSessionSkipContinuationResponse> GetSkipContinuationStatusAsync(int continuationSessionId, string requestingUserId);
+
+    /// <summary>Gia sư HOẶC học sinh/phụ huynh xác nhận đồng ý bỏ hẳn buổi phụ này — khi cả 2 cùng
+    /// xác nhận, SubmitReportAsync trên buổi GỐC (đang interrupted) mới nhận báo cáo và tự huỷ
+    /// buổi phụ này. Idempotent, chỉ dùng được khi buổi phụ còn Scheduled (chưa diễn ra).</summary>
+    Task<ClassSessionSkipContinuationResponse> ConfirmSkipContinuationAsync(int continuationSessionId, string requestingUserId);
 
     /// <summary>
     /// Presence-driven auto check-in: khi cả gia sư và học viên (hoặc phụ huynh thay thế)

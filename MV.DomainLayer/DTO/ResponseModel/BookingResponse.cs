@@ -69,6 +69,13 @@ public class BookingClassSessionSlotResponse
     public DateTime ScheduledEnd { get; set; }
     public string? Status { get; set; }
     public decimal? ClassSessionPrice { get; set; }
+
+    /// <summary>True nếu đây là buổi phụ (Link 2), sinh ra khi buổi gốc (<see cref="OriginalClassSessionId"/>) bị báo ngắt giữa chừng.</summary>
+    public bool IsContinuation { get; set; }
+    /// <summary>True nếu đây là buổi học lại (Link 3), sinh ra khi hoà giải dispute chọn "học lại".</summary>
+    public bool IsDisputeRelearn { get; set; }
+    /// <summary>Buổi gốc mà buổi phụ/buổi học lại này trỏ về — null nếu đây là buổi gốc.</summary>
+    public int? OriginalClassSessionId { get; set; }
 }
 
 public class BookingResponse

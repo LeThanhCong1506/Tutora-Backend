@@ -61,6 +61,33 @@ public partial class ClassSession
 
     public int? Originalsessionid { get; set; }
 
+    /// <summary>Buổi phụ được sinh ra khi buổi gốc (Originalsessionid) bị ngắt giữa chừng vì sự cố đột xuất.</summary>
+    public bool Iscontinuation { get; set; }
+
+    /// <summary>Buổi học lại được Admin/Staff mở khi hai bên hoà giải một tranh chấp (xem CloseDisputeAsync) trên buổi gốc (Originalsessionid).</summary>
+    public bool Isdisputerelearn { get; set; }
+
+    /// <summary>Mốc thời điểm buổi gốc bị ngắt giữa chừng (UTC). Null nếu buổi chưa từng bị ngắt.</summary>
+    public DateTime? Interruptedat { get; set; }
+
+    /// <summary>Lý do ngắt buổi do người dùng tự nhập, optional.</summary>
+    public string? Interruptreason { get; set; }
+
+    /// <summary>User_id của người báo ngắt (gia sư/học sinh/phụ huynh). Không trả thẳng ra API —
+    /// tầng response chỉ expose tên đã resolve qua <see cref="InterruptedbyNavigation"/>.</summary>
+    public string? Interruptedby { get; set; }
+
+    public virtual User? InterruptedbyNavigation { get; set; }
+
+    /// <summary>Gắn trên chính BUỔI PHỤ (Iscontinuation=true) — mốc gia sư xác nhận đồng ý bỏ hẳn
+    /// buổi phụ này (không học nốt phần còn lại). Null nếu chưa xác nhận.</summary>
+    public DateTime? Tutorskipconfirmedat { get; set; }
+
+    /// <summary>Gắn trên chính BUỔI PHỤ — mốc học sinh/phụ huynh xác nhận đồng ý bỏ hẳn buổi phụ
+    /// này. Khi cả 2 cột này cùng có giá trị, SubmitReportAsync mới nhận báo cáo cho buổi GỐC
+    /// (đang ở status=interrupted) và tự huỷ buổi phụ này. Null nếu chưa xác nhận.</summary>
+    public DateTime? Studentskipconfirmedat { get; set; }
+
     public string? Noshowaction { get; set; }
 
     public DateTime? Createdat { get; set; }

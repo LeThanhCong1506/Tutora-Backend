@@ -695,6 +695,10 @@ public class AgoraController(
             participantNames,
             status = classSession.Status,
             checkedIn = classSession.Checkintime != null,
+            // Mốc chung để đồng hồ 2 màn hình khớp nhau (xem AgoraRoomInfo.startedAt/LiveSession
+            // index.tsx) — trước đây chưa từng gửi field này, nên FE luôn fallback về đếm cục bộ
+            // từ lúc THIẾT BỊ ĐÓ tự join, và reset lại về 0 mỗi khi 1 bên rớt mạng rồi vào lại.
+            startedAt = classSession.Checkintime,
             participationId = lease.ParticipationId,
             leaseId = lease.LeaseId
         }, "Lấy thông tin phòng Agora RTC thành công."));

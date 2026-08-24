@@ -56,6 +56,52 @@ public partial class ClassSessionService
         return response;
     }
 
+    /// <summary>
+    /// Toàn bộ chuỗi buổi liên kết chứa <paramref name="classSessionId"/> (buổi bù/buổi phụ/buổi học
+    /// lại — mọi loại đều tái dùng <c>Originalsessionid</c>), kèm trạng thái ghi hình riêng từng buổi.
+    /// Đi lùi tới buổi gốc của chuỗi rồi đi tới hết mọi buổi con (đệ quy, không chỉ 1 bước như
+    /// <c>DisputeService.GetDisputeRecordingAsync</c>) — vì 1 buổi phụ/buổi bù sau đó vẫn có thể bị
+    /// tranh chấp và sinh ra buổi học lại của chính nó, tạo chuỗi dài hơn 2.
+    /// </summary>
+    public async Task<List<ClassSessionRecordingChainItem>?> GetClassSessionRecordingChainAsync(int classSessionId, string userId, bool isParent)
+    {
+        var target = await _context.ClassSessions
+            .Where(s => s.Classsessionid == classSessionId)
+            .Select(s => new { s.Tutorid, s.Studentid, s.Bookingid })
+            .FirstOrDefaultAsync();
+        if (target == null) return null;
+
+        if (isParent)
+        {
+            var studentIds = await _studentRepo.GetStudentIdsByParentIdAsync(userId);
+            if (target.Studentid == null || !studentIds.Contains(target.Studentid))
+                return null;
+        }
+        else
+        {
+            var isTutorMatch = target.Tutorid == userId;
+            var studentProfile = isTutorMatch ? null : await _studentRepo.FindByStudentOrLinkedUserAsync(userId);
+            var isStudentMatch = studentProfile != null && target.Studentid == studentProfile.Studentid;
+            if (!isTutorMatch && !isStudentMatch)
+                return null;
+        }
+
+        var items = await ClassSessionRecordingChainHelper.GetChainAsync(_context, classSessionId)
+            ?? [];
+
+        foreach (var item in items)
+        {
+            item.IsCurrent = item.ClassSessionId == classSessionId;
+            if (item.Available)
+            {
+                var token = _recordingAccessTokenService.Issue(item.ClassSessionId, userId, RecordingTokenLifetime);
+                item.StreamUrl = $"/api/class-sessions/{item.ClassSessionId}/recording/stream?token={Uri.EscapeDataString(token)}";
+            }
+        }
+
+        return items;
+    }
+
     public async Task<string?> GetRecordingDriveFileIdAsync(int classSessionId)
     {
         var url = await _context.ClassSessions
@@ -68,4 +114,13 @@ public partial class ClassSessionService
         var match = DriveFileIdPattern.Match(url);
         return match.Success ? match.Groups[1].Value : null;
     }
+
+    /// <summary>
+    /// Bản rút gọn của <see cref="GetClassSessionRecordingChainAsync"/> dùng riêng cho pipeline AI
+    /// tóm tắt chuỗi (ClassSessionVideoAiService) — không cần token stream, không cần userId/isParent
+    /// vì caller đã xác thực quyền trên <paramref name="classSessionId"/> đầu vào rồi, và mọi buổi
+    /// trong chuỗi luôn cùng Bookingid nên chắc chắn cùng 1 học sinh/gia sư.
+    /// </summary>
+    public Task<List<ClassSessionRecordingChainItem>?> GetClassSessionAiChainAsync(int classSessionId)
+        => ClassSessionRecordingChainHelper.GetChainAsync(_context, classSessionId);
 }
