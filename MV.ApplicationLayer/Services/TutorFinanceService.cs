@@ -133,7 +133,21 @@ public class TutorFinanceService(
             .Where(t => t.Wallet!.Userid == tutorId);
 
         if (!string.IsNullOrEmpty(type))
+        {
+            // Người dùng chủ động lọc theo loại cụ thể (kể cả EscrowCredit/EscrowReversal) —
+            // tôn trọng lựa chọn đó, không áp exclusion mặc định bên dưới.
             query = query.Where(t => t.Transactiontype == type);
+        }
+        else
+        {
+            // Mặc định (không chọn loại): EscrowCredit/EscrowReversal chỉ đụng tới Frozenbalance
+            // (tiền đang giữ, gia sư chưa thực nhận) — không ảnh hưởng Balance (số dư khả dụng
+            // thật). Hiện mặc định sẽ gây loãng thông tin vì gia sư không "nhận" hay "mất" gì qua
+            // 2 loại này; số dư đang giữ đã có riêng ở tab "Tổng quan". Chỉ EscrowRelease (giải
+            // ngân thật) mới thuộc lịch sử giao dịch ví mặc định.
+            query = query.Where(t => t.Transactiontype != TransactionType.EscrowCredit
+                && t.Transactiontype != TransactionType.EscrowReversal);
+        }
 
         if (from.HasValue)
         {
