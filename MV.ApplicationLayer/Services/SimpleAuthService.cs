@@ -344,14 +344,6 @@ namespace MV.ApplicationLayer.Services
                 await _userRepository.CreateUserAsync(newUser);
                 await _dbContext.SaveChangesAsync();
 
-                try
-                {
-                    await _aiCreditService.GrantFreePackageAsync(userId);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Failed to grant Free AI credit to new user {UserId}", userId);
-                }
 
                 var otpCode = GenerateOtpCode();
                 await StoreOtpAsync(PhoneVerifyKey(phone), otpCode);
@@ -420,6 +412,18 @@ namespace MV.ApplicationLayer.Services
                 await _userRepository.UpdateUserAsync(user);
                 await _dbContext.SaveChangesAsync();
                 await RemoveOtpAsync(PhoneVerifyKey(phone));
+
+                // Tặng credit NGAY khi xác thực SĐT xong. Idempotent theo userId nên gọi lại
+                // (đổi số, xác thực lại) không cấp thêm lần nữa.
+                try
+                {
+                    await _aiCreditService.GrantFreePackageAsync(user.Userid);
+                }
+                catch (Exception ex)
+                {
+                    // Không tặng được KHÔNG chặn đăng nhập.
+                    _logger.LogError(ex, "Không tặng được credit sau xác thực SĐT cho {UserId}", user.Userid);
+                }
 
                 return await CreateTokenResponseAsync(user, platform);
             }

@@ -30,4 +30,18 @@ public static class AiCreditConfigKeys
 {
     /// <summary>Số lượt AI credit tặng cho học sinh mỗi khi có booking.</summary>
     public const string BonusOnBooking = "ai_credit_bonus_on_booking";
+
+    /// <summary>Số THÁNG credit hết hạn kể từ ngày cấp. Áp cho cả 3 nguồn.</summary>
+    public const string ExpiryMonths = "ai_credit_expiry_months";
+
+    /// <summary>Số lượt tặng khi tài khoản mới xác thực SĐT thành công.</summary>
+    public const string FreeOnSignup = "ai_credit_free_on_signup";
+}
+
+/// <summary>Nguồn của một LÔ credit (ai_credit_batches.source).</summary>
+public static class AiCreditBatchSource
+{
+    public const string FreeSignup = "free_signup";
+    public const string BookingBonus = "booking_bonus";
+    public const string Purchase = "purchase";
 }

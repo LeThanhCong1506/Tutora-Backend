@@ -32,11 +32,46 @@ public class AiCreditService(
     public async Task<int> GrantAsync(
         string userId, int amount, string source, string? referenceId, string? description,
         CancellationToken ct = default)
+        => await GrantAsync(userId, amount, source, referenceId, description, null, ct);
+
+    /// <summary>
+    /// Cấp credit kèm LÔ có hạn dùng.
+    /// </summary>
+    public async Task<int> GrantAsync(
+        string userId, int amount, string source, string? referenceId, string? description,
+        string? batchSource, CancellationToken ct = default)
     {
         if (amount <= 0)
             throw new BookingException(AiCreditErrorCodes.InvalidAmount, "Số credit cấp phải > 0.", 400);
 
-        return await ApplyDeltaAsync(userId, amount, source, referenceId, description, ct);
+        var balance = await ApplyDeltaAsync(userId, amount, source, referenceId, description, ct);
+
+        if (batchSource is not null)
+        {
+            var months = await GetExpiryMonthsAsync(ct);
+            context.AiCreditBatches.Add(new AiCreditBatch
+            {
+                Id = Guid.NewGuid(),
+                UserId = userId,
+                Source = batchSource,
+                ReferenceId = referenceId,
+                Granted = amount,
+                GrantedAt = TimeZoneHelper.UtcNow,
+                // months <= 0 -> admin tắt hết hạn.
+                ExpiresAt = months > 0 ? TimeZoneHelper.UtcNow.AddMonths(months) : null,
+            });
+            await context.SaveChangesAsync(ct);
+        }
+
+        return balance;
+    }
+
+    /// <summary>Số tháng hết hạn — admin chỉnh trong CMS, mặc định 3 nếu chưa cấu hình.</summary>
+    public async Task<int> GetExpiryMonthsAsync(CancellationToken ct = default)
+    {
+        var cfg = await context.Systemconfigs.AsNoTracking()
+            .FirstOrDefaultAsync(c => c.Configkey == AiCreditConfigKeys.ExpiryMonths, ct);
+        return int.TryParse(cfg?.Configvalue, out var v) ? v : 3;
     }
 
     /// <summary>
@@ -49,9 +84,16 @@ public class AiCreditService(
         if (amount <= 0)
             throw new BookingException(AiCreditErrorCodes.InvalidAmount, "Số credit tiêu phải > 0.", 400);
 
+        // Dọn lô quá hạn TRƯỚC khi trừ: học sinh không được tiêu lượt đã hết hạn.
+        await ExpireOverdueBatchesAsync(userId, ct);
+
         var affected = await context.Users
             .Where(u => u.Userid == userId && u.AiCreditsBalance >= amount)
             .ExecuteUpdateAsync(s => s.SetProperty(u => u.AiCreditsBalance, u => u.AiCreditsBalance - amount), ct);
+
+        // Ghi vào lô SẮP HẾT HẠN TRƯỚC (FIFO theo expires_at) để không phí lượt còn hạn dài.
+        if (affected > 0)
+            await ConsumeBatchesAsync(userId, amount, ct);
 
         if (affected == 0)
         {
@@ -140,20 +182,33 @@ public class AiCreditService(
 
     public async Task GrantFreePackageAsync(string userId, CancellationToken ct = default)
     {
-        var freePkg = await context.AiCreditPackages
-            .FirstOrDefaultAsync(p => p.Code == AiCreditPackageCode.Free && p.Isactive, ct);
-        if (freePkg is null || freePkg.Creditamount <= 0)
+        // Số lượt tặng lấy từ config (admin chỉnh), rơi về package Free nếu chưa cấu hình.
+        var cfg = await context.Systemconfigs.AsNoTracking()
+            .FirstOrDefaultAsync(c => c.Configkey == AiCreditConfigKeys.FreeOnSignup, ct);
+
+        int amount;
+        if (int.TryParse(cfg?.Configvalue, out var configured) && configured > 0)
         {
-            logger.LogWarning("Free AI credit package missing/inactive; skipping grant for user {UserId}", userId);
-            return;
+            amount = configured;
+        }
+        else
+        {
+            var freePkg = await context.AiCreditPackages
+                .FirstOrDefaultAsync(p => p.Code == AiCreditPackageCode.Free && p.Isactive, ct);
+            if (freePkg is null || freePkg.Creditamount <= 0)
+            {
+                logger.LogWarning("Chưa cấu hình credit tặng và package Free cũng không có; bỏ qua user {UserId}", userId);
+                return;
+            }
+            amount = freePkg.Creditamount;
         }
 
         var refId = $"free:{userId}";
         if (await ReferenceAlreadyGrantedAsync(userId, AiCreditSource.Grant, refId, ct))
             return;
 
-        await GrantAsync(userId, freePkg.Creditamount, AiCreditSource.Grant, refId,
-            "Tặng gói Free khi tạo tài khoản.", ct);
+        await GrantAsync(userId, amount, AiCreditSource.Grant, refId,
+            "Tặng credit khi xác thực số điện thoại.", AiCreditBatchSource.FreeSignup, ct);
     }
 
     public async Task GrantBookingBonusAsync(string userId, int bookingId, CancellationToken ct = default)
@@ -166,7 +221,7 @@ public class AiCreditService(
             return;
 
         await GrantAsync(userId, bonus, AiCreditSource.Grant, refId,
-            $"Tặng credit khi có booking #{bookingId}.", ct);
+            $"Tặng credit khi thanh toán booking #{bookingId}.", AiCreditBatchSource.BookingBonus, ct);
     }
 
     private Task<bool> ReferenceAlreadyGrantedAsync(string userId, string source, string referenceId, CancellationToken ct)
@@ -177,12 +232,28 @@ public class AiCreditService(
 
     public async Task<AiCreditBalanceResponse> GetBalanceAsync(string userId, CancellationToken ct = default)
     {
-        var user = await context.Users
-            .AsNoTracking()
-            .FirstOrDefaultAsync(u => u.Userid == userId, ct)
+        // Dọn lô quá hạn trước khi trả số — học sinh phải thấy con số dùng được thật.
+        await ExpireOverdueBatchesAsync(userId, ct);
+
+        var balance = await context.Users.AsNoTracking()
+            .Where(u => u.Userid == userId)
+            .Select(u => (int?)u.AiCreditsBalance)
+            .FirstOrDefaultAsync(ct)
             ?? throw new BookingException(AiCreditErrorCodes.UserNotFound, "Không tìm thấy tài khoản.", 404);
 
-        return new AiCreditBalanceResponse { Balance = user.AiCreditsBalance };
+        // Lô sắp hết hạn nhất, để UI nhắc trước khi mất lượt.
+        var next = await context.AiCreditBatches.AsNoTracking()
+            .Where(b => b.UserId == userId && b.Consumed < b.Granted && b.ExpiresAt != null)
+            .OrderBy(b => b.ExpiresAt)
+            .Select(b => new { b.ExpiresAt, Remaining = b.Granted - b.Consumed })
+            .FirstOrDefaultAsync(ct);
+
+        return new AiCreditBalanceResponse
+        {
+            Balance = balance,
+            NextExpiryAt = next?.ExpiresAt,
+            ExpiringAmount = next?.Remaining ?? 0,
+        };
     }
 
     public async Task<IReadOnlyList<AiCreditTransactionResponse>> GetHistoryAsync(
@@ -208,12 +279,21 @@ public class AiCreditService(
     }
 
     public async Task<IReadOnlyList<AiCreditPackageResponse>> GetActivePackagesAsync(CancellationToken ct = default)
-        => await context.AiCreditPackages
+    {
+        var packages = await context.AiCreditPackages
             .AsNoTracking()
             .Where(p => p.Isactive)
             .OrderBy(p => p.Sortorder).ThenBy(p => p.Packageid)
             .Select(p => ToPackageResponse(p))
             .ToListAsync(ct);
+
+        // Hạn dùng là cấu hình chung, không phải thuộc tính của từng gói — nhưng gắn vào
+        // response để FE hiện được ngay trên thẻ giá, người mua biết trước khi trả tiền.
+        var months = await GetExpiryMonthsAsync(ct);
+        foreach (var p in packages) p.ExpiryMonths = months;
+
+        return packages;
+    }
 
     // Purchase
 
@@ -406,9 +486,11 @@ public class AiCreditService(
         pr.Updatedat = TimeZoneHelper.UtcNow;
         await context.SaveChangesAsync(ct);
 
+        // Credit mua cũng có hạn dùng như credit tặng — cùng số tháng trong config.
         await GrantAsync(
             beneficiaryUserId, package.Creditamount, AiCreditSource.Purchase,
-            orderCode.ToString(), $"Mua gói {package.Code} (+{package.Creditamount} lượt).", ct);
+            orderCode.ToString(), $"Mua gói {package.Code} (+{package.Creditamount} lượt).",
+            AiCreditBatchSource.Purchase, ct);
 
         logger.LogInformation(
             "Completed AI credit purchase order {OrderCode}: +{Amount} credits to user {UserId}.",
@@ -560,7 +642,101 @@ public class AiCreditService(
         return ToPackageResponse(pkg);
     }
 
+    // Hạn dùng credit
+
+    /// <summary>
+    /// Trừ credit đã hết hạn khỏi balance. Chạy trước mỗi lần tiêu — rẻ hơn hẳn so với
+    /// job quét định kỳ, và học sinh luôn thấy con số đúng ngay khi mở app.
+    /// </summary>
+    private async Task ExpireOverdueBatchesAsync(string userId, CancellationToken ct)
+    {
+        var now = TimeZoneHelper.UtcNow;
+        var overdue = await context.AiCreditBatches
+            .Where(b => b.UserId == userId
+                        && b.ExpiresAt != null && b.ExpiresAt < now
+                        && b.Consumed < b.Granted)
+            .ToListAsync(ct);
+
+        if (overdue.Count == 0) return;
+
+        var lost = overdue.Sum(b => b.Granted - b.Consumed);
+        foreach (var b in overdue) b.Consumed = b.Granted;   // đánh dấu tiêu hết
+
+        // Balance không được âm dù dữ liệu lệch.
+        await context.Users
+            .Where(u => u.Userid == userId)
+            .ExecuteUpdateAsync(s => s.SetProperty(
+                u => u.AiCreditsBalance,
+                u => u.AiCreditsBalance > lost ? u.AiCreditsBalance - lost : 0), ct);
+
+        await context.SaveChangesAsync(ct);
+        logger.LogInformation("Hết hạn {Lost} credit của user {UserId}", lost, userId);
+    }
+
+    /// <summary>Ghi số đã tiêu vào các lô, sắp hết hạn tiêu trước.</summary>
+    private async Task ConsumeBatchesAsync(string userId, int amount, CancellationToken ct)
+    {
+        var batches = await context.AiCreditBatches
+            .Where(b => b.UserId == userId && b.Consumed < b.Granted)
+            // NULL (không hết hạn) xếp cuối — tiêu lô có hạn trước.
+            .OrderBy(b => b.ExpiresAt == null)
+            .ThenBy(b => b.ExpiresAt)
+            .ToListAsync(ct);
+
+        var left = amount;
+        foreach (var b in batches)
+        {
+            if (left <= 0) break;
+            var take = Math.Min(left, b.Granted - b.Consumed);
+            b.Consumed += take;
+            left -= take;
+        }
+
+        // left > 0 nghĩa là balance nhiều hơn tổng các lô — credit cấp trước khi có bảng
+        // này, hoặc admin cấp tay. Không phải lỗi, cứ để balance làm nguồn chân lý.
+        await context.SaveChangesAsync(ct);
+    }
+
     // Config bonus
+
+    public async Task AdminSetExpiryMonthsAsync(int months, string? updatedByUserId, CancellationToken ct = default)
+    {
+        if (months < 0)
+            throw new BookingException(AiCreditErrorCodes.InvalidAmount, "Số tháng không hợp lệ.", 400);
+        await UpsertConfigAsync(AiCreditConfigKeys.ExpiryMonths, months.ToString(), updatedByUserId,
+            "So THANG credit AI het han ke tu ngay cap.", ct);
+    }
+
+    public async Task<int> AdminGetFreeOnSignupAsync(CancellationToken ct = default)
+    {
+        var cfg = await context.Systemconfigs.AsNoTracking()
+            .FirstOrDefaultAsync(c => c.Configkey == AiCreditConfigKeys.FreeOnSignup, ct);
+        return int.TryParse(cfg?.Configvalue, out var v) ? v : 0;
+    }
+
+    public async Task AdminSetFreeOnSignupAsync(int amount, string? updatedByUserId, CancellationToken ct = default)
+    {
+        if (amount < 0)
+            throw new BookingException(AiCreditErrorCodes.InvalidAmount, "Số lượt không hợp lệ.", 400);
+        await UpsertConfigAsync(AiCreditConfigKeys.FreeOnSignup, amount.ToString(), updatedByUserId,
+            "So luot AI tang khi xac thuc so dien thoai.", ct);
+    }
+
+    /// <summary>Ghi 1 key trong system_configs, tạo mới nếu chưa có.</summary>
+    private async Task UpsertConfigAsync(
+        string key, string value, string? updatedByUserId, string description, CancellationToken ct)
+    {
+        var cfg = await context.Systemconfigs.FirstOrDefaultAsync(c => c.Configkey == key, ct);
+        if (cfg is null)
+        {
+            cfg = new Systemconfig { Configkey = key, Description = description };
+            context.Systemconfigs.Add(cfg);
+        }
+        cfg.Configvalue = value;
+        cfg.Updatedby = updatedByUserId;
+        cfg.Updatedat = TimeZoneHelper.UtcNow;
+        await context.SaveChangesAsync(ct);
+    }
 
     public async Task<int> AdminGetBookingBonusAsync(CancellationToken ct = default)
     {
