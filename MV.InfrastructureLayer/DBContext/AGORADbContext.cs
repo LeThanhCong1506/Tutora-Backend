@@ -102,6 +102,8 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
         PropertyNameCaseInsensitive = true,
     };
 
+    public virtual DbSet<AiCreditBatch> AiCreditBatches { get; set; }
+
     public virtual DbSet<PracticeAttempt> PracticeAttempts { get; set; }
 
     public virtual DbSet<QuestionVote> QuestionVotes { get; set; }
@@ -2536,6 +2538,27 @@ entity.HasOne(d => d.Tutor).WithOne(p => p.Tutorprofile)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnType("timestamp without time zone")
                 .HasColumnName("created_at");
+        });
+
+        modelBuilder.Entity<AiCreditBatch>(entity =>
+        {
+            entity.ToTable("ai_credit_batches");
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.Id).HasDefaultValueSql("gen_random_uuid()").HasColumnName("id");
+            entity.Property(e => e.UserId).HasMaxLength(50).HasColumnName("user_id");
+            entity.Property(e => e.Source).HasMaxLength(30).HasColumnName("source");
+            entity.Property(e => e.ReferenceId).HasMaxLength(120).HasColumnName("reference_id");
+            entity.Property(e => e.Granted).HasColumnName("granted");
+            entity.Property(e => e.Consumed).HasDefaultValue(0).HasColumnName("consumed");
+            entity.Property(e => e.GrantedAt)
+                .HasDefaultValueSql("now() AT TIME ZONE 'UTC'")
+                .HasColumnType("timestamp without time zone")
+                .HasColumnName("granted_at");
+            entity.Property(e => e.ExpiresAt)
+                .HasColumnType("timestamp without time zone")
+                .HasColumnName("expires_at");
+            entity.Ignore(e => e.Remaining);
         });
 
         modelBuilder.Entity<PracticeAttempt>(entity =>

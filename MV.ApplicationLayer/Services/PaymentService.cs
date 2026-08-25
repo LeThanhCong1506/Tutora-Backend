@@ -27,6 +27,7 @@ public partial class PaymentService(
     IBankListService bankListService,
     ILargeTransactionOtpService largeTransactionOtpService,
     ICommissionConfigService commissionConfigService,
+    IAiCreditService aiCreditService,
     ILogger<PaymentService> logger) : IPaymentService
 {
     //fix link
@@ -729,6 +730,8 @@ public partial class PaymentService(
                 return;
             }
 
+            int? grantCreditForBookingId = null;
+
             if (amount != (booking.Depositamount ?? 0))
                 throw new BookingException(BookingErrorCodes.AmountMismatch, "Số tiền không khớp", 409);
 
@@ -749,6 +752,8 @@ public partial class PaymentService(
             booking.Responsedeadline = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow.AddHours(24);
             booking.Escrowstatus = EscrowStatus.Holding;
             booking.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
+            // Đánh dấu để tặng AI credit SAU khi commit — tiền buổi đầu đã vào escrow.
+            grantCreditForBookingId = booking.Bookingid;
 
             // Escrow first-classSession share of tutor receivable to frozen balance
             var sessions = booking.Totalsessions ?? 1;
@@ -784,6 +789,11 @@ public partial class PaymentService(
             await tx.CommitAsync(ct);
 
             logger.LogInformation("Deposit confirmed for booking {Id}, amount {Amount}", bookingId, amount);
+
+            // Tặng AI credit SAU khi tiền buổi đầu đã vào escrow — đây mới là lúc học sinh
+            // thật sự trả tiền. Ngoài transaction: tặng hỏng không được rollback thanh toán.
+            if (grantCreditForBookingId is int paidBookingId)
+                await GrantBookingCreditAsync(booking, paidBookingId, ct);
 
             await SendPaymentPhaseNotificationsAsync(booking, isDepositPhase: true);
 
@@ -1602,4 +1612,25 @@ public partial class PaymentService(
             StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>
+    /// Tặng AI credit cho học sinh khi booking đã thanh toán buổi đầu.
+    /// </summary>
+    private async Task GrantBookingCreditAsync(Booking booking, int bookingId, CancellationToken ct)
+    {
+        try
+        {
+            var student = await context.Studentprofiles
+                .AsNoTracking()
+                .FirstOrDefaultAsync(s => s.Studentid == booking.Studentid, ct);
+
+            // Credit gắn với TÀI KHOẢN đăng nhập; học sinh do phụ huynh tạo có thể chưa có.
+            if (string.IsNullOrWhiteSpace(student?.Linkeduserid)) return;
+
+            await aiCreditService.GrantBookingBonusAsync(student.Linkeduserid, bookingId, ct);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Không tặng được AI credit cho booking {BookingId}", bookingId);
+        }
+    }
 }
