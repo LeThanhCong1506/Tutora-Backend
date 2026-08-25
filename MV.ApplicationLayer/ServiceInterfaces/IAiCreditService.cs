@@ -23,6 +23,16 @@ public interface IAiCreditService
     // Query
     Task<AiCreditBalanceResponse> GetBalanceAsync(string userId, CancellationToken ct = default);
 
+    /// <summary>Số THÁNG credit hết hạn kể từ ngày cấp (admin chỉnh). 0 = không hết hạn.</summary>
+    Task<int> GetExpiryMonthsAsync(CancellationToken ct = default);
+
+    Task AdminSetExpiryMonthsAsync(int months, string? updatedByUserId, CancellationToken ct = default);
+
+    /// <summary>Số lượt tặng khi xác thực SĐT (admin chỉnh).</summary>
+    Task<int> AdminGetFreeOnSignupAsync(CancellationToken ct = default);
+
+    Task AdminSetFreeOnSignupAsync(int amount, string? updatedByUserId, CancellationToken ct = default);
+
     Task<IReadOnlyList<AiCreditTransactionResponse>> GetHistoryAsync(string userId, int take, CancellationToken ct = default);
 
     /// <summary>Danh sách gói cho client.</summary>

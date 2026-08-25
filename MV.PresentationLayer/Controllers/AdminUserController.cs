@@ -25,6 +25,9 @@ public class AdminUserController : ControllerBase
         _userService = userService;
     }
 
+    /// <summary>The signed-in operator, for actions that record or verify who performed them.</summary>
+    private string CurrentUserId => User.FindFirstValue(ClaimTypes.NameIdentifier) ?? string.Empty;
+
     [RequirePermission(Permissions.UserView)]
     [HttpGet]
     public async Task<IActionResult> GetAllUsers([FromQuery] AdminUserFilterParameters parameters)
@@ -161,8 +164,9 @@ public class AdminUserController : ControllerBase
             var guardResult = await GuardInternalTargetAsync(id, mutation: true);
             if (guardResult != null) return guardResult;
 
-            await _userService.AdminDeactivateUserAsync(id);
-            return Ok(APIResponse<object>.Success(null!, "Vô hiệu hóa tài khoản người dùng thành công."));
+            var impact = await _userService.AdminDeactivateUserAsync(id);
+            return Ok(APIResponse<SuspensionRefundImpactResponse>.Success(
+                impact, BuildDeactivationMessage(impact)));
         }
         catch (UserNotFoundException ex)
         {
@@ -172,6 +176,25 @@ public class AdminUserController : ControllerBase
         {
             return StatusCode(500, APIResponse<object>.Fail(ApiMessages.GenericErrorPrefix + ex.Message, 500));
         }
+    }
+
+    /// <summary>
+    /// Blocking a tutor cancels and refunds the sessions they can no longer teach, which is money
+    /// leaving escrow — say so in the confirmation instead of leaving the operator to find out later.
+    /// </summary>
+    private static string BuildDeactivationMessage(SuspensionRefundImpactResponse impact)
+    {
+        if (impact.BookingsAffected == 0 && impact.BookingsNeedingManualReview.Count == 0)
+            return "Vô hiệu hóa tài khoản người dùng thành công.";
+
+        var message = $"Vô hiệu hóa tài khoản thành công. Đã hủy {impact.SessionsCancelled} buổi học chưa dạy "
+                    + $"thuộc {impact.BookingsAffected} khóa và hoàn {impact.TotalRefunded:N0}đ cho người học.";
+
+        if (impact.BookingsNeedingManualReview.Count > 0)
+            message += $" Lưu ý: {impact.BookingsNeedingManualReview.Count} khóa không xác định được người nhận hoàn tiền "
+                     + $"(#{string.Join(", #", impact.BookingsNeedingManualReview)}) — cần xử lý thủ công.";
+
+        return message;
     }
 
     /// <summary>
@@ -201,18 +224,59 @@ public class AdminUserController : ControllerBase
         }
     }
 
+    /// <summary>
+    /// GET /api/admin/users/{id}/purge-preflight
+    /// What a permanent erase would destroy, whether it is allowed right now, and the sentence the
+    /// operator has to type back. Moves nothing.
+    /// </summary>
     [Authorize(Roles = UserRole.Admin)]
-    [HttpDelete("{id}")]
-    public async Task<IActionResult> DeleteUser(string id)
+    [HttpGet("{id}/purge-preflight")]
+    public async Task<IActionResult> GetPurgePreflight(string id)
     {
         try
         {
-            await _userService.DeleteUserAsync(id);
-            return Ok(APIResponse<object>.Success(null!, "Xóa người dùng thành công."));
+            var guardResult = await GuardInternalTargetAsync(id, mutation: true);
+            if (guardResult != null) return guardResult;
+
+            var result = await _userService.GetPurgePreflightAsync(id, CurrentUserId);
+            return Ok(APIResponse<UserPurgePreflightResponse>.Success(result, "Kiểm tra điều kiện xóa thành công."));
         }
         catch (UserNotFoundException ex)
         {
             return NotFound(APIResponse<object>.Fail(ex.Message, 404));
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(500, APIResponse<object>.Fail(ApiMessages.GenericErrorPrefix + ex.Message, 500));
+        }
+    }
+
+    /// <summary>
+    /// DELETE /api/admin/users/{id}
+    /// Erases the account and everything keyed to it. There is no restore — the body must carry the
+    /// confirmation sentence from the pre-flight, which is re-checked server-side.
+    /// </summary>
+    [Authorize(Roles = UserRole.Admin)]
+    [HttpDelete("{id}")]
+    public async Task<IActionResult> DeleteUser(string id, [FromBody] PurgeUserRequest request)
+    {
+        try
+        {
+            var guardResult = await GuardInternalTargetAsync(id, mutation: true);
+            if (guardResult != null) return guardResult;
+
+            var result = await _userService.AdminPurgeUserAsync(id, request?.ConfirmationPhrase ?? "", CurrentUserId);
+            return Ok(APIResponse<UserPurgeResultResponse>.Success(
+                result, $"Đã xóa vĩnh viễn tài khoản {result.FullName} và toàn bộ dữ liệu liên quan."));
+        }
+        catch (UserNotFoundException ex)
+        {
+            return NotFound(APIResponse<object>.Fail(ex.Message, 404));
+        }
+        catch (InvalidOperationException ex)
+        {
+            // Wrong phrase, or something is still outstanding — the operator can act on both.
+            return BadRequest(APIResponse<object>.Fail(ex.Message, 400));
         }
         catch (Exception ex)
         {

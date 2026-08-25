@@ -67,6 +67,41 @@ public class AdminAiCreditController(
         catch (BookingException ex) { return Handle(ex); }
     }
 
+    // Hạn dùng credit + số lượt tặng khi đăng ký
+    [HttpGet("config/credit-rules")]
+    [RequirePermission(Permissions.FinancialView)]
+    public async Task<IActionResult> GetCreditRules(CancellationToken ct)
+        => Ok(new
+        {
+            expiryMonths = await aiCreditService.GetExpiryMonthsAsync(ct),
+            freeOnSignup = await aiCreditService.AdminGetFreeOnSignupAsync(ct),
+            bookingBonus = await aiCreditService.AdminGetBookingBonusAsync(ct),
+        });
+
+    [HttpPut("config/expiry-months")]
+    [RequirePermission(Permissions.PromotionManage)]
+    public async Task<IActionResult> SetExpiryMonths([FromBody] SetBookingBonusRequest request, CancellationToken ct)
+    {
+        try
+        {
+            await aiCreditService.AdminSetExpiryMonthsAsync(request.Amount, UserId, ct);
+            return Ok(new { expiryMonths = request.Amount });
+        }
+        catch (BookingException ex) { return Handle(ex); }
+    }
+
+    [HttpPut("config/free-on-signup")]
+    [RequirePermission(Permissions.PromotionManage)]
+    public async Task<IActionResult> SetFreeOnSignup([FromBody] SetBookingBonusRequest request, CancellationToken ct)
+    {
+        try
+        {
+            await aiCreditService.AdminSetFreeOnSignupAsync(request.Amount, UserId, ct);
+            return Ok(new { freeOnSignup = request.Amount });
+        }
+        catch (BookingException ex) { return Handle(ex); }
+    }
+
     // Booking bonus config
     [HttpGet("config/booking-bonus")]
     [RequirePermission(Permissions.FinancialView)]

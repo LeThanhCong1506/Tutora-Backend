@@ -19,10 +19,14 @@ namespace MV.PresentationLayer.Controllers;
 public class WarningController : ControllerBase
 {
     private readonly IWarningService _warningService;
+    private readonly ISuspensionRefundService _suspensionRefundService;
 
-    public WarningController(IWarningService warningService)
+    public WarningController(
+        IWarningService warningService,
+        ISuspensionRefundService suspensionRefundService)
     {
         _warningService = warningService;
+        _suspensionRefundService = suspensionRefundService;
     }
 
     /// <summary>
@@ -69,6 +73,26 @@ public class WarningController : ControllerBase
     }
 
     /// <summary>
+    /// What suspending this tutor would cost: which upcoming sessions get cancelled and how much
+    /// goes back to the parents. Read-only — nothing moves until <c>ApplySuspension</c> is called.
+    /// <paramref name="durationDays"/> mirrors the suspend form: 0 (or omitted) previews an
+    /// indefinite suspension, which reaches every undelivered session.
+    /// </summary>
+    [RequirePermission(Permissions.SuspensionManage)]
+    [HttpGet("users/{id}/suspension-impact")]
+    public async Task<ActionResult<APIResponse<SuspensionRefundImpactResponse>>> PreviewSuspensionImpact(
+        string id,
+        [FromQuery] int durationDays = 0)
+    {
+        DateTime? endDate = durationDays > 0
+            ? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow.AddDays(durationDays)
+            : null;
+
+        var result = await _suspensionRefundService.PreviewCascadeAsync(id, endDate);
+        return Ok(APIResponse<SuspensionRefundImpactResponse>.Success(result, "Lấy dự báo ảnh hưởng thành công."));
+    }
+
+    /// <summary>
     /// Apply suspension to a user
     /// </summary>
     [RequirePermission(Permissions.SuspensionManage)]
@@ -80,7 +104,14 @@ public class WarningController : ControllerBase
         var adminId = UserHelper.GetUserId(User);
         var result = await _warningService.CreateSuspensionAsync(
             id, request.SuspensionType, request.Reason, request.DurationDays ?? 7, adminId);
-        return Ok(APIResponse<SuspensionListResponse>.Success(result, "Áp dụng tạm ngưng tài khoản thành công."));
+
+        var impact = result.RefundImpact;
+        var message = impact is null || impact.BookingsAffected == 0
+            ? "Áp dụng tạm ngưng tài khoản thành công."
+            : $"Áp dụng tạm ngưng thành công. Đã hủy {impact.SessionsCancelled} buổi học thuộc "
+            + $"{impact.BookingsAffected} khóa và hoàn {impact.TotalRefunded:N0}đ cho người học.";
+
+        return Ok(APIResponse<SuspensionListResponse>.Success(result, message));
     }
 
     /// <summary>
