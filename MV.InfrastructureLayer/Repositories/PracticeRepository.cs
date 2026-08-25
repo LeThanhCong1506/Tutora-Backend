@@ -15,9 +15,10 @@ public class PracticeRepository(AgoraDbContext context) : IPracticeRepository
 
     public Task<List<QuestionBank>> GetPracticeCandidatesAsync(string chapter, List<Guid> excludeIds, int take)
         => context.QuestionBanks
+            // Cần solution để học sinh đối chiếu; KHÔNG cần correct_answer nữa vì
+            // luyện dạng tự luận -> kho rộng hơn hẳn (mọi câu trong bank đều có solution).
             .Where(q => q.ReviewStatus == "published"
-                        && q.AnswerFormat == "mc"
-                        && q.CorrectAnswer != null
+                        && q.Solution != null
                         && q.Chapter == chapter
                         && !excludeIds.Contains(q.Id))
             .Take(take)
@@ -28,15 +29,6 @@ public class PracticeRepository(AgoraDbContext context) : IPracticeRepository
 
     public void AddAttempt(PracticeAttempt attempt)
         => context.PracticeAttempts.Add(attempt);
-
-    public async Task<(int Correct, int Total)> CountByChapterAsync(string userId, string? chapter)
-    {
-        var rows = await context.PracticeAttempts
-            .Where(p => p.UserId == userId && p.Chapter == chapter)
-            .Select(p => p.IsCorrect)
-            .ToListAsync();
-        return (rows.Count(x => x), rows.Count);
-    }
 
     public Task<int> SaveChangesAsync() => context.SaveChangesAsync();
 }

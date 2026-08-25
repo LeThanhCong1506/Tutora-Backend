@@ -26,12 +26,23 @@ public class AssistantRespondRequest
     /// Chỉ dùng khi AUTHED: phiên chat để lưu lịch sử.
     /// </summary>
     public Guid? SessionId { get; set; }
+
+    /// <summary>
+    /// Entity memory: gia sư ĐÃ hiển thị các lượt trước (FE giữ & gửi lại, như CurrentFilters).
+    /// </summary>
+    public List<AssistantShownTutor> ShownTutors { get; set; } = new();
 }
 
 public class AssistantHistoryItem
 {
     public string Role { get; set; } = "user";
     public string Content { get; set; } = string.Empty;
+}
+
+public class AssistantShownTutor
+{
+    public string TutorId { get; set; } = string.Empty;
+    public string? Name { get; set; }
 }
 
 public class AssistantContextDto

@@ -174,6 +174,35 @@ namespace MV.InfrastructureLayer.Repositories
                 query = query.Where(u => u.Gender == parameters.Gender.Value);
             }
 
+            // 13b. Lọc theo LỊCH RẢNH (tutor_availability).
+            var wantDays = parameters.AvailableDaysOfWeek;
+            var hasTimeRange = parameters.AvailableFrom.HasValue && parameters.AvailableTo.HasValue;
+
+            if (wantDays is { Count: > 0 } && hasTimeRange)
+            {
+                var from = parameters.AvailableFrom!.Value;
+                var to = parameters.AvailableTo!.Value;
+                // Cùng MỘT khoảng rảnh phải vừa đúng thứ vừa phủ khung giờ — tách 2 điều kiện
+                // rời sẽ khớp nhầm (rảnh T7 sáng + T3 tối => coi như rảnh T7 tối).
+                query = query.Where(u => u.Tutorprofile!.Tutoravailabilities.Any(a =>
+                    a.Dayofweek.HasValue && wantDays.Contains(a.Dayofweek.Value) &&
+                    a.Starttime.HasValue && a.Endtime.HasValue &&
+                    a.Starttime.Value <= from && a.Endtime.Value >= to));
+            }
+            else if (wantDays is { Count: > 0 })
+            {
+                query = query.Where(u => u.Tutorprofile!.Tutoravailabilities.Any(a =>
+                    a.Dayofweek.HasValue && wantDays.Contains(a.Dayofweek.Value)));
+            }
+            else if (hasTimeRange)
+            {
+                var from = parameters.AvailableFrom!.Value;
+                var to = parameters.AvailableTo!.Value;
+                query = query.Where(u => u.Tutorprofile!.Tutoravailabilities.Any(a =>
+                    a.Starttime.HasValue && a.Endtime.HasValue &&
+                    a.Starttime.Value <= from && a.Endtime.Value >= to));
+            }
+
             // 14. Filter by Grade Level - Search in JSONB gradelevels column
             if (!string.IsNullOrWhiteSpace(parameters.GradeLevel))
             {
