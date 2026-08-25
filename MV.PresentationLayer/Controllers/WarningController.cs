@@ -73,8 +73,9 @@ public class WarningController : ControllerBase
     }
 
     /// <summary>
-    /// What suspending this tutor would cost: which upcoming sessions get cancelled and how much
-    /// goes back to the parents. Read-only — nothing moves until <c>ApplySuspension</c> is called.
+    /// What suspending this account would cost: which upcoming sessions get cancelled and how much
+    /// goes back to whoever paid. Works for tutors, parents and students alike.
+    /// Read-only — nothing moves until <c>ApplySuspension</c> is called.
     /// <paramref name="durationDays"/> mirrors the suspend form: 0 (or omitted) previews an
     /// indefinite suspension, which reaches every undelivered session.
     /// </summary>

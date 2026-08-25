@@ -48,13 +48,13 @@ public class SuspensionRefundService : ISuspensionRefundService
     }
 
     public async Task<SuspensionRefundImpactResponse> CascadeSuspensionAsync(
-        string tutorId,
+        string userId,
         DateTime? suspensionEndDate,
         string reason,
         CancellationToken ct = default)
     {
         var impact = new SuspensionRefundImpactResponse();
-        if (string.IsNullOrWhiteSpace(tutorId)) return impact;
+        if (string.IsNullOrWhiteSpace(userId)) return impact;
 
         // Callers reach us from three places: an admin suspending directly (no transaction yet),
         // the warning threshold firing inside CreateSuspensionAsync, and the no-show/dispute flows
@@ -74,18 +74,14 @@ public class SuspensionRefundService : ISuspensionRefundService
             // read from the database. Flush first so we never refund against a stale picture.
             if (!ownsTx) await _context.SaveChangesAsync(ct);
 
-            var bookingIds = await _context.Bookings
-                .AsNoTracking()
-                .Where(b => b.Tutorid == tutorId && LiveBookingStatuses.Contains(b.Status!))
-                .Select(b => b.Bookingid)
-                .ToListAsync(ct);
+            var bookingIds = await LiveBookingIdsForUserQuery(userId).ToListAsync(ct);
 
             var now = TimeZoneHelper.UtcNow;
 
             foreach (var bookingId in bookingIds)
             {
                 var bookingImpact = await CascadeOneBookingAsync(
-                    bookingId, tutorId, suspensionEndDate, reason, now, impact, pendingNotifications, ct);
+                    bookingId, userId, suspensionEndDate, reason, now, impact, pendingNotifications, ct);
 
                 if (bookingImpact == null) continue;
 
@@ -107,8 +103,8 @@ public class SuspensionRefundService : ISuspensionRefundService
         }
 
         _logger.LogInformation(
-            "Suspension cascade for tutor {TutorId} (until {EndDate}): {Bookings} booking(s), {Sessions} session(s) cancelled, {Refunded} refunded, {Reversed} escrow reversed, {Released} released to tutor.",
-            tutorId, suspensionEndDate?.ToString("O") ?? "indefinite", impact.BookingsAffected,
+            "Suspension cascade for user {UserId} (until {EndDate}): {Bookings} booking(s), {Sessions} session(s) cancelled, {Refunded} refunded, {Reversed} escrow reversed, {Released} released to tutor.",
+            userId, suspensionEndDate?.ToString("O") ?? "indefinite", impact.BookingsAffected,
             impact.SessionsCancelled, impact.TotalRefunded, impact.TotalEscrowReversed,
             impact.TotalEscrowReleasedToTutor);
 
@@ -128,8 +124,8 @@ public class SuspensionRefundService : ISuspensionRefundService
             // or dispute settlement) still moves the money correctly — the payer sees it in their
             // wallet history — but never gets a push about it, so make that traceable.
             _logger.LogWarning(
-                "Suspension cascade for tutor {TutorId} deferred {Count} notification(s) to the ambient transaction owner; they are dropped if that caller does not flush them.",
-                tutorId, pendingNotifications.Count);
+                "Suspension cascade for user {UserId} deferred {Count} notification(s) to the ambient transaction owner; they are dropped if that caller does not flush them.",
+                userId, pendingNotifications.Count);
         }
 
         return impact;
@@ -161,11 +157,38 @@ public class SuspensionRefundService : ISuspensionRefundService
     }
 
     /// <summary>
+    /// Live bookings the account is a party to, in any of the three roles it can hold.
+    /// </summary>
+    /// <remarks>
+    /// A suspension takes the person offline whichever side of the desk they sit on: a suspended
+    /// tutor cannot teach, and a suspended parent or student cannot attend. Scoping this to the
+    /// tutor alone left a suspended learner's sessions sitting "scheduled" against a tutor who kept
+    /// waiting, with the money frozen in escrow indefinitely.
+    /// A suspended parent also takes their children's courses with them, since the parent is the
+    /// payer and the supervising account for those bookings.
+    /// </remarks>
+    private IQueryable<int> LiveBookingIdsForUserQuery(string userId)
+    {
+        var studentProfileIds = _context.Studentprofiles
+            .AsNoTracking()
+            .Where(p => p.Linkeduserid == userId || p.Studentid == userId || p.Parentid == userId)
+            .Select(p => p.Studentid);
+
+        return _context.Bookings
+            .AsNoTracking()
+            .Where(b => LiveBookingStatuses.Contains(b.Status!)
+                        && (b.Tutorid == userId
+                            || b.Parentid == userId
+                            || (b.Studentid != null && studentProfileIds.Contains(b.Studentid))))
+            .Select(b => b.Bookingid);
+    }
+
+    /// <summary>
     /// Unwinds one booking. Returns null when the booking has nothing the cascade should touch.
     /// </summary>
     private async Task<SuspensionRefundBookingImpact?> CascadeOneBookingAsync(
         int bookingId,
-        string tutorId,
+        string suspendedUserId,
         DateTime? suspensionEndDate,
         string reason,
         DateTime now,
@@ -187,7 +210,7 @@ public class SuspensionRefundService : ISuspensionRefundService
             .ToListAsync(ct);
 
         // A permanent suspension or an indefinite block cancels everything undelivered; a
-        // temporary one only reaches sessions that fall inside the window the tutor is away.
+        // temporary one only reaches sessions that fall inside the window the account is away.
         var affected = sessions
             .Where(s => s.Status is Scheduled or Reserved)
             .Where(s => suspensionEndDate == null || s.Scheduledstart <= suspensionEndDate.Value)
@@ -203,17 +226,25 @@ public class SuspensionRefundService : ISuspensionRefundService
         if (string.IsNullOrWhiteSpace(refundRecipientId))
         {
             _logger.LogError(
-                "Suspension cascade skipped booking {BookingId} for tutor {TutorId}: no payer account could be resolved from Parentid or the student profile.",
-                bookingId, tutorId);
+                "Suspension cascade skipped booking {BookingId} while suspending {UserId}: no payer account could be resolved from Parentid or the student profile.",
+                bookingId, suspendedUserId);
             impact.BookingsNeedingManualReview.Add(bookingId);
             return null;
         }
 
+        // Escrow is always held against the booking's own tutor — which is the suspended account
+        // only when a tutor is the one being suspended. Reading it from the suspended user would
+        // debit a parent's wallet for a tutor's escrow the moment this ran for a learner.
         // Get-or-create rather than require: a legacy tutor with no wallet row must not make the
         // account impossible to suspend. An empty wallet simply reverses no escrow, and the payer
         // is still refunded out of what was actually collected.
-        var tutorWallet = await WalletLockHelper.GetOrCreateForUpdateAsync(_context, tutorId, now, ct);
+        var bookingTutorId = booking.Tutorid;
+        var tutorWallet = string.IsNullOrWhiteSpace(bookingTutorId)
+            ? null
+            : await WalletLockHelper.GetOrCreateForUpdateAsync(_context, bookingTutorId, now, ct);
         var payerWallet = await WalletLockHelper.GetOrCreateForUpdateAsync(_context, refundRecipientId, now, ct);
+
+        var suspendedIsTutor = bookingTutorId == suspendedUserId;
 
         // Never refund more than was actually collected. Only the deposit is in hand until the
         // remaining phase is paid, and earlier dispute/no-show refunds already gave some of it back.
@@ -231,11 +262,12 @@ public class SuspensionRefundService : ISuspensionRefundService
             Math.Min(LessonRefundCalculator.ParentRefundPerSession(booking) * affected.Count, maxParentRefund), 2);
         var escrowReversal = Math.Round(
             Math.Min(LessonRefundCalculator.TutorEscrowPerSession(booking) * affected.Count,
-                     Math.Max(0, tutorWallet.Frozenbalance ?? 0)), 2);
+                     Math.Max(0, tutorWallet?.Frozenbalance ?? 0)), 2);
 
-        var sessionLabel = suspensionEndDate == null ? "gia sư bị khóa" : "gia sư bị tạm đình chỉ";
+        var who = suspendedIsTutor ? "gia sư" : "người học";
+        var sessionLabel = suspensionEndDate == null ? $"{who} bị khóa" : $"{who} bị tạm đình chỉ";
 
-        if (escrowReversal > 0)
+        if (tutorWallet != null && escrowReversal > 0)
         {
             tutorWallet.Frozenbalance = Math.Max(0, (tutorWallet.Frozenbalance ?? 0) - escrowReversal);
             tutorWallet.Lastupdated = now;
@@ -295,39 +327,61 @@ public class SuspensionRefundService : ISuspensionRefundService
         else
             result.BookingStatus = booking.Status;
 
+        var lockWord = suspensionEndDate == null ? "khóa" : "tạm đình chỉ";
+
+        // The payer. Reads differently when the payer is the one who got suspended — telling them
+        // "gia sư của bạn bị đình chỉ" when it was their own account would be plainly wrong.
         pendingNotifications.Add(new NotificationRequest
         {
             Userid = refundRecipientId,
             Title = result.Closed ? "Khóa học đã dừng — đã hoàn tiền" : "Buổi học bị hủy — đã hoàn tiền",
-            Message = BuildPayerMessage(bookingId, affected.Count, refundAmount, suspensionEndDate, result.Closed, reason),
+            Message = refundRecipientId == suspendedUserId
+                ? $"Tài khoản của bạn đã bị {lockWord} nên {affected.Count} buổi học sắp tới của khóa #{bookingId} "
+                    + $"đã bị hủy và {refundAmount:N0}đ đã được hoàn vào ví của bạn."
+                : BuildPayerMessage(bookingId, affected.Count, refundAmount, suspensionEndDate,
+                                    result.Closed, reason, suspendedIsTutor),
             Type = NotificationType.PaymentRefundSuccess,
             Referenceid = bookingId.ToString()
         });
 
-        pendingNotifications.Add(new NotificationRequest
+        // The tutor of this booking — who may be the suspended account, or an uninvolved tutor
+        // whose student just went offline.
+        if (!string.IsNullOrWhiteSpace(bookingTutorId))
         {
-            Userid = tutorId,
-            Title = result.Closed ? "Khóa học đã bị dừng" : "Buổi học đã bị hủy",
-            Message = $"Do tài khoản của bạn bị {(suspensionEndDate == null ? "khóa" : "tạm đình chỉ")}, "
-                    + $"{affected.Count} buổi chưa dạy của khóa học #{bookingId} đã bị hủy và {refundAmount:N0}đ đã được hoàn cho người học.",
-            Type = NotificationType.BookingCancelled,
-            Referenceid = bookingId.ToString()
-        });
+            pendingNotifications.Add(new NotificationRequest
+            {
+                Userid = bookingTutorId,
+                Title = result.Closed ? "Khóa học đã bị dừng" : "Buổi học đã bị hủy",
+                Message = suspendedIsTutor
+                    ? $"Do tài khoản của bạn bị {lockWord}, {affected.Count} buổi chưa dạy của khóa học #{bookingId} "
+                        + $"đã bị hủy và {refundAmount:N0}đ đã được hoàn cho người học."
+                    : $"Người học của khóa #{bookingId} đã bị {lockWord} nên {affected.Count} buổi chưa dạy đã bị hủy. "
+                        + "Phần ký quỹ tương ứng đã được hoàn lại cho người học.",
+                Type = NotificationType.BookingCancelled,
+                Referenceid = bookingId.ToString()
+            });
+        }
 
         // When a parent booked on a child's behalf, the child is the one who would have shown up.
         // They get told the sessions are gone; the money talk goes to the parent who paid.
         var studentUserId = await GetStudentAccountIdAsync(booking, ct);
-        if (!string.IsNullOrWhiteSpace(studentUserId) && studentUserId != refundRecipientId)
+        if (!string.IsNullOrWhiteSpace(studentUserId)
+            && studentUserId != refundRecipientId
+            && studentUserId != bookingTutorId)
         {
             pendingNotifications.Add(new NotificationRequest
             {
                 Userid = studentUserId,
                 Title = result.Closed ? "Khóa học đã dừng" : "Buổi học sắp tới đã bị hủy",
-                Message = $"Gia sư của khóa học #{bookingId} hiện không thể tiếp tục giảng dạy nên "
-                        + $"{affected.Count} buổi học sắp tới đã bị hủy. "
-                        + (result.Closed
-                            ? "Khóa học đã kết thúc, phụ huynh của bạn đã được hoàn tiền."
-                            : "Các buổi học sau đó vẫn được giữ nguyên."),
+                Message = (studentUserId == suspendedUserId
+                        ? $"Tài khoản của bạn đã bị {lockWord} nên "
+                        : suspendedIsTutor
+                            ? $"Gia sư của khóa học #{bookingId} hiện không thể tiếp tục giảng dạy nên "
+                            : $"Khóa học #{bookingId} đã tạm dừng nên ")
+                    + $"{affected.Count} buổi học sắp tới đã bị hủy. "
+                    + (result.Closed
+                        ? "Khóa học đã kết thúc, phụ huynh của bạn đã được hoàn tiền."
+                        : "Các buổi học sau đó vẫn được giữ nguyên."),
                 Type = NotificationType.BookingCancelled,
                 Referenceid = bookingId.ToString()
             });
@@ -390,7 +444,7 @@ public class SuspensionRefundService : ISuspensionRefundService
     private async Task CloseBookingAsync(
         Booking booking,
         List<ClassSession> sessions,
-        Wallet tutorWallet,
+        Wallet? tutorWallet,
         DateTime now,
         SuspensionRefundBookingImpact result,
         SuspensionRefundImpactResponse impact,
@@ -398,7 +452,7 @@ public class SuspensionRefundService : ISuspensionRefundService
     {
         var deliveredCount = sessions.Count(s => s.Status == Completed || s.Issettled == true);
 
-        if (deliveredCount > 0)
+        if (deliveredCount > 0 && tutorWallet != null)
         {
             // Escrow in this platform is only released when a course finishes, so the tutor's
             // delivered sessions are still sitting frozen. Pay them out before closing the booking.
@@ -463,11 +517,13 @@ public class SuspensionRefundService : ISuspensionRefundService
     }
 
     private static string BuildPayerMessage(
-        int bookingId, int cancelledCount, decimal refundAmount, DateTime? endDate, bool closed, string reason)
+        int bookingId, int cancelledCount, decimal refundAmount, DateTime? endDate, bool closed,
+        string reason, bool suspendedIsTutor)
     {
+        var subject = suspendedIsTutor ? "Gia sư của khóa học này" : "Người học của khóa học này";
         var cause = endDate == null
-            ? "Gia sư của khóa học này đã bị khóa tài khoản"
-            : $"Gia sư của khóa học này đang bị tạm đình chỉ đến {FormatVietnamDate(endDate.Value)}";
+            ? $"{subject} đã bị khóa tài khoản"
+            : $"{subject} đang bị tạm đình chỉ đến {FormatVietnamDate(endDate.Value)}";
 
         var outcome = closed
             ? $"Khóa học #{bookingId} đã được dừng lại"
@@ -488,25 +544,30 @@ public class SuspensionRefundService : ISuspensionRefundService
     }
 
     public async Task<SuspensionRefundImpactResponse> PreviewCascadeAsync(
-        string tutorId,
+        string userId,
         DateTime? suspensionEndDate,
         CancellationToken ct = default)
     {
         var impact = new SuspensionRefundImpactResponse();
-        if (string.IsNullOrWhiteSpace(tutorId)) return impact;
+        if (string.IsNullOrWhiteSpace(userId)) return impact;
+
+        // Same scope as the real run, or the operator would be shown a bill that does not match
+        // what confirming actually does.
+        var bookingIds = await LiveBookingIdsForUserQuery(userId).ToListAsync(ct);
 
         var bookings = await _context.Bookings
             .AsNoTracking()
-
             .Include(b => b.ClassSessions)
-            .Where(b => b.Tutorid == tutorId && LiveBookingStatuses.Contains(b.Status!))
+            .Where(b => bookingIds.Contains(b.Bookingid))
             .ToListAsync(ct);
 
+        // Escrow is frozen per tutor, and suspending a parent can touch bookings across several
+        // tutors — so the running total has to be kept per wallet, not as one shared pot.
+        var tutorIds = bookings.Select(b => b.Tutorid).Where(id => id != null).Distinct().ToList();
         var frozenLeft = await _context.Wallets
             .AsNoTracking()
-            .Where(w => w.Userid == tutorId)
-            .Select(w => w.Frozenbalance ?? 0)
-            .FirstOrDefaultAsync(ct);
+            .Where(w => w.Userid != null && tutorIds.Contains(w.Userid))
+            .ToDictionaryAsync(w => w.Userid!, w => w.Frozenbalance ?? 0, ct);
 
         foreach (var booking in bookings)
         {
@@ -540,12 +601,14 @@ public class SuspensionRefundService : ISuspensionRefundService
                 LessonRefundCalculator.ParentRefundPerSession(booking) * affected.Count,
                 Math.Max(0, totalPaidByParent - totalAlreadyRefunded)), 2);
 
-            // Escrow is one shared frozen pot across every booking, so preview it the way the
+            // One tutor's escrow is a single pot across their bookings, so preview it the way the
             // cascade spends it: booking by booking, against what the previous ones left behind.
+            var tutorKey = booking.Tutorid;
+            var availableFrozen = tutorKey != null && frozenLeft.TryGetValue(tutorKey, out var left) ? left : 0m;
             var escrowReversal = Math.Round(Math.Min(
                 LessonRefundCalculator.TutorEscrowPerSession(booking) * affected.Count,
-                Math.Max(0, frozenLeft)), 2);
-            frozenLeft -= escrowReversal;
+                Math.Max(0, availableFrozen)), 2);
+            if (tutorKey != null) frozenLeft[tutorKey] = availableFrozen - escrowReversal;
 
             var hasBlockingSession = booking.ClassSessions.Any(s => BlockingSessionStatuses.Contains(s.Status!));
             var closed = !hasBlockingSession

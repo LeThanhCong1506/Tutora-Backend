@@ -125,8 +125,13 @@ namespace MV.ApplicationLayer.Services
             if (wallet != null && wallet.Frozen > 0)
                 blockers.Add($"Ví còn {wallet.Frozen:N0}đ đang ký quỹ cho các buổi chưa tất toán.");
 
+            // Scoped exactly like BookingScopeQuery, which is what the erase actually deletes.
+            // Checking only Parentid/Tutorid let a student with live courses (booked and paid for
+            // by their parent) pass the guard, and the purge then deleted those bookings along with
+            // their sessions and payments — money still in escrow and all.
+            var scopedBookingIds = BookingScopeQuery(userId);
             var liveBookings = await _context.Bookings.AsNoTracking()
-                .CountAsync(b => (b.Parentid == userId || b.Tutorid == userId)
+                .CountAsync(b => scopedBookingIds.Contains(b.Bookingid)
                                  && UnsettledBookingStatuses.Contains(b.Status!));
             if (liveBookings > 0)
                 blockers.Add($"Còn {liveBookings} khóa học chưa tất toán — cần hoàn tất hoặc hủy trước.");
