@@ -585,6 +585,23 @@ namespace MV.InfrastructureLayer.Repositories
                 (!maxPrice.HasValue || u.Tutorprofile!.Tutorsubjectgradeprices.Where(p => p.Isactive).Min(p => p.Priceperhour) <= maxPrice.Value));
         }
 
+        /// <summary>
+        /// Most-booked first, then rating, then a unique key.
+        /// </summary>
+        /// <remarks>
+        /// The trailing <c>Userid</c> is what makes paging safe: most tutors have the same booking
+        /// count (often zero), and a partial ordering lets the database return those rows in any
+        /// order per query — so the same tutor could appear on page 1 and again on page 2 while
+        /// another never appears at all. This is the default sort, so it is the one that has to be
+        /// a total order.
+        /// </remarks>
+        private static IQueryable<User> SortByPopularity(IQueryable<User> query) =>
+            query
+                .OrderByDescending(u => u.Tutorprofile!.Bookings.Count)
+                .ThenByDescending(u => u.Tutorprofile!.Averagerating ?? 0)
+                .ThenByDescending(u => u.Tutorprofile!.Totalreviews ?? 0)
+                .ThenBy(u => u.Userid);
+
         private static IQueryable<User> ApplySorting(IQueryable<User> query, string? sortBy)
         {
             return sortBy?.ToLower() switch
@@ -595,9 +612,8 @@ namespace MV.InfrastructureLayer.Repositories
                 TutorSearchSortBy.ExperienceDesc => query.OrderByDescending(u => u.Tutorprofile!.Completedhours ?? 0),
                 TutorSearchSortBy.ReviewsDesc    => query.OrderByDescending(u => u.Tutorprofile!.Totalreviews ?? 0),
                 TutorSearchSortBy.Newest         => query.OrderByDescending(u => u.Tutorprofile!.Createdat),
-                TutorSearchSortBy.Popularity     => query.OrderByDescending(u => u.Tutorprofile!.Bookings.Count),
-                _                                => query.OrderByDescending(u => u.Tutorprofile!.Averagerating ?? 0)
-                                                        .ThenByDescending(u => u.Tutorprofile!.Totalreviews ?? 0)
+                TutorSearchSortBy.Popularity     => SortByPopularity(query),
+                _                                => SortByPopularity(query)
             };
         }
 
