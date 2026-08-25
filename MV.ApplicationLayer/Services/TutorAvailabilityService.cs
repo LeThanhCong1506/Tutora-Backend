@@ -329,8 +329,13 @@ namespace MV.ApplicationLayer.Services
 
                 if (hasUpcomingClassSessions)
                 {
+                    var startLocal = MV.ApplicationLayer.Helpers.TutorScheduleGuard.UtcTimeOfDayToVietnameseLocal(
+                        availability.Starttime!.Value.ToString("HH:mm"));
+                    var endLocal = MV.ApplicationLayer.Helpers.TutorScheduleGuard.UtcTimeOfDayToVietnameseLocal(
+                        availability.Endtime!.Value.ToString("HH:mm"));
+                    var dayLabel = MV.ApplicationLayer.Helpers.TutorScheduleGuard.IsoDayOfWeekToVietnameseName(availability.Dayofweek!.Value);
                     throw new InvalidOperationException(
-                        $"Không thể xóa khung giờ {availability.Starttime:HH:mm}-{availability.Endtime:HH:mm} (ngày {availability.Dayofweek}) vì đang có buổi học được đặt lịch. Vui lòng hủy booking trước khi xóa.");
+                        $"Không thể xóa khung giờ {startLocal}-{endLocal} ({dayLabel}) vì đang có buổi học được đặt lịch. Vui lòng hủy booking trước khi xóa.");
                 }
             }
 

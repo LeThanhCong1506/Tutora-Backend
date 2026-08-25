@@ -6,6 +6,7 @@ using MV.DomainLayer.DTO;
 using MV.DomainLayer.DTO.RequestModel;
 using MV.DomainLayer.DTO.ResponseModel.Admin;
 using MV.PresentationLayer.Authorization;
+using MV.PresentationLayer.Helpers;
 
 namespace MV.PresentationLayer.Controllers;
 
@@ -65,6 +66,37 @@ public class AdminBookingController(IAdminBookingService adminBookingService) : 
             return result is null
                 ? NotFound(APIResponse<object>.Fail("Không tìm thấy đặt lịch.", 404))
                 : Ok(APIResponse<AdminBookingDetailResponse>.Success(result, "Lấy chi tiết đặt lịch thành công."));
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(500, APIResponse<object>.Fail($"Lỗi hệ thống: {ex.Message}", 500));
+        }
+    }
+
+    /// <summary>
+    /// POST /api/admin/bookings/{id}/cancel-ghost
+    /// Staff hủy booking sau khi xác minh NGOÀI hệ thống (qua tổng đài) rằng phụ huynh đã "nghỉ
+    /// ngang" — không còn tham gia/phản hồi. Giải ngân toàn bộ escrow còn lại (kể cả các buổi
+    /// chưa dạy) cho gia sư. Không gắn với luồng dispute nào — gia sư không cần thao tác gì trên
+    /// hệ thống, chỉ cần liên hệ tổng đài để staff xác minh và thực hiện thao tác này.
+    /// </summary>
+    [RequirePermission(Permissions.BookingCancel)]
+    [HttpPost("{id:int}/cancel-ghost")]
+    public async Task<IActionResult> CancelGhostBooking(
+        [FromRoute] int id,
+        [FromBody] AdminCancelGhostBookingRequest request,
+        CancellationToken ct = default)
+    {
+        try
+        {
+            var adminId = UserHelper.GetUserId(User);
+            var success = await adminBookingService.CancelGhostBookingAsync(id, adminId, request.Reason, ct);
+
+            return success
+                ? Ok(APIResponse.Success("Đã hủy booking và giải ngân toàn bộ số tiền còn lại cho gia sư."))
+                : BadRequest(APIResponse.Fail(
+                    "Không thể hủy booking này lúc này (không tồn tại, đã kết thúc, hoặc có buổi đang xử lý dở dang).",
+                    400));
         }
         catch (Exception ex)
         {

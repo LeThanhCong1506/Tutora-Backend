@@ -109,6 +109,18 @@ namespace MV.DomainLayer.DTO.RequestModel
         public Gender? Gender { get; set; }
 
         /// <summary>
+        /// Lọc theo LỊCH RẢNH của gia sư (tutor_availability).
+        /// </summary>
+        public List<int>? AvailableDaysOfWeek { get; set; }
+
+        /// <summary>
+        /// Khung giờ rảnh cần khớp (vd "tối" → 18:00-21:00). Chỉ lọc khi có ĐỦ cả hai đầu.
+        /// Điều kiện: khoảng rảnh của gia sư phải PHỦ khung giờ này (start &lt;= from, end &gt;= to).
+        /// </summary>
+        public TimeOnly? AvailableFrom { get; set; }
+        public TimeOnly? AvailableTo { get; set; }
+
+        /// <summary>
         /// Filter by verification status (e.g., "verified", "pending")
         /// </summary>
         public string? VerificationStatus { get; set; }

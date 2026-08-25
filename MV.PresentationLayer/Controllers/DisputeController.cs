@@ -156,6 +156,17 @@ public class DisputeController : ControllerBase
     }
 
     /// <summary>
+    /// Preview số buổi/số tiền sẽ hủy+hoàn nếu resolve bằng "Hủy khóa học & hoàn tiền" (case 4).
+    /// </summary>
+    [RequirePermission(Permissions.DisputeResolve)]
+    [HttpGet("{id}/cancel-course-preview")]
+    public async Task<ActionResult<APIResponse<CourseCancelPreviewResponse>>> GetCancelCoursePreview(int id)
+    {
+        var result = await _disputeService.GetCancelCoursePreviewAsync(id);
+        return Ok(APIResponse<CourseCancelPreviewResponse>.Success(result, "Tính toán xem trước thành công."));
+    }
+
+    /// <summary>
     /// Resolve a dispute
     /// </summary>
     [RequirePermission(Permissions.DisputeResolve)]

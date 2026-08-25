@@ -79,6 +79,12 @@ public interface IDisputeService
     /// </summary>
     Task<RefundPreviewResponse> GetRefundPreviewAsync(int disputeId, int percentage);
 
+    /// <summary>
+    /// Xem trước số buổi/số tiền sẽ hủy+hoàn nếu resolve dispute bằng "Hủy khóa học & hoàn tiền" —
+    /// không side effect.
+    /// </summary>
+    Task<CourseCancelPreviewResponse> GetCancelCoursePreviewAsync(int disputeId);
+
     // ── Parent/Student-facing ────────────────────────────────────────────────
 
     /// <summary>

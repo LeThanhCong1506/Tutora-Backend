@@ -18,7 +18,11 @@ public static class Permissions
 
     public const string DashboardView = "dashboard.view";
     public const string FinancialView = "financial.view";
+    public const string FinancialManage = "financial.manage";
     public const string BookingView = "booking.view";
+    /// <summary>Hủy booking do staff xác minh phụ huynh "nghỉ ngang" (ghost) ngoài hệ thống, chuyển
+    /// toàn bộ escrow còn lại cho gia sư.</summary>
+    public const string BookingCancel = "booking.cancel";
     public const string PaymentConfirm = "payment.confirm";
     public const string PromotionManage = "promotion.manage";
 
@@ -88,7 +92,7 @@ public static class Permissions
         TutorApprovalView, TutorApprovalDecide, CertificateView, CertificateVerify, TutorCccdView,
         TutorProfileUpdateView, TutorProfileUpdateDecide,
         UserView, UserUpdate, UserDeactivate,
-        DashboardView, FinancialView, BookingView, PaymentConfirm, PromotionManage,
+        DashboardView, FinancialView, BookingView, BookingCancel, PaymentConfirm, PromotionManage,
         PayoutView, PayoutApprove, PayoutReject, PayoutTransfer, PayoutFundTopup, FraudLogView,
         SystemAlertView, SystemAlertResolve,
         DisputeView, DisputeInvestigate, DisputeResolve,
@@ -122,6 +126,7 @@ public static class Permissions
         new(UserUpdate, "Chỉnh sửa thông tin người dùng", "CMS / Nghiệp vụ", "Người dùng", "Sửa", UserView),
         new(UserDeactivate, "Khóa hoặc mở khóa tài khoản", "CMS / Nghiệp vụ", "Người dùng", "Khóa", UserView),
         new(BookingView, "Xem danh sách và chi tiết booking", "CMS / Nghiệp vụ", "Booking", "Xem"),
+        new(BookingCancel, "Hủy booking do phụ huynh nghỉ ngang (xác minh qua tổng đài)", "CMS / Nghiệp vụ", "Booking", "Hủy", BookingView),
         new(PromotionManage, "Quản lý mã khuyến mãi", "CMS / Nghiệp vụ", "Khuyến mãi", "Quản lý"),
 
         new(LookupView, "Xem danh mục học tập", "Danh mục", "Danh mục học tập", "Xem"),

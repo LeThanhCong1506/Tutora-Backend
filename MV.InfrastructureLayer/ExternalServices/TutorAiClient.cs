@@ -326,6 +326,56 @@ public class TutorAiClient : ITutorAiClient
 
     // Internal request/response shapes
 
+    public async Task<List<AiSimilarQuestion>> FindSimilarQuestionsAsync(
+        string text,
+        string? chapter,
+        string? difficulty,
+        IReadOnlyList<Guid> excludeIds,
+        int topK,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var client = _httpClientFactory.CreateClient(ServiceKeys.HttpClients.TutorAi);
+            using var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/similar-questions")
+            {
+                Content = JsonContent.Create(new
+                {
+                    text,
+                    chapter,
+                    difficulty,
+                    exclude_ids = excludeIds.Select(x => x.ToString()).ToList(),
+                    top_k = topK,
+                })
+            };
+            if (!string.IsNullOrWhiteSpace(_apiKey))
+                request.Headers.Add("X-API-Key", _apiKey);
+
+            using var response = await client.SendAsync(request, cancellationToken);
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogWarning("TutorAI similar-questions trả {StatusCode}.", (int)response.StatusCode);
+                return new();
+            }
+
+            var rows = await response.Content.ReadFromJsonAsync<List<SimilarQuestionDto>>(
+                cancellationToken: cancellationToken);
+
+            return rows?.Select(r => new AiSimilarQuestion(
+                r.Id, r.Content, r.Solution, r.Chapter, r.Difficulty, r.Similarity)).ToList() ?? new();
+        }
+        catch (Exception ex)
+        {
+            // Không có bài luyện KHÔNG được làm hỏng việc giải bài.
+            _logger.LogWarning(ex, "Gọi TutorAI similar-questions thất bại.");
+            return new();
+        }
+    }
+
+    private sealed record SimilarQuestionDto(
+        Guid Id, string Content, string? Solution,
+        string? Chapter, string? Difficulty, float Similarity);
+
     private sealed class KbUploadResponse
     {
         [JsonPropertyName("document_id")]
@@ -438,5 +488,7 @@ public class TutorAiClient : ITutorAiClient
 
         [JsonPropertyName("similarity")]
         public float Similarity { get; set; }
-    }
+    
+
+}
 }

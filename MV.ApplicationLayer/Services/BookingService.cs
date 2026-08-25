@@ -26,6 +26,7 @@ public partial class BookingService(
     ISettlementService settlementService,
     IAiCreditService aiCreditService,
     ILargeTransactionOtpService largeTransactionOtpService,
+    ICommissionConfigService commissionConfigService,
     ILogger<BookingService> logger) : IBookingService
 {
     private const int AvailabilityValidDays = 30;
@@ -110,7 +111,14 @@ public partial class BookingService(
 
         await ValidateSlotsAsync(dto.TutorId, classSessionSlots);
 
-        var totalAmount = Math.Round(price.Priceperhour * price.Durationminutespersession / 60m * totalSessions, 2);
+        // Tính theo TỔNG SỐ GIỜ THỰC của các slot đã sinh ra (classSessionSlots), không phải
+        // price.Durationminutespersession × totalSessions. Với gói cố định, mỗi buổi lấy giờ thật
+        // từ Tutorpackagefixedslots của chính gói đó — có thể khác con số tham chiếu ở
+        // Tutorsubjectgradeprice (vd gói "cao cấp" 3h/buổi trong khi giá gốc ghi 1h/buổi). Với booking
+        // linh hoạt (không qua gói cố định), slot vẫn được sinh đúng bằng price.Durationminutespersession
+        // (xem GenerateFlexibleSlots) nên công thức này cho kết quả giống hệt cách tính cũ ở nhánh đó.
+        var totalHours = classSessionSlots.Sum(slot => (decimal)(slot.End - slot.Start).TotalHours);
+        var totalAmount = Math.Round(price.Priceperhour * totalHours, 2);
         int? promotionId = null;
         var discountApplied = 0m;
         if (!string.IsNullOrWhiteSpace(dto.PromotionCode))
@@ -125,7 +133,8 @@ public partial class BookingService(
             }
         }
 
-        var fees = BookingFeeCalculator.Calculate(totalAmount - discountApplied);
+        var (parentFeePct, tutorFeePct) = await commissionConfigService.GetFeePercentsAsync();
+        var fees = BookingFeeCalculator.Calculate(totalAmount - discountApplied, parentFeePct, tutorFeePct);
         var (depositAmount, remainingAmount) = BookingFeeCalculator.CalculatePaymentPhases(
             fees.FinalPrice, totalSessions);
 
@@ -166,9 +175,12 @@ public partial class BookingService(
             context.Bookings.Add(booking);
             await context.SaveChangesAsync();
 
-            var classSessionPrice = Math.Round(totalAmount / totalSessions, 2);
+            // Giá từng buổi theo ĐÚNG thời lượng thật của buổi đó (không chia đều tổng tiền cho số
+            // buổi) — cho kết quả giống hệt cách chia đều cũ khi mọi buổi cùng thời lượng, nhưng vẫn
+            // đúng nếu sau này 1 gói có các buổi dài ngắn khác nhau.
             foreach (var slot in classSessionSlots)
             {
+                var slotPrice = Math.Round(price.Priceperhour * (decimal)(slot.End - slot.Start).TotalHours, 2);
                 context.ClassSessions.Add(new ClassSession
                 {
                     Bookingid = booking.Bookingid,
@@ -176,7 +188,7 @@ public partial class BookingService(
                     Studentid = student.Studentid,
                     Scheduledstart = slot.Start,
                     Scheduledend = slot.End,
-                    Lessonprice = classSessionPrice,
+                    Lessonprice = slotPrice,
                     Status = Reserved,
                     Createdat = TimeZoneHelper.UtcNow
                 });
@@ -207,17 +219,18 @@ public partial class BookingService(
         booking.Tutorsubjectgradeprice = price;
         booking.Package = package;
 
-        return MapToResponse(booking, student, tutor, price.Subject);
+        return MapToResponse(booking, student, tutor, price.Subject, parentFeePct, tutorFeePct);
     }
 
     public async Task<PagedList<BookingResponse>> GetMyBookingsAsync(string userId, string userRole, int page, int pageSize, string? status = null)
     {
         try
         {
+            var (parentFeePct, tutorFeePct) = await commissionConfigService.GetFeePercentsAsync();
             if (userRole == UserRole.Parent)
             {
                 var (items, total) = await bookingRepo.GetByParentIdPagedAsync(userId, page, pageSize, status);
-                var dtos = items.Select(b => MapToResponse(b, b.Student, b.Tutor, b.Tutorsubjectgradeprice?.Subject)).ToList();
+                var dtos = items.Select(b => MapToResponse(b, b.Student, b.Tutor, b.Tutorsubjectgradeprice?.Subject, parentFeePct, tutorFeePct)).ToList();
                 return new PagedList<BookingResponse>(dtos, total, page, pageSize);
             }
             else
@@ -231,7 +244,7 @@ public partial class BookingService(
                     return new PagedList<BookingResponse>(new List<BookingResponse>(), 0, page, pageSize);
 
                 var (items, total) = await bookingRepo.GetByStudentIdsPagedAsync(studentIds, page, pageSize, status);
-                var dtos = items.Select(b => MapToResponse(b, b.Student, b.Tutor, b.Tutorsubjectgradeprice?.Subject)).ToList();
+                var dtos = items.Select(b => MapToResponse(b, b.Student, b.Tutor, b.Tutorsubjectgradeprice?.Subject, parentFeePct, tutorFeePct)).ToList();
                 return new PagedList<BookingResponse>(dtos, total, page, pageSize);
             }
         }
@@ -264,6 +277,8 @@ public partial class BookingService(
         if (!ownedIds.Contains(studentId))
             throw new UnauthorizedAccessException("Bạn không có quyền xem lớp học của học sinh này.");
 
+        var (parentFeePct, tutorFeePct) = await commissionConfigService.GetFeePercentsAsync();
+
         // excludeClosed lọc TRƯỚC khi phân trang, nên totalCount cũng đúng.
         if (excludeClosed && string.IsNullOrWhiteSpace(status))
         {
@@ -286,20 +301,21 @@ public partial class BookingService(
                 .ToListAsync();
 
             return new PagedList<BookingResponse>(
-                closedItems.Select(b => MapToResponse(b, b.Student, b.Tutor, b.Tutorsubjectgradeprice?.Subject)).ToList(),
+                closedItems.Select(b => MapToResponse(b, b.Student, b.Tutor, b.Tutorsubjectgradeprice?.Subject, parentFeePct, tutorFeePct)).ToList(),
                 closedTotal, page, pageSize);
         }
 
         var (items, total) = await bookingRepo.GetByStudentIdsPagedAsync(
             new List<string> { studentId }, page, pageSize, status);
-        var dtos = items.Select(b => MapToResponse(b, b.Student, b.Tutor, b.Tutorsubjectgradeprice?.Subject)).ToList();
+        var dtos = items.Select(b => MapToResponse(b, b.Student, b.Tutor, b.Tutorsubjectgradeprice?.Subject, parentFeePct, tutorFeePct)).ToList();
         return new PagedList<BookingResponse>(dtos, total, page, pageSize);
     }
 
     public async Task<PagedList<BookingResponse>> GetTutorBookingRequestsAsync(string tutorId, int page, int pageSize, string? status = null)
     {
+        var (parentFeePct, tutorFeePct) = await commissionConfigService.GetFeePercentsAsync();
         var (items, total) = await bookingRepo.GetByTutorIdPagedAsync(tutorId, page, pageSize, status);
-        var dtos = items.Select(b => MapToResponse(b, b.Student, b.Tutor, b.Tutorsubjectgradeprice?.Subject)).ToList();
+        var dtos = items.Select(b => MapToResponse(b, b.Student, b.Tutor, b.Tutorsubjectgradeprice?.Subject, parentFeePct, tutorFeePct)).ToList();
         return new PagedList<BookingResponse>(dtos, total, page, pageSize);
     }
 
@@ -310,7 +326,8 @@ public partial class BookingService(
         if (userRole == UserRole.Parent && b.Parentid != userId) return null;
         if (userRole == UserRole.Student && b.Studentid != userId && b.Student?.Linkeduserid != userId) return null;
         if (userRole == UserRole.Tutor && b.Tutorid != userId) return null;
-        return MapToResponse(b, b.Student, b.Tutor, b.Tutorsubjectgradeprice?.Subject);
+        var (parentFeePct, tutorFeePct) = await commissionConfigService.GetFeePercentsAsync();
+        return MapToResponse(b, b.Student, b.Tutor, b.Tutorsubjectgradeprice?.Subject, parentFeePct, tutorFeePct);
     }
 
     public async Task<bool> CancelBookingAsync(int bookingId, string userId, string? reason = null)
@@ -361,6 +378,19 @@ public partial class BookingService(
                 logger.LogWarning(
                     "Rejected paid cancellation for booking {BookingId} because at least one lesson has already started, completed, settled, or entered dispute/no-show.",
                     bookingId);
+                await tx.CommitAsync();
+                return false;
+            }
+
+            // Buổi học thử: phụ huynh/học sinh chỉ được tự hủy (và nhận hoàn 100%) nếu còn cách giờ
+            // học đầu tiên >= 72h. Trong vòng 72h, họ phải chờ hoặc báo cáo gia sư không dạy (luồng
+            // no-show dispute có sẵn) — không áp dụng mốc này khi chính gia sư là người hủy.
+            var isTutorCaller = !string.IsNullOrWhiteSpace(booking.Tutorid) && booking.Tutorid == userId;
+            if (needsRefund && !isTutorCaller && IsWithinTrialCancelWindow(booking, now))
+            {
+                logger.LogWarning(
+                    "Rejected parent/student cancellation for booking {BookingId}: within the {Hours}h window before the first session.",
+                    bookingId, TrialCancelWindowHours);
                 await tx.CommitAsync();
                 return false;
             }
@@ -534,6 +564,24 @@ public partial class BookingService(
                 or Disputed
                 or NoShow
                 or CancelledNoshow);
+    }
+
+    /// <summary>Mốc hủy tự do buổi học thử: phải hủy trước giờ học đầu tiên ít nhất chừng này.</summary>
+    private const int TrialCancelWindowHours = 72;
+
+    /// <summary>
+    /// True nếu còn chưa đủ <see cref="TrialCancelWindowHours"/> giờ tới buổi học sớm nhất chưa bị
+    /// hủy. Chỉ có ý nghĩa ở giai đoạn tiền buổi 1 (nếu đã có buổi nào start/settle,
+    /// <see cref="HasStartedOrSettledLesson"/> đã chặn từ trước rồi).
+    /// </summary>
+    private static bool IsWithinTrialCancelWindow(Booking booking, DateTime now)
+    {
+        var firstSessionStart = booking.ClassSessions
+            .Where(s => s.Status != Cancelled)
+            .Select(s => (DateTime?)s.Scheduledstart)
+            .Min();
+
+        return firstSessionStart.HasValue && firstSessionStart.Value - now < TimeSpan.FromHours(TrialCancelWindowHours);
     }
 
     public async Task<List<BookedSlotResponse>> GetTutorBookedSlotsAsync(
@@ -733,7 +781,8 @@ public partial class BookingService(
     }
 
     private static BookingResponse MapToResponse(Booking b,
-        Studentprofile? student, Tutorprofile? tutor, Subject? subject)
+        Studentprofile? student, Tutorprofile? tutor, Subject? subject,
+        decimal parentFeePercent, decimal tutorFeePercent)
     {
         var grade = b.Tutorsubjectgradeprice?.Gradelevel ?? student?.GradelevelNavigation;
         var classSessions = b.ClassSessions?
@@ -752,7 +801,7 @@ public partial class BookingService(
             })
             .ToList();
         var baseAmount = Math.Max((b.Totalamount ?? 0m) - (b.Discountapplied ?? 0m), 0m);
-        var calculatedFees = BookingFeeCalculator.Calculate(baseAmount);
+        var calculatedFees = BookingFeeCalculator.Calculate(baseAmount, parentFeePercent, tutorFeePercent);
         var parentFee = b.Parentfee ?? calculatedFees.ParentFee;
         var tutorServiceFee = b.Platformfee.HasValue
             ? Math.Max(b.Platformfee.Value - parentFee, 0m)

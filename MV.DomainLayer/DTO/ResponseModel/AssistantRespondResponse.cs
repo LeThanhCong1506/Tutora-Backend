@@ -16,6 +16,15 @@ public class AssistantRespondResponse
     public List<string> Suggestions { get; set; } = new();
 
     public string? SessionId { get; set; }
+
+    /// <summary>Entity memory trả về cho FE giữ & gửi lại lượt sau (như Filters).</summary>
+    public List<AssistantShownTutorOut> ShownTutors { get; set; } = new();
+}
+
+public class AssistantShownTutorOut
+{
+    public string TutorId { get; set; } = string.Empty;
+    public string? Name { get; set; }
 }
 
 public class AssistantCardDto

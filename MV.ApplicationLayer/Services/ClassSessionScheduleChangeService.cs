@@ -16,7 +16,6 @@ public class ClassSessionScheduleChangeService(
     INotificationService notificationService,
     ILogger<ClassSessionScheduleChangeService> logger) : IClassSessionScheduleChangeService
 {
-    private const int EarlyJoinToleranceMinutes = 15;
     private const int ConfirmationLifetimeMinutes = 30;
 
 
@@ -339,9 +338,14 @@ public class ClassSessionScheduleChangeService(
                         : null))
             .FirstOrDefaultAsync(cancellationToken);
 
-    private static bool IsWithinNormalWindow(SessionSnapshot session, DateTime now)
-        => now >= session.Scheduledstart.AddMinutes(-EarlyJoinToleranceMinutes)
-            && now <= session.Scheduledend;
+    // Theo yêu cầu sản phẩm: bỏ hẳn cơ chế xác nhận đồng thuận khi vào lớp sớm/ngoài giờ đặt —
+    // gia sư/học viên vào phòng lúc nào cũng được, miễn cả hai cùng có mặt (governed bởi
+    // SessionLobbyHub/presence, không phải bởi giờ đặt lịch nữa). Luôn coi mọi thời điểm là
+    // "trong khung giờ bình thường" nên GetOrCreateStateAsync không bao giờ tạo yêu cầu xác nhận
+    // mới (RequiresConfirmation luôn false, AdmissionAllowed luôn true) — không xoá entity/bảng
+    // ClassSessionScheduleChange hay hạ tầng SignalR liên quan vì dữ liệu cũ vẫn có thể cần tra
+    // cứu khi xử lý khiếu nại.
+    private static bool IsWithinNormalWindow(SessionSnapshot session, DateTime now) => true;
 
     private static (string UserId, string Role, string Name) ResolveLearnerApprover(SessionSnapshot session)
     {

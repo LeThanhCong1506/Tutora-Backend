@@ -17,9 +17,9 @@ public class TutorFinanceService(
     IAppDbContext context,
     INotificationService notificationService,
     IFileStorageService fileStorageService,
+    IWithdrawalLimitService withdrawalLimitService,
     ILogger<TutorFinanceService> logger) : ITutorFinanceService
 {
-    private const decimal MinWithdrawalAmount = 10000m;
 
     public async Task<FinanceSummaryResponse> GetSummaryAsync(string tutorId, CancellationToken ct = default)
     {
@@ -133,7 +133,21 @@ public class TutorFinanceService(
             .Where(t => t.Wallet!.Userid == tutorId);
 
         if (!string.IsNullOrEmpty(type))
+        {
+            // Người dùng chủ động lọc theo loại cụ thể (kể cả EscrowCredit/EscrowReversal) —
+            // tôn trọng lựa chọn đó, không áp exclusion mặc định bên dưới.
             query = query.Where(t => t.Transactiontype == type);
+        }
+        else
+        {
+            // Mặc định (không chọn loại): EscrowCredit/EscrowReversal chỉ đụng tới Frozenbalance
+            // (tiền đang giữ, gia sư chưa thực nhận) — không ảnh hưởng Balance (số dư khả dụng
+            // thật). Hiện mặc định sẽ gây loãng thông tin vì gia sư không "nhận" hay "mất" gì qua
+            // 2 loại này; số dư đang giữ đã có riêng ở tab "Tổng quan". Chỉ EscrowRelease (giải
+            // ngân thật) mới thuộc lịch sử giao dịch ví mặc định.
+            query = query.Where(t => t.Transactiontype != TransactionType.EscrowCredit
+                && t.Transactiontype != TransactionType.EscrowReversal);
+        }
 
         if (from.HasValue)
         {
@@ -216,6 +230,57 @@ public class TutorFinanceService(
         };
     }
 
+    public async Task<EscrowStatusResponse> GetEscrowStatusAsync(string tutorId, CancellationToken ct = default)
+    {
+        var netByBooking = await context.Wallettransactions
+            .AsNoTracking()
+            .Where(t => t.Wallet!.Userid == tutorId
+                && t.Referenceid != null
+                && (t.Transactiontype == TransactionType.EscrowCredit
+                    || t.Transactiontype == TransactionType.EscrowRelease
+                    || t.Transactiontype == TransactionType.EscrowReversal))
+            .GroupBy(t => t.Referenceid)
+            .Select(g => new { BookingId = g.Key!.Value, HeldAmount = g.Sum(t => t.Amount ?? 0) })
+            .Where(x => x.HeldAmount > 0)
+            .ToListAsync(ct);
+
+        if (netByBooking.Count == 0)
+            return new EscrowStatusResponse();
+
+        var bookingIds = netByBooking.Select(x => x.BookingId).ToList();
+
+        var bookings = await context.Bookings
+            .AsNoTracking()
+            .Where(b => bookingIds.Contains(b.Bookingid))
+            .Include(b => b.Parent)
+            .Include(b => b.Student)
+            .Include(b => b.Tutorsubjectgradeprice).ThenInclude(t => t!.Subject)
+            .ToListAsync(ct);
+
+        var items = netByBooking
+            .Select(x =>
+            {
+                var booking = bookings.FirstOrDefault(b => b.Bookingid == x.BookingId);
+                return new EscrowStatusItemResponse
+                {
+                    BookingId = x.BookingId,
+                    HeldAmount = Math.Round(x.HeldAmount, 2),
+                    ParentName = booking?.Parent?.Fullname ?? "—",
+                    StudentName = booking?.Student?.Fullname ?? "—",
+                    SubjectName = booking?.Subject?.Subjectname,
+                    BookingStatus = booking?.Status
+                };
+            })
+            .OrderByDescending(i => i.HeldAmount)
+            .ToList();
+
+        return new EscrowStatusResponse
+        {
+            Items = items,
+            TotalHeld = items.Sum(i => i.HeldAmount)
+        };
+    }
+
     // Bank account CRUD (GetBankInfoAsync/UpdateBankInfoAsync/DeleteBankInfoAsync) moved to the
     // shared BankAccountService/BankAccountController (api/bank-account) — Parent/Student now
     // need the same feature, and it now requires OTP verification on every write.
@@ -264,8 +329,9 @@ public class TutorFinanceService(
                 || string.IsNullOrEmpty(bankAccount.Accountholdername))
                 throw new BankInfoRequiredException();
 
-            if (request.Amount < MinWithdrawalAmount)
-                throw new WithdrawalAmountTooLowException(MinWithdrawalAmount);
+            var minWithdrawalAmount = await withdrawalLimitService.GetMinWithdrawalAmountAsync(ct);
+            if (request.Amount < minWithdrawalAmount)
+                throw new WithdrawalAmountTooLowException(minWithdrawalAmount);
 
             wallet.Balance -= request.Amount;
             wallet.Lastupdated = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
