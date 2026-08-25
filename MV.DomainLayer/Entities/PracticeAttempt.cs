@@ -2,9 +2,6 @@ namespace MV.DomainLayer.Entities;
 
 /// <summary>
 /// 1 lượt học sinh luyện 1 câu từ question bank. Bảng: practice_attempts.
-///
-/// Nguồn tín hiệu đúng/sai KHÁCH QUAN cho hồ sơ trình độ — khác StudentTopicSignal
-/// vốn chỉ ghi được học sinh đã HỎI chương nào, không nói lên làm được hay không.
 /// </summary>
 public partial class PracticeAttempt
 {
@@ -21,9 +18,10 @@ public partial class PracticeAttempt
 
     public string? Difficulty { get; set; }
 
-    /// <summary>NULL = bỏ qua, không trả lời.</summary>
-    public string? GivenAnswer { get; set; }
+    /// <summary>Học sinh tự chấm: correct | partial | wrong.</summary>
+    public string? SelfAssessment { get; set; }
 
+    /// <summary>Suy từ SelfAssessment — chỉ 'correct' mới tính là làm được.</summary>
     public bool IsCorrect { get; set; }
 
     /// <summary>Phiên hỏi bài dẫn tới lượt luyện. NULL = luyện từ lộ trình.</summary>

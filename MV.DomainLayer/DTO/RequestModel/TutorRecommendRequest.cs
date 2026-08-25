@@ -16,5 +16,10 @@ namespace MV.DomainLayer.DTO.RequestModel
         public Gender? Gender { get; set; }
         public string? Query { get; set; }
         public int TopK { get; set; } = 10;
+
+        // Lịch rảnh — dữ liệu có cấu trúc, lọc CỨNG ở SQL 
+        public List<int>? AvailableDaysOfWeek { get; set; }
+        public TimeOnly? AvailableFrom { get; set; }
+        public TimeOnly? AvailableTo { get; set; }
     }
 }
