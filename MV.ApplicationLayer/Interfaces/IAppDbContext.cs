@@ -73,6 +73,7 @@ public interface IAppDbContext
     DbSet<Tutorcertificate> Tutorcertificates { get; }
     DbSet<Tutorpackage> Tutorpackages { get; }
     DbSet<Tutorpackagefixedslot> Tutorpackagefixedslots { get; }
+    DbSet<TutorFavorite> TutorFavorites { get; }
     DbSet<Tutorprofile> Tutorprofiles { get; }
     DbSet<Tutorsubjectgradeprice> Tutorsubjectgradeprices { get; }
     DbSet<Tutorsubscription> Tutorsubscriptions { get; }

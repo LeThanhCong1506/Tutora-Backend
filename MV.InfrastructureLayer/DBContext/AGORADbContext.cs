@@ -41,6 +41,8 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
 
     public virtual DbSet<StudentTopicSignal> StudentTopicSignals { get; set; }
 
+    public virtual DbSet<TutorFavorite> TutorFavorites { get; set; }
+
     public virtual DbSet<AiMessageVote> AiMessageVotes { get; set; }
 
     public virtual DbSet<TutorSuggestionVote> TutorSuggestionVotes { get; set; }
@@ -1150,6 +1152,38 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
                 .HasForeignKey(d => d.SessionId)
                 .OnDelete(DeleteBehavior.Cascade)
                 .HasConstraintName("student_topic_signals_session_fk");
+        });
+
+        modelBuilder.Entity<TutorFavorite>(entity =>
+        {
+            entity.HasKey(e => e.Favoriteid).HasName("tutor_favorites_pkey");
+
+            entity.ToTable("tutor_favorites");
+
+            entity.Property(e => e.Favoriteid).HasColumnName("favorite_id");
+            entity.Property(e => e.Userid)
+                .HasMaxLength(50)
+                .HasColumnName("user_id");
+            entity.Property(e => e.Tutorid)
+                .HasMaxLength(50)
+                .HasColumnName("tutor_id");
+            entity.Property(e => e.Createdat)
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
+                .HasColumnType("timestamp without time zone")
+                .HasColumnName("created_at");
+
+            // One save per (user, tutor); toggling off deletes the row.
+            entity.HasIndex(e => new { e.Userid, e.Tutorid }, "tutor_favorites_unique").IsUnique();
+
+            entity.HasOne(d => d.User).WithMany()
+                .HasForeignKey(d => d.Userid)
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("tutor_favorites_user_fk");
+
+            entity.HasOne(d => d.TutorProfile).WithMany()
+                .HasForeignKey(d => d.Tutorid)
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("tutor_favorites_tutor_fk");
         });
 
         modelBuilder.Entity<AiMessageVote>(entity =>
