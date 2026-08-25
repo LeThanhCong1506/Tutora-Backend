@@ -74,6 +74,19 @@ namespace MV.ApplicationLayer.ServiceInterfaces
         Task DeleteUserAsync(string userId);
 
         /// <summary>
+        /// Whether this account can be erased for good, what would be destroyed, and the exact
+        /// sentence the operator must type back. Read-only.
+        /// </summary>
+        Task<UserPurgePreflightResponse> GetPurgePreflightAsync(string userId, string adminUserId);
+
+        /// <summary>
+        /// Erases the account and every row keyed to it. Irreversible — there is no restore.
+        /// Refuses unless the account is already blocked, nothing financial is outstanding, and
+        /// <paramref name="confirmationPhrase"/> matches the sentence from the pre-flight.
+        /// </summary>
+        Task<UserPurgeResultResponse> AdminPurgeUserAsync(string userId, string confirmationPhrase, string adminUserId);
+
+        /// <summary>
         /// Re-evaluate and update a tutor's profile status based on completeness rules.
         /// </summary>
         Task AutoUpdateTutorProfileStatusAsync(string tutorId);
@@ -107,7 +120,12 @@ namespace MV.ApplicationLayer.ServiceInterfaces
         /// <summary>
         /// Admin: soft-deactivate a user account (status = 0).
         /// </summary>
-        Task AdminDeactivateUserAsync(string userId);
+        /// <remarks>
+        /// For a tutor this also cancels every session they had not delivered yet and refunds the
+        /// payers — see <see cref="ISuspensionRefundService.CascadeSuspensionAsync"/>. The returned
+        /// impact says what moved, so the operator sees it instead of discovering it in the ledger.
+        /// </remarks>
+        Task<SuspensionRefundImpactResponse> AdminDeactivateUserAsync(string userId);
 
         /// <summary>
         /// Admin: reactivate a previously deactivated user account (status = 1).

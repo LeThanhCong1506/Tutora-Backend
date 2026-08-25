@@ -154,7 +154,11 @@ namespace MV.ApplicationLayer.Services
 
                 if (user.Status == 0)
                 {
-                    return new TokenResponse { ErrorMessage = "Tài khoản đã bị khóa." };
+                    return new TokenResponse
+                    {
+                        ErrorMessage = await MV.ApplicationLayer.Helpers.AccountLockoutMessage
+                            .BuildAsync(_dbContext, user.Userid)
+                    };
                 }
 
                 // Cổng xác thực SĐT là cơ chế onboarding chống-ảo cho KHÁCH HÀNG

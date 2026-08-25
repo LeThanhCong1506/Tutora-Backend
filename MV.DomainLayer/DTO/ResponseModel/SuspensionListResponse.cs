@@ -18,7 +18,14 @@ public class SuspensionListResponse
     public bool? IsActive { get; set; }
     
     public string? CreatedByName { get; set; }
-    
+
+    /// <summary>
+    /// What this suspension did to the courses the user was still teaching — sessions cancelled,
+    /// money returned to payers. Only populated on the response that *created* the suspension;
+    /// null when listing existing ones.
+    /// </summary>
+    public SuspensionRefundImpactResponse? RefundImpact { get; set; }
+
     /// <summary>
     /// Time remaining until auto-unsuspend
     /// </summary>
@@ -39,12 +46,16 @@ public class SuspensionListResponse
     }
     
     /// <summary>
-    /// Display suspension type
+    /// Two vocabularies reach this column: "temporary"/"permanent" from the auto-suspension rule
+    /// and the CMS, plus "hidden_1_week"/"account_locked" left over from an older CMS build.
+    /// All four have to render, or the history table shows a raw enum value.
     /// </summary>
     public string SuspensionTypeDisplay => SuspensionType switch
     {
-        "hidden_1_week" => "🔇 Ẩn profile 1 tuần",
-        "account_locked" => "🔒 Khóa tài khoản",
+        "temporary" => "Có thời hạn",
+        "permanent" => "Vô thời hạn",
+        "hidden_1_week" => "Ẩn hồ sơ",
+        "account_locked" => "Khóa tài khoản",
         _ => SuspensionType
     };
 }
