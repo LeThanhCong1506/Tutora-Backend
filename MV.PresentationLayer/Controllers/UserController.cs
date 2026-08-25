@@ -164,20 +164,10 @@ namespace MV.PresentationLayer.Controllers
             return Ok(APIResponse<object>.Success(null!, "Cập nhật cài đặt thông báo Zalo thành công."));
         }
 
-        [HttpDelete("{id}")]
-        [Authorize(Roles = UserRole.Admin)]
-        public async Task<IActionResult> DeleteUser(string id)
-        {
-            try
-            {
-                await _userService.DeleteUserAsync(id);
-                return Ok(APIResponse<object>.Success(null!, "Xóa người dùng thành công."));
-            }
-            catch (UserNotFoundException)
-            {
-                return NotFound(APIResponse<object>.Fail(ApiMessages.UserNotFound, 404));
-            }
-        }
+        // DELETE /api/users/{id} was a second admin delete route that only flagged is_deleted and
+        // asked for no confirmation, so it bypassed the guards on DELETE /api/admin/users/{id}
+        // (account must be blocked, no outstanding money, typed confirmation phrase). No client
+        // called it. Removed rather than fixed twice — the admin controller owns deletion.
 
         /// <summary>
         /// Get onboarding tour completion status for the current user

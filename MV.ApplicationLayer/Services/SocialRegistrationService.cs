@@ -83,7 +83,11 @@ public class SocialRegistrationService : ISocialRegistrationService
         if (user != null)
         {
             if (user.Status == 0)
-                return new TokenResponse { ErrorMessage = "Tài khoản đã bị khóa." };
+                return new TokenResponse
+                {
+                    ErrorMessage = await MV.ApplicationLayer.Helpers.AccountLockoutMessage
+                        .BuildAsync(_dbContext, user.Userid)
+                };
 
             if (string.IsNullOrWhiteSpace(user.Primaryrole))
                 return new TokenResponse { ErrorMessage = "User role not found." };

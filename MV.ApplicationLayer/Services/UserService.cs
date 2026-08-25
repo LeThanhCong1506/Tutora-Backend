@@ -1,4 +1,5 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Http;
 using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.Constants;
@@ -27,6 +28,8 @@ namespace MV.ApplicationLayer.Services
         private readonly IEncryptionService _encryption;
         private readonly IAppDbContext _context;
         private readonly ITutorEmbedQueue _embedQueue;
+        private readonly ISuspensionRefundService _suspensionRefundService;
+        private readonly ILogger<UserService> _logger;
         private const string UserAvatarBucket = StorageBucket.Avatars;
 
         public UserService(
@@ -41,7 +44,9 @@ namespace MV.ApplicationLayer.Services
             INotificationService notificationService,
             IEncryptionService encryption,
             IAppDbContext context,
-            ITutorEmbedQueue embedQueue)
+            ITutorEmbedQueue embedQueue,
+            ISuspensionRefundService suspensionRefundService,
+            ILogger<UserService> logger)
         {
             _userRepository = userRepository;
             _tutorRepository = tutorRepository;
@@ -55,6 +60,8 @@ namespace MV.ApplicationLayer.Services
             _encryption = encryption;
             _context = context;
             _embedQueue = embedQueue;
+            _suspensionRefundService = suspensionRefundService;
+            _logger = logger;
         }
 
         // ─── Queries ──────────────────────────────────────────────────────────

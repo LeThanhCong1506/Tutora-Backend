@@ -20,6 +20,7 @@ public class WarningService : IWarningService
     private readonly IUserRepository _userRepo;
     private readonly IAppDbContext _context; // retained only for transaction management
     private readonly INotificationService _notificationService;
+    private readonly ISuspensionRefundService _suspensionRefundService;
     private readonly ILogger<WarningService> _logger;
 
     private const int TempSuspensionDays = 7;
@@ -29,12 +30,14 @@ public class WarningService : IWarningService
         IUserRepository userRepo,
         IAppDbContext context,
         INotificationService notificationService,
+        ISuspensionRefundService suspensionRefundService,
         ILogger<WarningService> logger)
     {
         _warningRepo = warningRepo;
         _userRepo = userRepo;
         _context = context;
         _notificationService = notificationService;
+        _suspensionRefundService = suspensionRefundService;
         _logger = logger;
     }
 
@@ -111,14 +114,15 @@ public class WarningService : IWarningService
                 await CreateSuspensionAsync(
                     userId,
                     SuspensionType.Permanent,
-                    $"Auto-suspended permanently: Excessive violations in 30 days (High={highCount}, Low/Med={lowMediumCount})",
+                    $"Khóa vĩnh viễn: tái phạm sau khi đã bị đình chỉ tạm thời trong vòng 30 ngày "
+                        + $"({DescribeWarnings(highCount, lowMediumCount)}).",
                     0,
                     null); // null = system action, không link FK vào users table
             else
                 await CreateSuspensionAsync(
                     userId,
                     SuspensionType.Temporary,
-                    $"Auto-suspended {TempSuspensionDays} days: High={highCount}, Low/Med={lowMediumCount} warnings in 30 days",
+                    $"Tự động đình chỉ {TempSuspensionDays} ngày do {DescribeWarnings(highCount, lowMediumCount)} trong 30 ngày.",
                     TempSuspensionDays,
                     null); // null = system action, không link FK vào users table
 
@@ -126,6 +130,19 @@ public class WarningService : IWarningService
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// The suspension reason is shown to the operator in the CMS and to the user in their
+    /// notification, so it reads as a sentence rather than the counter dump it used to be
+    /// ("Auto-suspended 7 days: High=6, Low/Med=1 warnings in 30 days").
+    /// </summary>
+    private static string DescribeWarnings(int highCount, int lowMediumCount)
+    {
+        var parts = new List<string>();
+        if (highCount > 0) parts.Add($"{highCount} cảnh cáo mức Cao");
+        if (lowMediumCount > 0) parts.Add($"{lowMediumCount} cảnh cáo mức Thấp/Trung bình");
+        return parts.Count > 0 ? string.Join(" và ", parts) : "vi phạm quy định";
     }
 
     public async Task<UserWarningSummaryResponse> GetUserWarningsAsync(string userId)
@@ -142,9 +159,10 @@ public class WarningService : IWarningService
             FullName = user.Fullname,
             TotalWarnings = warnings.Count,
             IsSuspended = activeSuspension != null,
-            SuspensionType = activeSuspension != null
-                ? (activeSuspension.Enddate.HasValue ? SuspensionType.Temporary : SuspensionType.Permanent)
-                : null,
+            // Report the type that was actually recorded. Deriving it from Enddate relabelled every
+            // CMS-issued suspension ("hidden_1_week"/"account_locked") as "temporary", so this
+            // summary disagreed with the suspension list, which reads the column.
+            SuspensionType = activeSuspension?.Suspensiontype,
             SuspensionEndDate = activeSuspension?.Enddate.HasValue == true ? activeSuspension.Enddate.Value : (DateTime?)null,
             Warnings = warnings.Select(w => new WarningHistoryResponse
             {
@@ -209,6 +227,15 @@ public class WarningService : IWarningService
             if (tutorProfile != null) tutorProfile.Ispublic = false;
 
             await _warningRepo.SaveChangesAsync();
+
+            // A suspended tutor cannot teach the sessions already on their calendar, and the money
+            // for those sessions is sitting frozen in escrow. Unwind them in the same transaction as
+            // the suspension itself: a course must never be left half-cancelled if this rolls back.
+            // Only tutors hold escrow, so this is a no-op for a suspended parent/student.
+            var refundImpact = await _suspensionRefundService.CascadeSuspensionAsync(
+                userId, endDate, reason);
+
+            await _warningRepo.SaveChangesAsync();
             if (tx is not null) await tx.CommitAsync();
 
             _logger.LogInformation("Applied {SuspensionType} suspension to user {UserId} until {EndDate}",
@@ -219,17 +246,22 @@ public class WarningService : IWarningService
             // committed yet, so notifying here could announce a suspension that later rolls back.
             if (ownsTx)
             {
-                var suspensionMessage = suspensionType == SuspensionType.Temporary
-                    ? $"Tài khoản của bạn đã bị tạm ẩn đến {endDate:dd/MM/yyyy HH:mm}. Lý do: {reason}"
+                var suspensionMessage = endDate.HasValue
+                    ? $"Tài khoản của bạn đã bị tạm ẩn đến {FormatVietnamTime(endDate.Value)}. Lý do: {reason}"
                     : $"Tài khoản của bạn đã bị khóa vĩnh viễn. Lý do: {reason}";
 
                 await _notificationService.CreateNotificationAsync(new NotificationRequest
                 {
                     Userid = userId,
-                    Title = suspensionType == SuspensionType.Temporary ? "Tài khoản bị tạm ẩn" : "Tài khoản bị khóa",
+                    Title = endDate.HasValue ? "Tài khoản bị tạm ẩn" : "Tài khoản bị khóa",
                     Message = suspensionMessage,
-                    Type = NotificationType.Warning
+                    Type = NotificationType.Warning,
+                    Referenceid = suspension.Suspensionid.ToString()
                 });
+
+                // The cascade ran inside our transaction, so it deliberately held its refund
+                // notifications back. The money is committed now — safe to announce.
+                await _suspensionRefundService.NotifyImpactAsync(refundImpact);
             }
 
             var creatorName = createdBy == SystemActors.SystemUpper
@@ -246,14 +278,26 @@ public class WarningService : IWarningService
                 StartDate = now,
                 EndDate = endDate,
                 CreatedByName = creatorName,
-                IsActive = true
+                IsActive = true,
+                RefundImpact = refundImpact
             };
         }
         catch
         {
-            await tx.RollbackAsync();
+            // tx is null whenever we joined an ambient transaction — rolling back unconditionally
+            // threw a NullReferenceException that replaced the real failure in the caller's log.
+            // The owner of that ambient transaction is the one that must roll it back.
+            if (tx is not null) await tx.RollbackAsync();
             throw;
         }
+    }
+
+    /// <summary>Timestamps are stored in UTC; user-facing text must read in local time.</summary>
+    private static string FormatVietnamTime(DateTime utc)
+    {
+        var vietnamTimeZone = TimeZoneHelper.GetTimeZoneInfo("Asia/Ho_Chi_Minh");
+        var local = TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(utc, DateTimeKind.Utc), vietnamTimeZone);
+        return local.ToString("HH:mm dd/MM/yyyy");
     }
 
     public async Task<bool> UnsuspendUserAsync(string userId, string adminId)
@@ -267,15 +311,58 @@ public class WarningService : IWarningService
         suspension.Enddate = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 
         var user = await _userRepo.GetUserByIdAsync(userId);
-        if (user != null) user.Status = 1;
-
-        var tutorProfile = await _warningRepo.GetTutorProfileAsync(userId);
-        if (tutorProfile != null) tutorProfile.Ispublic = true;
+        var restoredAccess = RestoreAccessAfterSuspension(user, await _warningRepo.GetTutorProfileAsync(userId));
 
         await _warningRepo.SaveChangesAsync();
 
         _logger.LogInformation("Removed suspension from user {UserId} by {AdminId}", userId, adminId);
+
+        await NotifySuspensionLiftedAsync(userId, restoredAccess, suspension.Suspensionid);
         return true;
+    }
+
+    /// <summary>
+    /// Puts a user back online after their suspension ends, without undoing decisions that were
+    /// never part of that suspension. Returns whether the account can actually sign in again.
+    /// </summary>
+    private static bool RestoreAccessAfterSuspension(User? user, Tutorprofile? tutorProfile)
+    {
+        // A separate admin block writes to the same Status column. Clearing Status here would
+        // silently un-block an account an admin deliberately shut down, so a blocked user stays
+        // blocked and only the suspension record is lifted.
+        var stillBlocked = user?.Isdeactivated == true;
+        if (user != null && !stillBlocked) user.Status = 1;
+
+        // Only a profile that was approved belongs back in search. Republishing a draft, a
+        // pending-approval, or a rejected profile would put an unvetted tutor in front of parents.
+        if (tutorProfile != null
+            && !stillBlocked
+            && string.Equals(tutorProfile.Profilestatus, TutorProfileStatus.Active, StringComparison.OrdinalIgnoreCase))
+            tutorProfile.Ispublic = true;
+
+        return !stillBlocked;
+    }
+
+    private async Task NotifySuspensionLiftedAsync(string userId, bool restoredAccess, int suspensionId)
+    {
+        try
+        {
+            await _notificationService.CreateNotificationAsync(new NotificationRequest
+            {
+                Userid = userId,
+                Title = restoredAccess ? "Tài khoản đã được mở lại" : "Đã gỡ đình chỉ",
+                Message = restoredAccess
+                    ? "Đình chỉ đã được gỡ. Bạn có thể đăng nhập và nhận lịch dạy trở lại."
+                    : "Đình chỉ đã được gỡ, nhưng tài khoản của bạn vẫn đang bị khóa bởi quản trị viên. Vui lòng liên hệ hỗ trợ.",
+                Type = NotificationType.Warning,
+                Referenceid = suspensionId.ToString()
+            });
+        }
+        catch (Exception ex)
+        {
+            // Losing the announcement must not leave the user suspended.
+            _logger.LogWarning(ex, "Failed to send unsuspend notification to user {UserId}", userId);
+        }
     }
 
     public async Task<PagedList<SuspensionListResponse>> GetActiveSuspensionsAsync(int page, int pageSize)
@@ -326,17 +413,18 @@ public class WarningService : IWarningService
     {
         var expiredSuspensions = await _warningRepo.GetExpiredActiveSuspensionsAsync(MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow);
         var count = 0;
+        var lifted = new List<(string UserId, bool RestoredAccess, int SuspensionId)>();
 
         foreach (var suspension in expiredSuspensions)
         {
             try
             {
                 suspension.Isactive = false;
-                if (suspension.User != null) suspension.User.Status = 1;
 
                 var tutorProfile = await _warningRepo.GetTutorProfileAsync(suspension.Userid!);
-                if (tutorProfile != null) tutorProfile.Ispublic = true;
+                var restoredAccess = RestoreAccessAfterSuspension(suspension.User, tutorProfile);
 
+                lifted.Add((suspension.Userid!, restoredAccess, suspension.Suspensionid));
                 count++;
                 _logger.LogInformation("Auto-unsuspended user {UserId}", suspension.Userid);
             }
@@ -350,6 +438,11 @@ public class WarningService : IWarningService
         {
             await _warningRepo.SaveChangesAsync();
             _logger.LogInformation("Auto-unsuspended {Count} users", count);
+
+            // Only after the lift is persisted — telling someone they are back before the write
+            // lands would send them to a login that still rejects them.
+            foreach (var (userId, restoredAccess, suspensionId) in lifted)
+                await NotifySuspensionLiftedAsync(userId, restoredAccess, suspensionId);
         }
 
         return count;
