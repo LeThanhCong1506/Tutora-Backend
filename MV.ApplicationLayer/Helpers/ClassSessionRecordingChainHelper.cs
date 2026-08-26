@@ -80,7 +80,11 @@ public static class ClassSessionRecordingChainHelper
             }
         }
 
-        return chainIds.Select(id => byId[id]).OrderBy(s => s.Scheduledstart).ToList();
+        // Giữ đúng thứ tự cha → con từ BFS ở trên — KHÔNG sắp lại theo Scheduledstart, vì buổi phụ
+        // (Iscontinuation) được tạo với giờ "ngay lúc ngắt + 1h" nên có thể có Scheduledstart SỚM
+        // HƠN Scheduledstart gốc (đặc biệt nếu buổi gốc vốn được lên lịch xa trong tương lai) —
+        // sắp theo giờ sẽ đẩy buổi phụ lên thành "Buổi 1", đảo ngược thứ tự thực học.
+        return chainIds.Select(id => byId[id]).ToList();
     }
 
     private sealed record ChainSiblingRow(

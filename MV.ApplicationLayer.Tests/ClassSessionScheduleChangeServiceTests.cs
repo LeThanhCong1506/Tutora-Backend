@@ -12,21 +12,37 @@ namespace MV.ApplicationLayer.Tests;
 
 public class ClassSessionScheduleChangeServiceTests
 {
-    // Product decision: the early-join / off-schedule mutual-confirmation gate was removed —
-    // gia sư/học viên vào phòng lúc nào cũng được, không cần đồng thuận đổi lịch, bất kể tuổi
-    // học viên hay giờ đặt lịch (xem IsWithinNormalWindow trong ClassSessionScheduleChangeService).
-    // Các test trước đây phủ nhánh "yêu cầu xác nhận" (theo tuổi/role) đã bị bỏ vì nhánh đó không
-    // còn có thể chạm tới được nữa — thay bằng 1 test xác nhận rõ hành vi mới.
+    // Cơ chế xác nhận vào học ngoài giờ đã được khôi phục lại (từng bị gỡ theo yêu cầu sản phẩm,
+    // nay khôi phục theo yêu cầu mới). Buổi CHÍNH (Iscontinuation=false) ngoài khung giờ bình
+    // thường [Scheduledstart-15p, Scheduledend] phải tạo yêu cầu xác nhận trước khi được vào.
     [Fact]
-    public async Task OutOfWindowSession_NeverRequiresConfirmation()
+    public async Task OutOfWindowSession_ForRegularSession_RequiresConfirmation()
     {
         await using var db = CreateContext();
         SeedSession(db, DateOnly.FromDateTime(TimeZoneHelper.UtcNow).AddYears(-15));
         await db.SaveChangesAsync();
         var service = CreateService(db);
 
-        // SeedSession đặt Scheduledstart/Scheduledend trong quá khứ — trước đây rơi ngoài "khung
-        // giờ bình thường" nên bắt buộc đồng thuận trước khi cho vào; giờ luôn cho vào thẳng.
+        // SeedSession đặt Scheduledstart/Scheduledend trong quá khứ — ngoài "khung giờ bình
+        // thường" nên bắt buộc đồng thuận trước khi cho vào.
+        var tutorState = await service.GetOrCreateStateAsync(1, "tutor-1", UserRole.Tutor);
+        Assert.True(tutorState.RequiresConfirmation);
+        Assert.False(tutorState.AdmissionAllowed);
+
+        Assert.NotEmpty(await db.ClassSessionScheduleChanges.ToListAsync());
+    }
+
+    // Buổi PHỤ (Iscontinuation=true) là ngoại lệ — luôn coi là trong khung giờ bình thường dù
+    // Scheduledstart/end (chỉ là mốc ước tính lúc tạo) đã trôi qua từ lâu, nên không bao giờ cần
+    // xác nhận — khớp lý do: buổi phụ phải học tiếp được bất cứ lúc nào tới hạn tự huỷ nửa đêm.
+    [Fact]
+    public async Task OutOfWindowSession_ForContinuationSession_NeverRequiresConfirmation()
+    {
+        await using var db = CreateContext();
+        SeedSession(db, DateOnly.FromDateTime(TimeZoneHelper.UtcNow).AddYears(-15), isContinuation: true);
+        await db.SaveChangesAsync();
+        var service = CreateService(db);
+
         var tutorState = await service.GetOrCreateStateAsync(1, "tutor-1", UserRole.Tutor);
         Assert.False(tutorState.RequiresConfirmation);
         Assert.True(tutorState.AdmissionAllowed);
@@ -168,7 +184,11 @@ public class ClassSessionScheduleChangeServiceTests
         return new ScheduleChangeTestDbContext(options);
     }
 
-    private static void SeedSession(AgoraDbContext db, DateOnly birthdate, bool managedByParent = true)
+    private static void SeedSession(
+        AgoraDbContext db,
+        DateOnly birthdate,
+        bool managedByParent = true,
+        bool isContinuation = false)
     {
         var tutorUser = NewUser("tutor-1", UserRole.Tutor, "Gia sư");
         var parentUser = NewUser("parent-1", UserRole.Parent, "Phụ huynh");
@@ -207,7 +227,8 @@ public class ClassSessionScheduleChangeServiceTests
             Student = student,
             Scheduledstart = TimeZoneHelper.UtcNow.AddHours(-3),
             Scheduledend = TimeZoneHelper.UtcNow.AddHours(-2),
-            Status = ClassSessionStatus.Scheduled
+            Status = ClassSessionStatus.Scheduled,
+            Iscontinuation = isContinuation
         };
         db.Users.AddRange(tutorUser, parentUser, studentUser, adminUser);
         db.Tutorprofiles.Add(tutor);

@@ -7,21 +7,30 @@ namespace MV.ApplicationLayer.Helpers;
 
 /// <summary>
 /// Ngưỡng % đã học tối thiểu để được phép kích hoạt buổi phụ khi buổi gốc (Iscontinuation=false)
-/// bị ngắt giữa chừng vì sự cố đột xuất, và thời lượng buổi phụ tương ứng — tách riêng khỏi
-/// ClassSessionService để test được mà không cần dựng toàn bộ dependency graph của service đó.
-/// Ngưỡng là điều kiện TỐI THIỂU để chống lạm dụng (không thể nghỉ lúc mới học 10% rồi coi là
-/// "đột xuất"), không phải % thực tế sẽ được dùng để tính thời lượng buổi phụ — thời lượng buổi
-/// phụ luôn là phần bù lý thuyết (1 - ngưỡng) của tổng thời lượng buổi gốc, bất kể đã học đúng
-/// bao nhiêu % thật khi ngắt.
+/// bị ngắt giữa chừng vì sự cố đột xuất — tách riêng khỏi ClassSessionService để test được mà
+/// không cần dựng toàn bộ dependency graph của service đó. Ngưỡng CHỈ quyết định có được báo ngắt
+/// hay không, KHÔNG ảnh hưởng tới thời lượng buổi phụ (xem ComputeContinuationDuration, tính theo
+/// thời gian THẬT đã dạy + ngân sách gia hạn cố định).
+///
+/// Đã bỏ hẳn ngưỡng (còn 0% cho mọi buổi, kể cả không phải buổi đầu tiên): công thức
+/// ComputeContinuationDuration giữ bất biến actualDelivered + continuationDuration =
+/// totalScheduled + ContinuationExtensionMinutes bất kể ngắt sớm hay muộn, nên ngắt sớm KHÔNG cho
+/// tổng thời lượng khả dụng nhiều hơn — không có rủi ro lạm dụng để cần chặn bằng ngưỡng % nữa
+/// (quyết định sản phẩm, xác nhận lại sau khi rà công thức).
 /// </summary>
 public static class ClassSessionInterruptionPolicy
 {
-    /// <summary>Ngưỡng cho buổi thường: phải học được ít nhất 50% mới được ngắt.</summary>
-    public const double DefaultThreshold = 0.50;
+    /// <summary>Không còn ngưỡng tối thiểu — mọi buổi (kể cả không phải buổi đầu tiên của booking)
+    /// đều báo ngắt được ngay từ 0% thời lượng.</summary>
+    public const double DefaultThreshold = 0.0;
 
-    /// <summary>Ngưỡng hạ thấp cho buổi đầu tiên (chưa Ismakeup/Iscontinuation/Isdisputerelearn,
-    /// Scheduledstart sớm nhất) của booking: chỉ cần 20%.</summary>
-    public const double FirstSessionThreshold = 0.20;
+    /// <summary>Buổi đầu tiên (chưa Ismakeup/Iscontinuation/Isdisputerelearn, Scheduledstart sớm
+    /// nhất) của booking: giữ nguyên 0% — vốn đã không có ngưỡng từ trước.</summary>
+    public const double FirstSessionThreshold = 0.0;
+
+    /// <summary>Ngân sách thời lượng THÊM cố định cho buổi phụ, không phụ thuộc buổi gốc dài bao
+    /// lâu (buổi gốc 1, 2 hay 3 tiếng đều cộng thêm đúng 30 phút như nhau).</summary>
+    public const int ContinuationExtensionMinutes = 30;
 
     public static double ThresholdFor(bool isFirstSessionOfBooking)
         => isFirstSessionOfBooking ? FirstSessionThreshold : DefaultThreshold;
@@ -34,11 +43,22 @@ public static class ClassSessionInterruptionPolicy
     public static bool MeetsThreshold(bool isFirstSessionOfBooking, double overlapRatio)
         => overlapRatio >= ThresholdFor(isFirstSessionOfBooking);
 
-    public static TimeSpan ComputeContinuationDuration(bool isFirstSessionOfBooking, DateTime scheduledStart, DateTime scheduledEnd)
+    /// <summary>
+    /// Thời lượng buổi phụ = (thời lượng dự kiến buổi gốc - thời gian THẬT đã dạy trước khi ngắt)
+    /// + ngân sách gia hạn cố định (<see cref="ContinuationExtensionMinutes"/>). VD buổi gốc 60
+    /// phút, mới dạy thật 10 phút thì ngắt: buổi phụ = (60 - 10) + 30 = 80 phút.
+    /// </summary>
+    public static TimeSpan ComputeContinuationDuration(
+        DateTime scheduledStart, DateTime scheduledEnd, DateTime checkInTime, DateTime interruptedAt)
     {
-        var remainingFraction = 1.0 - ThresholdFor(isFirstSessionOfBooking);
-        var totalTicks = (scheduledEnd - scheduledStart).Ticks;
-        return TimeSpan.FromTicks((long)(totalTicks * remainingFraction));
+        var totalScheduled = scheduledEnd - scheduledStart;
+        var actualDelivered = interruptedAt - checkInTime;
+        if (actualDelivered < TimeSpan.Zero) actualDelivered = TimeSpan.Zero;
+
+        var remaining = totalScheduled - actualDelivered;
+        if (remaining < TimeSpan.Zero) remaining = TimeSpan.Zero;
+
+        return remaining + TimeSpan.FromMinutes(ContinuationExtensionMinutes);
     }
 
     /// <summary>
@@ -46,9 +66,10 @@ public static class ClassSessionInterruptionPolicy
     /// định là 1 tiếng sau thời điểm ngắt, để hai bên có thể vào học ngay hôm đó nếu rảnh; nếu
     /// không hợp, dùng luồng "Đề xuất đổi lịch" hiện có để dời (đã tự tương thích vì Status=Scheduled).
     /// </summary>
-    public static ClassSession BuildContinuationSession(ClassSession original, bool isFirstSessionOfBooking, DateTime now)
+    public static ClassSession BuildContinuationSession(ClassSession original, DateTime now)
     {
-        var duration = ComputeContinuationDuration(isFirstSessionOfBooking, original.Scheduledstart, original.Scheduledend);
+        var checkInTime = original.Checkintime ?? original.Scheduledstart;
+        var duration = ComputeContinuationDuration(original.Scheduledstart, original.Scheduledend, checkInTime, now);
         var defaultStart = now.AddHours(1);
 
         return new ClassSession
