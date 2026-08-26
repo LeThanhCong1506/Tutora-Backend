@@ -678,6 +678,17 @@ public partial class ClassSessionService
             if (classSession.Isdisputerelearn)
                 throw new ClassSessionException(ClassSessionErrorCodes.AlreadyRelearnSession, "Buổi học lại do hoà giải không thể tiếp tục bị báo ngắt", 400);
 
+            // Buổi bù no-show (Ismakeup) không nằm trong 2 check trên nên vẫn báo ngắt được — nếu
+            // không chặn thêm ở đây, 1 buổi bù đứng cuối chuỗi đã chạm MaxRelearnSessionsPerChain vẫn
+            // có thể bị báo ngắt để sinh thêm buổi phụ, vượt cap mà CreateMakeupClassSessionAsync
+            // (đường "học bù") đang tuân thủ. Cùng giới hạn, cùng cách đếm với đường đó.
+            var existingSessionCount = await DisputeRelearnPolicy.CountSessionsInChainAsync(_context, classSessionId);
+            if (existingSessionCount >= DisputeRelearnPolicy.MaxRelearnSessionsPerChain)
+                throw new ClassSessionException(
+                    ClassSessionErrorCodes.SessionChainLimitReached,
+                    $"Chuỗi buổi học này đã có {DisputeRelearnPolicy.MaxRelearnSessionsPerChain} buổi — không thể tạo thêm buổi phụ nữa.",
+                    409);
+
             var isFirstSessionOfBooking = await ClassSessionInterruptionPolicy.IsFirstOriginalSessionAsync(_context, classSession);
 
             var sessionLog = await _sessionLogService.GetSessionLogAsync(classSessionId);
