@@ -14,8 +14,5 @@ public interface IPracticeRepository
 
     void AddAttempt(PracticeAttempt attempt);
 
-    /// <summary>Đếm (đúng, tổng) theo chương để UI nói "em đã làm 3/5 câu đúng".</summary>
-    Task<(int Correct, int Total)> CountByChapterAsync(string userId, string? chapter);
-
     Task<int> SaveChangesAsync();
 }

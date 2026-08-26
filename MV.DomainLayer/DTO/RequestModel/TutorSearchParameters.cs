@@ -109,6 +109,18 @@ namespace MV.DomainLayer.DTO.RequestModel
         public Gender? Gender { get; set; }
 
         /// <summary>
+        /// Lọc theo LỊCH RẢNH của gia sư (tutor_availability).
+        /// </summary>
+        public List<int>? AvailableDaysOfWeek { get; set; }
+
+        /// <summary>
+        /// Khung giờ rảnh cần khớp (vd "tối" → 18:00-21:00). Chỉ lọc khi có ĐỦ cả hai đầu.
+        /// Điều kiện: khoảng rảnh của gia sư phải PHỦ khung giờ này (start &lt;= from, end &gt;= to).
+        /// </summary>
+        public TimeOnly? AvailableFrom { get; set; }
+        public TimeOnly? AvailableTo { get; set; }
+
+        /// <summary>
         /// Filter by verification status (e.g., "verified", "pending")
         /// </summary>
         public string? VerificationStatus { get; set; }
@@ -118,14 +130,14 @@ namespace MV.DomainLayer.DTO.RequestModel
         /// <summary>
         /// Sort by field (Maps to Figma "SORT BY" dropdown)
         /// Options:
-        /// - "rating_desc" (default): ĐÁNH GIÁ CAO NHẤT - Highest rating first
+        /// - "rating_desc": ĐÁNH GIÁ CAO NHẤT - Highest rating first
         /// - "rating_asc": ĐÁNH GIÁ THẤP NHẤT - Lowest rating first
         /// - "price_asc": GIÁ THẤP NHẤT - Lowest price first
         /// - "price_desc": GIÁ CAO NHẤT - Highest price first
         /// - "experience_desc": THÂM NIÊN CAO NHẤT - Most experienced first
         /// - "reviews_desc": ĐÁNH GIÁ NHIỀU NHẤT - Most reviews first
         /// - "newest": MỚI NHẤT - Newest profiles first
-        /// - "popularity": PHỔ BIẾN NHẤT - Most popular (by bookings)
+        /// - "popularity" (default): PHỔ BIẾN NHẤT - Most popular (by bookings)
         /// </summary>
         public string? SortBy { get; set; } = TutorSearchSortBy.Default;
     }

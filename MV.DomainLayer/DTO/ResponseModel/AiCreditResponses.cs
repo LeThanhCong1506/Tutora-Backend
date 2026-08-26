@@ -17,12 +17,23 @@ public class AiCreditPackageResponse
     public int SortOrder { get; set; }
     public string? Description { get; set; }
     public string? IconUrl { get; set; }
+
+    /// <summary>
+    /// Số THÁNG credit hết hạn kể từ ngày mua (lấy từ config admin). 0 = không hết hạn.
+    /// </summary>
+    public int ExpiryMonths { get; set; }
 }
 
 /// <summary>Số dư AI credit của tài khoản đang đăng nhập.</summary>
 public class AiCreditBalanceResponse
 {
     public int Balance { get; set; }
+
+    /// <summary>Ngày hết hạn của lô SẮP HẾT HẠN NHẤT. Null = không có lô nào sắp hết.</summary>
+    public DateTime? NextExpiryAt { get; set; }
+
+    /// <summary>Số lượt sẽ mất vào ngày đó — để UI nhắc "5 lượt hết hạn ngày 20/11".</summary>
+    public int ExpiringAmount { get; set; }
 }
 
 /// <summary>Một dòng lịch sử ledger AI credit.</summary>

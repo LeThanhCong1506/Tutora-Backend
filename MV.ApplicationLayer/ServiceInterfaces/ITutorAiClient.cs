@@ -9,11 +9,6 @@ namespace MV.ApplicationLayer.ServiceInterfaces
         /// Rank a list of candidate tutor IDs using AI semantic similarity.
         /// Returns the ranked IDs with similarity scores.
         /// </summary>
-        /// <param name="query">Free-text user query (may be null — AI ranks by rating)</param>
-        /// <param name="candidateIds">Pre-filtered tutor IDs from SQL hard filter</param>
-        /// <param name="topK">How many results to return</param>
-        /// <param name="cancellationToken">Cancellation token</param>
-        /// <returns>Ranked list of (TutorId, Similarity), or null on failure (graceful degrade)</returns>
         Task<List<AiRankedTutor>?> RankAsync(
             string? query,
             IReadOnlyList<string> candidateIds,
@@ -22,7 +17,6 @@ namespace MV.ApplicationLayer.ServiceInterfaces
 
         /// <summary>
         /// Embed 1 đoạn text (đề+lời giải) thành vector(768) qua tutora-ai /api/v1/embed.
-        /// Trả về vector, hoặc null nếu embed lỗi (câu hỏi vẫn được lưu, embed lại sau).
         /// </summary>
         Task<float[]?> EmbedAsync(string id, string text, CancellationToken cancellationToken = default);
 
@@ -48,9 +42,25 @@ namespace MV.ApplicationLayer.ServiceInterfaces
         /// delete). Trả số đoạn mới, hoặc null nếu tutora-ai lỗi/không đọc được nội dung.
         /// </summary>
         Task<int?> KbUpdateContentAsync(string documentId, string content, CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Bài tương tự để LUYỆN TẬP, tìm bằng embedding (tutora-ai /similar-questions).
+        /// </summary>
+        Task<List<AiSimilarQuestion>> FindSimilarQuestionsAsync(
+            string text,
+            string? chapter,
+            string? difficulty,
+            IReadOnlyList<Guid> excludeIds,
+            int topK,
+            CancellationToken cancellationToken = default);
     }
 
     public record AiRankedTutor(string TutorId, float Similarity);
+
+    /// <summary>1 bài tương tự lấy từ question bank để luyện tập.</summary>
+    public record AiSimilarQuestion(
+        Guid Id, string Content, string? Solution,
+        string? Chapter, string? Difficulty, float Similarity);
 
     public record AiExtractedQuestion(
         string Content,

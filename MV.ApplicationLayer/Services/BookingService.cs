@@ -203,16 +203,6 @@ public partial class BookingService(
             throw;
         }
 
-        // Tặng AI credit cho TÀI KHOẢN học sinh của booking (credit gắn với user_id).
-        try
-        {
-            if (!string.IsNullOrWhiteSpace(student.Linkeduserid))
-                await aiCreditService.GrantBookingBonusAsync(student.Linkeduserid, booking.Bookingid);
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "Không thể tặng AI credit cho booking {BookingId}", booking.Bookingid);
-        }
 
         booking.Tutor = tutor;
         booking.Student = student;

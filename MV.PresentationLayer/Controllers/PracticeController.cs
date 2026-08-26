@@ -19,10 +19,14 @@ public class PracticeController(IPracticeService service) : ControllerBase
 {
     /// <summary>GET /api/practice/next?chapter=can_bac_hai</summary>
     [HttpGet("next")]
-    public async Task<IActionResult> GetNext([FromQuery] string? chapter, CancellationToken ct)
+    public async Task<IActionResult> GetNext(
+        [FromQuery] string? chapter,
+        [FromQuery] string? questionText,
+        [FromQuery] string? difficulty,
+        CancellationToken ct)
     {
         var userId = UserHelper.GetUserId(User);
-        var result = await service.GetNextAsync(userId, chapter, ct);
+        var result = await service.GetNextAsync(userId, chapter, questionText, difficulty, ct);
 
         // Không có câu nào KHÔNG phải lỗi — chương chưa có câu chấm được, hoặc đã làm hết.
         return result == null

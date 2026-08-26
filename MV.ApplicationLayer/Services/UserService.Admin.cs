@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using Microsoft.EntityFrameworkCore;
 using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO.RequestModel;
@@ -331,7 +332,7 @@ namespace MV.ApplicationLayer.Services
             };
         }
 
-        public async Task AdminDeactivateUserAsync(string userId)
+        public async Task<SuspensionRefundImpactResponse> AdminDeactivateUserAsync(string userId)
         {
             var user = await _userRepository.GetUserByIdAsync(userId)
                 ?? throw new UserNotFoundException(userId);
@@ -350,6 +351,48 @@ namespace MV.ApplicationLayer.Services
             }
 
             await _context.SaveChangesAsync();
+
+            // A block locks the account out exactly as a suspension does, so it must unwind the
+            // calendar the same way — otherwise sessions stay "scheduled" against somebody who can
+            // no longer sign in, and the money stays frozen in escrow indefinitely. Applies to all
+            // three roles. A block has no end date, so every undelivered session goes.
+            var impact = await _suspensionRefundService.CascadeSuspensionAsync(
+                userId, suspensionEndDate: null, reason: "Tài khoản bị khóa bởi quản trị viên");
+
+            // CascadeSuspensionAsync owned its own transaction here (nothing ambient above it), so
+            // it has already sent the refund notifications; this call is a no-op safety net.
+            await _suspensionRefundService.NotifyImpactAsync(impact);
+
+            // Being blocked used to happen silently — the account simply stopped working at the next
+            // login with no explanation anywhere. Tell them, the same way a suspension does.
+            await NotifyAccountAccessChangedAsync(
+                userId,
+                "Tài khoản đã bị khóa",
+                "Tài khoản của bạn đã bị quản trị viên khóa. Vui lòng liên hệ hỗ trợ nếu bạn cho rằng đây là nhầm lẫn.");
+
+            return impact;
+        }
+
+        /// <summary>
+        /// Best-effort announcement that an account was blocked or unblocked. A failure here must
+        /// never undo the block itself, so it is logged and swallowed.
+        /// </summary>
+        private async Task NotifyAccountAccessChangedAsync(string userId, string title, string message)
+        {
+            try
+            {
+                await _notificationService.CreateNotificationAsync(new NotificationRequest
+                {
+                    Userid = userId,
+                    Title = title,
+                    Message = message,
+                    Type = NotificationType.Warning
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to notify account access change for user {UserId}", userId);
+            }
         }
 
         public async Task AdminReactivateUserAsync(string userId)
@@ -387,6 +430,13 @@ namespace MV.ApplicationLayer.Services
             }
 
             await _context.SaveChangesAsync();
+
+            // Mirror of the block notification: the account works again, say so rather than making
+            // them discover it by retrying a login that used to fail.
+            await NotifyAccountAccessChangedAsync(
+                userId,
+                "Tài khoản đã được mở lại",
+                "Quản trị viên đã mở khóa tài khoản của bạn. Bạn có thể đăng nhập và sử dụng dịch vụ bình thường.");
         }
 
         // ─── Admin: xem ảnh CCCD (signed URL, có hiệu lực 15 phút) — dùng chung Tutor/Student ──────────────

@@ -41,6 +41,8 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
 
     public virtual DbSet<StudentTopicSignal> StudentTopicSignals { get; set; }
 
+    public virtual DbSet<TutorFavorite> TutorFavorites { get; set; }
+
     public virtual DbSet<AiMessageVote> AiMessageVotes { get; set; }
 
     public virtual DbSet<TutorSuggestionVote> TutorSuggestionVotes { get; set; }
@@ -92,6 +94,17 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
     public virtual DbSet<TutoraKbDocument> TutoraKbDocuments { get; set; }
 
     public virtual DbSet<TutoraKbChunk> TutoraKbChunks { get; set; }
+
+    /// <summary>
+    /// Cấu hình JSON cho các cột jsonb có object bên trong (answer_options...).
+    /// </summary>
+    private static readonly System.Text.Json.JsonSerializerOptions JsonbOptions = new()
+    {
+        PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase,
+        PropertyNameCaseInsensitive = true,
+    };
+
+    public virtual DbSet<AiCreditBatch> AiCreditBatches { get; set; }
 
     public virtual DbSet<PracticeAttempt> PracticeAttempts { get; set; }
 
@@ -1139,6 +1152,38 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
                 .HasForeignKey(d => d.SessionId)
                 .OnDelete(DeleteBehavior.Cascade)
                 .HasConstraintName("student_topic_signals_session_fk");
+        });
+
+        modelBuilder.Entity<TutorFavorite>(entity =>
+        {
+            entity.HasKey(e => e.Favoriteid).HasName("tutor_favorites_pkey");
+
+            entity.ToTable("tutor_favorites");
+
+            entity.Property(e => e.Favoriteid).HasColumnName("favorite_id");
+            entity.Property(e => e.Userid)
+                .HasMaxLength(50)
+                .HasColumnName("user_id");
+            entity.Property(e => e.Tutorid)
+                .HasMaxLength(50)
+                .HasColumnName("tutor_id");
+            entity.Property(e => e.Createdat)
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
+                .HasColumnType("timestamp without time zone")
+                .HasColumnName("created_at");
+
+            // One save per (user, tutor); toggling off deletes the row.
+            entity.HasIndex(e => new { e.Userid, e.Tutorid }, "tutor_favorites_unique").IsUnique();
+
+            entity.HasOne(d => d.User).WithMany()
+                .HasForeignKey(d => d.Userid)
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("tutor_favorites_user_fk");
+
+            entity.HasOne(d => d.TutorProfile).WithMany()
+                .HasForeignKey(d => d.Tutorid)
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("tutor_favorites_tutor_fk");
         });
 
         modelBuilder.Entity<AiMessageVote>(entity =>
@@ -2529,6 +2574,27 @@ entity.HasOne(d => d.Tutor).WithOne(p => p.Tutorprofile)
                 .HasColumnName("created_at");
         });
 
+        modelBuilder.Entity<AiCreditBatch>(entity =>
+        {
+            entity.ToTable("ai_credit_batches");
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.Id).HasDefaultValueSql("gen_random_uuid()").HasColumnName("id");
+            entity.Property(e => e.UserId).HasMaxLength(50).HasColumnName("user_id");
+            entity.Property(e => e.Source).HasMaxLength(30).HasColumnName("source");
+            entity.Property(e => e.ReferenceId).HasMaxLength(120).HasColumnName("reference_id");
+            entity.Property(e => e.Granted).HasColumnName("granted");
+            entity.Property(e => e.Consumed).HasDefaultValue(0).HasColumnName("consumed");
+            entity.Property(e => e.GrantedAt)
+                .HasDefaultValueSql("now() AT TIME ZONE 'UTC'")
+                .HasColumnType("timestamp without time zone")
+                .HasColumnName("granted_at");
+            entity.Property(e => e.ExpiresAt)
+                .HasColumnType("timestamp without time zone")
+                .HasColumnName("expires_at");
+            entity.Ignore(e => e.Remaining);
+        });
+
         modelBuilder.Entity<PracticeAttempt>(entity =>
         {
             entity.ToTable("practice_attempts");
@@ -2540,7 +2606,7 @@ entity.HasOne(d => d.Tutor).WithOne(p => p.Tutorprofile)
             entity.Property(e => e.Chapter).HasMaxLength(120).HasColumnName("chapter");
             entity.Property(e => e.GradeLevelId).HasColumnName("grade_level_id");
             entity.Property(e => e.Difficulty).HasMaxLength(20).HasColumnName("difficulty");
-            entity.Property(e => e.GivenAnswer).HasColumnName("given_answer");
+            entity.Property(e => e.SelfAssessment).HasMaxLength(20).HasColumnName("self_assessment");
             entity.Property(e => e.IsCorrect).HasDefaultValue(false).HasColumnName("is_correct");
             entity.Property(e => e.SourceSessionId).HasColumnName("source_session_id");
             // timestamp KHÔNG timezone — cùng quy ước với V20260820c.
@@ -2575,23 +2641,23 @@ entity.HasOne(d => d.Tutor).WithOne(p => p.Tutorprofile)
                 .HasColumnType("jsonb")
                 .HasColumnName("image_urls")
                 .HasConversion(
-                    v => System.Text.Json.JsonSerializer.Serialize(v, (System.Text.Json.JsonSerializerOptions?)null),
-                    v => System.Text.Json.JsonSerializer.Deserialize<List<string>>(v, (System.Text.Json.JsonSerializerOptions?)null) ?? new List<string>())
+                    v => System.Text.Json.JsonSerializer.Serialize(v, JsonbOptions),
+                    v => System.Text.Json.JsonSerializer.Deserialize<List<string>>(v, JsonbOptions) ?? new List<string>())
                 .Metadata.SetValueComparer(new Microsoft.EntityFrameworkCore.ChangeTracking.ValueComparer<List<string>>(
-                    (a, b) => System.Text.Json.JsonSerializer.Serialize(a, (System.Text.Json.JsonSerializerOptions?)null) == System.Text.Json.JsonSerializer.Serialize(b, (System.Text.Json.JsonSerializerOptions?)null),
-                    v => v == null ? 0 : System.Text.Json.JsonSerializer.Serialize(v, (System.Text.Json.JsonSerializerOptions?)null).GetHashCode(),
-                    v => System.Text.Json.JsonSerializer.Deserialize<List<string>>(System.Text.Json.JsonSerializer.Serialize(v, (System.Text.Json.JsonSerializerOptions?)null), (System.Text.Json.JsonSerializerOptions?)null) ?? new List<string>()));
+                    (a, b) => System.Text.Json.JsonSerializer.Serialize(a, JsonbOptions) == System.Text.Json.JsonSerializer.Serialize(b, JsonbOptions),
+                    v => v == null ? 0 : System.Text.Json.JsonSerializer.Serialize(v, JsonbOptions).GetHashCode(),
+                    v => System.Text.Json.JsonSerializer.Deserialize<List<string>>(System.Text.Json.JsonSerializer.Serialize(v, JsonbOptions), JsonbOptions) ?? new List<string>()));
             entity.Property(e => e.AnswerFormat).HasColumnName("answer_format");
             entity.Property(e => e.AnswerOptions)
                 .HasColumnType("jsonb")
                 .HasColumnName("answer_options")
                 .HasConversion(
-                    v => v == null ? null : System.Text.Json.JsonSerializer.Serialize(v, (System.Text.Json.JsonSerializerOptions?)null),
-                    v => v == null ? null : System.Text.Json.JsonSerializer.Deserialize<List<AnswerOption>>(v, (System.Text.Json.JsonSerializerOptions?)null))
+                    v => v == null ? null : System.Text.Json.JsonSerializer.Serialize(v, JsonbOptions),
+                    v => v == null ? null : System.Text.Json.JsonSerializer.Deserialize<List<AnswerOption>>(v, JsonbOptions))
                 .Metadata.SetValueComparer(new Microsoft.EntityFrameworkCore.ChangeTracking.ValueComparer<List<AnswerOption>?>(
-                    (a, b) => System.Text.Json.JsonSerializer.Serialize(a, (System.Text.Json.JsonSerializerOptions?)null) == System.Text.Json.JsonSerializer.Serialize(b, (System.Text.Json.JsonSerializerOptions?)null),
-                    v => v == null ? 0 : System.Text.Json.JsonSerializer.Serialize(v, (System.Text.Json.JsonSerializerOptions?)null).GetHashCode(),
-                    v => v == null ? null : System.Text.Json.JsonSerializer.Deserialize<List<AnswerOption>>(System.Text.Json.JsonSerializer.Serialize(v, (System.Text.Json.JsonSerializerOptions?)null), (System.Text.Json.JsonSerializerOptions?)null)));
+                    (a, b) => System.Text.Json.JsonSerializer.Serialize(a, JsonbOptions) == System.Text.Json.JsonSerializer.Serialize(b, JsonbOptions),
+                    v => v == null ? 0 : System.Text.Json.JsonSerializer.Serialize(v, JsonbOptions).GetHashCode(),
+                    v => v == null ? null : System.Text.Json.JsonSerializer.Deserialize<List<AnswerOption>>(System.Text.Json.JsonSerializer.Serialize(v, JsonbOptions), JsonbOptions)));
             entity.Property(e => e.CorrectAnswer).HasColumnName("correct_answer");
             entity.Property(e => e.Explanation).HasColumnName("explanation");
             entity.Property(e => e.SourceDocumentId).HasColumnName("source_document_id");
@@ -2847,35 +2913,35 @@ entity.HasOne(d => d.Tutor).WithOne(p => p.Tutorprofile)
                 .HasColumnType("jsonb")
                 .HasColumnName("answer_options")
                 .HasConversion(
-                    v => v == null ? null : System.Text.Json.JsonSerializer.Serialize(v, (System.Text.Json.JsonSerializerOptions?)null),
-                    v => v == null ? null : System.Text.Json.JsonSerializer.Deserialize<List<AnswerOption>>(v, (System.Text.Json.JsonSerializerOptions?)null))
+                    v => v == null ? null : System.Text.Json.JsonSerializer.Serialize(v, JsonbOptions),
+                    v => v == null ? null : System.Text.Json.JsonSerializer.Deserialize<List<AnswerOption>>(v, JsonbOptions))
                 .Metadata.SetValueComparer(new Microsoft.EntityFrameworkCore.ChangeTracking.ValueComparer<List<AnswerOption>?>(
-                    (a, b) => System.Text.Json.JsonSerializer.Serialize(a, (System.Text.Json.JsonSerializerOptions?)null) == System.Text.Json.JsonSerializer.Serialize(b, (System.Text.Json.JsonSerializerOptions?)null),
-                    v => v == null ? 0 : System.Text.Json.JsonSerializer.Serialize(v, (System.Text.Json.JsonSerializerOptions?)null).GetHashCode(),
-                    v => v == null ? null : System.Text.Json.JsonSerializer.Deserialize<List<AnswerOption>>(System.Text.Json.JsonSerializer.Serialize(v, (System.Text.Json.JsonSerializerOptions?)null), (System.Text.Json.JsonSerializerOptions?)null)));
+                    (a, b) => System.Text.Json.JsonSerializer.Serialize(a, JsonbOptions) == System.Text.Json.JsonSerializer.Serialize(b, JsonbOptions),
+                    v => v == null ? 0 : System.Text.Json.JsonSerializer.Serialize(v, JsonbOptions).GetHashCode(),
+                    v => v == null ? null : System.Text.Json.JsonSerializer.Deserialize<List<AnswerOption>>(System.Text.Json.JsonSerializer.Serialize(v, JsonbOptions), JsonbOptions)));
 
             entity.Property(e => e.AcceptedAnswers)
                 .HasColumnType("jsonb")
                 .HasColumnName("accepted_answers")
                 .HasConversion(
-                    v => v == null ? null : System.Text.Json.JsonSerializer.Serialize(v, (System.Text.Json.JsonSerializerOptions?)null),
-                    v => v == null ? null : System.Text.Json.JsonSerializer.Deserialize<List<string>>(v, (System.Text.Json.JsonSerializerOptions?)null))
+                    v => v == null ? null : System.Text.Json.JsonSerializer.Serialize(v, JsonbOptions),
+                    v => v == null ? null : System.Text.Json.JsonSerializer.Deserialize<List<string>>(v, JsonbOptions))
                 .Metadata.SetValueComparer(new Microsoft.EntityFrameworkCore.ChangeTracking.ValueComparer<List<string>?>(
-                    (a, b) => System.Text.Json.JsonSerializer.Serialize(a, (System.Text.Json.JsonSerializerOptions?)null) == System.Text.Json.JsonSerializer.Serialize(b, (System.Text.Json.JsonSerializerOptions?)null),
-                    v => v == null ? 0 : System.Text.Json.JsonSerializer.Serialize(v, (System.Text.Json.JsonSerializerOptions?)null).GetHashCode(),
-                    v => v == null ? null : System.Text.Json.JsonSerializer.Deserialize<List<string>>(System.Text.Json.JsonSerializer.Serialize(v, (System.Text.Json.JsonSerializerOptions?)null), (System.Text.Json.JsonSerializerOptions?)null)));
+                    (a, b) => System.Text.Json.JsonSerializer.Serialize(a, JsonbOptions) == System.Text.Json.JsonSerializer.Serialize(b, JsonbOptions),
+                    v => v == null ? 0 : System.Text.Json.JsonSerializer.Serialize(v, JsonbOptions).GetHashCode(),
+                    v => v == null ? null : System.Text.Json.JsonSerializer.Deserialize<List<string>>(System.Text.Json.JsonSerializer.Serialize(v, JsonbOptions), JsonbOptions)));
 
             entity.Property(e => e.ImageUrls)
                 .HasColumnType("jsonb")
                 .HasColumnName("image_urls")
                 .HasDefaultValueSql("'[]'::jsonb")
                 .HasConversion(
-                    v => System.Text.Json.JsonSerializer.Serialize(v, (System.Text.Json.JsonSerializerOptions?)null),
-                    v => System.Text.Json.JsonSerializer.Deserialize<List<string>>(v, (System.Text.Json.JsonSerializerOptions?)null) ?? new List<string>())
+                    v => System.Text.Json.JsonSerializer.Serialize(v, JsonbOptions),
+                    v => System.Text.Json.JsonSerializer.Deserialize<List<string>>(v, JsonbOptions) ?? new List<string>())
                 .Metadata.SetValueComparer(new Microsoft.EntityFrameworkCore.ChangeTracking.ValueComparer<List<string>>(
-                    (a, b) => System.Text.Json.JsonSerializer.Serialize(a, (System.Text.Json.JsonSerializerOptions?)null) == System.Text.Json.JsonSerializer.Serialize(b, (System.Text.Json.JsonSerializerOptions?)null),
-                    v => v == null ? 0 : System.Text.Json.JsonSerializer.Serialize(v, (System.Text.Json.JsonSerializerOptions?)null).GetHashCode(),
-                    v => System.Text.Json.JsonSerializer.Deserialize<List<string>>(System.Text.Json.JsonSerializer.Serialize(v, (System.Text.Json.JsonSerializerOptions?)null), (System.Text.Json.JsonSerializerOptions?)null) ?? new List<string>()));
+                    (a, b) => System.Text.Json.JsonSerializer.Serialize(a, JsonbOptions) == System.Text.Json.JsonSerializer.Serialize(b, JsonbOptions),
+                    v => v == null ? 0 : System.Text.Json.JsonSerializer.Serialize(v, JsonbOptions).GetHashCode(),
+                    v => System.Text.Json.JsonSerializer.Deserialize<List<string>>(System.Text.Json.JsonSerializer.Serialize(v, JsonbOptions), JsonbOptions) ?? new List<string>()));
 
             entity.Property(e => e.CreatedAt).HasDefaultValueSql("now()").HasColumnType("timestamp with time zone").HasColumnName("created_at");
             entity.Property(e => e.UpdatedAt).HasDefaultValueSql("now()").HasColumnType("timestamp with time zone").HasColumnName("updated_at");

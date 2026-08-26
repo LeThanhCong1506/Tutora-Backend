@@ -49,6 +49,9 @@ public interface IAppDbContext
     DbSet<TutoraKbChunk> TutoraKbChunks { get; }
     DbSet<QuestionVote> QuestionVotes { get; }
     DbSet<AiCreditTransaction> AiCreditTransactions { get; }
+
+    /// <summary>Lô credit có hạn dùng — xem ai_credit_batches.</summary>
+    DbSet<AiCreditBatch> AiCreditBatches { get; }
     DbSet<AiUsageMonthly> AiUsageMonthly { get; }
     DbSet<Profilesuspension> Profilesuspensions { get; }
     DbSet<Promotion> Promotions { get; }
@@ -70,6 +73,7 @@ public interface IAppDbContext
     DbSet<Tutorcertificate> Tutorcertificates { get; }
     DbSet<Tutorpackage> Tutorpackages { get; }
     DbSet<Tutorpackagefixedslot> Tutorpackagefixedslots { get; }
+    DbSet<TutorFavorite> TutorFavorites { get; }
     DbSet<Tutorprofile> Tutorprofiles { get; }
     DbSet<Tutorsubjectgradeprice> Tutorsubjectgradeprices { get; }
     DbSet<Tutorsubscription> Tutorsubscriptions { get; }
