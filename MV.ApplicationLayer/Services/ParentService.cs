@@ -572,9 +572,13 @@ public class ParentService : IParentService
             if (studentIds == null || studentIds.Count == 0)
                 return new List<CalendarDayResponse>();
 
+            // Xem giải thích ở ClassSessionService.GetTutorCalendarAsync: bucket theo ngày check-in
+            // thực tế nếu đã vào học, tránh buổi vào sớm/muộn khác ngày kẹt ở ô ngày hẹn cũ.
             var classSessions = await _context.ClassSessions
                 .AsNoTracking()
-                .Where(l => l.Studentid != null && studentIds.Contains(l.Studentid) && l.Scheduledstart >= startUtc && l.Scheduledstart <= endUtc)
+                .Where(l => l.Studentid != null && studentIds.Contains(l.Studentid)
+                         && (l.Checkintime ?? l.Scheduledstart) >= startUtc
+                         && (l.Checkintime ?? l.Scheduledstart) <= endUtc)
                 .Include(l => l.Booking)
                     .ThenInclude(b => b!.Tutorsubjectgradeprice)
                         .ThenInclude(p => p!.Subject)
@@ -588,7 +592,7 @@ public class ParentService : IParentService
                 .ToListAsync();
 
             return classSessions
-                .GroupBy(l => l.Scheduledstart.Date)
+                .GroupBy(l => (l.Checkintime ?? l.Scheduledstart).Date)
                 .Select(g => new CalendarDayResponse
                 {
                     Date = g.Key,

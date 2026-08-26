@@ -11,6 +11,15 @@ public class BookedSlotResponse
 {
     public DateTime ScheduledStart { get; set; }
     public DateTime ScheduledEnd { get; set; }
+
+    /// <summary>True nếu gia sư đã accept 1 booking khác trùng khung giờ này (deposit_paid trở
+    /// lên) — chỉ trường hợp này mới thực sự khóa khung giờ. Booking đang pending_tutor/
+    /// pending_payment KHÔNG khóa, chỉ được tính vào PendingCount bên dưới.</summary>
+    public bool IsLocked { get; set; }
+
+    /// <summary>Số booking khác nhau đang pending_tutor (đã đóng cọc, chờ gia sư xác nhận) trùng
+    /// khung giờ này. FE dùng để cảnh báo "đang có N người muốn chọn khung giờ này" khi >= 2.</summary>
+    public int PendingCount { get; set; }
 }
 
 public class StudentMiniResponse

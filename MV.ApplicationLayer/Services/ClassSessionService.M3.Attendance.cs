@@ -55,7 +55,13 @@ public partial class ClassSessionService
         // A delayed/reconnected heartbeat must never start an old scheduled
         // session. Keep the record scheduled so the normal no-show/dispute
         // workflow remains available, but tell both clients that its room is closed.
+        // Buổi PHỤ (Iscontinuation) là ngoại lệ: Scheduledend của nó chỉ là mốc ước tính lúc tạo
+        // (now + 1h, xem BuildContinuationSession), không phải cam kết giờ học thật — hai bên có
+        // thể vào học nốt bất cứ lúc nào trong ngày, không nên bị khoá phòng chỉ vì trễ quá mốc
+        // ước tính này. Buổi phụ chỉ thật sự "chết" khi bị huỷ (SubmitReportAsync tự huỷ nếu buổi
+        // gốc đã nộp báo cáo mà buổi phụ chưa học) — không dựa vào giờ hẹn.
         if (classSession.Status == Scheduled
+            && !classSession.Iscontinuation
             && classSession.Scheduledend <= now.AddMinutes(-LiveSessionAutoEndGraceMinutes))
         {
             return new SessionPresenceStatus(
@@ -300,11 +306,24 @@ public partial class ClassSessionService
         var now = TimeZoneHelper.UtcNow;
         var cutoff = now.AddMinutes(-LiveSessionAutoEndGraceMinutes);
 
-        var expiredSessions = await _context.ClassSessions
-            .Where(l => l.Status == InProgress
-                && l.Checkouttime == null
-                && l.Scheduledend <= cutoff)
+        var candidates = await _context.ClassSessions
+            .Where(l => l.Status == InProgress && l.Checkouttime == null)
             .ToListAsync(ct);
+
+        // Buổi PHỤ (Iscontinuation): Scheduledend chỉ là mốc ước tính lúc TẠO (now+1h, xem
+        // BuildContinuationSession) — hai bên có thể vào học nốt trễ hàng giờ so với mốc này, nên
+        // "quá giờ" phải tính từ lúc CHECK-IN thật (+ đúng thời lượng đã tính), không phải từ
+        // Scheduledend cố định — nếu không, buổi vừa check-in xong sẽ bị job này đóng ngay ở lượt
+        // chạy kế tiếp vì Scheduledend đã nằm trong quá khứ từ trước khi ai kịp vào học.
+        var expiredSessions = candidates.Where(l =>
+        {
+            if (l.Iscontinuation && l.Checkintime.HasValue)
+            {
+                var expectedEnd = l.Checkintime.Value.Add(l.Scheduledend - l.Scheduledstart);
+                return expectedEnd <= cutoff;
+            }
+            return l.Scheduledend <= cutoff;
+        }).ToList();
 
         if (expiredSessions.Count == 0) return 0;
 
@@ -523,24 +542,23 @@ public partial class ClassSessionService
                 && now > classSession.Scheduledend;
 
             // Ngoại lệ 2: buổi bị báo ngắt (status=interrupted) không bao giờ tự quay lại in_progress
-            // được nữa (xem RequestInterruptionAsync), nên nếu không xử lý riêng, gia sư sẽ vĩnh
-            // viễn không gửi được báo cáo cho phần ĐÃ dạy thật (VD 80%) khi 2 bên đồng ý bỏ hẳn
-            // buổi phụ thay vì học nốt. Cho phép gửi báo cáo khi CẢ 2 bên đã xác nhận bỏ buổi phụ
-            // (ConfirmSkipContinuationAsync) — đồng thời tự huỷ buổi phụ đó trong cùng transaction.
+            // được nữa (xem RequestInterruptionAsync). Quyết định sản phẩm: cho gửi báo cáo NGAY khi
+            // đang interrupted, không cần chờ 2 bên đồng ý bỏ buổi phụ nữa — nộp báo cáo xong coi
+            // như buổi đã chốt, bất kể buổi phụ có được học hay không. Nếu có buổi phụ đang Scheduled
+            // chưa dùng, tự huỷ luôn trong cùng transaction để không treo lơ lửng (xem bên dưới).
             ClassSession? continuationToCancel = null;
             if (classSession.Status == Interrupted)
             {
                 continuationToCancel = await _context.ClassSessions.FirstOrDefaultAsync(
                     c => c.Originalsessionid == classSessionId && c.Iscontinuation && c.Status == Scheduled);
             }
-            var bothSidesSkippedContinuation = continuationToCancel?.Tutorskipconfirmedat != null
-                && continuationToCancel.Studentskipconfirmedat != null;
 
-            // Yêu cầu buổi đã được check-in (in_progress), HOẶC là 1 trong 2 ngoại lệ ở trên.
-            if (classSession.Status != InProgress && !isSoloTutorNoShow && !bothSidesSkippedContinuation)
+            // Yêu cầu buổi đã được check-in (in_progress), đang bị ngắt (interrupted), hoặc là
+            // ngoại lệ solo-tutor-no-show ở trên.
+            if (classSession.Status != InProgress && classSession.Status != Interrupted && !isSoloTutorNoShow)
                 throw new ClassSessionException(
                     ClassSessionErrorCodes.InvalidClassSessionStatus,
-                    "Buổi học phải đang diễn ra (đã điểm danh vào), hoặc học viên không vào lớp sau giờ kết thúc, hoặc đã bị ngắt và cả 2 bên đã đồng ý bỏ buổi phụ, mới gửi được báo cáo",
+                    "Buổi học phải đang diễn ra (đã điểm danh vào), đã bị ngắt giữa chừng, hoặc học viên không vào lớp sau giờ kết thúc, mới gửi được báo cáo",
                     400);
 
             if (classSession.ClassSessionReport != null)
@@ -597,8 +615,8 @@ public partial class ClassSessionService
                 classSession.Booking.Paymentdueat = RemainingPaymentDeadlinePolicy.ComputeDeadline(now, earliestReservedStart);
             }
 
-            if (bothSidesSkippedContinuation)
-                continuationToCancel!.Status = Cancelled;
+            if (continuationToCancel != null)
+                continuationToCancel.Status = Cancelled;
 
             await _context.SaveChangesAsync();
             await tx.CommitAsync();
@@ -701,7 +719,7 @@ public partial class ClassSessionService
 
             await TryStopRecordingAsync(classSession);
 
-            var continuation = ClassSessionInterruptionPolicy.BuildContinuationSession(classSession, isFirstSessionOfBooking, now);
+            var continuation = ClassSessionInterruptionPolicy.BuildContinuationSession(classSession, now);
             _context.ClassSessions.Add(continuation);
 
             await _context.SaveChangesAsync();
