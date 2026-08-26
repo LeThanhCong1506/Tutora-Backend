@@ -45,6 +45,14 @@ public class StudentClassSessionDetailResponse : StudentClassSessionSummaryRespo
     /// vẫn còn Scheduled cho tới khi gia sư nộp báo cáo xong.</summary>
     public bool SkipConfirmedByBothSides { get; set; }
 
+    /// <summary>ID buổi phụ sinh ra từ chính buổi này khi bị ngắt (chỉ có trên buổi GỐC,
+    /// status=interrupted). Null nếu buổi chưa từng bị ngắt.</summary>
+    public int? ContinuationSessionId { get; set; }
+    /// <summary>Giờ hẹn của buổi phụ (<see cref="ContinuationSessionId"/>) — hiện trực tiếp trên
+    /// trang buổi gốc thay vì bắt phải mở thêm trang riêng của buổi phụ.</summary>
+    public DateTime? ContinuationScheduledStart { get; set; }
+    public DateTime? ContinuationScheduledEnd { get; set; }
+
     /// <summary>
     /// True nếu buổi tiếp theo bị khóa do phụ huynh chưa thanh toán đợt 2.
     /// FE dùng để khóa link vào lớp.
