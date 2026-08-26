@@ -21,8 +21,6 @@ public class PolicyService : IPolicyService
         _context = context;
     }
 
-    // ── Công khai ──
-
     public async Task<List<PolicyDocumentSummaryResponse>> GetPublishedAsync(CancellationToken ct = default)
     {
         var documents = await _context.PolicyDocuments
@@ -31,8 +29,6 @@ public class PolicyService : IPolicyService
             .OrderBy(d => d.Displayorder)
             .ThenBy(d => d.Policydocumentid)
             .ToListAsync(ct);
-
-        // Trang công khai không cần biết ai sửa gần nhất.
         return documents.Select(d => ToSummary(d, updatedByName: null)).ToList();
     }
 
@@ -46,8 +42,6 @@ public class PolicyService : IPolicyService
 
         return document is null ? null : ToDetail(document, updatedByName: null);
     }
-
-    // ── CMS ──
 
     public async Task<List<PolicyDocumentSummaryResponse>> GetAllAsync(bool includeArchived, CancellationToken ct = default)
     {

@@ -1,8 +1,8 @@
+using MV.ApplicationLayer.RepositoryInterfaces;
 using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO.RequestModel;
 using MV.DomainLayer.DTO.ResponseModel;
-using MV.ApplicationLayer.RepositoryInterfaces;
 
 namespace MV.ApplicationLayer.Services
 {
@@ -34,28 +34,27 @@ namespace MV.ApplicationLayer.Services
 
         private static void ValidateSearchParameters(TutorSearchParameters parameters)
         {
-            // Ensure page number is at least 1
+            // Page size validation
             if (parameters.PageNumber < 1)
                 parameters.PageNumber = 1;
 
-            // Validate price range (custom range)
+            // Money range validation
             if (parameters.MinHourlyRate.HasValue && parameters.MaxHourlyRate.HasValue)
             {
                 if (parameters.MinHourlyRate > parameters.MaxHourlyRate)
                 {
-                    // Swap values if min > max
                     (parameters.MinHourlyRate, parameters.MaxHourlyRate) =
                         (parameters.MaxHourlyRate, parameters.MinHourlyRate);
                 }
             }
 
-            // Validate rating range
+            // Rating validation - ensure it's between 0 and 5
             if (parameters.MinRating.HasValue)
             {
                 parameters.MinRating = Math.Clamp(parameters.MinRating.Value, 0, 5);
             }
 
-            // Sanitize search term
+            // Sanitize search term (Category, GradeLevel, TeachingMode, BudgetRange, SortBy)
             if (!string.IsNullOrWhiteSpace(parameters.SearchTerm))
             {
                 parameters.SearchTerm = parameters.SearchTerm.Trim();

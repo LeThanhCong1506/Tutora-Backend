@@ -9,41 +9,41 @@ namespace MV.ApplicationLayer.Services
 {
     public partial class TutorService
     {
-        // ─── Certificate Methods ─────────────────────────────────────────────
 
         public async Task<CertificateUploadResponse> AddCertificateAsync(string tutorId, AddCertificateRequest request)
         {
             var profile = await _tutorRepository.GetTutorProfileByIdAsync(tutorId)
-                ?? throw new ArgumentException("Không tìm thấy hồ sơ gia sư");
+                ?? throw new ArgumentException("Không tìm thấy hồ sơ gia sư.");
 
-            ValidateCertificateFile(request.CertificateFile);
+            ValidateCertificateFile(request.CertificateFile); // Kiểm tra định dạng và kích thước file
 
             if (request.YearIssued.HasValue)
             {
                 var currentYear = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow.Year;
                 if (request.YearIssued < 1900 || request.YearIssued > currentYear)
-                    throw new ArgumentException($"Năm cấp phải nằm trong khoảng 1900 đến {currentYear}");
+                    throw new ArgumentException($"Năm cấp phải nằm trong khoảng 1900 đến {currentYear}.");
             }
 
             var certificateFileUrl = await _storageService.UploadFileAsync(
                 CertificateBucket, tutorId, request.CertificateFile);
+            // Nếu file là PDF, tạo thumbnail (ảnh JPG) từ trang đầu tiên của PDF
             var thumbnailUrl = await TryGeneratePdfThumbnailAsync(request.CertificateFile, tutorId);
 
             var certificate = new Tutorcertificate
             {
-                Certificateid       = Guid.NewGuid().ToString(),
-                Tutorid             = tutorId,
-                Certificatename     = request.CertificateName,
-                Certificatetype     = request.CertificateType,
+                Certificateid = Guid.NewGuid().ToString(),
+                Tutorid = tutorId,
+                Certificatename = request.CertificateName,
+                Certificatetype = request.CertificateType,
                 Issuingorganization = request.IssuingOrganization,
-                Yearissued          = request.YearIssued,
-                Credentialid        = request.CredentialId,
-                Credentialurl       = request.CredentialUrl,
-                Certificatefileurl  = certificateFileUrl,
-                Thumbnailurl        = thumbnailUrl,
-                Verificationstatus  = CertificateStatus.PendingReview,
-                Createdat           = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow,
-                Updatedat           = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
+                Yearissued = request.YearIssued,
+                Credentialid = request.CredentialId,
+                Credentialurl = request.CredentialUrl,
+                Certificatefileurl = certificateFileUrl,
+                Thumbnailurl = thumbnailUrl,
+                Verificationstatus = CertificateStatus.PendingReview,
+                Createdat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow,
+                Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
             };
 
             await _tutorRepository.AddCertificateAsync(certificate);
@@ -71,7 +71,7 @@ namespace MV.ApplicationLayer.Services
 
             if (certificate.Tutorid != tutorId)
             {
-                throw new UnauthorizedAccessException("Bạn chỉ có thể cập nhật chứng chỉ của mình");
+                throw new UnauthorizedAccessException("Bạn chỉ có thể cập nhật chứng chỉ của mình.");
             }
 
             if (!string.IsNullOrWhiteSpace(request.CertificateName))
@@ -111,7 +111,7 @@ namespace MV.ApplicationLayer.Services
 
             if (certificate.Tutorid != tutorId)
             {
-                throw new UnauthorizedAccessException("Bạn chỉ có thể xóa chứng chỉ của mình");
+                throw new UnauthorizedAccessException("Bạn chỉ có thể xóa chứng chỉ của mình.");
             }
 
             _tutorRepository.DeleteCertificate(certificate);

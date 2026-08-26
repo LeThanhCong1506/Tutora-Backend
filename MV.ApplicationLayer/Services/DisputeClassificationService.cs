@@ -183,17 +183,6 @@ namespace MV.ApplicationLayer.Services
 
         #region Response Models
 
-        private class GroqRequest
-        {
-            public string Model { get; set; } = "";
-            public List<GroqMessage> Messages { get; set; } = [];
-            public double Temperature { get; set; }
-            [JsonPropertyName("max_tokens")]
-            public int MaxTokens { get; set; }
-            [JsonPropertyName("response_format")]
-            public GroqResponseFormat? ResponseFormat { get; set; }
-        }
-
         private class GroqResponseFormat
         {
             public string Type { get; set; } = "json_schema";
@@ -225,6 +214,17 @@ namespace MV.ApplicationLayer.Services
             public string Name { get; set; } = "dispute_priority";
             public bool Strict { get; set; }
             public GroqJsonSchemaDefinition Schema { get; set; } = new();
+        }
+
+        private class GroqRequest
+        {
+            public string Model { get; set; } = "";
+            public List<GroqMessage> Messages { get; set; } = [];
+            public double Temperature { get; set; }
+            [JsonPropertyName("max_tokens")]
+            public int MaxTokens { get; set; }
+            [JsonPropertyName("response_format")]
+            public GroqResponseFormat? ResponseFormat { get; set; }
         }
 
         private class GroqJsonSchemaDefinition

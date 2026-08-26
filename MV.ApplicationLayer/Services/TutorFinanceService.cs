@@ -1,14 +1,13 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using MV.ApplicationLayer.Helpers;
+using MV.ApplicationLayer.Interfaces;
 using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO.RequestModel;
 using MV.DomainLayer.DTO.ResponseModel;
 using MV.DomainLayer.Entities;
 using MV.DomainLayer.Exceptions;
-using MV.DomainLayer.Helpers;
-using MV.ApplicationLayer.Interfaces;
 using static MV.DomainLayer.Constants.ClassSessionStatus;
 
 namespace MV.ApplicationLayer.Services;

@@ -1,13 +1,12 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using MV.ApplicationLayer.Interfaces;
 using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO.RequestModel;
 using MV.DomainLayer.DTO.ResponseModel;
 using MV.DomainLayer.DTO.ResponseModel.Admin;
 using MV.DomainLayer.Entities;
-using MV.DomainLayer.Helpers;
-using MV.ApplicationLayer.Interfaces;
 
 namespace MV.ApplicationLayer.Services;
 
@@ -30,9 +29,6 @@ public class FeedbackService : IFeedbackService
         _logger = logger;
     }
 
-    /// <summary>
-    /// Create the booking review. Người học đánh giá một lần cho cả khóa sau khi booking hoàn thành.
-    /// </summary>
     public async Task<FeedbackListResponse> CreateFeedbackAsync(string fromUserId, CreateFeedbackRequest request)
     {
         var bookingId = request.BookingId;
@@ -40,13 +36,13 @@ public class FeedbackService : IFeedbackService
         var booking = await _context.Bookings
             .Include(b => b.Student)
             .FirstOrDefaultAsync(b => b.Bookingid == bookingId)
-            ?? throw new ArgumentException("Không tìm thấy khóa học");
+            ?? throw new ArgumentException("Không tìm thấy khóa học.");
 
         if (!CanReviewBooking(booking, fromUserId))
-            throw new ArgumentException("Bạn không có quyền đánh giá khóa học này");
+            throw new ArgumentException("Bạn không có quyền đánh giá khóa học này.");
 
         if (booking.Status != BookingStatus.Completed)
-            throw new InvalidOperationException("Chỉ có thể đánh giá khi khóa học đã hoàn thành");
+            throw new InvalidOperationException("Chỉ có thể đánh giá khi khóa học đã hoàn thành.");
 
         // Chặn theo booking chứ không theo người: một booking chỉ đóng góp đúng một điểm cho
         // gia sư. Chặt hơn ràng buộc UNIQUE(booking_id, from_user_id) ở DB, đồng thời loại luôn
@@ -55,7 +51,7 @@ public class FeedbackService : IFeedbackService
             .AnyAsync(f => f.Bookingid == bookingId);
 
         if (existingFeedback)
-            throw new InvalidOperationException("Khóa học này đã được đánh giá rồi");
+            throw new InvalidOperationException("Khóa học này đã được đánh giá rồi.");
 
         var feedback = new Feedback
         {
@@ -104,18 +100,15 @@ public class FeedbackService : IFeedbackService
         };
     }
 
-    /// <summary>
-    /// Reply to feedback (tutor)
-    /// </summary>
     public async Task<FeedbackListResponse> ReplyFeedbackAsync(int feedbackId, string tutorId, ReplyFeedbackRequest request)
     {
         var feedback = await _context.Feedbacks
             .Include(f => f.Fromuser)
             .FirstOrDefaultAsync(f => f.Feedbackid == feedbackId && f.Touserid == tutorId)
-            ?? throw new ArgumentException("Không tìm thấy đánh giá hoặc bạn không có quyền thực hiện");
+            ?? throw new ArgumentException("Không tìm thấy đánh giá hoặc bạn không có quyền thực hiện.");
 
         if (!string.IsNullOrWhiteSpace(feedback.Replycomment))
-            throw new InvalidOperationException("Đánh giá này đã được trả lời rồi");
+            throw new InvalidOperationException("Đánh giá này đã được trả lời rồi.");
 
         feedback.Replycomment = request.ReplyComment;
         feedback.Repliedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
@@ -182,7 +175,7 @@ public class FeedbackService : IFeedbackService
             await _notificationService.CreateNotificationAsync(new NotificationRequest
             {
                 Userid = feedback.Fromuserid,
-                Title = "Gia sư đã phản hồi đánh giá của bạn",
+                Title = "Gia sư đã phản hồi đánh giá của bạn.",
                 Message = "Gia sư vừa trả lời đánh giá khóa học của bạn. Nhấn để xem phản hồi.",
                 Type = NotificationType.FeedbackReply,
                 Referenceid = feedback.Bookingid?.ToString()
@@ -307,13 +300,13 @@ public class FeedbackService : IFeedbackService
     public async Task<bool> ToggleFeedbackVisibilityAsync(int feedbackId, string adminId, string? reason = null)
     {
         var feedback = await _context.Feedbacks.FindAsync(feedbackId)
-            ?? throw new ArgumentException("Không tìm thấy đánh giá");
+            ?? throw new ArgumentException("Không tìm thấy đánh giá.");
 
         var willBeVisible = !(feedback.Isvisible ?? true);
 
         // Ẩn thì bắt buộc có lý do — người bị ẩn phải biết vì sao.
         if (!willBeVisible && string.IsNullOrWhiteSpace(reason))
-            throw new ArgumentException("Vui lòng nhập lý do ẩn đánh giá");
+            throw new ArgumentException("Vui lòng nhập lý do ẩn đánh giá.");
 
         feedback.Isvisible = willBeVisible;
 
@@ -457,12 +450,12 @@ public class FeedbackService : IFeedbackService
             .AsNoTracking()
             .Include(b => b.Student)
             .FirstOrDefaultAsync(b => b.Bookingid == bookingId)
-            ?? throw new ArgumentException("Không tìm thấy khóa học");
+            ?? throw new ArgumentException("Không tìm thấy khóa học.");
 
         var isTutorOfBooking = booking.Tutorid == userId;
 
         if (!CanReviewBooking(booking, userId) && !isTutorOfBooking)
-            throw new ArgumentException("Bạn không có quyền xem đánh giá của khóa học này");
+            throw new ArgumentException("Bạn không có quyền xem đánh giá của khóa học này.");
 
         var feedback = await _context.Feedbacks
             .AsNoTracking()
@@ -528,13 +521,13 @@ public class FeedbackService : IFeedbackService
         var feedback = await _context.Feedbacks
             .Include(f => f.Fromuser)
             .FirstOrDefaultAsync(f => f.Feedbackid == feedbackId)
-            ?? throw new ArgumentException("Không tìm thấy đánh giá");
+            ?? throw new ArgumentException("Không tìm thấy đánh giá.");
 
         if (feedback.Fromuserid != userId)
-            throw new ArgumentException("Bạn không có quyền sửa đánh giá này");
+            throw new ArgumentException("Bạn không có quyền sửa đánh giá này.");
 
         if (!string.IsNullOrWhiteSpace(feedback.Replycomment))
-            throw new InvalidOperationException("Gia sư đã phản hồi, không thể sửa đánh giá");
+            throw new InvalidOperationException("Gia sư đã phản hồi, không thể sửa đánh giá.");
 
         feedback.Rating = request.Rating;
         feedback.Comment = request.Comment;
@@ -668,10 +661,6 @@ public class FeedbackService : IFeedbackService
     /// Ai được đánh giá booking. Mỗi booking chỉ sinh ra đúng một điểm cho gia sư, nên khi
     /// booking có phụ huynh thì chỉ phụ huynh đánh giá — học sinh liên kết không đánh giá thêm
     /// lần nữa. Booking do học sinh tự đăng ký đặt (<c>Parentid</c> null) thì chính học sinh đánh giá.
-    /// </summary>
-    /// <summary>
-    /// Nhãn vai trò người viết đánh giá, để FE hiển thị "phụ huynh" hay "học viên" cho đúng.
-    /// Booking do học sinh tự đăng ký đặt không có <c>Parentid</c>.
     /// </summary>
     private static string ReviewerRoleOf(string? bookingParentId, string? fromUserId)
         => !string.IsNullOrEmpty(bookingParentId) && bookingParentId == fromUserId

@@ -17,8 +17,10 @@ namespace MV.ApplicationLayer.Services
     public class TutorProfileUpdateStagingService : ITutorProfileUpdateStagingService
     {
         private const string KeyPrefix = "tutor:profile_update:";
+        private static string RequestKey(string tutorId) => $"{KeyPrefix}{tutorId}";
         private const string PendingIdsKey = "tutor:profile_update:pending_ids";
 
+        // IConnectionMultiplexer là interface chuẩn của thư viện StackExchange.Redis
         private readonly IConnectionMultiplexer _redis;
         private readonly ILogger<TutorProfileUpdateStagingService> _logger;
 
@@ -27,8 +29,6 @@ namespace MV.ApplicationLayer.Services
             _redis = redis;
             _logger = logger;
         }
-
-        private static string RequestKey(string tutorId) => $"{KeyPrefix}{tutorId}";
 
         public async Task<PendingTutorProfileUpdate?> GetPendingUpdateAsync(string tutorId)
         {
@@ -55,6 +55,7 @@ namespace MV.ApplicationLayer.Services
                 var json = await db.StringGetAsync(RequestKey(tutorId));
                 if (json.IsNullOrEmpty) return (null, null);
 
+                // tuple (Data, RawJson)
                 var rawJson = json.ToString();
                 return (JsonSerializer.Deserialize<PendingTutorProfileUpdate>(rawJson), rawJson);
             }
@@ -65,6 +66,7 @@ namespace MV.ApplicationLayer.Services
             }
         }
 
+        // Action<T> (callback/delegate)
         public async Task UpsertPendingUpdateAsync(string tutorId, Action<PendingTutorProfileUpdate> applyChanges)
         {
             try
@@ -85,9 +87,6 @@ namespace MV.ApplicationLayer.Services
                 await db.StringSetAsync(key, newJson);
                 await db.SetAddAsync(PendingIdsKey, tutorId);
 
-                // Bản sao dự phòng thủ công: nếu Redis mất dữ liệu, dev tra log để lấy lại nội
-                // dung tutor đã nộp lần cuối. Log không nằm trên bất kỳ read-path nào của ứng
-                // dụng nên không ảnh hưởng luồng chính.
                 _logger.LogInformation(
                     "Tutor {TutorId} submitted a profile update pending admin review. Payload: {Payload}",
                     tutorId, newJson);

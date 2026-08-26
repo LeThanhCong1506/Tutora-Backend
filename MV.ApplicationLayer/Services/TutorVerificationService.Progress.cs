@@ -1,9 +1,7 @@
-﻿using Microsoft.Extensions.Logging;
-using MV.ApplicationLayer.ServiceInterfaces;
+﻿using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO.ResponseModel;
 using MV.DomainLayer.Entities;
-using MV.DomainLayer.Helpers;
 using System.Text.Json;
 
 namespace MV.ApplicationLayer.Services

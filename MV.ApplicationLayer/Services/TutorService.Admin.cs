@@ -304,7 +304,7 @@ namespace MV.ApplicationLayer.Services
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to send profile-update review notification to tutor {TutorId}", tutorId);
+                _logger.LogWarning(ex, "Failed to send profile-update review notification to tutor {TutorId}.", tutorId);
             }
 
             return new ReviewProfileUpdateResponse

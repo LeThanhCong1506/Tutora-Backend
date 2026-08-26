@@ -1,11 +1,9 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
-using Microsoft.IdentityModel.Tokens;
-using MV.ApplicationLayer.ServiceInterfaces;
-using MV.DomainLayer.Constants;
 using MV.ApplicationLayer.Interfaces;
 using MV.ApplicationLayer.RepositoryInterfaces;
-using System.IdentityModel.Tokens.Jwt;
+using MV.ApplicationLayer.ServiceInterfaces;
+using MV.DomainLayer.Constants;
 
 namespace MV.ApplicationLayer.Services
 {

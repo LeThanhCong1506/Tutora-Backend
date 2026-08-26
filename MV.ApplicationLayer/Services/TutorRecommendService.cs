@@ -213,7 +213,7 @@ namespace MV.ApplicationLayer.Services
                     FullName = r.FullName,
                     AvatarUrl = r.Avatarurl,
                     Headline = r.Headline,
-                    TeachingMode = TeachingMode.Online,  
+                    TeachingMode = TeachingMode.Online,
                     TeachingAreaCity = r.Teachingareacity,
                     TeachingAreaDistrict = r.Teachingareadistrict,
                     AverageRating = r.AverageRating,
@@ -226,7 +226,7 @@ namespace MV.ApplicationLayer.Services
                         : 0,
                     PricePerHour = r.MinPrice,
                     Subjects = r.Subjects,
-                    AiSimilarity = null,    
+                    AiSimilarity = null,
                     ProfileUrl = $"/tutor-detail/{r.Userid}"
                 });
         }

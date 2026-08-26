@@ -30,8 +30,7 @@ public class ClassSessionVideoAiService(
     ILogger<ClassSessionVideoAiService> logger) : IClassSessionVideoAiService
 {
     // Chỉ gửi audio cho Gemini, không gửi hình — cắt phần lớn token/thời gian xử lý so với gửi
-    // nguyên video (đổi lại mất nội dung chỉ hiện trên màn hình mà không nói ra, đã xác nhận với
-    // người yêu cầu tính năng là chấp nhận được cho buổi học 1-kèm-1 chủ yếu qua lời nói).
+    // nguyên video (đổi lại mất nội dung chỉ hiện trên màn hình mà không nói ra
     private const string AudioMimeType = "audio/mp3";
     private const long MaxFileSizeBytes = 2_000_000_000;
 

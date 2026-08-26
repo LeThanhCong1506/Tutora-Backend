@@ -1,13 +1,9 @@
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.Logging;
-using MV.ApplicationLayer.ServiceInterfaces;
-using MV.DomainLayer.Constants;
-using MV.DomainLayer.DTO.ResponseModel;
-using MV.DomainLayer.Entities;
-using MV.DomainLayer.Helpers;
 using MV.ApplicationLayer.Interfaces;
 using MV.ApplicationLayer.RepositoryInterfaces;
+using MV.ApplicationLayer.ServiceInterfaces;
+using MV.DomainLayer.Constants;
 
 namespace MV.ApplicationLayer.Services
 {

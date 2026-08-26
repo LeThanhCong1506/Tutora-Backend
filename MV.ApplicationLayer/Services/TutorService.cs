@@ -1,15 +1,13 @@
-using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using MV.ApplicationLayer.Helpers;
+using MV.ApplicationLayer.Interfaces;
+using MV.ApplicationLayer.RepositoryInterfaces;
 using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO.RequestModel;
 using MV.DomainLayer.DTO.ResponseModel;
 using MV.DomainLayer.Entities;
-using MV.ApplicationLayer.Interfaces;
-using MV.ApplicationLayer.Helpers;
-using MV.ApplicationLayer.RepositoryInterfaces;
-using System.Text.Json;
 
 namespace MV.ApplicationLayer.Services
 {
@@ -107,8 +105,6 @@ namespace MV.ApplicationLayer.Services
             }
         }
 
-        // ─── Profile Queries ─────────────────────────────────────────────────
-
         public async Task<TutorProfileResponse?> GetTutorProfileAsync(string tutorId)
         {
             var tutorEntity = await _tutorRepository.GetTutorProfileByIdAsync(tutorId);
@@ -130,14 +126,12 @@ namespace MV.ApplicationLayer.Services
             };
         }
 
-        // ─── Profile Updates ─────────────────────────────────────────────────
-
         public async Task<ProfileUpdateOutcome> UpdateTutorBasicInfoAsync(string userId, UpdateTutorBasicInfoRequest request)
         {
             var profile = await _tutorRepository.GetTutorProfileByIdAsync(userId);
             if (profile == null) return ProfileUpdateOutcome.NotFound;
 
-            // Text moderation — Headline
+            // Headline
             if (!string.IsNullOrWhiteSpace(request.Headline))
             {
                 var moderationResult = await _fptAiService.CheckTextContentSafeAsync(request.Headline);
@@ -148,6 +142,7 @@ namespace MV.ApplicationLayer.Services
                 }
             }
 
+            // Trường hợp khi TutorProfile đã được duyệt (Active) và đang hiển thị công khai, mọi thay đổi đều phải qua staging chờ Admin duyệt lại.
             if (RequiresApprovalForEdits(profile))
             {
                 await _updateStaging.UpsertPendingUpdateAsync(userId, pending =>
@@ -175,9 +170,6 @@ namespace MV.ApplicationLayer.Services
             var profile = await _tutorRepository.GetTutorProfileByIdAsync(userId);
             if (profile == null) return ProfileUpdateOutcome.NotFound;
 
-            // GPA là tùy chọn, nhưng đã nhập điểm thì phải có thang điểm — nếu không, con số
-            // "8.5" nằm trơ một mình trên hồ sơ không nói lên điều gì (thang 10 thì khá, thang
-            // 4 thì vô nghĩa).
             if (request.Gpa.HasValue && !request.GpaScale.HasValue)
             {
                 throw new ArgumentException("Vui lòng chọn thang điểm cho GPA.");
@@ -188,7 +180,7 @@ namespace MV.ApplicationLayer.Services
                 throw new ArgumentException($"Điểm GPA ({request.Gpa}) không được vượt quá thang điểm ({request.GpaScale}).");
             }
 
-            // Text moderation — Bio
+            // Bio
             if (!string.IsNullOrWhiteSpace(request.Bio))
             {
                 var bioResult = await _fptAiService.CheckTextContentSafeAsync(request.Bio);
@@ -199,7 +191,7 @@ namespace MV.ApplicationLayer.Services
                 }
             }
 
-            // Text moderation — Experience
+            // Experience
             if (!string.IsNullOrWhiteSpace(request.Experience))
             {
                 var expResult = await _fptAiService.CheckTextContentSafeAsync(request.Experience);
@@ -210,6 +202,7 @@ namespace MV.ApplicationLayer.Services
                 }
             }
 
+            // Trường hợp khi TutorProfile đã được duyệt (Active) và đang hiển thị công khai, mọi thay đổi đều phải qua staging chờ Admin duyệt lại.
             if (RequiresApprovalForEdits(profile))
             {
                 await _updateStaging.UpsertPendingUpdateAsync(userId, pending =>
@@ -235,7 +228,7 @@ namespace MV.ApplicationLayer.Services
 
             await _context.SaveChangesAsync();
             await AutoSubmitIfCompleteAsync(userId);
-            _embedQueue.Enqueue(userId);   // bio/education/experience đổi → re-embed nền
+            _embedQueue.Enqueue(userId);   // Reload lại cho phù hơp với AI Matching
             return ProfileUpdateOutcome.Applied;
         }
 
@@ -258,7 +251,6 @@ namespace MV.ApplicationLayer.Services
             return true;
         }
 
-        // ─── Pricing ─────────────────────────────────────────────────────────
 
         public async Task<TutorPricingResponse?> GetTutorPricingAsync(string tutorId)
         {
@@ -283,6 +275,7 @@ namespace MV.ApplicationLayer.Services
 
             await ValidateSubjectGradePricesAsync(tutorId, request.SubjectGradePrices);
 
+            // Trường hợp khi TutorProfile đã được duyệt (Active) và đang hiển thị công khai, mọi thay đổi đều phải qua staging chờ Admin duyệt lại.
             if (RequiresApprovalForEdits(profile))
             {
                 await _updateStaging.UpsertPendingUpdateAsync(tutorId, pending =>
@@ -319,7 +312,7 @@ namespace MV.ApplicationLayer.Services
             // Check if already exists
             var existing = await _tutorRepository.GetTutorSubjectGradePriceAsync(
                 tutorId, request.SubjectId, request.GradeLevelId);
-            
+
             if (existing != null)
             {
                 throw new ArgumentException($"Đã tồn tại giá cho môn {request.SubjectId} và khối {request.GradeLevelId}. Vui lòng dùng PUT để cập nhật.");
@@ -340,7 +333,7 @@ namespace MV.ApplicationLayer.Services
 
             await _tutorRepository.AddTutorSubjectGradePriceAsync(newPrice);
             profile.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
-            
+
             await _context.SaveChangesAsync();
 
             // Reload to get navigation properties
@@ -365,8 +358,6 @@ namespace MV.ApplicationLayer.Services
             await _context.SaveChangesAsync();
             return true;
         }
-
-        // ─── Packages ────────────────────────────────────────────────────────
 
         public async Task<List<TutorPackageResponse>> GetTutorPackagesAsync(string tutorId, bool includeInactive = false)
         {
@@ -416,7 +407,7 @@ namespace MV.ApplicationLayer.Services
                     {
                         Dayofweek = s.DayOfWeek,
                         Starttime = TimeOnly.Parse(s.StartTime),
-                        Endtime   = TimeOnly.Parse(s.EndTime),
+                        Endtime = TimeOnly.Parse(s.EndTime),
                         Createdat = now
                     };
                 }).ToList()
@@ -526,7 +517,7 @@ namespace MV.ApplicationLayer.Services
                 {
                     Dayofweek = s.DayOfWeek,
                     Starttime = TimeOnly.Parse(s.StartTime),
-                    Endtime   = TimeOnly.Parse(s.EndTime),
+                    Endtime = TimeOnly.Parse(s.EndTime),
                     Createdat = now
                 });
             }
@@ -540,27 +531,27 @@ namespace MV.ApplicationLayer.Services
         // ─── Status Management ────────────────────────────────────────────────
 
         /// <summary>
-        /// Trả về trạng thái hoàn thành 6 mục hồ sơ gia sư.
+        /// Trả về trạng thái hoàn thành 5 mục hồ sơ gia sư.
         /// FE dùng để hiển thị progress bar và bật/tắt nút Submit.
         /// </summary>
         public async Task<ProfileCompletionResponse> GetProfileCompletionAsync(string tutorId)
         {
-            var profile        = await _tutorRepository.GetTutorProfileByIdAsync(tutorId);
-            var user           = await _userRepository.GetUserByIdAsync(tutorId);
-            var subjects       = await _tutorRepository.GetTutorSubjectsByTutorIdAsync(tutorId);
-            var prices         = await _tutorRepository.GetTutorSubjectGradePricesAsync(tutorId);
+            var profile = await _tutorRepository.GetTutorProfileByIdAsync(tutorId);
+            var user = await _userRepository.GetUserByIdAsync(tutorId);
+            var subjects = await _tutorRepository.GetTutorSubjectsByTutorIdAsync(tutorId);
+            var prices = await _tutorRepository.GetTutorSubjectGradePricesAsync(tutorId);
             var availabilities = await _tutorRepository.GetAvailabilitiesByTutorIdAsync(tutorId);
 
-            bool hasBasicInfo    = profile != null
+            bool hasBasicInfo = profile != null
                                    && !string.IsNullOrWhiteSpace(profile.Headline)
                                    && !string.IsNullOrWhiteSpace(profile.Teachingareacity);
             bool hasIntroduction = profile != null
                                    && !string.IsNullOrWhiteSpace(profile.Bio)
                                    && !string.IsNullOrWhiteSpace(profile.Education);
-            bool hasSubjects     = subjects != null && subjects.Count > 0
+            bool hasSubjects = subjects != null && subjects.Count > 0
                                    && prices != null && prices.Any(p => p.Isactive && p.Priceperhour > 0);
             bool hasAvailability = availabilities != null && availabilities.Count > 0;
-            bool hasIdentity     = user?.Isidentityverified ?? false;
+            bool hasIdentity = user?.Isidentityverified ?? false;
 
             var sections = new List<ProfileSection>
             {
@@ -579,7 +570,7 @@ namespace MV.ApplicationLayer.Services
             int completedCount = sections.Count(s => s.IsComplete);
             bool canSubmit = completedCount == 5
                              && profile != null
-                             && (string.Equals(profile.Profilestatus, TutorProfileStatus.Draft,    StringComparison.OrdinalIgnoreCase)
+                             && (string.Equals(profile.Profilestatus, TutorProfileStatus.Draft, StringComparison.OrdinalIgnoreCase)
                               || string.Equals(profile.Profilestatus, TutorProfileStatus.Rejected, StringComparison.OrdinalIgnoreCase));
 
             var reportedStatus = profile?.Profilestatus ?? TutorProfileStatus.Draft;
@@ -595,10 +586,10 @@ namespace MV.ApplicationLayer.Services
             return new ProfileCompletionResponse
             {
                 CompletedSections = completedCount,
-                TotalSections     = 5,
-                CanSubmit         = canSubmit,
-                ProfileStatus     = reportedStatus,
-                Sections          = sections
+                TotalSections = 5,
+                CanSubmit = canSubmit,
+                ProfileStatus = reportedStatus,
+                Sections = sections
             };
         }
 
@@ -632,7 +623,7 @@ namespace MV.ApplicationLayer.Services
                 if (profile == null) return;
 
                 profile.Profilestatus = TutorProfileStatus.PendingApproval;
-                profile.Updatedat     = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
+                profile.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
                 await _context.SaveChangesAsync();
 
                 _logger.LogInformation("Profile {TutorId} auto-submitted for admin review (6/6 complete)", tutorId);
@@ -945,9 +936,9 @@ namespace MV.ApplicationLayer.Services
                     .Select(s => new TutorPackageFixedSlotResponse
                     {
                         FixedSlotId = s.Fixedslotid,
-                        DayOfWeek   = s.Dayofweek,
-                        StartTime   = s.Starttime.ToString("HH:mm"),
-                        EndTime     = s.Endtime.ToString("HH:mm")
+                        DayOfWeek = s.Dayofweek,
+                        StartTime = s.Starttime.ToString("HH:mm"),
+                        EndTime = s.Endtime.ToString("HH:mm")
                     })
                     .OrderBy(s => s.DayOfWeek)
                     .ThenBy(s => s.StartTime)

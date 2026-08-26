@@ -1,12 +1,10 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Distributed;
+using MV.ApplicationLayer.Helpers;
 using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO.ResponseModel;
-using MV.DomainLayer.Helpers;
-using MV.ApplicationLayer.Helpers;
 using System.Globalization;
 using System.Text.Json;
-using static MV.DomainLayer.Constants.ClassSessionStatus;
 
 namespace MV.ApplicationLayer.Services
 {

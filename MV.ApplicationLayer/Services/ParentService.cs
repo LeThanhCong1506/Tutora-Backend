@@ -2,15 +2,14 @@ using Hangfire;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using MV.ApplicationLayer.Helpers;
+using MV.ApplicationLayer.Interfaces;
 using MV.ApplicationLayer.ServiceInterfaces;
 using MV.DomainLayer.Constants;
-using MV.DomainLayer.DTO;
 using MV.DomainLayer.DTO.RequestModel;
 using MV.DomainLayer.DTO.ResponseModel;
 using MV.DomainLayer.Entities;
 using MV.DomainLayer.Exceptions;
 using MV.DomainLayer.Helpers;
-using MV.ApplicationLayer.Interfaces;
 using System.Text.Json;
 using static MV.DomainLayer.Constants.ClassSessionStatus;
 namespace MV.ApplicationLayer.Services;
@@ -281,12 +280,12 @@ public class ParentService : IParentService
             if (studentProfile?.Parentid != null)
                 throw new ClassSessionException(
                     BookingErrorCodes.StudentManagedByParent,
-                    "Tài khoản học sinh do phụ huynh quản lý không thể tự tạo tranh chấp",
+                    "Tài khoản học sinh do phụ huynh quản lý không thể tự tạo tranh chấp.",
                     403);
         }
 
         if (!DisputeTypes.All.Contains(request.DisputeType))
-            throw new ArgumentException("Loại tranh chấp không hợp lệ");
+            throw new ArgumentException("Loại tranh chấp không hợp lệ.");
 
         var snapshot = await _context.ClassSessions
             .AsNoTracking()
@@ -300,15 +299,15 @@ public class ParentService : IParentService
             .FirstOrDefaultAsync()
             ?? throw new ClassSessionException(
                 ClassSessionErrorCodes.ClassSessionNotFound,
-                "Không tìm thấy buổi học hoặc bạn không có quyền truy cập",
+                "Không tìm thấy buổi học hoặc bạn không có quyền truy cập.",
                 404);
 
         if (!snapshot.Bookingid.HasValue)
-            throw new ClassSessionException(ClassSessionErrorCodes.ClassSessionNotFound, "Buổi học không có booking hợp lệ", 400);
+            throw new ClassSessionException(ClassSessionErrorCodes.ClassSessionNotFound, "Buổi học không có booking hợp lệ.", 400);
         if (DisputeSettlementPolicy.IsTerminalBooking(snapshot.BookingStatus))
-            throw new ClassSessionException(ClassSessionErrorCodes.InvalidClassSessionStatus, "Booking đã kết thúc, không thể tạo tranh chấp mới", 400);
+            throw new ClassSessionException(ClassSessionErrorCodes.InvalidClassSessionStatus, "Booking đã kết thúc, không thể tạo tranh chấp mới.", 400);
         if (!DisputeSettlementPolicy.IsEligibleClassSession(snapshot.Status))
-            throw new ClassSessionException(ClassSessionErrorCodes.InvalidClassSessionStatus, "Chỉ buổi học đã diễn ra mới có thể tạo tranh chấp", 400);
+            throw new ClassSessionException(ClassSessionErrorCodes.InvalidClassSessionStatus, "Chỉ buổi học đã diễn ra mới có thể tạo tranh chấp.", 400);
 
         var uploadedEvidence = new List<string>();
         var newlyUploadedEvidence = new List<string>();
@@ -345,25 +344,24 @@ public class ParentService : IParentService
                     var booking = await _context.Bookings
                         .FromSqlRaw(SqlQueries.LockBookingById, snapshot.Bookingid.Value)
                         .SingleOrDefaultAsync()
-                        ?? throw new ClassSessionException(ClassSessionErrorCodes.ClassSessionNotFound, "Không tìm thấy booking của buổi học", 404);
+                        ?? throw new ClassSessionException(ClassSessionErrorCodes.ClassSessionNotFound, "Không tìm thấy booking của buổi học.", 404);
 
                     classSession = await ClassSessionLockHelper.LockById(_context, classSessionId)
                         .SingleOrDefaultAsync()
-                        ?? throw new ClassSessionException(ClassSessionErrorCodes.ClassSessionNotFound, "Không tìm thấy buổi học", 404);
+                        ?? throw new ClassSessionException(ClassSessionErrorCodes.ClassSessionNotFound, "Không tìm thấy buổi học.", 404);
 
                     if (!studentIds.Contains(classSession.Studentid!))
-                        throw new ClassSessionException(ClassSessionErrorCodes.ClassSessionNotFound, "Bạn không có quyền truy cập buổi học này", 404);
+                        throw new ClassSessionException(ClassSessionErrorCodes.ClassSessionNotFound, "Bạn không có quyền truy cập buổi học này.", 404);
                     if (DisputeSettlementPolicy.IsTerminalBooking(booking.Status))
-                        throw new ClassSessionException(ClassSessionErrorCodes.InvalidClassSessionStatus, "Booking đã kết thúc, không thể tạo tranh chấp mới", 400);
+                        throw new ClassSessionException(ClassSessionErrorCodes.InvalidClassSessionStatus, "Booking đã kết thúc, không thể tạo tranh chấp mới.", 400);
                     if (!DisputeSettlementPolicy.IsEligibleClassSession(classSession.Status))
-                        throw new ClassSessionException(ClassSessionErrorCodes.InvalidClassSessionStatus, "Chỉ buổi học đã diễn ra mới có thể tạo tranh chấp", 400);
+                        throw new ClassSessionException(ClassSessionErrorCodes.InvalidClassSessionStatus, "Chỉ buổi học đã diễn ra mới có thể tạo tranh chấp.", 400);
                     if (await _context.Disputes.AnyAsync(d => d.Classsessionid == classSessionId))
-                        throw new ClassSessionException(ClassSessionErrorCodes.DisputeAlreadyExists, "Buổi học này đã có tranh chấp rồi", 400);
+                        throw new ClassSessionException(ClassSessionErrorCodes.DisputeAlreadyExists, "Buổi học này đã có tranh chấp rồi.", 400);
 
                     if (classSession.Issettled == true)
                     {
-                        // Settlement already reduced this counter once. Reopen exactly one unit;
-                        // no wallet balance changes until admin chooses Release/Refund.
+                        // Chưa có tiền nào di chuyển ở bước này, chỉ là dọn đường để admin resolve xong sẽ settle đúng 1 lần (không bị đếm trùng/thiếu)
                         classSession.Issettled = false;
                         booking.Sessionsremaining = DisputeSettlementPolicy.SessionsRemainingAfterOpeningDispute(
                             booking.Sessionsremaining,
@@ -400,6 +398,7 @@ public class ParentService : IParentService
 
             try
             {
+                // Xếp mức độ phân loại Dispute (phân loại độ ưu tiên)
                 var jobId = _backgroundJobClient.Enqueue<IDisputeService>(
                     s => s.ClassifyDisputePriorityAsync(dispute.Disputeid, "system", true));
                 _logger.LogInformation(
@@ -421,6 +420,7 @@ public class ParentService : IParentService
 
             try
             {
+                // Gửi thông báo đến reviewer/admin và tutor
                 var reviewerIds = await PermissionRecipients.ResolveAsync(_context, Permissions.DisputeView);
                 if (reviewerIds.Count > 0)
                 {
@@ -450,7 +450,7 @@ public class ParentService : IParentService
             {
                 _logger.LogWarning(
                     notificationError,
-                    "Dispute {DisputeId} was created but one or more notifications failed",
+                    "Dispute {DisputeId} was created but one or more notifications failed.",
                     dispute.Disputeid);
             }
 
@@ -486,7 +486,7 @@ public class ParentService : IParentService
                     {
                         _logger.LogWarning(
                             cleanupError,
-                            "Failed to clean orphan dispute evidence {FileUrl} for classSession {ClassSessionId}",
+                            "Failed to clean orphan dispute evidence {FileUrl} for classSession {ClassSessionId}.",
                             fileUrl,
                             classSessionId);
                     }
@@ -539,14 +539,7 @@ public class ParentService : IParentService
         return new PagedList<DisputeListResponse>(disputes, totalCount, page, pageSize);
     }
 
-    /// <summary>
-    /// Get parent calendar view
-    /// </summary>
-    /// <summary>
-    /// True nếu buổi này có đề xuất đổi lịch (tính năng chủ động chọn giờ mới) đang Pending và
-    /// chưa hết hạn. Nhân bản có chủ đích từ helper cùng tên trong <c>ClassSessionService</c> —
-    /// 2 class khác nhau, không chia sẻ được private static method.
-    /// </summary>
+    // Kiểm tra buổi học có đề xuất đổi lịch nào đang chờ và chưa hết hạn không
     private static bool ResolveHasPendingReschedule(IEnumerable<ClassSessionRescheduleProposal> proposals)
     {
         var now = TimeZoneHelper.UtcNow;
@@ -558,11 +551,11 @@ public class ParentService : IParentService
         try
         {
             // Normalize timezone: nếu frontend gửi UTC thì giữ nguyên, nếu Unspecified thì coi như user time
-            var startUtc = startDate.Kind == DateTimeKind.Utc 
-                ? startDate 
+            var startUtc = startDate.Kind == DateTimeKind.Utc
+                ? startDate
                 : DateTime.SpecifyKind(startDate, DateTimeKind.Utc);
-            var endUtc = endDate.Kind == DateTimeKind.Utc 
-                ? endDate 
+            var endUtc = endDate.Kind == DateTimeKind.Utc
+                ? endDate
                 : DateTime.SpecifyKind(endDate, DateTimeKind.Utc);
 
             var studentIds = role == UserRole.Parent

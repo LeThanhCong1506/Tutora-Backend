@@ -74,7 +74,7 @@ namespace MV.ApplicationLayer.Hubs
         {
             var userId = CurrentUserId;
             if (string.IsNullOrEmpty(userId))
-                throw new HubException("User not authenticated");
+                throw new HubException("User not authenticated.");
 
             using var scope = _serviceProvider.CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<IAppDbContext>();

@@ -1,6 +1,5 @@
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
-using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO;
 using MV.DomainLayer.DTO.RequestModel;
 using MV.DomainLayer.DTO.ResponseModel;
@@ -10,14 +9,13 @@ namespace MV.ApplicationLayer.Services
 {
     public partial class TutorService
     {
-        // ─── Media Methods (avatar + video) ─────────────────────────────────
 
         public async Task<string?> UpdateTutorAvatarAsync(string userId, IFormFile avatarFile)
         {
             if (avatarFile == null || avatarFile.Length == 0)
-                throw new ArgumentException("Vui lòng chọn ảnh đại diện");
+                throw new ArgumentException("Vui lòng chọn ảnh đại diện.");
 
-            ValidateImageFile(avatarFile);
+            ValidateImageFile(avatarFile); // Kiểm tra định dạng và kích thước file
 
             var user = await _userRepository.GetUserByIdAsync(userId);
             if (user == null) return null;
@@ -56,17 +54,6 @@ namespace MV.ApplicationLayer.Services
             return true;
         }
 
-        private static bool IsValidYoutubeUrl(string url)
-        {
-            if (string.IsNullOrWhiteSpace(url)) return false;
-            return System.Text.RegularExpressions.Regex.IsMatch(
-                url,
-                @"^(https?://)?(www\.|m\.)?(youtube\.com/(watch\?v=|shorts/|embed/)|youtu\.be/)[\w\-]{11}",
-                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-        }
-
-        // ─── CCCD Upload ─────────────────────────────────────────────────────
-
         public async Task<CccdUploadResponse> UploadCccdImagesAsync(string userId, UploadCccdRequest request)
         {
             var user = await _userRepository.GetUserByIdAsync(userId)
@@ -94,14 +81,22 @@ namespace MV.ApplicationLayer.Services
         }
 
         // ─── Private helpers ─────────────────────────────────────────────────
+        private static bool IsValidYoutubeUrl(string url)
+        {
+            if (string.IsNullOrWhiteSpace(url)) return false;
+            return System.Text.RegularExpressions.Regex.IsMatch(
+                url,
+                @"^(https?://)?(www\.|m\.)?(youtube\.com/(watch\?v=|shorts/|embed/)|youtu\.be/)[\w\-]{11}",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        }
 
         private static void ValidateImageFile(IFormFile file)
         {
             var allowedExtensions = new[] { ".jpg", ".jpeg", ".png" };
             if (!allowedExtensions.Contains(Path.GetExtension(file.FileName).ToLowerInvariant()))
-                throw new ArgumentException("Chỉ chấp nhận ảnh JPG và PNG cho ảnh đại diện");
+                throw new ArgumentException("Chỉ chấp nhận ảnh JPG và PNG cho ảnh đại diện.");
             if (file.Length > 5 * 1024 * 1024)
-                throw new ArgumentException("Ảnh đại diện phải nhỏ hơn 5MB");
+                throw new ArgumentException("Ảnh đại diện phải nhỏ hơn 5MB.");
         }
 
     }

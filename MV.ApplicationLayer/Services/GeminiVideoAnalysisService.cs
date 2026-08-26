@@ -237,9 +237,6 @@ public class GeminiVideoAnalysisService : IGeminiVideoAnalysisService
         if (parsed is null)
             throw new GeminiResponseParseException("Gemini trả về nội dung báo cáo không hợp lệ.");
 
-        // Buổi học không giao bài thì Gemini trả chuỗi rỗng theo đúng prompt, nhưng đây là field của
-        // form báo cáo gửi phụ huynh — để trống trông như gia sư quên điền, nên ghi rõ là không có.
-        // Chuẩn hoá ở đây thay vì dặn trong prompt: prompt thì model có thể bỏ qua, code thì không.
         if (string.IsNullOrWhiteSpace(parsed.Homework))
             parsed.Homework = "Không có bài tập về nhà.";
 
@@ -345,11 +342,6 @@ public class GeminiVideoAnalysisService : IGeminiVideoAnalysisService
         return parsed.Summary.Trim();
     }
 
-    // Cả 3 tác vụ dùng chung builder này (tóm tắt học sinh, soát lại, auto-fill báo cáo gia sư) đều
-    // chỉ "đọc và tường thuật lại" video, không cần suy luận sâu — hạ thinking xuống mức thấp nhất để
-    // trả lời nhanh hơn mức mặc định. AskFollowUpAsync (chat hỏi tiếp) KHÔNG dùng builder này, cố tình
-    // giữ nguyên thinking mặc định vì trả lời câu hỏi tự do cần suy luận thật.
-    //
     // Gemini 3.x đổi hẳn cách cấu hình thinking so với 2.5: không còn "thinkingBudget" (số, 0 = tắt
     // hẳn) mà dùng "thinkingLevel" (chuỗi enum minimal/low/medium/high) — thinkingBudget vẫn được
     // chấp nhận "để tương thích ngược" nhưng Google cảnh báo có thể gây hành vi không như mong đợi
