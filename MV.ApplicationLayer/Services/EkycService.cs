@@ -117,6 +117,7 @@ namespace MV.ApplicationLayer.Services
 
             var verified = false;
             var profileDataUpdated = false;
+            var pendingChanges = new List<EkycProfileFieldChange>();
             if (ocrResult != null)
             {
                 user.Identitynumber = _encryption.Encrypt(ocrResult.Id);
@@ -129,45 +130,30 @@ namespace MV.ApplicationLayer.Services
                 verified = ocrResult.Probability >= MinConfidence;
                 user.Isidentityverified = verified;
 
+                // Việc so khớp/ghi các trường hồ sơ nằm ở EkycProfileSync để màn hình xác nhận,
+                // luồng auto-fill và cờ "còn chờ xác nhận" (tiến trình hồ sơ) dùng CHUNG một logic.
+                var ocrProfile = new EkycProfileSync.OcrProfileData
+                {
+                    Name = ocrResult.Name,
+                    Dob = ocrResult.Dob,
+                    Sex = ocrResult.Sex,
+                    Address = ocrResult.Address,
+                    Home = ocrResult.Home,
+                };
+
                 if (options.AutoFillProfile)
                 {
-                    // CCCD là nguồn định danh chuẩn. Tên hiển thị từ Zalo/Google có thể là
-                    // nickname hoặc tên ứng dụng, vì vậy phải được thay bằng thông tin OCR.
-                    if (!string.IsNullOrWhiteSpace(ocrResult.Name) &&
-                        !string.Equals(user.Fullname, ocrResult.Name, StringComparison.Ordinal))
-                    {
-                        user.Fullname = ocrResult.Name;
-                        profileDataUpdated = true;
-                    }
-
-                    // Ngày sinh và giới tính cũng là dữ liệu định danh chuẩn từ CCCD.
-                    if (dob != null && user.Birthdate != dob)
-                    {
-                        user.Birthdate = dob;
-                        profileDataUpdated = true;
-                    }
-
-                    var gender = GenderHelper.FromEkycSex(ocrResult.Sex);
-                    if (gender != null && user.Gender != gender)
-                    {
-                        user.Gender = gender;
-                        profileDataUpdated = true;
-                    }
-
-                    // Địa chỉ thường trú cũng là dữ liệu định danh chuẩn từ CCCD nên được ghi
-                    // đè như tên/ngày sinh (trước đây chỉ điền khi trống, và điền âm thầm —
-                    // người dùng không hề được báo).
-                    //
-                    // Đây là địa chỉ THƯỜNG TRÚ của tài khoản, khác với KHU VỰC DẠY
-                    // (tutorprofiles.teachingareacity/district — chọn từ provinces.open-api.vn).
-                    // Gia sư có thể thường trú một nơi và dạy ở nơi khác, nên khu vực dạy KHÔNG
-                    // bị đụng tới ở đây; FE chỉ gợi ý tỉnh/thành khi gia sư chưa chọn.
-                    if (!string.IsNullOrWhiteSpace(ocrResult.Address) &&
-                        !string.Equals(user.Address, ocrResult.Address, StringComparison.Ordinal))
-                    {
-                        user.Address = ocrResult.Address;
-                        profileDataUpdated = true;
-                    }
+                    profileDataUpdated = EkycProfileSync.Apply(user, ocrProfile).Count > 0;
+                    user.Ekycprofileconfirmedat = TimeZoneHelper.UtcNow;
+                }
+                else
+                {
+                    // Chỉ xem trước — hồ sơ giữ nguyên cho tới khi chủ tài khoản bấm xác nhận.
+                    // Quét mới làm mất hiệu lực lần xác nhận trước (dữ liệu đã khác), trừ khi
+                    // CCCD trùng khớp hồ sơ hiện tại — khi đó không có gì để hỏi, đánh dấu xong luôn
+                    // để FE không hiện nhắc xác nhận một danh sách rỗng.
+                    pendingChanges = EkycProfileSync.Preview(user, ocrProfile);
+                    user.Ekycprofileconfirmedat = pendingChanges.Count == 0 ? TimeZoneHelper.UtcNow : null;
                 }
             }
 
@@ -180,6 +166,8 @@ namespace MV.ApplicationLayer.Services
                 {
                     OcrSuccess = ocrResult != null,
                     ProfileDataUpdated = profileDataUpdated,
+                    RequiresProfileConfirmation = pendingChanges.Count > 0,
+                    PendingProfileChanges = pendingChanges,
                     IdentityNumber = MaskIdentityNumber(ocrResult?.Id),
                     FullName = ocrResult?.Name,
                     DateOfBirth = ocrResult?.Dob,
@@ -190,6 +178,31 @@ namespace MV.ApplicationLayer.Services
                         ? "Upload và đọc CCCD thành công."
                         : "Upload thành công. Không đọc được thông tin CCCD, Admin sẽ xác minh thủ công."
                 }
+            };
+        }
+
+        public CccdProfileConfirmResponse ApplyStoredProfileData(User user)
+        {
+            // Nguồn dữ liệu là ekyc_raw_data đã lưu, KHÔNG phải giá trị client gửi lên —
+            // client chỉ được quyền đồng ý/không đồng ý, không được quyền tự khai họ tên/ngày sinh.
+            var data = EkycProfileSync.ParseStoredRawData(_encryption.Decrypt(user.Ekycrawdata))
+                ?? throw new InvalidOperationException(
+                    "Chưa có dữ liệu CCCD để cập nhật vào hồ sơ. Vui lòng quét CCCD trước.");
+
+            var changes = EkycProfileSync.Apply(user, data);
+            user.Ekycprofileconfirmedat = TimeZoneHelper.UtcNow;
+
+            return new CccdProfileConfirmResponse
+            {
+                AppliedChanges = changes,
+                FullName = user.Fullname,
+                DateOfBirth = user.Birthdate?.ToString("dd/MM/yyyy"),
+                Gender = EkycProfileSync.DescribeGender(user.Gender),
+                Hometown = data.Home,
+                Address = user.Address,
+                Message = changes.Count > 0
+                    ? "Đã cập nhật hồ sơ theo thông tin trên CCCD."
+                    : "Hồ sơ của bạn đã khớp với CCCD, không có gì phải cập nhật.",
             };
         }
 
