@@ -28,34 +28,58 @@ public class ClassSessionInterruptionPolicyTests
     }
 
     [Theory]
-    [InlineData(0.19, false)]
-    [InlineData(0.20, true)]
+    [InlineData(0.0, true)]
+    [InlineData(0.05, true)]
     [InlineData(0.99, true)]
-    public void MeetsThreshold_FirstSessionOfBooking_Requires20Percent(double overlapRatio, bool expected)
+    public void MeetsThreshold_FirstSessionOfBooking_HasNoMinimum(double overlapRatio, bool expected)
     {
         Assert.Equal(expected, ClassSessionInterruptionPolicy.MeetsThreshold(isFirstSessionOfBooking: true, overlapRatio));
     }
 
     [Fact]
-    public void ComputeContinuationDuration_DefaultSession_IsHalfOfOriginal()
+    public void ComputeContinuationDuration_SubtractsActualDeliveredTime_ThenAddsFixedExtension()
     {
-        var start = new DateTime(2026, 8, 20, 8, 0, 0, DateTimeKind.Utc);
-        var end = start.AddMinutes(90);
+        // Buổi gốc 60 phút, đã dạy thật 10 phút trước khi ngắt -> còn lại 50 phút + 30 phút gia hạn cố định = 80 phút.
+        var scheduledStart = new DateTime(2026, 8, 20, 8, 0, 0, DateTimeKind.Utc);
+        var scheduledEnd = scheduledStart.AddMinutes(60);
+        var interruptedAt = scheduledStart.AddMinutes(10);
 
-        var duration = ClassSessionInterruptionPolicy.ComputeContinuationDuration(false, start, end);
+        var duration = ClassSessionInterruptionPolicy.ComputeContinuationDuration(
+            scheduledStart, scheduledEnd, checkInTime: scheduledStart, interruptedAt);
 
-        Assert.Equal(TimeSpan.FromMinutes(45), duration);
+        Assert.Equal(TimeSpan.FromMinutes(80), duration);
+    }
+
+    [Theory]
+    [InlineData(60)]
+    [InlineData(120)]
+    [InlineData(180)]
+    public void ComputeContinuationDuration_FixedExtensionIs30Minutes_RegardlessOfOriginalLength(int originalMinutes)
+    {
+        var scheduledStart = new DateTime(2026, 8, 20, 8, 0, 0, DateTimeKind.Utc);
+        var scheduledEnd = scheduledStart.AddMinutes(originalMinutes);
+
+        // Ngắt ngay lúc vừa check-in (chưa dạy được phút nào) -> buổi phụ = trọn thời lượng gốc + 30 phút,
+        // bất kể buổi gốc 1, 2 hay 3 tiếng.
+        var duration = ClassSessionInterruptionPolicy.ComputeContinuationDuration(
+            scheduledStart, scheduledEnd, checkInTime: scheduledStart, interruptedAt: scheduledStart);
+
+        Assert.Equal(TimeSpan.FromMinutes(originalMinutes + ClassSessionInterruptionPolicy.ContinuationExtensionMinutes), duration);
     }
 
     [Fact]
-    public void ComputeContinuationDuration_FirstSessionOfBooking_Is80PercentOfOriginal()
+    public void ComputeContinuationDuration_ClampsRemainingToZero_WhenDeliveredExceedsScheduled()
     {
-        var start = new DateTime(2026, 8, 20, 8, 0, 0, DateTimeKind.Utc);
-        var end = start.AddMinutes(100);
+        var scheduledStart = new DateTime(2026, 8, 20, 8, 0, 0, DateTimeKind.Utc);
+        var scheduledEnd = scheduledStart.AddMinutes(60);
+        // Cạnh biên: học vượt quá cả giờ dự kiến trước khi ngắt.
+        var interruptedAt = scheduledStart.AddMinutes(90);
 
-        var duration = ClassSessionInterruptionPolicy.ComputeContinuationDuration(true, start, end);
+        var duration = ClassSessionInterruptionPolicy.ComputeContinuationDuration(
+            scheduledStart, scheduledEnd, checkInTime: scheduledStart, interruptedAt);
 
-        Assert.Equal(TimeSpan.FromMinutes(80), duration);
+        // Còn lại âm -> kẹp về 0, chỉ còn đúng 30 phút gia hạn.
+        Assert.Equal(TimeSpan.FromMinutes(30), duration);
     }
 
     [Fact]
@@ -68,11 +92,12 @@ public class ClassSessionInterruptionPolicyTests
             Bookingid = 7,
             Tutorid = "tutor-1",
             Studentid = "student-profile-1",
-            Scheduledstart = now.AddHours(-1),
-            Scheduledend = now.AddMinutes(-30),
+            Scheduledstart = now.AddMinutes(-30),
+            Scheduledend = now,
+            Checkintime = now.AddMinutes(-30), // dạy từ đầu, ngắt đúng lúc hết giờ dự kiến -> delivered = 30 phút.
         };
 
-        var continuation = ClassSessionInterruptionPolicy.BuildContinuationSession(original, isFirstSessionOfBooking: false, now);
+        var continuation = ClassSessionInterruptionPolicy.BuildContinuationSession(original, now);
 
         Assert.True(continuation.Iscontinuation);
         Assert.False(continuation.Isdisputerelearn);
@@ -83,8 +108,28 @@ public class ClassSessionInterruptionPolicyTests
         Assert.Equal(0m, continuation.Lessonprice);
         Assert.Equal(ClassSessionStatus.Scheduled, continuation.Status);
         Assert.Equal(now.AddHours(1), continuation.Scheduledstart);
-        // Buổi gốc dài 30 phút -> buổi phụ (50% còn lại) dài 15 phút.
-        Assert.Equal(TimeSpan.FromMinutes(15), continuation.Scheduledend - continuation.Scheduledstart);
+        // Buổi gốc dài 30 phút, đã dạy thật hết 30 phút -> còn lại 0 + 30 phút gia hạn = 30 phút.
+        Assert.Equal(TimeSpan.FromMinutes(30), continuation.Scheduledend - continuation.Scheduledstart);
+    }
+
+    [Fact]
+    public void BuildContinuationSession_FallsBackToScheduledStart_WhenCheckInTimeMissing()
+    {
+        var now = new DateTime(2026, 8, 20, 10, 0, 0, DateTimeKind.Utc);
+        var original = new ClassSession
+        {
+            Classsessionid = 42,
+            Bookingid = 7,
+            Scheduledstart = now.AddMinutes(-20),
+            Scheduledend = now.AddMinutes(40), // 60 phút tổng
+            Checkintime = null,
+        };
+
+        var continuation = ClassSessionInterruptionPolicy.BuildContinuationSession(original, now);
+
+        // Checkintime null -> coi như dạy từ đúng giờ hẹn (Scheduledstart) -> delivered = now - Scheduledstart = 20 phút.
+        // Còn lại = 60 - 20 = 40, + 30 gia hạn = 70 phút.
+        Assert.Equal(TimeSpan.FromMinutes(70), continuation.Scheduledend - continuation.Scheduledstart);
     }
 
     [Fact]
@@ -193,25 +238,28 @@ public class ClassSessionServiceRequestInterruptionTests
         Assert.Equal(BookingId, continuation.Bookingid);
         Assert.Equal(TutorId, continuation.Tutorid);
         Assert.Equal(ClassSessionStatus.Scheduled, continuation.Status);
-        // Buổi thường: ngưỡng 50% -> buổi phụ dài 50% x 60 phút = 30 phút.
+        // Check-in đúng lúc Scheduledstart, ngắt đúng lúc Scheduledend (~60 phút sau) -> đã dạy
+        // gần hết thời lượng gốc -> còn lại kẹp về 0, buổi phụ chỉ còn đúng 30 phút gia hạn cố định.
         Assert.Equal(TimeSpan.FromMinutes(30), continuation.Scheduledend - continuation.Scheduledstart);
     }
 
     [Fact]
-    public async Task FirstSessionOfBooking_UsesLowerTwentyPercentThreshold()
+    public async Task FirstSessionOfBooking_HasNoMinimumThreshold_CanInterruptImmediately()
     {
         await using var db = CreateContext();
         SeedInProgressSession(db, scheduledMinutesAgo: 60, scheduledDurationMinutes: 60);
         await db.SaveChangesAsync();
-        // 25% sẽ KHÔNG đạt ngưỡng buổi thường (50%) nhưng ĐẠT ngưỡng buổi đầu tiên (20%).
-        var service = CreateService(db, overlapRatio: 0.25);
+        // Buổi đầu tiên: không giới hạn -> 0% (vừa check-in xong thoát ngay) vẫn báo ngắt được.
+        var service = CreateService(db, overlapRatio: 0.0);
 
         var result = await service.RequestInterruptionAsync(SessionId, TutorId, null);
 
         Assert.NotNull(result);
         var continuation = await db.ClassSessions.SingleAsync(x => x.Originalsessionid == SessionId);
-        // Buổi đầu tiên: ngưỡng 20% -> buổi phụ dài 80% x 60 phút = 48 phút.
-        Assert.Equal(TimeSpan.FromMinutes(48), continuation.Scheduledend - continuation.Scheduledstart);
+        // Check-in đúng lúc Scheduledstart, ngắt đúng lúc Scheduledend (~60 phút sau) -> đã dạy gần
+        // hết thời lượng gốc theo đồng hồ thật -> còn lại kẹp về 0, chỉ còn 30 phút gia hạn cố định
+        // (KHÔNG còn nhận trọn 60 phút như công thức cũ theo ngưỡng — nay tính theo thời gian thật).
+        Assert.Equal(TimeSpan.FromMinutes(30), continuation.Scheduledend - continuation.Scheduledstart);
     }
 
     [Fact]
@@ -881,18 +929,24 @@ public class ClassSessionSkipContinuationTests
     }
 
     [Fact]
-    public async Task SubmitReportOnInterruptedOriginal_WithoutBothSidesConfirmed_Throws()
+    public async Task SubmitReportOnInterruptedOriginal_Succeeds_EvenWithoutAnySkipConfirmation_AndCancelsContinuation()
     {
+        // Quyết định sản phẩm: nộp báo cáo cho buổi gốc đang Interrupted giờ luôn được chấp nhận,
+        // không cần chờ 2 bên đồng ý bỏ buổi phụ nữa — và buổi phụ (nếu còn Scheduled) tự huỷ luôn.
         await using var db = CreateContext();
         SeedChain(db);
         await db.SaveChangesAsync();
         var service = CreateService(db);
-        // Chỉ 1 phía đồng ý — chưa đủ điều kiện.
-        await service.ConfirmSkipContinuationAsync(ContinuationSessionId, TutorId);
 
-        var ex = await Assert.ThrowsAsync<ClassSessionException>(
-            () => service.SubmitReportAsync(OriginalSessionId, TutorId, MakeReportRequest()));
-        Assert.Equal(ClassSessionErrorCodes.InvalidClassSessionStatus, ex.ErrorCode);
+        var result = await service.SubmitReportAsync(OriginalSessionId, TutorId, MakeReportRequest());
+
+        Assert.NotNull(result);
+        db.ChangeTracker.Clear();
+        var original = await db.ClassSessions.SingleAsync(x => x.Classsessionid == OriginalSessionId);
+        Assert.Equal(ClassSessionStatus.PendingConfirmation, original.Status);
+
+        var continuation = await db.ClassSessions.SingleAsync(x => x.Classsessionid == ContinuationSessionId);
+        Assert.Equal(ClassSessionStatus.Cancelled, continuation.Status);
     }
 
     [Fact]
