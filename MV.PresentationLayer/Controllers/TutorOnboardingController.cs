@@ -130,6 +130,35 @@ namespace MV.PresentationLayer.Controllers
         }
 
         /// <summary>
+        /// Gia sư xác nhận áp dụng thông tin đọc được từ CCCD vào hồ sơ (họ tên, ngày sinh,
+        /// giới tính, địa chỉ thường trú). Bước quét chỉ lưu ảnh + dữ liệu OCR; hồ sơ chỉ đổi
+        /// sau khi gia sư xem màn hình đối chiếu và gọi endpoint này.
+        /// </summary>
+        [Authorize(Roles = UserRole.Tutor)]
+        [HttpPost("{id}/profile/cccd/confirm")]
+        public async Task<IActionResult> ConfirmCccdProfile([FromRoute] string id)
+        {
+            var currentUserId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (currentUserId != id)
+                return StatusCode(403, APIResponse.Fail("Bạn chỉ có thể cập nhật hồ sơ của chính mình.", 403));
+
+            try
+            {
+                var result = await _tutorService.ConfirmCccdProfileAsync(id);
+                return Ok(APIResponse<CccdProfileConfirmResponse>.Success(result, result.Message));
+            }
+            catch (InvalidOperationException ex)
+            {
+                // Chưa từng quét CCCD → không có gì để xác nhận.
+                return UnprocessableEntity(APIResponse.Fail(ex.Message, 422));
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(APIResponse.Fail(ex.Message, 400));
+            }
+        }
+
+        /// <summary>
         /// Gia sư tự xem lại ảnh CCCD mình đã upload — signed URL, hết hạn sau 15 phút.
         /// Chỉ xem được CCCD của chính mình (so khớp userId từ JWT, không nhận id người khác).
         /// </summary>

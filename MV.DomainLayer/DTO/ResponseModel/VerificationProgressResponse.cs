@@ -79,8 +79,18 @@ namespace MV.DomainLayer.DTO.ResponseModel
         public string? FullName { get; set; }              // Họ và tên
         public string? DateOfBirth { get; set; }           // Ngày sinh (dd/MM/yyyy)
         public string? Gender { get; set; }                // Giới tính
+        public string? Hometown { get; set; }              // Quê quán (chỉ hiển thị, không có cột riêng)
         public string? PermanentAddress { get; set; }      // Địa chỉ thường trú
         public string? PortraitImageUrl { get; set; }      // Ảnh chân dung (avatar gia sư)
         public bool IsVerified { get; set; }
+
+        /// <summary>
+        /// Đã quét CCCD nhưng chủ tài khoản CHƯA xác nhận đưa thông tin vào hồ sơ.
+        /// FE dùng để nhắc lại lời mời xác nhận sau khi tải lại trang.
+        /// </summary>
+        public bool RequiresProfileConfirmation { get; set; }
+
+        /// <summary>Các trường hồ sơ sẽ đổi nếu xác nhận (giá trị hiện tại → giá trị trên CCCD).</summary>
+        public List<EkycProfileFieldChange> PendingProfileChanges { get; set; } = new();
     }
 }
