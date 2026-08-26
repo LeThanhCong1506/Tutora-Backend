@@ -352,12 +352,12 @@ namespace MV.ApplicationLayer.Services
 
             await _context.SaveChangesAsync();
 
-            // A block locks the tutor out exactly as a suspension does, so it must unwind their
-            // calendar the same way — otherwise the sessions stay "scheduled" for a tutor who can
-            // no longer sign in, and the parents' money stays frozen in escrow indefinitely.
-            // A block has no end date, so every undelivered session goes.
+            // A block locks the account out exactly as a suspension does, so it must unwind the
+            // calendar the same way — otherwise sessions stay "scheduled" against somebody who can
+            // no longer sign in, and the money stays frozen in escrow indefinitely. Applies to all
+            // three roles. A block has no end date, so every undelivered session goes.
             var impact = await _suspensionRefundService.CascadeSuspensionAsync(
-                userId, suspensionEndDate: null, reason: "Tài khoản gia sư bị khóa bởi quản trị viên");
+                userId, suspensionEndDate: null, reason: "Tài khoản bị khóa bởi quản trị viên");
 
             // CascadeSuspensionAsync owned its own transaction here (nothing ambient above it), so
             // it has already sent the refund notifications; this call is a no-op safety net.

@@ -23,6 +23,7 @@ public class SuspensionRefundCascadeTests
     private const string TutorId = "tutor-1";
     private const string ParentId = "parent-1";
     private const string StudentUserId = "student-user-1";
+    private const string SecondTutorId = "tutor-2";
 
     private static readonly DateTime Now = new(2026, 8, 25, 9, 0, 0, DateTimeKind.Utc);
 
@@ -174,6 +175,89 @@ public class SuspensionRefundCascadeTests
         Assert.False(impact.Bookings.Single().Closed);
     }
 
+    // ─── The learner side ─────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task SuspendingTheParentCancelsTheirCourseToo()
+    {
+        await using var context = CreateContext();
+        SeedBooking(context, sessionOffsetsInDays: new[] { 1, 3, 12, 20 });
+        await context.SaveChangesAsync();
+
+        // A suspended parent cannot attend or supervise either, so the course has to unwind the
+        // same way it does for a tutor — otherwise the sessions sit "scheduled" against a tutor
+        // who keeps waiting, with the money frozen in escrow.
+        var impact = await CreateService(context).PreviewCascadeAsync(ParentId, suspensionEndDate: null);
+
+        Assert.Equal(1, impact.BookingsAffected);
+        Assert.Equal(4, impact.SessionsCancelled);
+        // The refund still goes to whoever paid — here, the suspended parent.
+        Assert.Equal(ParentId, impact.Bookings.Single().RefundRecipientId);
+        Assert.Equal(2_000_000m, impact.TotalRefunded);
+    }
+
+    [Fact]
+    public async Task SuspendingTheStudentCancelsTheCourseAndPaysTheParentBack()
+    {
+        await using var context = CreateContext();
+        SeedBooking(context, sessionOffsetsInDays: new[] { 1, 3 });
+        await context.SaveChangesAsync();
+
+        var impact = await CreateService(context).PreviewCascadeAsync(StudentUserId, suspensionEndDate: null);
+
+        Assert.Equal(1, impact.BookingsAffected);
+        Assert.Equal(2, impact.SessionsCancelled);
+        // The child was suspended, but the parent is the one out of pocket.
+        Assert.Equal(ParentId, impact.Bookings.Single().RefundRecipientId);
+    }
+
+    [Fact]
+    public async Task SuspendingTheParentStillReversesEscrowFromTheTutorNotThePayer()
+    {
+        await using var context = CreateContext();
+        SeedBooking(context, sessionOffsetsInDays: new[] { 1, 3 });
+        await context.SaveChangesAsync();
+
+        // Only the tutor holds escrow. Reading the frozen balance off the suspended account would
+        // report zero here — and, in the real cascade, debit the parent's wallet for it.
+        var impact = await CreateService(context).PreviewCascadeAsync(ParentId, suspensionEndDate: null);
+
+        Assert.Equal(800_000m, impact.TotalEscrowReversed);
+    }
+
+    [Fact]
+    public async Task ATemporaryParentSuspensionStillOnlyReachesSessionsInTheWindow()
+    {
+        await using var context = CreateContext();
+        SeedBooking(context, sessionOffsetsInDays: new[] { 1, 3, 12, 20 });
+        await context.SaveChangesAsync();
+
+        var impact = await CreateService(context).PreviewCascadeAsync(ParentId, Now.AddDays(7));
+
+        Assert.Equal(2, impact.SessionsCancelled);
+        Assert.Equal(0, impact.BookingsClosed);
+    }
+
+    [Fact]
+    public async Task EachTutorsEscrowIsClampedSeparatelyWhenAParentSpansTwoTutors()
+    {
+        await using var context = CreateContext();
+        SeedBooking(context, sessionOffsetsInDays: new[] { 1, 3 }, bookingId: 1);
+        SeedBooking(context, sessionOffsetsInDays: new[] { 2, 4 }, bookingId: 2,
+                    walletIdOffset: 0, tutorId: SecondTutorId);
+        context.Users.Add(NewUser(SecondTutorId, UserRole.Tutor));
+        context.Wallets.Add(new Wallet { Walletid = 3, Userid = SecondTutorId, Balance = 0m, Frozenbalance = 300_000m });
+        await context.SaveChangesAsync();
+
+        // One parent, two tutors, two separate frozen pots. Treating escrow as a single shared
+        // balance would let the first booking eat the second tutor's escrow.
+        var impact = await CreateService(context).PreviewCascadeAsync(ParentId, suspensionEndDate: null);
+
+        Assert.Equal(2, impact.BookingsAffected);
+        // 800k available from tutor 1 (2 sessions worth), only 300k left with tutor 2.
+        Assert.Equal(1_100_000m, impact.TotalEscrowReversed);
+    }
+
     [Fact]
     public async Task ASelfBookedStudentIsRefundedToTheirOwnWallet()
     {
@@ -263,8 +347,10 @@ public class SuspensionRefundCascadeTests
         AgoraDbContext context,
         int[] sessionOffsetsInDays,
         int bookingId = 1,
-        int walletIdOffset = 1)
+        int walletIdOffset = 1,
+        string? tutorId = null)
     {
+        tutorId ??= TutorId;
         var sessionCount = sessionOffsetsInDays.Length;
         var parentPaid = 500_000m * sessionCount;
 
@@ -292,7 +378,7 @@ public class SuspensionRefundCascadeTests
             Bookingid = bookingId,
             Parentid = ParentId,
             Studentid = "student-profile-1",
-            Tutorid = TutorId,
+            Tutorid = tutorId,
             Status = BookingStatus.Ongoing,
             Totalsessions = sessionCount,
             Sessionsremaining = sessionCount,
@@ -310,7 +396,7 @@ public class SuspensionRefundCascadeTests
             {
                 Classsessionid = bookingId * 100 + i,
                 Bookingid = bookingId,
-                Tutorid = TutorId,
+                Tutorid = tutorId,
                 Studentid = "student-profile-1",
                 Scheduledstart = Now.AddDays(sessionOffsetsInDays[i]),
                 Scheduledend = Now.AddDays(sessionOffsetsInDays[i]).AddHours(2),
