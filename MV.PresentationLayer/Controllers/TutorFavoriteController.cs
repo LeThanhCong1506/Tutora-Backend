@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using MV.ApplicationLayer.ServiceInterfaces;
+using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO;
 using MV.DomainLayer.DTO.ResponseModel;
 using MV.PresentationLayer.Helpers;
@@ -13,10 +14,15 @@ namespace MV.PresentationLayer.Controllers;
 /// <remarks>
 /// The owner always comes from the token, never the route or body — a wishlist is private, and
 /// there is no reason for one account to read or edit another's.
+///
+/// Parent and Student only: they are the ones who shop for a tutor, and they are the only roles
+/// with a favorites page to read the list back (see the routes under /parent-portal and
+/// /student-portal). A tutor or admin saving a row here could never see or manage it again, so
+/// the write is refused rather than silently orphaned.
 /// </remarks>
 [ApiController]
 [Route("api/favorites/tutors")]
-[Authorize]
+[Authorize(Roles = UserRole.ParentOrStudent)]
 public class TutorFavoriteController : ControllerBase
 {
     private readonly ITutorFavoriteService _favoriteService;
