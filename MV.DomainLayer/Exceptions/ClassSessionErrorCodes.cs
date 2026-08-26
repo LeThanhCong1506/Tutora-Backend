@@ -31,4 +31,8 @@ public static class ClassSessionErrorCodes
     // Buổi học lại do admin hoà giải tranh chấp — cùng lý do chặn với buổi phụ (tránh 1 buổi đã
     // được admin can thiệp 1 lần lại tiếp tục sinh thêm buổi phụ qua chính cơ chế Báo ngắt).
     public const string AlreadyRelearnSession = "ALREADY_RELEARN_SESSION";
+
+    // Chuỗi buổi (gốc + mọi buổi phụ/bù/học lại) đã chạm MaxRelearnSessionsPerChain — không tạo
+    // thêm buổi bù no-show được nữa, dù đường này khác với đường hoà giải dispute ở trên.
+    public const string SessionChainLimitReached = "SESSION_CHAIN_LIMIT_REACHED";
 }
