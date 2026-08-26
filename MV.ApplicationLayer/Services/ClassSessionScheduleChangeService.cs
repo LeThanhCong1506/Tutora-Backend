@@ -335,17 +335,27 @@ public class ClassSessionScheduleChangeService(
                     ? x.Booking.Student.Linkeduser.Birthdate
                     : x.Booking != null && x.Booking.Student != null
                         ? x.Booking.Student.Birthdate
-                        : null))
+                        : null,
+                x.Iscontinuation))
             .FirstOrDefaultAsync(cancellationToken);
 
-    // Theo yêu cầu sản phẩm: bỏ hẳn cơ chế xác nhận đồng thuận khi vào lớp sớm/ngoài giờ đặt —
-    // gia sư/học viên vào phòng lúc nào cũng được, miễn cả hai cùng có mặt (governed bởi
-    // SessionLobbyHub/presence, không phải bởi giờ đặt lịch nữa). Luôn coi mọi thời điểm là
-    // "trong khung giờ bình thường" nên GetOrCreateStateAsync không bao giờ tạo yêu cầu xác nhận
-    // mới (RequiresConfirmation luôn false, AdmissionAllowed luôn true) — không xoá entity/bảng
-    // ClassSessionScheduleChange hay hạ tầng SignalR liên quan vì dữ liệu cũ vẫn có thể cần tra
-    // cứu khi xử lý khiếu nại.
-    private static bool IsWithinNormalWindow(SessionSnapshot session, DateTime now) => true;
+    /// <summary>Vào lớp trước giờ hẹn tối đa bao nhiêu phút vẫn coi là bình thường, không cần xác nhận.</summary>
+    private const int EarlyJoinToleranceMinutes = 15;
+
+    // Khôi phục lại cơ chế xác nhận đồng thuận khi vào lớp sớm/ngoài giờ đặt (đã từng bị gỡ theo
+    // yêu cầu sản phẩm trước đó, nay khôi phục theo yêu cầu mới — học sinh dưới 16 tuổi cần phụ
+    // huynh xác nhận thay, xem ResolveLearnerApprover).
+    //
+    // Buổi PHỤ (Iscontinuation=true) là ngoại lệ — LUÔN coi là trong khung giờ bình thường, không
+    // bao giờ cần xác nhận: Scheduledstart/end của nó chỉ là mốc ước tính lúc tạo (now+1h), không
+    // phải giờ hẹn thật, và một khi buổi gốc đã được xác nhận dời lịch thì buổi phụ phải học tiếp
+    // được bất cứ lúc nào cho tới hạn tự huỷ nửa đêm hôm sau (xem comment ở
+    // AutoCloseExpiredLiveSessionsAsync/ClassSessionService.M3.Attendance.cs) — không nên bị chặn
+    // lại bởi đúng cơ chế mà buổi gốc vừa mới vượt qua.
+    private static bool IsWithinNormalWindow(SessionSnapshot session, DateTime now)
+        => session.Iscontinuation
+            || (now >= session.Scheduledstart.AddMinutes(-EarlyJoinToleranceMinutes)
+                && now <= session.Scheduledend);
 
     private static (string UserId, string Role, string Name) ResolveLearnerApprover(SessionSnapshot session)
     {
@@ -518,5 +528,6 @@ public class ClassSessionScheduleChangeService(
         string? ParentName,
         string? StudentUserId,
         string? StudentName,
-        DateOnly? StudentBirthdate);
+        DateOnly? StudentBirthdate,
+        bool Iscontinuation);
 }

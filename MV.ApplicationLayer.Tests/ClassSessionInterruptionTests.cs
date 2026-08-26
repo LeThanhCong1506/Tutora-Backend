@@ -19,10 +19,11 @@ namespace MV.ApplicationLayer.Tests;
 public class ClassSessionInterruptionPolicyTests
 {
     [Theory]
-    [InlineData(0.49, false)]
-    [InlineData(0.50, true)]
+    [InlineData(0.0, true)]
+    [InlineData(0.05, true)]
+    [InlineData(0.49, true)]
     [InlineData(0.75, true)]
-    public void MeetsThreshold_DefaultSession_Requires50Percent(double overlapRatio, bool expected)
+    public void MeetsThreshold_DefaultSession_HasNoMinimum(double overlapRatio, bool expected)
     {
         Assert.Equal(expected, ClassSessionInterruptionPolicy.MeetsThreshold(isFirstSessionOfBooking: false, overlapRatio));
     }
@@ -197,29 +198,30 @@ public class ClassSessionServiceRequestInterruptionTests
     private const int BookingId = 1;
 
     [Fact]
-    public async Task BelowThreshold_Throws_AndDoesNotMutateSessionOrCreateContinuation()
+    public async Task NonFirstSessionOfBooking_HasNoMinimumThreshold_CanInterruptImmediately()
     {
         await using var db = CreateContext();
-        // Không phải buổi đầu tiên của booking -> áp ngưỡng 50% mặc định, không phải 20%.
+        // Không phải buổi đầu tiên của booking — nhưng ngưỡng đã bỏ hẳn (DefaultThreshold=0), nên
+        // overlapRatio thấp (kể cả gần 0%) vẫn báo ngắt được bình thường, không còn bị chặn.
         SeedInProgressSession(db, scheduledMinutesAgo: 60, scheduledDurationMinutes: 60, addEarlierSiblingSession: true);
         await db.SaveChangesAsync();
-        var service = CreateService(db, overlapRatio: 0.30); // dưới ngưỡng 50%
+        var service = CreateService(db, overlapRatio: 0.05);
 
-        var ex = await Assert.ThrowsAsync<ClassSessionException>(
-            () => service.RequestInterruptionAsync(SessionId, TutorId, "kẹt xe"));
-        Assert.Equal(ClassSessionErrorCodes.InterruptionThresholdNotMet, ex.ErrorCode);
+        var result = await service.RequestInterruptionAsync(SessionId, TutorId, "kẹt xe");
 
+        Assert.NotNull(result);
         db.ChangeTracker.Clear();
         var session = await db.ClassSessions.SingleAsync(x => x.Classsessionid == SessionId);
-        Assert.Equal(ClassSessionStatus.InProgress, session.Status);
-        Assert.False(await db.ClassSessions.AnyAsync(x => x.Originalsessionid == SessionId));
+        Assert.Equal(ClassSessionStatus.Interrupted, session.Status);
+        Assert.True(await db.ClassSessions.AnyAsync(x => x.Originalsessionid == SessionId));
     }
 
     [Fact]
     public async Task AtOrAboveThreshold_MarksOriginalInterrupted_AndCreatesContinuationSession()
     {
         await using var db = CreateContext();
-        // Không phải buổi đầu tiên của booking -> áp ngưỡng 50% mặc định, không phải 20%.
+        // Không phải buổi đầu tiên của booking — không còn ngưỡng nào để áp, chỉ kiểm tra hành vi
+        // báo ngắt bình thường ở overlapRatio cao.
         SeedInProgressSession(db, scheduledMinutesAgo: 60, scheduledDurationMinutes: 60, addEarlierSiblingSession: true);
         await db.SaveChangesAsync();
         var service = CreateService(db, overlapRatio: 0.60);
@@ -284,7 +286,7 @@ public class ClassSessionServiceRequestInterruptionTests
     }
 
     [Fact]
-    public async Task BelowThreshold_DoesNotSendAnyNotification()
+    public async Task LowOverlapRatio_StillSendsNotifications_NoMinimumThreshold()
     {
         await using var db = CreateContext();
         SeedInProgressSession(db, scheduledMinutesAgo: 60, scheduledDurationMinutes: 60, addEarlierSiblingSession: true);
@@ -292,9 +294,9 @@ public class ClassSessionServiceRequestInterruptionTests
         var notifications = new RecordingNotificationService();
         var service = CreateService(db, overlapRatio: 0.10, notificationService: notifications);
 
-        await Assert.ThrowsAsync<ClassSessionException>(() => service.RequestInterruptionAsync(SessionId, TutorId, null));
+        await service.RequestInterruptionAsync(SessionId, TutorId, null);
 
-        Assert.Empty(notifications.SentRequests);
+        Assert.NotEmpty(notifications.SentRequests);
     }
 
     [Fact]

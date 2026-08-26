@@ -8,19 +8,24 @@ namespace MV.ApplicationLayer.Helpers;
 /// <summary>
 /// Ngưỡng % đã học tối thiểu để được phép kích hoạt buổi phụ khi buổi gốc (Iscontinuation=false)
 /// bị ngắt giữa chừng vì sự cố đột xuất — tách riêng khỏi ClassSessionService để test được mà
-/// không cần dựng toàn bộ dependency graph của service đó. Ngưỡng là điều kiện TỐI THIỂU để chống
-/// lạm dụng (không thể nghỉ lúc mới học 10% rồi coi là "đột xuất") — CHỈ quyết định có được báo
-/// ngắt hay không, KHÔNG còn ảnh hưởng tới thời lượng buổi phụ (xem ComputeContinuationDuration,
-/// nay tính theo thời gian THẬT đã dạy + ngân sách gia hạn cố định, không phải theo ngưỡng nữa).
+/// không cần dựng toàn bộ dependency graph của service đó. Ngưỡng CHỈ quyết định có được báo ngắt
+/// hay không, KHÔNG ảnh hưởng tới thời lượng buổi phụ (xem ComputeContinuationDuration, tính theo
+/// thời gian THẬT đã dạy + ngân sách gia hạn cố định).
+///
+/// Đã bỏ hẳn ngưỡng (còn 0% cho mọi buổi, kể cả không phải buổi đầu tiên): công thức
+/// ComputeContinuationDuration giữ bất biến actualDelivered + continuationDuration =
+/// totalScheduled + ContinuationExtensionMinutes bất kể ngắt sớm hay muộn, nên ngắt sớm KHÔNG cho
+/// tổng thời lượng khả dụng nhiều hơn — không có rủi ro lạm dụng để cần chặn bằng ngưỡng % nữa
+/// (quyết định sản phẩm, xác nhận lại sau khi rà công thức).
 /// </summary>
 public static class ClassSessionInterruptionPolicy
 {
-    /// <summary>Ngưỡng cho buổi thường: phải học được ít nhất 50% mới được ngắt.</summary>
-    public const double DefaultThreshold = 0.50;
+    /// <summary>Không còn ngưỡng tối thiểu — mọi buổi (kể cả không phải buổi đầu tiên của booking)
+    /// đều báo ngắt được ngay từ 0% thời lượng.</summary>
+    public const double DefaultThreshold = 0.0;
 
     /// <summary>Buổi đầu tiên (chưa Ismakeup/Iscontinuation/Isdisputerelearn, Scheduledstart sớm
-    /// nhất) của booking: không giới hạn — báo ngắt được ngay cả khi overlapRatio = 0%. Cố ý bỏ rào
-    /// chống lạm dụng cho buổi 1 theo quyết định sản phẩm.</summary>
+    /// nhất) của booking: giữ nguyên 0% — vốn đã không có ngưỡng từ trước.</summary>
     public const double FirstSessionThreshold = 0.0;
 
     /// <summary>Ngân sách thời lượng THÊM cố định cho buổi phụ, không phụ thuộc buổi gốc dài bao
