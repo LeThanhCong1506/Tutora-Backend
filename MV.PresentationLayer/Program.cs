@@ -420,6 +420,7 @@ builder.Services.AddScoped<IDisputeService, DisputeService>();
 builder.Services.AddScoped<ISupportMessageService, SupportMessageService>();
 builder.Services.AddScoped<IWarningService, WarningService>();
 builder.Services.AddScoped<ISuspensionRefundService, SuspensionRefundService>();
+builder.Services.AddScoped<ITutorFavoriteService, TutorFavoriteService>();
 builder.Services.AddScoped<IFeedbackService, FeedbackService>();
 builder.Services.AddScoped<IQuestionService, QuestionService>();
 builder.Services.AddScoped<IAssessmentService, AssessmentService>();
