@@ -14,6 +14,7 @@ using MV.DomainLayer.DTO.ResponseModel;
 using MV.DomainLayer.Entities;
 using MV.DomainLayer.Exceptions;
 using MV.DomainLayer.Helpers;
+using System.Diagnostics;
 using System.Text.Json;
 
 namespace MV.ApplicationLayer.Services;
@@ -525,6 +526,10 @@ public class ClassSessionVideoAiService(
 
         GeminiUploadedFile uploaded;
         string audioPath;
+        // Đo tạm thời để tìm bước nào chiếm phần lớn thời gian chờ (người dùng thấy chậm dù video
+        // ngắn) — tải Drive + tách audio chạy chung 1 stream pipe nên không tách được thành 2 mốc
+        // riêng, tính gộp. Bỏ log này khi đã xác định rõ bottleneck ở đâu, không để lại vĩnh viễn.
+        var downloadSw = Stopwatch.StartNew();
         using (var media = await driveService.GetMediaAsync(fileId, null, ct))
         {
             if (media.ContentLength is { } size && size > MaxFileSizeBytes)
@@ -532,7 +537,9 @@ public class ClassSessionVideoAiService(
 
             audioPath = await ExtractAudioToTempFileAsync(media.Content, job.Classsessionid, ct);
         }
+        downloadSw.Stop();
 
+        var uploadSw = Stopwatch.StartNew();
         try
         {
             await using var audioStream = File.OpenRead(audioPath);
@@ -544,7 +551,15 @@ public class ClassSessionVideoAiService(
         {
             File.Delete(audioPath);
         }
+        uploadSw.Stop();
+
+        var pollSw = Stopwatch.StartNew();
         await geminiService.WaitForFileActiveAsync(uploaded.Name, ct);
+        pollSw.Stop();
+
+        logger.LogInformation(
+            "[VideoAI timing] classSession={ClassSessionId}: tải Drive+tách audio={DownloadMs}ms, upload Gemini={UploadMs}ms, chờ Gemini xử lý xong (ACTIVE)={PollMs}ms",
+            job.Classsessionid, downloadSw.ElapsedMilliseconds, uploadSw.ElapsedMilliseconds, pollSw.ElapsedMilliseconds);
 
         job.Geminifileuri = uploaded.Uri;
         job.Geminifilename = uploaded.Name;
