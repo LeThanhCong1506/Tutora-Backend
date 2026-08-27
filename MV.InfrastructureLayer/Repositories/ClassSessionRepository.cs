@@ -264,6 +264,26 @@ public class ClassSessionRepository(AgoraDbContext context) : IClassSessionRepos
 
         if (classSession == null) return null;
 
+        // Buổi bị ngắt (status=interrupted) — lấy kèm giờ hẹn buổi phụ tương ứng (nếu còn Scheduled)
+        // để FE hiện thẳng trên trang buổi gốc, không cần bắt học sinh mở thêm trang riêng.
+        int? continuationSessionId = null;
+        DateTime? continuationScheduledStart = null;
+        DateTime? continuationScheduledEnd = null;
+        if (classSession.Status == Interrupted)
+        {
+            var continuation = await context.ClassSessions
+                .AsNoTracking()
+                .Where(c => c.Originalsessionid == classSessionId && c.Iscontinuation && c.Status == Scheduled)
+                .Select(c => new { c.Classsessionid, c.Scheduledstart, c.Scheduledend })
+                .FirstOrDefaultAsync();
+            if (continuation != null)
+            {
+                continuationSessionId = continuation.Classsessionid;
+                continuationScheduledStart = continuation.Scheduledstart;
+                continuationScheduledEnd = continuation.Scheduledend;
+            }
+        }
+
         var scheduleChanges = await context.ClassSessionScheduleChanges
             .AsNoTracking()
             .Where(x => x.Classsessionid == classSessionId)
@@ -300,6 +320,9 @@ public class ClassSessionRepository(AgoraDbContext context) : IClassSessionRepos
             IsDisputeRelearn = classSession.Isdisputerelearn,
             SkipConfirmedByBothSides = classSession.Tutorskipconfirmedat.HasValue && classSession.Studentskipconfirmedat.HasValue,
             OriginalClassSessionId = classSession.Originalsessionid,
+            ContinuationSessionId = continuationSessionId,
+            ContinuationScheduledStart = continuationScheduledStart,
+            ContinuationScheduledEnd = continuationScheduledEnd,
             Report          = classSession.ClassSessionReport == null ? null : new StudentClassSessionReportResponse
             {
                 TopicsCovered    = classSession.ClassSessionReport.Contentcovered,

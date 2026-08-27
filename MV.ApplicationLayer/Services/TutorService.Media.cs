@@ -72,13 +72,17 @@ namespace MV.ApplicationLayer.Services
             var user = await _userRepository.GetUserByIdAsync(userId)
                 ?? throw new ArgumentException("Không tìm thấy người dùng.");
 
-            // Dùng luồng eKYC (FPT.AI OCR + chống trùng). Dữ liệu định danh OCR sẽ cập nhật
-            // hồ sơ; Tutor cho phép OCR thất bại (Admin xác minh thủ công), không gate độ tuổi.
+            // Dùng luồng eKYC (FPT.AI OCR + chống trùng). Tutor cho phép OCR thất bại
+            // (Admin xác minh thủ công), không gate độ tuổi.
+            //
+            // AutoFillProfile = false: dữ liệu OCR KHÔNG tự ghi đè hồ sơ nữa. Gia sư phải xem
+            // màn hình đối chiếu rồi bấm xác nhận (POST .../cccd/confirm) thì mới ghi — tránh
+            // việc tên/ngày sinh trên tài khoản đổi sau lưng khi OCR đọc nhầm.
             var result = await _ekyc.VerifyAndApplyAsync(user, request, new EkycVerificationOptions
             {
                 RequireOcr = false,
                 MinAgeRequired = null,
-                AutoFillProfile = true
+                AutoFillProfile = false
             });
 
             await _userRepository.UpdateUserAsync(user);
@@ -91,6 +95,22 @@ namespace MV.ApplicationLayer.Services
                 await AutoSubmitIfCompleteAsync(userId);
 
             return result.Response;
+        }
+
+        public async Task<CccdProfileConfirmResponse> ConfirmCccdProfileAsync(string userId)
+        {
+            var user = await _userRepository.GetUserByIdAsync(userId)
+                ?? throw new ArgumentException("Không tìm thấy người dùng.");
+
+            var response = _ekyc.ApplyStoredProfileData(user);
+
+            await _userRepository.UpdateUserAsync(user);
+            await _context.SaveChangesAsync();
+
+            _logger.LogInformation("CCCD profile confirmed for user {UserId}, {ChangeCount} field(s) applied",
+                userId, response.AppliedChanges.Count);
+
+            return response;
         }
 
         // ─── Private helpers ─────────────────────────────────────────────────

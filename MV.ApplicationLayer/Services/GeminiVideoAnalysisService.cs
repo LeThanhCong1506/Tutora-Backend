@@ -403,7 +403,9 @@ public class GeminiVideoAnalysisService : IGeminiVideoAnalysisService
         EnsureConfigured();
 
         var json = JsonSerializer.Serialize(requestBody, CamelCaseOptions);
+        var sw = System.Diagnostics.Stopwatch.StartNew();
         var responseBody = await PostGenerateContentWithRetryAsync(json, model, ct);
+        sw.Stop();
 
         var parsed = JsonSerializer.Deserialize<GeminiGenerateContentResponse>(responseBody, CamelCaseOptions);
         var candidate = parsed?.Candidates?.FirstOrDefault();
@@ -423,8 +425,8 @@ public class GeminiVideoAnalysisService : IGeminiVideoAnalysisService
         if (parsed?.UsageMetadata is { } usage)
         {
             _logger.LogInformation(
-                "Gemini usage ({Model}): thoughtsTokens={ThoughtsTokens}, outputTokens={OutputTokens}, totalTokens={TotalTokens}",
-                model, usage.ThoughtsTokenCount, usage.CandidatesTokenCount, usage.TotalTokenCount);
+                "Gemini usage ({Model}): thoughtsTokens={ThoughtsTokens}, outputTokens={OutputTokens}, totalTokens={TotalTokens}, elapsed={ElapsedMs}ms",
+                model, usage.ThoughtsTokenCount, usage.CandidatesTokenCount, usage.TotalTokenCount, sw.ElapsedMilliseconds);
         }
 
         return text;
