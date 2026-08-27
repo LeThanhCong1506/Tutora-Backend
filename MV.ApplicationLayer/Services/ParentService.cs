@@ -591,8 +591,13 @@ public class ParentService : IParentService
                 .OrderBy(l => l.Scheduledstart)
                 .ToListAsync();
 
+            // Xem giải thích ở ClassSessionService.GetTutorCalendarAsync: convert sang giờ VN trước
+            // khi lấy .Date để tránh lệch ngày với buổi 00:00-06:59 giờ VN.
+            var parentVietnamTimeZone = TimeZoneHelper.GetTimeZoneInfo("Asia/Ho_Chi_Minh");
             return classSessions
-                .GroupBy(l => (l.Checkintime ?? l.Scheduledstart).Date)
+                .GroupBy(l => TimeZoneInfo.ConvertTimeFromUtc(
+                    DateTime.SpecifyKind(l.Checkintime ?? l.Scheduledstart, DateTimeKind.Utc),
+                    parentVietnamTimeZone).Date)
                 .Select(g => new CalendarDayResponse
                 {
                     Date = g.Key,
