@@ -128,6 +128,20 @@ public class RecordingRelayService : IRecordingRelayService
                 // báo chủ động cho học sinh/gia sư khi đã thật sự sẵn sàng, khỏi phải tự bấm kiểm tra lại.
                 await NotifyRecordingReadyAsync(session.Classsessionid, item.StudentNotifyUserId, session.Tutorid, item.ParentUserId);
             }
+            catch (Amazon.S3.Model.NoSuchKeyException)
+            {
+                // File nguồn trên S3/Storj không còn tồn tại (xóa thủ công, hết TTL, hoặc key sai
+                // ngay từ đầu) — retry mãi mãi vô ích, và vì RelayPendingAsync luôn lấy theo thứ tự
+                // Classsessionid tăng dần (Take(BatchSize)), một buổi kẹt kiểu này sẽ chiếm trọn suất
+                // của batch ở MỌI vòng, chặn luôn các buổi mới hơn phía sau không bao giờ được thử.
+                // Coi là thất bại vĩnh viễn: xóa s3key (không set url) để RecordingStatusResolver trả
+                // "failed" thay vì "processing" treo mãi, đồng thời nhường chỗ batch cho buổi sau.
+                session.Recordings3key = null;
+                await _context.SaveChangesAsync(ct);
+                _logger.LogError(
+                    "Relay recording session {Session} thất bại VĨNH VIỄN: S3 key {Key} không tồn tại. Đã đánh dấu failed, không thử lại nữa.",
+                    session.Classsessionid, key);
+            }
             catch (Exception ex)
             {
                 // Giữ nguyên status="stopped" → vòng sau tự thử lại (file S3 vẫn còn)
