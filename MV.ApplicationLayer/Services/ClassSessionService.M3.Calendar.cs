@@ -39,9 +39,14 @@ public partial class ClassSessionService
             .OrderBy(l => l.Scheduledstart)
             .ToListAsync();
 
-        // Group theo NGÀY Việt Nam để tránh lệch ngày do UTC+7
+        // Group theo NGÀY Việt Nam để tránh lệch ngày do UTC+7 — phải convert sang giờ VN trước khi
+        // lấy .Date, vì Scheduledstart/Checkintime lưu UTC nên buổi 00:00-06:59 giờ VN rơi vào NGÀY
+        // UTC hôm trước (vd 01:58 27/08 VN = 18:58 26/08 UTC), lấy .Date thẳng trên UTC sẽ lệch ngày.
+        var vietnamTimeZone = TimeZoneHelper.GetTimeZoneInfo("Asia/Ho_Chi_Minh");
         var grouped = classSessions
-            .GroupBy(l => (l.Checkintime ?? l.Scheduledstart).Date)
+            .GroupBy(l => TimeZoneInfo.ConvertTimeFromUtc(
+                DateTime.SpecifyKind(l.Checkintime ?? l.Scheduledstart, DateTimeKind.Utc),
+                vietnamTimeZone).Date)
             .Select(g => new CalendarDayResponse
             {
                 Date = g.Key,
@@ -105,8 +110,13 @@ public partial class ClassSessionService
             .OrderBy(l => l.Scheduledstart)
             .ToListAsync();
 
+        // Xem giải thích ở GetTutorCalendarAsync: convert sang giờ VN trước khi lấy .Date để tránh
+        // lệch ngày với buổi 00:00-06:59 giờ VN.
+        var studentVietnamTimeZone = TimeZoneHelper.GetTimeZoneInfo("Asia/Ho_Chi_Minh");
         return classSessions
-            .GroupBy(l => (l.Checkintime ?? l.Scheduledstart).Date)
+            .GroupBy(l => TimeZoneInfo.ConvertTimeFromUtc(
+                DateTime.SpecifyKind(l.Checkintime ?? l.Scheduledstart, DateTimeKind.Utc),
+                studentVietnamTimeZone).Date)
             .Select(g => new CalendarDayResponse
             {
                 Date = g.Key,
