@@ -77,10 +77,26 @@ namespace MV.DomainLayer.DTO.ResponseModel
     {
         public string? IdentityNumberMasked { get; set; }  // Số CCCD đã mã hóa, vd: 079****5678
         public string? FullName { get; set; }              // Họ và tên
-        public string? DateOfBirth { get; set; }           // Ngày sinh (dd/MM/yyyy)
+        /// <summary>
+        /// Ngày sinh dạng CHUỖI HIỂN THỊ "dd/MM/yyyy" đọc nguyên văn từ CCCD (nhánh fallback lấy
+        /// từ Birthdate cũng format y hệt) — KHÔNG phải ISO 8601. Client tuyệt đối không đưa vào
+        /// `new Date(...)`: "15/06/2004" ra Invalid Date, còn "05/06/2004" bị hiểu thành tháng 5
+        /// ngày 6 nên hiển thị sai ngày mà không có dấu hiệu gì.
+        /// </summary>
+        public string? DateOfBirth { get; set; }
         public string? Gender { get; set; }                // Giới tính
+        public string? Hometown { get; set; }              // Quê quán (chỉ hiển thị, không có cột riêng)
         public string? PermanentAddress { get; set; }      // Địa chỉ thường trú
         public string? PortraitImageUrl { get; set; }      // Ảnh chân dung (avatar gia sư)
         public bool IsVerified { get; set; }
+
+        /// <summary>
+        /// Đã quét CCCD nhưng chủ tài khoản CHƯA xác nhận đưa thông tin vào hồ sơ.
+        /// FE dùng để nhắc lại lời mời xác nhận sau khi tải lại trang.
+        /// </summary>
+        public bool RequiresProfileConfirmation { get; set; }
+
+        /// <summary>Các trường hồ sơ sẽ đổi nếu xác nhận (giá trị hiện tại → giá trị trên CCCD).</summary>
+        public List<EkycProfileFieldChange> PendingProfileChanges { get; set; } = new();
     }
 }

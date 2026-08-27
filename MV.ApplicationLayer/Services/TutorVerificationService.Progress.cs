@@ -147,23 +147,23 @@ namespace MV.ApplicationLayer.Services
             string? dateOfBirth = null;
             string? gender = null;
             string? permanentAddress = null;
+            string? hometown = null;
+            var pendingChanges = new List<EkycProfileFieldChange>();
 
-            var rawEkyc = encryption.Decrypt(user.Ekycrawdata);
-            if (!string.IsNullOrWhiteSpace(rawEkyc))
+            var storedOcr = EkycProfileSync.ParseStoredRawData(encryption.Decrypt(user.Ekycrawdata));
+            if (storedOcr != null)
             {
-                try
-                {
-                    using var doc = JsonDocument.Parse(rawEkyc);
-                    if (doc.RootElement.TryGetProperty("OcrResult", out var ocr))
-                    {
-                        fullName = ocr.TryGetProperty("name", out var n) ? n.GetString() : null;
-                        dateOfBirth = ocr.TryGetProperty("dob", out var d) ? d.GetString() : null;
-                        permanentAddress = ocr.TryGetProperty("address", out var a) ? a.GetString() : null;
-                        var rawSex = ocr.TryGetProperty("sex", out var s) ? s.GetString() : null;
-                        gender = NormalizeSex(rawSex);
-                    }
-                }
-                catch { /* bỏ qua nếu parse lỗi */ }
+                fullName = storedOcr.Name;
+                dateOfBirth = storedOcr.Dob;
+                permanentAddress = storedOcr.Address;
+                hometown = storedOcr.Home;
+                gender = NormalizeSex(storedOcr.Sex);
+
+                // Còn lệch so với hồ sơ hiện tại nghĩa là gia sư đã quét CCCD nhưng chưa bấm
+                // xác nhận (hoặc đã đổi tay sau đó) — chỉ tính là "chờ xác nhận" khi chưa từng
+                // xác nhận lần nào cho lần quét này (ekyc_profile_confirmed_at còn NULL).
+                if (user.Ekycprofileconfirmedat == null)
+                    pendingChanges = EkycProfileSync.Preview(user, storedOcr);
             }
 
             // Fallback sang User entity nếu Ekycrawdata chưa có
@@ -182,9 +182,12 @@ namespace MV.ApplicationLayer.Services
                 FullName = fullName,
                 DateOfBirth = dateOfBirth,
                 Gender = gender,
+                Hometown = hometown,
                 PermanentAddress = permanentAddress,
                 PortraitImageUrl = user.Avatarurl,
-                IsVerified = isVerified
+                IsVerified = isVerified,
+                RequiresProfileConfirmation = pendingChanges.Count > 0,
+                PendingProfileChanges = pendingChanges
             };
         }
 

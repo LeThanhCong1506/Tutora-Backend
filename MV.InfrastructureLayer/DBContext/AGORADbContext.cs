@@ -3303,6 +3303,9 @@ entity.HasOne(d => d.Tutor).WithOne(p => p.Tutorprofile)
                 .HasColumnType("timestamp without time zone")
                 .HasColumnName("created_at");
             entity.Property(e => e.Ekycrawdata).HasColumnName("ekyc_raw_data");
+            entity.Property(e => e.Ekycprofileconfirmedat)
+                .HasColumnType("timestamp without time zone")
+                .HasColumnName("ekyc_profile_confirmed_at");
             entity.Property(e => e.Email)
                 .HasMaxLength(100)
                 .IsRequired(false)

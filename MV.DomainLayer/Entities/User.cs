@@ -55,6 +55,13 @@ public partial class User
 
     public string? Ekycrawdata { get; set; }
 
+    /// <summary>
+    /// Thời điểm chủ tài khoản XÁC NHẬN đưa dữ liệu CCCD vào hồ sơ (họ tên, ngày sinh,
+    /// giới tính, địa chỉ thường trú). Null = đã quét CCCD nhưng chưa xác nhận, hồ sơ giữ
+    /// nguyên giá trị cũ. Danh tính vẫn được coi là đã xác minh (xem Isidentityverified).
+    /// </summary>
+    public DateTime? Ekycprofileconfirmedat { get; set; }
+
     public string? Primaryrole { get; set; }
 
     public string? Googlecalendartoken { get; set; }
