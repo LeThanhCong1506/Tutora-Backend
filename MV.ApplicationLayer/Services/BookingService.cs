@@ -78,6 +78,12 @@ public partial class BookingService(
 
         var tutor = await context.Tutorprofiles.Include(t => t.Tutor).FirstOrDefaultAsync(t => t.Tutorid == dto.TutorId)
             ?? throw new BookingException(BookingErrorCodes.TutorNotFound, "Không tìm thấy gia sư", 404);
+        // Ispublic đã bị các luồng suspend/deactivate hiện có (tự khóa, admin khóa, auto-suspend
+        // do cảnh cáo) tắt kèm theo, nhưng đó là suy luận gián tiếp qua một cờ hiển thị marketplace —
+        // kiểm thẳng Status của chính tài khoản tutor (cùng cờ mà OnTokenValidated ở Program.cs dùng
+        // để chặn đăng nhập) để không phụ thuộc mọi nơi ghi suspension đều nhớ đồng bộ Ispublic.
+        if (tutor.Tutor?.Status == 0)
+            throw new BookingException(BookingErrorCodes.TutorNotAvailable, "Tài khoản gia sư đã bị khóa hoặc tạm ngưng", 409);
         if (!string.Equals(tutor.Profilestatus, TutorProfileStatus.Active, StringComparison.OrdinalIgnoreCase) || tutor.Ispublic != true)
             throw new BookingException(BookingErrorCodes.TutorNotAvailable, "Gia sư chưa được duyệt hoặc chưa hiển thị công khai", 409);
         if (!tutor.Isacceptingbookings)
