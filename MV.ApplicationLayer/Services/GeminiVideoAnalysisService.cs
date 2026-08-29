@@ -216,7 +216,8 @@ public class GeminiVideoAnalysisService : IGeminiVideoAnalysisService
             Bạn là trợ lý giúp gia sư viết báo cáo sau buổi học 1-kèm-1, dựa trên bản ghi âm buổi học.
             Hãy nghe kỹ và trả về đúng 3 nội dung sau, viết bằng tiếng Việt, ở góc nhìn của gia sư viết cho phụ huynh/học sinh đọc:
             - lessonContent: Nội dung đã dạy trong buổi học.
-            - homework: Bài tập về nhà đã giao cho học sinh (để trống nếu không có).
+            - homework: Bài tập về nhà đã giao cho học sinh. Nếu buổi học KHÔNG giao bài tập nào, PHẢI ghi
+              rõ "Không giao bài tập gì cả." — tuyệt đối không để trống hay chỉ viết vài chữ ngắn.
             - tutorNotes: Ghi chú thêm của gia sư về buổi học (thái độ học, điểm cần cải thiện...).
             """;
 
@@ -239,11 +240,14 @@ public class GeminiVideoAnalysisService : IGeminiVideoAnalysisService
         if (parsed is null)
             throw new GeminiResponseParseException("Gemini trả về nội dung báo cáo không hợp lệ.");
 
-        // Buổi học không giao bài thì Gemini trả chuỗi rỗng theo đúng prompt, nhưng đây là field của
-        // form báo cáo gửi phụ huynh — để trống trông như gia sư quên điền, nên ghi rõ là không có.
-        // Chuẩn hoá ở đây thay vì dặn trong prompt: prompt thì model có thể bỏ qua, code thì không.
-        if (string.IsNullOrWhiteSpace(parsed.Homework))
-            parsed.Homework = "Không có bài tập về nhà.";
+        // Buổi học không giao bài thì Gemini có thể vẫn trả về rỗng hoặc vài chữ ngắn ("Không có") dù
+        // prompt đã dặn — model có thể bỏ qua hướng dẫn, code thì không. Form báo cáo phía FE
+        // (LessonReportForm.tsx) yêu cầu tối thiểu 10 ký tự cho field này nếu không để trống hẳn — một
+        // câu trả lời kiểu "Không có." (9 ký tự) sẽ bị FE từ chối, buộc gia sư phải tự gõ lại. Chuẩn hoá
+        // luôn cả trường hợp "có nội dung nhưng quá ngắn", không chỉ trường hợp rỗng hoàn toàn.
+        const int minHomeworkLength = 10;
+        if (parsed.Homework == null || parsed.Homework.Trim().Length < minHomeworkLength)
+            parsed.Homework = "Không giao bài tập gì cả.";
 
         return parsed;
     }
