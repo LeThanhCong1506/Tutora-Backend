@@ -54,11 +54,32 @@ public class CloudRecordingService : ICloudRecordingService
     }
 
     public bool Enabled => _rec.Enabled;
+    public bool AudioOnlyEnabled => _rec.AudioRecordingEnabled;
 
-    public async Task<CloudRecordingHandle> StartAsync(int classSessionId, string channel, CancellationToken ct = default)
+    public Task<CloudRecordingHandle> StartAsync(int classSessionId, string channel, CancellationToken ct = default)
+        => StartInternalAsync(classSessionId, channel, _rec.RecorderUid, audioOnly: false, ct);
+
+    public Task<CloudRecordingResult> StopAsync(
+        int classSessionId, string channel, string resourceId, string sid, CancellationToken ct = default)
+        => StopInternalAsync(classSessionId, channel, resourceId, sid, _rec.RecorderUid, ct);
+
+    /// <summary>Recorder audio-only, chạy song song với recorder video (uid khác, resourceId/sid riêng,
+    /// lưu ở thư mục S3 riêng "recordings-audio/&lt;id&gt;") — không thay thế recorder video, chỉ để pipeline
+    /// AI dùng file audio nhỏ thay vì phải tải nguyên video rồi ffmpeg tách audio.</summary>
+    public Task<CloudRecordingHandle> StartAudioAsync(int classSessionId, string channel, CancellationToken ct = default)
+        => StartInternalAsync(classSessionId, channel, _rec.AudioRecorderUid, audioOnly: true, ct);
+
+    public Task<CloudRecordingResult> StopAudioAsync(
+        int classSessionId, string channel, string resourceId, string sid, CancellationToken ct = default)
+        => StopInternalAsync(classSessionId, channel, resourceId, sid, _rec.AudioRecorderUid, ct);
+
+    // ── Core (dùng chung cho cả recorder video và recorder audio-only) ─────────
+
+    private async Task<CloudRecordingHandle> StartInternalAsync(
+        int classSessionId, string channel, uint recorderUid, bool audioOnly, CancellationToken ct)
     {
         Validate();
-        var uid = _rec.RecorderUid.ToString();
+        var uid = recorderUid.ToString();
 
         // ① acquire — xin resourceId
         var acquireBody = new
@@ -72,8 +93,33 @@ public class CloudRecordingService : ICloudRecordingService
         var resourceId = acquire.ResourceId
             ?? throw new InvalidOperationException("Agora acquire không trả về resourceId.");
 
-        // ② start — bắt đầu record (mode = mix)
-        var token = BuildRecorderToken(channel);
+        // ② start — bắt đầu record (mode = mix cho cả 2, chỉ khác streamTypes/transcodingConfig).
+        // audioOnly=true bỏ hẳn transcodingConfig (không có video để mã hoá) — dùng streamTypes=0.
+        var token = BuildRecorderToken(channel, recorderUid);
+        object recordingConfig = audioOnly
+            ? new
+            {
+                channelType = 0,
+                streamTypes = 0,                        // 0 = chỉ audio
+                maxIdleTime = _rec.MaxIdleTimeSeconds,
+                subscribeAudioUids = new[] { "#allstream#" },
+            }
+            : new
+            {
+                channelType = 0,                        // 0 = communication (client dùng mode 'rtc')
+                streamTypes = 2,                        // 0 audio, 1 video, 2 audio+video
+                maxIdleTime = _rec.MaxIdleTimeSeconds,   // tự dừng nếu channel trống quá lâu
+                subscribeAudioUids = new[] { "#allstream#" },
+                subscribeVideoUids = new[] { "#allstream#" },
+                transcodingConfig = new
+                {
+                    width = _rec.VideoWidth,
+                    height = _rec.VideoHeight,
+                    fps = _rec.VideoFps,
+                    bitrate = _rec.VideoBitrate,
+                    mixedVideoLayout = 1,               // 1 = best fit
+                }
+            };
         var startBody = new
         {
             cname = channel,
@@ -81,24 +127,9 @@ public class CloudRecordingService : ICloudRecordingService
             clientRequest = new
             {
                 token,
-                recordingConfig = new
-                {
-                    channelType = 0,                        // 0 = communication (client dùng mode 'rtc')
-                    streamTypes = 2,                        // 0 audio, 1 video, 2 audio+video
-                    maxIdleTime = _rec.MaxIdleTimeSeconds,   // tự dừng nếu channel trống quá lâu
-                    subscribeAudioUids = new[] { "#allstream#" },
-                    subscribeVideoUids = new[] { "#allstream#" },
-                    transcodingConfig = new
-                    {
-                        width = _rec.VideoWidth,
-                        height = _rec.VideoHeight,
-                        fps = _rec.VideoFps,
-                        bitrate = _rec.VideoBitrate,
-                        mixedVideoLayout = 1,               // 1 = best fit
-                    }
-                },
+                recordingConfig,
                 recordingFileConfig = new { avFileType = new[] { "hls", "mp4" } },
-                storageConfig = BuildStorageConfig(classSessionId)
+                storageConfig = BuildStorageConfig(classSessionId, audioOnly)
             }
         };
         var start = await PostAsync<StartResponse>(
@@ -107,16 +138,16 @@ public class CloudRecordingService : ICloudRecordingService
             ?? throw new InvalidOperationException("Agora start không trả về sid.");
 
         _logger.LogInformation(
-            "Cloud recording STARTED: session={Session} resourceId={ResourceId} sid={Sid}",
-            classSessionId, resourceId, sid);
+            "Cloud recording STARTED ({Kind}): session={Session} resourceId={ResourceId} sid={Sid}",
+            audioOnly ? "audio-only" : "video", classSessionId, resourceId, sid);
         return new CloudRecordingHandle(resourceId, sid);
     }
 
-    public async Task<CloudRecordingResult> StopAsync(
-        int classSessionId, string channel, string resourceId, string sid, CancellationToken ct = default)
+    private async Task<CloudRecordingResult> StopInternalAsync(
+        int classSessionId, string channel, string resourceId, string sid, uint recorderUid, CancellationToken ct)
     {
         Validate();
-        var uid = _rec.RecorderUid.ToString();
+        var uid = recorderUid.ToString();
 
         var stopBody = new
         {
@@ -133,8 +164,9 @@ public class CloudRecordingService : ICloudRecordingService
             .Select(n => n!)
             .ToList() ?? new List<string>();
 
-        // Ưu tiên file .mp4 cho link xem lại
+        // Ưu tiên file .mp4 (container mp4 chỉ chứa audio track vẫn nhận .mp4 với recorder audio-only)
         var main = files.FirstOrDefault(f => f.EndsWith(".mp4", StringComparison.OrdinalIgnoreCase))
+                   ?? files.FirstOrDefault(f => f.EndsWith(".m4a", StringComparison.OrdinalIgnoreCase))
                    ?? files.FirstOrDefault();
         string? playbackUrl = null;
         if (!string.IsNullOrWhiteSpace(_rec.PublicUrlBase) && main != null)
@@ -147,7 +179,7 @@ public class CloudRecordingService : ICloudRecordingService
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private object BuildStorageConfig(int classSessionId)
+    private object BuildStorageConfig(int classSessionId, bool audioOnly)
     {
         var cfg = new Dictionary<string, object?>
         {
@@ -156,8 +188,11 @@ public class CloudRecordingService : ICloudRecordingService
             ["bucket"] = _rec.StorageBucket,
             ["accessKey"] = _rec.StorageAccessKey,
             ["secretKey"] = _rec.StorageSecretKey,
-            // Tên file sẽ nằm trong thư mục recordings/<classSessionId>/...
-            ["fileNamePrefix"] = new[] { "recordings", classSessionId.ToString() },
+            // Video: recordings/<id>/... — Audio-only: recordings-audio/<id>/... (thư mục riêng, không
+            // lẫn với video, để job relay dễ phân biệt việc cần làm gì với từng loại).
+            ["fileNamePrefix"] = audioOnly
+                ? new[] { "recordings-audio", classSessionId.ToString() }
+                : new[] { "recordings", classSessionId.ToString() },
         };
         // S3-compatible (Backblaze B2, R2...) cần endpoint tùy chỉnh.
         // Agora yêu cầu "domain name" — KHÔNG kèm http/https.
@@ -172,7 +207,7 @@ public class CloudRecordingService : ICloudRecordingService
         return cfg;
     }
 
-    private string BuildRecorderToken(string channel)
+    private string BuildRecorderToken(string channel, uint recorderUid)
     {
         var issueTs = (uint)DateTimeOffset.UtcNow.ToUnixTimeSeconds();
 
@@ -185,7 +220,7 @@ public class CloudRecordingService : ICloudRecordingService
             _agora.AppId,
             _agora.AppCertificate,
             channel,
-            _rec.RecorderUid,
+            recorderUid,
             RtcTokenBuilder2.RolePublisher,
             tokenExpire: _rec.TokenExpireSeconds,
             privilegeExpire: _rec.TokenExpireSeconds,
