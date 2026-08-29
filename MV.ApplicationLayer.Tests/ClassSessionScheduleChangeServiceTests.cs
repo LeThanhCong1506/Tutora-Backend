@@ -12,11 +12,15 @@ namespace MV.ApplicationLayer.Tests;
 
 public class ClassSessionScheduleChangeServiceTests
 {
-    // Cơ chế xác nhận vào học ngoài giờ đã được khôi phục lại (từng bị gỡ theo yêu cầu sản phẩm,
-    // nay khôi phục theo yêu cầu mới). Buổi CHÍNH (Iscontinuation=false) ngoài khung giờ bình
-    // thường [Scheduledstart-15p, Scheduledend] phải tạo yêu cầu xác nhận trước khi được vào.
+    // Vào lớp ngoài khung giờ đã hẹn KHÔNG còn cần xác nhận đồng thuận: luật giờ đồng nhất với
+    // trường hợp đúng giờ — đủ hai bên trong lobby là vào được. Trước đây buổi CHÍNH ngoài khung
+    // [Scheduledstart-15p, Scheduledend] phải qua một vòng xin/duyệt riêng, khiến cùng một hành
+    // động lại có hai luật khác nhau tuỳ chênh lệch mấy phút so với giờ hẹn.
+    //
+    // Các rào chắn khác vẫn giữ: đề xuất đổi lịch đang chờ vẫn khoá cổng, trùng lịch vẫn bị chặn
+    // ở AgoraController, và phòng vẫn tự đóng sau giờ kết thúc + 30 phút.
     [Fact]
-    public async Task OutOfWindowSession_ForRegularSession_RequiresConfirmation()
+    public async Task OutOfWindowSession_ForRegularSession_DoesNotRequireConfirmation()
     {
         await using var db = CreateContext();
         SeedSession(db, DateOnly.FromDateTime(TimeZoneHelper.UtcNow).AddYears(-15));
@@ -24,12 +28,13 @@ public class ClassSessionScheduleChangeServiceTests
         var service = CreateService(db);
 
         // SeedSession đặt Scheduledstart/Scheduledend trong quá khứ — ngoài "khung giờ bình
-        // thường" nên bắt buộc đồng thuận trước khi cho vào.
+        // thường", nhưng vẫn phải cho vào thẳng.
         var tutorState = await service.GetOrCreateStateAsync(1, "tutor-1", UserRole.Tutor);
-        Assert.True(tutorState.RequiresConfirmation);
-        Assert.False(tutorState.AdmissionAllowed);
+        Assert.False(tutorState.RequiresConfirmation);
+        Assert.True(tutorState.AdmissionAllowed);
 
-        Assert.NotEmpty(await db.ClassSessionScheduleChanges.ToListAsync());
+        // Và không được tạo yêu cầu xác nhận nào — luồng cũ phải im hẳn, không chỉ bị bỏ qua.
+        Assert.Empty(await db.ClassSessionScheduleChanges.ToListAsync());
     }
 
     // Buổi PHỤ (Iscontinuation=true) là ngoại lệ — luôn coi là trong khung giờ bình thường dù

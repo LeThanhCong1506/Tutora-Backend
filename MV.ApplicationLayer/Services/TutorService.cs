@@ -380,6 +380,38 @@ namespace MV.ApplicationLayer.Services
                 .ToList();
         }
 
+
+        /// <summary>
+        /// Khung cố định của gói phải nằm TRỌN trong lịch rảnh, nếu không phụ huynh sẽ thấy gói
+        /// nhưng đặt là lỗi (BookingService.ValidateSlotsAsync đối chiếu với lịch rảnh). Chiều
+        /// ngược lại được chặn ở TutorAvailabilityService.
+        /// </summary>
+        private async Task ValidateFixedSlotsInsideAvailabilityAsync(
+            string tutorId,
+            IEnumerable<PackageAvailabilityGuard.PackageSlot> slots)
+        {
+            var windows = await _context.Tutoravailabilities
+                .AsNoTracking()
+                .Where(a => a.Tutorid == tutorId
+                    && a.Dayofweek.HasValue && a.Starttime.HasValue && a.Endtime.HasValue)
+                .Select(a => new { Day = a.Dayofweek!.Value, Start = a.Starttime!.Value, End = a.Endtime!.Value })
+                .ToListAsync();
+
+            var orphan = PackageAvailabilityGuard.FindSlotOutsideAvailability(
+                slots,
+                windows.Select(w => new PackageAvailabilityGuard.AvailabilityWindow(
+                    w.Day, w.Start.ToTimeSpan(), w.End.ToTimeSpan())));
+
+            if (orphan == null) return;
+
+            var o = orphan.Value;
+            throw new InvalidOperationException(
+                $"Khung {TutorScheduleGuard.UtcTimeOfDayToVietnameseLocal(TimeOnly.FromTimeSpan(o.Start).ToString("HH:mm"))}"
+                + $"-{TutorScheduleGuard.UtcTimeOfDayToVietnameseLocal(TimeOnly.FromTimeSpan(o.End).ToString("HH:mm"))} "
+                + $"({TutorScheduleGuard.IsoDayOfWeekToVietnameseName(o.DayOfWeek)}) nằm ngoài lịch rảnh của bạn. "
+                + "Phụ huynh sẽ không đặt được khung này. Vui lòng mở lịch rảnh cho khung giờ đó trước.");
+        }
+
         public async Task<TutorPackageResponse?> CreateTutorPackageAsync(string tutorId, CreateTutorPackageRequest request)
         {
             var profile = await _tutorRepository.GetTutorProfileByIdAsync(tutorId);
@@ -387,6 +419,14 @@ namespace MV.ApplicationLayer.Services
 
             ValidateTutorPackageRequest(request);
             await ValidateTutorCanUsePackageSubjectAsync(tutorId, request);
+
+            // Chỉ gói FIXED mới hứa giờ cụ thể; gói flexible không có fixed slot hợp lệ nào.
+            if (request.PackageType == Tutorpackage.FixedPackageType)
+                await ValidateFixedSlotsInsideAvailabilityAsync(
+                tutorId,
+                request.FixedSlots.Select(x => new PackageAvailabilityGuard.PackageSlot(
+                    0, request.Name, x.DayOfWeek,
+                    TimeOnly.Parse(x.StartTime).ToTimeSpan(), TimeOnly.Parse(x.EndTime).ToTimeSpan())));
 
             // Guard: không cho tạo khung cố định đè lên buổi dạy đã cam kết (tránh trùng lịch).
             var committed = await TutorScheduleGuard.GetFutureCommittedSessionsAsync(_context, tutorId);
@@ -453,6 +493,25 @@ namespace MV.ApplicationLayer.Services
             var package = await _tutorRepository.GetTutorPackageAsync(tutorId, packageId);
             if (package == null) return false;
 
+            // Gói tắt không ràng buộc với lịch rảnh (xem PackageAvailabilityGuard), nên lịch rảnh
+            // có thể đã bị thu hẹp trong lúc gói nằm im. Kiểm tra ở ĐÚNG thời điểm nó quay lại
+            // marketplace, nếu không sẽ tái hiện đúng lỗi mà ràng buộc này sinh ra để chặn: gói
+            // hiện cho phụ huynh xem nhưng đặt là lỗi.
+            var fixedSlots = await _context.Tutorpackagefixedslots
+                .AsNoTracking()
+                .Where(x => x.Packageid == packageId)
+                .Select(x => new { x.Dayofweek, x.Starttime, x.Endtime })
+                .ToListAsync();
+
+            if (fixedSlots.Count > 0 && package.Packagetype == Tutorpackage.FixedPackageType)
+            {
+                await ValidateFixedSlotsInsideAvailabilityAsync(
+                    tutorId,
+                    fixedSlots.Select(x => new PackageAvailabilityGuard.PackageSlot(
+                        packageId, package.Name, x.Dayofweek,
+                        x.Starttime.ToTimeSpan(), x.Endtime.ToTimeSpan())));
+            }
+
             package.Isactive = true;
             package.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
             await _context.SaveChangesAsync();
@@ -494,6 +553,13 @@ namespace MV.ApplicationLayer.Services
 
             ValidateTutorPackageRequest(request);
             await ValidateTutorCanUsePackageSubjectAsync(tutorId, request);
+
+            if (request.PackageType == Tutorpackage.FixedPackageType)
+                await ValidateFixedSlotsInsideAvailabilityAsync(
+                tutorId,
+                request.FixedSlots.Select(x => new PackageAvailabilityGuard.PackageSlot(
+                    packageId, request.Name, x.DayOfWeek,
+                    TimeOnly.Parse(x.StartTime).ToTimeSpan(), TimeOnly.Parse(x.EndTime).ToTimeSpan())));
 
             // Guard 1: gói này còn buổi dạy chưa hoàn tất → khóa, không cho sửa.
             var ownCommitted = await TutorScheduleGuard.GetFutureCommittedSessionsAsync(_context, tutorId, packageId);

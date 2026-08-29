@@ -344,27 +344,93 @@ public class DisputeService : IDisputeService
         return $"/api/class-sessions/{classSessionId.Value}/recording/stream?token={Uri.EscapeDataString(token)}";
     }
 
-    public async Task<List<ChatMessageResponse>> GetDisputeChatHistoryAsync(int disputeId)
+    public async Task<DisputeChatHistoryResponse> GetDisputeChatHistoryAsync(int disputeId)
     {
+        var empty = new DisputeChatHistoryResponse();
+
         var dispute = await _disputeRepo.FindWithBookingAsync(disputeId);
-        if (dispute?.Booking == null) return new List<ChatMessageResponse>();
+        if (dispute?.Booking == null) return empty;
 
         var channelId = await _disputeRepo.GetChannelIdForBookingAsync(dispute.Bookingid ?? 0);
-        if (channelId == null) return new List<ChatMessageResponse>();
+        if (channelId == null) return empty;
+
+        // Kênh chat là per cặp gia sư - phụ huynh/học sinh (xem GetChannelIdForBookingAsync), nên
+        // lịch sử trả về gồm cả các booking khác của cùng cặp đó. Không cắt bớt: phần thương lượng
+        // trước khi đặt lớp thường là bằng chứng quan trọng nhất. Thay vào đó gắn mốc thời gian của
+        // booking/buổi học đang tranh chấp để admin biết đoạn nào thuộc phạm vi cần xem xét.
+        var bookingStart = dispute.Booking.Createdat;
+        var bookingEnd = await GetBookingChatWindowEndAsync(dispute.Bookingid);
+
+        DateTime? sessionStart = null;
+        DateTime? sessionEnd = null;
+        if (dispute.Classsessionid.HasValue)
+        {
+            var session = await _context.ClassSessions
+                .AsNoTracking()
+                .Where(s => s.Classsessionid == dispute.Classsessionid.Value)
+                .Select(s => new { s.Scheduledstart, s.Scheduledend, s.Realstart, s.Realend })
+                .FirstOrDefaultAsync();
+            if (session != null)
+            {
+                sessionStart = session.Realstart ?? session.Scheduledstart;
+                sessionEnd = session.Realend ?? session.Scheduledend;
+            }
+        }
 
         var messages = await _disputeRepo.GetChannelMessagesAsync(channelId.Value);
 
-        return messages.Select(m => new ChatMessageResponse
+        return new DisputeChatHistoryResponse
         {
-            MessageId = m.Messageid,
-            ChannelId = m.Channelid ?? 0,
-            SenderId = m.Senderid ?? string.Empty,
-            SenderName = m.Sender?.Fullname,
-            SenderAvatarUrl = m.Sender?.Avatarurl,
-            Content = m.Content ?? string.Empty,
-            MessageType = m.Messagetype ?? ChatMessageType.Text,
-            CreatedAt = m.Createdat.HasValue ? m.Createdat.Value : (DateTime?)null
-        }).ToList();
+            ChannelId = channelId.Value,
+            DisputedBookingId = dispute.Bookingid,
+            BookingWindowStart = bookingStart,
+            BookingWindowEnd = bookingEnd,
+            DisputedClassSessionId = dispute.Classsessionid,
+            SessionWindowStart = sessionStart,
+            SessionWindowEnd = sessionEnd,
+            Messages = messages.Select(m => new DisputeChatMessageResponse
+            {
+                MessageId = m.Messageid,
+                ChannelId = m.Channelid ?? 0,
+                SenderId = m.Senderid ?? string.Empty,
+                SenderName = m.Sender?.Fullname,
+                SenderAvatarUrl = m.Sender?.Avatarurl,
+                Content = m.Content ?? string.Empty,
+                MessageType = m.Messagetype ?? ChatMessageType.Text,
+                CreatedAt = m.Createdat,
+                IsBeforeBooking = IsBefore(m.Createdat, bookingStart),
+                IsWithinDisputedBooking = IsWithin(m.Createdat, bookingStart, bookingEnd),
+                IsWithinDisputedSession = IsWithin(m.Createdat, sessionStart, sessionEnd)
+            }).ToList()
+        };
+    }
+
+    /// <summary>
+    /// Cửa sổ chat của booking kết thúc ở buổi học cuối cùng. Null nghĩa là booking chưa có buổi
+    /// nào hoặc vẫn đang chạy, khi đó cửa sổ để mở tới hiện tại.
+    /// </summary>
+    private async Task<DateTime?> GetBookingChatWindowEndAsync(int? bookingId)
+    {
+        if (!bookingId.HasValue) return null;
+
+        var ends = await _context.ClassSessions
+            .AsNoTracking()
+            .Where(s => s.Bookingid == bookingId.Value)
+            .Select(s => s.Realend ?? s.Scheduledend)
+            .ToListAsync();
+
+        return ends.Count == 0 ? null : ends.Max();
+    }
+
+    private static bool IsBefore(DateTime? at, DateTime? start)
+        => at.HasValue && start.HasValue && at.Value < start.Value;
+
+    /// <summary>Cửa sổ mở (end null) tính là kéo dài tới hiện tại.</summary>
+    private static bool IsWithin(DateTime? at, DateTime? start, DateTime? end)
+    {
+        if (!at.HasValue || !start.HasValue) return false;
+        if (at.Value < start.Value) return false;
+        return !end.HasValue || at.Value <= end.Value;
     }
 
     /// <summary>Tutor gets 48h from dispute creation to submit a rebuttal before admin can start investigating.</summary>
@@ -807,7 +873,17 @@ public class DisputeService : IDisputeService
                 tutorId = classSession?.Tutorid;
                 createdBy = dispute.Createdby;
 
-                if (request.CreateTutorWarning && tutorId != null)
+                // Phán quyết bất lợi cho gia sư → cảnh cáo là mặc định, admin phải chủ động truyền
+                // false mới bỏ qua. Release (0%) nghĩa là gia sư đúng nên không tự cảnh cáo.
+                //
+                // CancelCourse cũng tính là bất lợi dù refundPercentage của BUỔI này bằng 0: phần
+                // hoàn tiền của nó nằm ở các buổi chưa diễn ra, và huỷ cả khoá vì tranh chấp thì
+                // rõ ràng không phải phán quyết có lợi cho gia sư.
+                var verdictAgainstTutor =
+                    refundPercentage > 0 || request.ResolutionType == ResolutionTypes.CancelCourse;
+                var shouldWarnTutor = request.CreateTutorWarning ?? verdictAgainstTutor;
+
+                if (shouldWarnTutor && tutorId != null)
                 {
                     var warningRequest = new CreateWarningRequest
                     {

@@ -173,8 +173,12 @@ public partial class AdminRevenueAnalyticsService
         var subjectNames = await context.Subjects.AsNoTracking()
             .ToDictionaryAsync(s => s.Subjectid, s => s.Subjectname, ct);
 
+        // Trước đây chỉ liệt kê booking CHƯA hoàn thành và cắt còn 30 dòng (bảng chẩn đoán
+        // "ghi nhận sớm vs thực hiện"). Nay đổi thành danh sách booking đầy đủ kèm chỉ số doanh
+        // thu để admin tra cứu trực tiếp — booking đã hoàn thành mới là nguồn doanh thu chắc
+        // chắn nhất, không có lý do gì giấu đi. Vẫn giữ phạm vi `revenueBookings` (chỉ các
+        // trạng thái thực sự phát sinh doanh thu) để tổng ở bảng khớp với phần còn lại của tab.
         var progress = revenueBookings
-            .Where(b => b.Status != BookingStatus.Completed)
             .Select(b =>
             {
                 var settled = settledCount.TryGetValue(b.BookingId, out var c) ? c : 0;
@@ -196,8 +200,9 @@ public partial class AdminRevenueAnalyticsService
                     Status = b.Status ?? "",
                 };
             })
-            .OrderBy(p => p.TotalSessions == 0 ? 1 : (double)p.DeliveredSessions / p.TotalSessions)
-            .Take(30)
+            // Mới nhất lên đầu — hợp với việc tra cứu hơn là sắp theo tiến độ như bảng chẩn đoán cũ.
+            .OrderByDescending(p => p.CreatedAt ?? DateTime.MinValue)
+            .ThenByDescending(p => p.BookingId)
             .ToList();
 
         return new AdminRevenueRecognitionResponse

@@ -26,7 +26,8 @@ public interface IAdminBookingService
 
     /// <summary>
     /// Staff hủy booking sau khi xác minh NGOÀI hệ thống (qua tổng đài) rằng phụ huynh đã "nghỉ
-    /// ngang". Giải ngân toàn bộ escrow còn lại cho gia sư. Trả về false nếu booking không tồn
+    /// ngang". Gia sư nhận tiền các buổi đã dạy; phụ huynh được hoàn tiền các buổi chưa dạy theo
+    /// giá gốc, không gồm phí dịch vụ. Trả về false nếu booking không tồn
     /// tại hoặc không ở trạng thái hợp lệ để hủy (đã terminal, hoặc có buổi đang mid-flight).
     /// </summary>
     Task<bool> CancelGhostBookingAsync(int bookingId, string adminId, string reason, CancellationToken ct = default);

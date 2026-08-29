@@ -20,8 +20,7 @@ public static class Permissions
     public const string FinancialView = "financial.view";
     public const string FinancialManage = "financial.manage";
     public const string BookingView = "booking.view";
-    /// <summary>Hủy booking do staff xác minh phụ huynh "nghỉ ngang" (ghost) ngoài hệ thống, chuyển
-    /// toàn bộ escrow còn lại cho gia sư.</summary>
+    /// <summary>Hủy booking do staff xác minh phụ huynh "nghỉ ngang" (ghost) ngoài hệ thống.</summary>
     public const string BookingCancel = "booking.cancel";
     public const string PaymentConfirm = "payment.confirm";
     public const string PromotionManage = "promotion.manage";

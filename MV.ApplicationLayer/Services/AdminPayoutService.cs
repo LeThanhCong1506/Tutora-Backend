@@ -187,8 +187,18 @@ public class AdminPayoutService(
 
         if (!string.IsNullOrWhiteSpace(status))
         {
-            var normalizedStatus = status.Trim().ToLowerInvariant();
-            query = query.Where(w => w.Status == normalizedStatus);
+            // Nhận 1 hoặc NHIỀU trạng thái ngăn cách bằng dấu phẩy ("approved,pending"). Cần thiết
+            // vì "chờ xử lý" trên thẻ thống kê ở trang Tài chính gồm 4 trạng thái
+            // (AdminFinancialService.PendingWithdrawalStatuses) — trước đây chỉ so khớp đúng 1 giá
+            // trị nên thẻ đếm ra 1 yêu cầu mà bảng bên dưới lại trống. Truyền 1 giá trị vẫn chạy
+            // y như cũ nên không phá vỡ caller nào đang dùng.
+            var statuses = status
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Select(s => s.ToLowerInvariant())
+                .Distinct()
+                .ToArray();
+            if (statuses.Length > 0)
+                query = query.Where(w => w.Status != null && statuses.Contains(w.Status));
         }
         if (!string.IsNullOrWhiteSpace(search))
         {

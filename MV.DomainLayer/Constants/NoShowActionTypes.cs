@@ -14,5 +14,13 @@ public static class NoShowActionTypes
     /// <summary>Cancel booking and refund remaining sessions.</summary>
     public const string ChangeTutor = "change_tutor";
 
-    public static readonly string[] All = { FreeSession, Makeup, ChangeTutor };
+    /// <summary>
+    /// Buổi không ghi nhận ai vào lớp, đã báo cả hai bên và hết hạn phản hồi mà không ai có ý
+    /// kiến — hệ thống tự đưa về luồng xác nhận bình thường. Đánh dấu riêng để thống kê và đánh
+    /// giá gia sư không coi nó như một buổi dạy thật (buổi thật luôn có class_session_reports).
+    /// Giá trị phải ≤ 30 ký tự — giới hạn của cột no_show_action.
+    /// </summary>
+    public const string AutoNoAttendance = "auto_no_attendance";
+
+    public static readonly string[] All = { FreeSession, Makeup, ChangeTutor, AutoNoAttendance };
 }

@@ -28,9 +28,17 @@ public class ResolveDisputeRequest
     public string ResolutionNote { get; set; } = null!;
 
     /// <summary>
-    /// Whether to create a warning for the tutor
+    /// Có tạo cảnh cáo cho gia sư hay không.
+    ///
+    /// Bỏ trống (null) = để hệ thống tự quyết: quyết định có hoàn tiền cho phụ huynh nghĩa là
+    /// phần lỗi thuộc về gia sư, nên MẶC ĐỊNH có cảnh cáo. Trước đây mặc định là false khiến
+    /// thang phạt (3 cảnh cáo/30 ngày → đình chỉ → tái phạm → khoá vĩnh viễn) không bao giờ
+    /// khởi động nếu admin quên tick — mà đó là rào cản duy nhất trước việc dàn dựng no-show.
+    ///
+    /// Truyền false một cách tường minh nếu admin cố ý bỏ qua cảnh cáo (ví dụ lỗi kỹ thuật của
+    /// nền tảng, không phải lỗi gia sư).
     /// </summary>
-    public bool CreateTutorWarning { get; set; } = false;
+    public bool? CreateTutorWarning { get; set; }
 
     /// <summary>
     /// Warning level if creating warning (1 or 2)

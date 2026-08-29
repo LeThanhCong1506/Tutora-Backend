@@ -76,9 +76,10 @@ public class AdminBookingController(IAdminBookingService adminBookingService) : 
     /// <summary>
     /// POST /api/admin/bookings/{id}/cancel-ghost
     /// Staff hủy booking sau khi xác minh NGOÀI hệ thống (qua tổng đài) rằng phụ huynh đã "nghỉ
-    /// ngang" — không còn tham gia/phản hồi. Giải ngân toàn bộ escrow còn lại (kể cả các buổi
-    /// chưa dạy) cho gia sư. Không gắn với luồng dispute nào — gia sư không cần thao tác gì trên
-    /// hệ thống, chỉ cần liên hệ tổng đài để staff xác minh và thực hiện thao tác này.
+    /// ngang" — không còn tham gia/phản hồi. Gia sư nhận tiền các buổi đã dạy; phụ huynh được hoàn
+    /// tiền các buổi chưa dạy theo giá gốc, không gồm phí dịch vụ. Không gắn với luồng dispute nào —
+    /// gia sư không cần thao tác gì trên hệ thống, chỉ cần liên hệ tổng đài để staff xác minh và thực
+    /// hiện thao tác này.
     /// </summary>
     [RequirePermission(Permissions.BookingCancel)]
     [HttpPost("{id:int}/cancel-ghost")]
@@ -93,7 +94,7 @@ public class AdminBookingController(IAdminBookingService adminBookingService) : 
             var success = await adminBookingService.CancelGhostBookingAsync(id, adminId, request.Reason, ct);
 
             return success
-                ? Ok(APIResponse.Success("Đã hủy booking và giải ngân toàn bộ số tiền còn lại cho gia sư."))
+                ? Ok(APIResponse.Success("Đã hủy booking, thanh toán các buổi đã dạy và hoàn tiền các buổi chưa dạy."))
                 : BadRequest(APIResponse.Fail(
                     "Không thể hủy booking này lúc này (không tồn tại, đã kết thúc, hoặc có buổi đang xử lý dở dang).",
                     400));
