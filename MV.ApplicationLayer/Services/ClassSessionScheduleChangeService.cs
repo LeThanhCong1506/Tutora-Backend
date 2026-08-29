@@ -120,6 +120,36 @@ public class ClassSessionScheduleChangeService(
             return blockedResponse;
         }
 
+        // ── Vào lớp ngoài khung giờ đã hẹn KHÔNG còn cần xác nhận đồng thuận ────────────────
+        //
+        // Luật giờ đồng nhất với trường hợp đúng giờ: đủ hai bên trong lobby là vào được. Trước
+        // đây ngoài khung giờ phải qua một vòng xin/duyệt riêng (gia sư gửi yêu cầu, phía học viên
+        // bấm đồng ý), khiến cùng một hành động lại có hai luật khác nhau tuỳ vào chênh lệch mấy
+        // phút so với giờ hẹn.
+        //
+        // Những rào chắn KHÁC vẫn giữ nguyên và không bị ảnh hưởng:
+        //  - Đề xuất đổi lịch đang chờ (khối ngay phía trên) vẫn khoá cổng vào lớp.
+        //  - Trùng lịch với buổi khác vẫn bị chặn ở AgoraController.AdmitAndBuildRoomAsync qua
+        //    ClassSessionScheduleConflictGuard — không đi qua đường xác nhận này.
+        //  - Phòng vẫn tự đóng sau giờ kết thúc + 30 phút (ClassSessionService.M3.Attendance).
+        //
+        // Hệ quả: Scheduledstart/Scheduledend KHÔNG còn bị ghi đè khi vào sớm (trước đây yêu cầu
+        // được duyệt sẽ dời lịch về giờ hiện tại). Giờ hẹn gốc giữ nguyên như cam kết ban đầu, còn
+        // giờ vào học thật được ghi ở Checkintime/Realstart.
+        var staleRequest = latest is not null
+            && (latest.Status == ScheduleChangeStatus.Pending || latest.Status == ScheduleChangeStatus.Approved);
+
+        if (staleRequest)
+        {
+            // Dọn yêu cầu còn sót từ luồng cũ để không hiện lại trên giao diện.
+            latest!.Status = ScheduleChangeStatus.Expired;
+            latest.Updatedat = now;
+            await db.SaveChangesAsync(cancellationToken);
+        }
+
+        return Map(session, latest, userId, false, true);
+
+#pragma warning disable CS0162 // Luồng xác nhận cũ giữ lại để bật lại được nếu đổi ý.
         if (latest != null
             && (latest.Status == ScheduleChangeStatus.Pending
                 || latest.Status == ScheduleChangeStatus.Approved
@@ -196,6 +226,7 @@ public class ClassSessionScheduleChangeService(
 
         await NotifyApproversAsync(session, change, userId);
         return Map(session, change, userId, true, false);
+#pragma warning restore CS0162
     }
 
     public async Task<SessionScheduleChangeResponse> RespondAsync(

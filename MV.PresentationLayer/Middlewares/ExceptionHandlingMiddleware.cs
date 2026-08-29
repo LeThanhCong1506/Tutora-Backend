@@ -50,10 +50,19 @@ namespace SP25.OJT202.AccountManagement.Presentation.Middlewares
 
             switch (exception)
             {
-                //Case sẽ là Invalid token: User's ID is missing
+                // Trong codebase này, InvalidOperationException là KÊNH mang thông điệp nghiệp
+                // vụ tiếng Việt cho người dùng — mọi controller có try/catch đều trả thẳng
+                // ex.Message (vd "Cần chờ đủ 48h…", "Khung … nằm ngoài lịch rảnh của bạn").
+                // Trước đây middleware thay bằng một câu chung chung, nên ~90 endpoint ghi dữ
+                // liệu không tự bắt sẽ khiến người dùng không biết mình sai ở đâu.
+                //
+                // Đánh đổi đã biết: .NET/EF cũng ném loại này cho lỗi kỹ thuật ("Sequence
+                // contains no elements", …) và message đó giờ lọt ra ngoài. Chấp nhận vì nó khó
+                // hiểu chứ không lộ bí mật, và những ca đó vốn là bug cần sửa. Nếu về sau thấy
+                // phiền, hãy tách một BusinessRuleException riêng và chỉ cho loại đó đi qua.
                 case InvalidOperationException:
                     statusCode = (int)HttpStatusCode.BadRequest;
-                    message = "Invalid operation. Please check your request.";
+                    message = exception.Message;
                     break;
                 case AccountLockedException:
                     statusCode = (int)HttpStatusCode.Forbidden;

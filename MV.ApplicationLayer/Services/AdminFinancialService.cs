@@ -84,8 +84,14 @@ public class AdminFinancialService(
         var currentYearStartUser = new DateTime(userNow.Year, 1, 1, 0, 0, 0, DateTimeKind.Unspecified);
         var currentYearStartUtc = DateTime.SpecifyKind(currentYearStartUser, DateTimeKind.Utc);
 
-        // ─── Fetch raw projections in parallel ──────────────────────────────
-        var bookingsRawTask = context.Bookings
+        // ─── Fetch raw projections ──────────────────────────────────────────
+        // CỐ Ý chạy TUẦN TỰ, không Task.WhenAll: mọi truy vấn dưới đây dùng CHUNG một
+        // DbContext (scoped), mà DbContext của EF Core không thread-safe và không cho phép 2
+        // thao tác chồng nhau — khởi động song song sẽ ném "A second operation was started on
+        // this context instance before a previous operation completed" và cả trang Tài chính
+        // rơi về dữ liệu mẫu. Muốn chạy song song thật thì phải dùng IDbContextFactory để mỗi
+        // truy vấn có context riêng; ở quy mô hiện tại chi phí tuần tự không đáng kể.
+        var allBookings = await context.Bookings
             .AsNoTracking()
             .Select(b => new BookingRaw(
                 b.Status,
@@ -96,7 +102,7 @@ public class AdminFinancialService(
                 b.Createdat))
             .ToListAsync(ct);
 
-        var classSessionsRawTask = context.ClassSessions
+        var allClassSessions = await context.ClassSessions
             .AsNoTracking()
             .Select(l => new ClassSessionRaw(
                 l.Status,
@@ -105,57 +111,45 @@ public class AdminFinancialService(
                 l.Scheduledstart))
             .ToListAsync(ct);
 
-        var usersRawTask = context.Users
+        var allUsers = await context.Users
             .AsNoTracking()
             .Select(u => new UserRaw(u.Primaryrole, u.Createdat))
             .ToListAsync(ct);
 
-        var tutorProfilesRawTask = context.Tutorprofiles
+        var tutorProfiles = await context.Tutorprofiles
             .AsNoTracking()
             .Select(t => new TutorProfileRaw(t.Profilestatus, t.Ispublic, t.Averagerating))
             .ToListAsync(ct);
 
-        var withdrawalsRawTask = context.Withdrawalrequests
+        var allWithdrawals = await context.Withdrawalrequests
             .AsNoTracking()
             .Select(w => new WithdrawalRaw(w.Status, w.Amount, w.Requestedat, w.Processedat))
             .ToListAsync(ct);
 
-        var walletFrozenTask = context.Wallets
+        var totalFrozen = await context.Wallets
             .AsNoTracking()
             .SumAsync(w => w.Frozenbalance ?? 0, ct);
 
-        var walletTxRawTask = context.Wallettransactions
+        var walletTx = await context.Wallettransactions
             .AsNoTracking()
             .Select(t => new WalletTxRaw(t.Transactiontype, t.Amount))
             .ToListAsync(ct);
 
-        var subjectsTask = context.Subjects
+        var subjects = await context.Subjects
             .AsNoTracking()
             .Select(s => new { s.Subjectid, s.Subjectname })
             .ToListAsync(ct);
 
         // Doanh thu bán gói AI credit: payment_transactions Succeeded, purpose=AiCreditPurchase.
-        var aiCreditTxRawTask = context.PaymentTransactions
+        var aiCreditTxRaw = await context.PaymentTransactions
             .AsNoTracking()
             .Where(t => t.Purpose == PaymentTransactionPurpose.AiCreditPurchase
                         && t.Status == PaymentTransactionStatus.Succeeded)
             .Select(t => new { t.Amount, t.Paidat, t.Createdat })
             .ToListAsync(ct);
 
-        await Task.WhenAll(
-            bookingsRawTask, classSessionsRawTask, usersRawTask,
-            tutorProfilesRawTask, withdrawalsRawTask, walletTxRawTask, subjectsTask, aiCreditTxRawTask);
-
-        var allBookings = await bookingsRawTask;
-        var allClassSessions = await classSessionsRawTask;
-        var allUsers = await usersRawTask;
-        var tutorProfiles = await tutorProfilesRawTask;
-        var allWithdrawals = await withdrawalsRawTask;
-        var totalFrozen = await walletFrozenTask;
-        var walletTx = await walletTxRawTask;
-        var subjects = await subjectsTask;
         // Dùng thời điểm thu tiền thật (Paidat) để quy về kỳ; fallback Createdat.
-        var aiCreditTx = (await aiCreditTxRawTask)
+        var aiCreditTx = aiCreditTxRaw
             .Select(t => new { t.Amount, When = t.Paidat ?? t.Createdat })
             .ToList();
 

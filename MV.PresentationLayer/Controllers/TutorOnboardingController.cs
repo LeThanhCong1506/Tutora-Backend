@@ -668,13 +668,23 @@ namespace MV.PresentationLayer.Controllers
                 return StatusCode(403, APIResponse.Fail("Bạn chỉ có thể bật package của chính mình.", 403));
             }
 
-            var result = await _tutorService.ActivateTutorPackageAsync(id, packageId);
-            if (!result)
+            try
             {
-                return NotFound(APIResponse.Fail("Không tìm thấy package.", 404));
-            }
+                var result = await _tutorService.ActivateTutorPackageAsync(id, packageId);
+                if (!result)
+                {
+                    return NotFound(APIResponse.Fail("Không tìm thấy package.", 404));
+                }
 
-            return Ok(APIResponse.Success("Đã hiện lại package thành công."));
+                return Ok(APIResponse.Success("Đã hiện lại package thành công."));
+            }
+            catch (InvalidOperationException ex)
+            {
+                // Bắt tại chỗ để giữ NGUYÊN message (vd "khung ... nằm ngoài lịch rảnh của bạn").
+                // ExceptionHandlingMiddleware thay mọi InvalidOperationException bằng một câu chung
+                // chung, nên endpoint nào không tự bắt thì người dùng không biết mình sai ở đâu.
+                return Conflict(APIResponse.Fail(ex.Message, 409));
+            }
         }
 
         /// <summary>

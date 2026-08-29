@@ -38,11 +38,27 @@ public partial class BookingService
                     if (booking.Responsedeadline != null && booking.Responsedeadline <= TimeZoneHelper.UtcNow)
                         throw new BookingException(
                             BookingErrorCodes.BookingExpired,
-                            "Đã quá hạn phản hồi 24 giờ. Booking đang chờ hệ thống tự động hủy.",
+                            "Đã quá hạn phản hồi. Booking đang chờ hệ thống tự động hủy.",
                             409);
 
                     if (booking.Depositpaidat == null)
                         throw new BookingException(BookingErrorCodes.InvalidBookingStatus, "Booking chưa được thanh toán cọc", 409);
+
+                    // Lưới an toàn cuối: hạn phản hồi đã được chặn trên bởi giờ học nên về lý
+                    // thuyết không tới được đây, nhưng dữ liệu cũ (tạo theo luật 24h cố định) vẫn
+                    // có thể còn treo. Duyệt một buổi đã qua giờ nghĩa là kích hoạt buổi không ai
+                    // vào được — AbandonedSessionJob sẽ auto-complete và trả tiền cho gia sư.
+                    var firstStart = booking.ClassSessions
+                        .OrderBy(x => x.Scheduledstart)
+                        .Select(x => (DateTime?)x.Scheduledstart)
+                        .FirstOrDefault();
+
+                    if (firstStart.HasValue && firstStart.Value <= TimeZoneHelper.UtcNow)
+                        throw new BookingException(
+                            BookingErrorCodes.BookingExpired,
+                            "Buổi học đầu tiên đã qua giờ nên không thể chấp nhận booking này. "
+                            + "Hệ thống sẽ tự hủy và hoàn cọc cho phụ huynh.",
+                            409);
 
                     // Safety net: bổ sung Remainingamount nếu null (data cũ), KHÔNG ghi đè Depositamount
                     // vì parent đã trả theo số đó rồi.
