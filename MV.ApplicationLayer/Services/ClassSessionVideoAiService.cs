@@ -505,6 +505,68 @@ public class ClassSessionVideoAiService(
         return (legJob.Resulttext!, legJob.Transcripttext);
     }
 
+    /// <summary>Best-effort: tải/tách audio/upload video buổi học lên Gemini trước, KHÔNG gọi model sinh
+    /// nội dung gì cả — chỉ để tới lúc học sinh/gia sư bấm tóm tắt/điền báo cáo, cache GeminiFileUri
+    /// (xem EnsureUploadedFileAsync) đã sẵn sàng từ trước, khỏi phải trả giá tải+transcode+upload (thường
+    /// là phần chiếm phần lớn thời gian chờ). Gọi từ RecordingRelayService ngay sau khi video relay xong
+    /// lên Drive, trước khi có ai request gì cả. Không throw ra ngoài: lỗi ở đây không ảnh hưởng chức năng
+    /// chính, job tóm tắt/điền báo cáo thật vẫn tự upload lại bình thường nếu cache chưa kịp có.</summary>
+    public async Task PrewarmGeminiFileAsync(int classSessionId)
+    {
+        var now = TimeZoneHelper.UtcNow;
+        var alreadyWarm = await db.ClassSessionAiJobs.AnyAsync(j => j.Classsessionid == classSessionId
+            && j.Geminifileuri != null && j.Geminifilename != null
+            && j.Geminifileexpiresat != null && j.Geminifileexpiresat > now);
+        if (alreadyWarm)
+            return;
+
+        var job = new ClassSessionAiJob
+        {
+            JobId = Guid.NewGuid(),
+            Classsessionid = classSessionId,
+            Jobtype = ClassSessionAiJobType.Prewarm,
+            Requestedbyuserid = "system",
+            Status = ClassSessionAiJobStatus.Processing,
+            Createdat = now
+        };
+        db.ClassSessionAiJobs.Add(job);
+        try
+        {
+            await db.SaveChangesAsync();
+        }
+        catch (DbUpdateException)
+        {
+            // Race hiếm: request thật (tóm tắt/điền báo cáo) đã tự upload và cache xong trước khi prewarm
+            // kịp lưu job — coi như đã "nóng" rồi, không cần làm gì thêm.
+            return;
+        }
+
+        try
+        {
+            await EnsureUploadedFileAsync(job, CancellationToken.None);
+            job.Status = ClassSessionAiJobStatus.Completed;
+            job.Completedat = TimeZoneHelper.UtcNow;
+            await db.SaveChangesAsync();
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex,
+                "Prewarm Gemini file cho classSession {ClassSessionId} thất bại — không ảnh hưởng chức năng chính, job tóm tắt/điền báo cáo thật sẽ tự upload lại khi cần.",
+                classSessionId);
+            job.Status = ClassSessionAiJobStatus.Failed;
+            job.Errormessage = "Prewarm thất bại (không ảnh hưởng chức năng chính).";
+            job.Completedat = TimeZoneHelper.UtcNow;
+            try
+            {
+                await db.SaveChangesAsync();
+            }
+            catch (Exception saveEx)
+            {
+                logger.LogError(saveEx, "Không lưu được trạng thái Failed cho prewarm job classSession {ClassSessionId}.", classSessionId);
+            }
+        }
+    }
+
     // ── Helpers dùng chung ─────────────────────────────────────────────
 
     /// <summary>Tái dùng GeminiFileUri còn hạn của bất kỳ job nào (2 loại) thuộc cùng buổi học; nếu không có thì tải từ Drive + upload mới.</summary>
