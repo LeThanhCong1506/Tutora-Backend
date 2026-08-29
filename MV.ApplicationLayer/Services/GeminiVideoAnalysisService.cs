@@ -130,8 +130,10 @@ public class GeminiVideoAnalysisService : IGeminiVideoAnalysisService
         const string prompt = """
             Bạn là trợ lý xử lý bản ghi âm buổi học 1-kèm-1 giữa gia sư và học sinh. Hãy nghe kỹ rồi viết bản
             tóm tắt bằng tiếng Việt, giọng văn gần gũi như đang giải thích lại cho học sinh chứ không phải
-            liệt kê khô khan. Dùng markdown (tiêu đề phụ "##", in đậm "**...**" cho từ khoá/công thức quan
-            trọng, gạch đầu dòng "-" cho danh sách). Không chào hỏi mở đầu, không lặp lại nguyên văn lời nói.
+            liệt kê khô khan. Dùng markdown (tiêu đề phụ "##", in đậm "**...**" cho từ khoá quan trọng, gạch
+            đầu dòng "-" cho danh sách). Công thức/ký hiệu toán học viết bằng LaTeX: đặt giữa 1 cặp dấu $ cho
+            công thức ngắn nằm trong câu (vd $x^2 + 1$), giữa 1 cặp dấu $$ cho công thức dài/quan trọng cần
+            tách dòng riêng. Không chào hỏi mở đầu, không lặp lại nguyên văn lời nói.
 
             Các mục có thể đưa vào: nội dung chính đã học/dạy (giải thích ngắn gọn ý nghĩa, không chỉ liệt kê
             tên chủ đề), các điểm quan trọng/công thức/kết luận đáng nhớ, và bài tập về nhà.
@@ -273,7 +275,9 @@ public class GeminiVideoAnalysisService : IGeminiVideoAnalysisService
                             "thích lại — đừng chỉ nêu đáp án khô khan, hãy giải thích ngắn gọn tại sao/như thế nào " +
                             "khi câu hỏi cần điều đó. Chỉ trả lời trong phạm vi nội dung buổi học, nếu câu hỏi ngoài " +
                             "phạm vi thì nói rõ là không có thông tin trong buổi học này (không bịa). Được dùng " +
-                            "markdown (in đậm, gạch đầu dòng) khi giúp câu trả lời dễ đọc hơn. Kết thúc câu trả lời " +
+                            "markdown (in đậm, gạch đầu dòng) khi giúp câu trả lời dễ đọc hơn. Công thức/ký hiệu " +
+                            "toán học viết bằng LaTeX (đặt giữa 1 cặp dấu $ cho công thức ngắn trong câu, giữa 1 " +
+                            "cặp dấu $$ cho công thức dài cần tách dòng riêng). Kết thúc câu trả lời " +
                             "bằng 1 câu ngắn gợi ý học sinh có thể hỏi thêm gì liên quan (nếu còn nội dung đáng hỏi " +
                             "trong buổi học), không cần gợi ý nếu câu hỏi đã bao quát hết.\n\n" +
                             $"NỘI DUNG BUỔI HỌC:\n{summaryText}"
@@ -304,7 +308,8 @@ public class GeminiVideoAnalysisService : IGeminiVideoAnalysisService
             NHẤT một bản tóm tắt liền mạch cho toàn bộ nội dung đã học, như thể đó là một buổi học
             liên tục — không nhắc tới việc buổi học bị chia/nối/ngắt, không lặp lại nội dung trùng
             giữa các buổi. Dùng markdown giống các tóm tắt gốc (tiêu đề phụ "##", in đậm "**...**"
-            cho từ khoá/công thức quan trọng, gạch đầu dòng "-" cho danh sách).
+            cho từ khoá quan trọng, gạch đầu dòng "-" cho danh sách). Giữ nguyên công thức toán học
+            ở dạng LaTeX (giữa cặp dấu $ hoặc $$) nếu các tóm tắt gốc đã viết như vậy.
 
             QUAN TRỌNG: chỉ viết những mục thật sự có nội dung. Mục nào không có ở bất kỳ buổi nào
             thì BỎ HẲN, không in tiêu đề của mục đó ra.
