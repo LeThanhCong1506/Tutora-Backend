@@ -53,7 +53,50 @@ namespace MV.ApplicationLayer.ServiceInterfaces
             IReadOnlyList<Guid> excludeIds,
             int topK,
             CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Trích TOÀN VĂN 1 tài liệu học tập (pdf/ảnh) qua tutora-ai
+        /// /api/v1/materials/extract. Chạy NGẦM lúc upload để lúc gia sư bấm "Tạo câu
+        /// hỏi" giữa buổi dạy không phải chờ parse file.
+        /// Trả null nếu tutora-ai lỗi hoặc không đọc được nội dung.
+        /// </summary>
+        Task<AiMaterialExtraction?> ExtractMaterialAsync(
+            byte[] fileBytes, string fileName, CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Sinh bộ câu hỏi từ toàn văn tài liệu + yêu cầu của gia sư
+        /// (tutora-ai /api/v1/practice/generate).
+        /// Trả null nếu AI lỗi/không sinh được câu nào hợp lệ.
+        /// </summary>
+        Task<AiGeneratedPractice?> GeneratePracticeAsync(
+            IReadOnlyList<AiMaterialSource> materials,
+            string prompt,
+            CancellationToken cancellationToken = default);
     }
+
+    /// <summary>Toàn văn đã trích của 1 tài liệu — có mốc "[trang N]" giữa các trang.</summary>
+    public record AiMaterialExtraction(string FullText, int? PageCount);
+
+    /// <summary>1 tài liệu nguồn đưa vào prompt sinh đề.</summary>
+    public record AiMaterialSource(int MaterialId, string Title, string FullText);
+
+    /// <summary>Kết quả AI sinh đề: tiêu đề gợi ý + danh sách câu.</summary>
+    public record AiGeneratedPractice(string Title, List<AiGeneratedQuestion> Questions);
+
+    /// <summary>
+    /// 1 câu AI sinh ra. Format 'mc' phải có Options + CorrectAnswer; 'essay' thì không.
+    /// SourceMaterialId/SourcePage để hiện "Trích từ ... trang N".
+    /// </summary>
+    public record AiGeneratedQuestion(
+        string Format,
+        string Content,
+        List<AiAnswerOption>? Options,
+        string? CorrectAnswer,
+        string? Explanation,
+        int? SourceMaterialId,
+        int? SourcePage);
+
+    public record AiAnswerOption(string Key, string Text);
 
     public record AiRankedTutor(string TutorId, float Similarity);
 

@@ -338,6 +338,7 @@ builder.Services.AddScoped<ITutorSearchRepository, TutorSearchRepository>();
 builder.Services.AddScoped<IStaffPermissionRepository, StaffPermissionRepository>();
 builder.Services.AddScoped<IPermissionGroupRepository, PermissionGroupRepository>();
 builder.Services.AddScoped<ILearningMaterialRepository, LearningMaterialRepository>();
+builder.Services.AddScoped<ISessionPracticeRepository, SessionPracticeRepository>();
 builder.Services.AddScoped<IAssessmentRepository, AssessmentRepository>();
 builder.Services.AddScoped<IQuestionRepository, QuestionRepository>();
 builder.Services.AddScoped<ISourceDocumentRepository, SourceDocumentRepository>();
@@ -410,6 +411,7 @@ builder.Services.AddScoped<ITutorFinanceService, TutorFinanceService>();
 builder.Services.AddScoped<IBankAccountOtpService, BankAccountOtpService>();
 builder.Services.AddScoped<IBankAccountService, BankAccountService>();
 builder.Services.AddScoped<ILearningMaterialService, LearningMaterialService>();
+builder.Services.AddScoped<ISessionPracticeService, SessionPracticeService>();
 
 builder.Services.AddHttpContextAccessor();
 
