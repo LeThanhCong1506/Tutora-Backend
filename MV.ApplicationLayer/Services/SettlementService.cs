@@ -226,8 +226,13 @@ public partial class SettlementService : ISettlementService
     {
         if (booking == null || (booking.Sessionsremaining ?? 0) > 0)
             return 0;
-        // Already terminal (completed elsewhere, or cancelled) → never release twice.
-        if (booking.Status is BookingStatus.Completed or BookingStatus.Cancelled or BookingStatus.CancelledNoshow)
+        // Already terminal (completed elsewhere, or cancelled via any path) → never release twice.
+        // Must stay in sync with DisputeSettlementPolicy.IsTerminalBooking — this used to list only
+        // 3 of the 5 terminal statuses, silently missing CancelledByStaff/CancelledByDispute (added
+        // later): a stray classSession settled after one of those 2 statuses (e.g. an Interrupted
+        // session finally auto-closed by InterruptedSessionAutoCloseJob) fell through this check and
+        // flipped the booking's Status/Escrowstatus back to Completed/Released.
+        if (DisputeSettlementPolicy.IsTerminalBooking(booking.Status))
             return 0;
 
         booking.Status = BookingStatus.Completed;
@@ -589,9 +594,13 @@ public partial class SettlementService : ISettlementService
 
         // Có buổi khác đang mid-flight (không phải buổi caller vừa tự settle riêng, nếu có) — phải
         // được xử lý xong qua đúng luồng của nó trước, không hủy đè lên để tránh strand/mispricing.
+        // Interrupted phải nằm trong danh sách này giống Disputed/NoShow: đây cũng là 1 trạng thái
+        // cụt (không tự về Scheduled/Reserved lẫn Completed), nên trước đây lọt qua cả 2 vế
+        // remainingSessions/deliveredCount phía trên — escrow của đúng buổi đó bị bỏ quên vĩnh viễn.
         var hasBlockingSession = await _context.ClassSessions
             .AnyAsync(s => s.Bookingid == bookingId
-                && (s.Status == InProgress || s.Status == PendingConfirmation || s.Status == Disputed || s.Status == NoShow),
+                && (s.Status == InProgress || s.Status == PendingConfirmation || s.Status == Disputed
+                    || s.Status == NoShow || s.Status == Interrupted),
                 ct);
         if (hasBlockingSession)
             return 0m;

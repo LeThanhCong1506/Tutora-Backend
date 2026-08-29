@@ -309,18 +309,12 @@ namespace MV.ApplicationLayer.Services
         }
 
         /// <summary>
-        /// Get full tutor profile for public display (cached 20 min)
+        /// Get full tutor profile for public display. Always reads live from the database —
+        /// no Redis cache here, so a profile edit shows up immediately after admin approval.
         /// Includes all profile sections + schedule + feedbacks with statistics
         /// </summary>
         public async Task<TutorFullProfileResponse?> GetTutorFullProfileAsync(string tutorId)
         {
-            var cacheKey = $"{FullProfileCacheKeyPrefix}{tutorId}";
-            var cachedResponse = await TryGetCachedResponseAsync<TutorFullProfileResponse>(cacheKey);
-            if (cachedResponse != null)
-            {
-                return cachedResponse;
-            }
-
             var profileInfo = await GetTutorProfileInfoAsync(tutorId);
             if (profileInfo == null)
             {
@@ -380,7 +374,6 @@ namespace MV.ApplicationLayer.Services
                 TotalStudents = totalStudents
             };
 
-            CacheResponseWithoutBlocking(cacheKey, response, FullProfileCacheDuration);
             return response;
         }
 
@@ -475,43 +468,5 @@ namespace MV.ApplicationLayer.Services
             };
         }
 
-        private async Task<T?> TryGetCachedResponseAsync<T>(string cacheKey) where T : class
-        {
-            try
-            {
-                using var cts = new CancellationTokenSource(CacheOperationTimeout);
-                var cachedData = await _cache.GetStringAsync(cacheKey, cts.Token);
-                if (!string.IsNullOrEmpty(cachedData))
-                {
-                    return JsonSerializer.Deserialize<T>(cachedData);
-                }
-            }
-            catch
-            {
-                // Redis not available or timeout, continue to fetch from database
-            }
-
-            return null;
-        }
-
-        private void CacheResponseWithoutBlocking<T>(string cacheKey, T response, TimeSpan duration)
-        {
-            _ = Task.Run(async () =>
-            {
-                try
-                {
-                    using var cts = new CancellationTokenSource(CacheOperationTimeout);
-                    var cacheOptions = new DistributedCacheEntryOptions
-                    {
-                        AbsoluteExpirationRelativeToNow = duration
-                    };
-                    await _cache.SetStringAsync(cacheKey, JsonSerializer.Serialize(response), cacheOptions, cts.Token);
-                }
-                catch
-                {
-                    // Redis not available or timeout, skip caching
-                }
-            });
-        }
     }
 }
