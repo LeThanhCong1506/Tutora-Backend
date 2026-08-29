@@ -1792,6 +1792,8 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
             entity.Property(e => e.Audiorecordings3key)
                 .HasMaxLength(500)
                 .HasColumnName("audio_recording_s3key");
+            entity.Property(e => e.Audiorecordingurl)
+                .HasColumnName("audio_recording_url");
             entity.Property(e => e.Whiteboardroomuuid)
                 .HasMaxLength(50)
                 .HasColumnName("whiteboard_room_uuid");

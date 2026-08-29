@@ -173,33 +173,69 @@ public class RecordingRelayService : IRecordingRelayService
     /// EnsureUploadedFileAsync coi như cache đã "ấm" — tới lúc có job tóm tắt/điền báo cáo thật, khỏi
     /// phải tải video + ffmpeg tách audio (nhánh cũ) nữa. Lỗi ở đây chỉ log — nhánh cũ vẫn tự chạy được
     /// như một fallback.</summary>
+    /// <summary>Xử lý file audio-only đúng như video: tải từ S3 → relay lên Drive lưu vĩnh viễn (chống
+    /// trùng theo tên cố định, cùng thư mục Tutor/Student với video) → xoá bản đệm S3. Khác video ở chỗ
+    /// còn forward thêm 1 bản lên Gemini File API để cache sẵn cho pipeline AI (tóm tắt/điền báo cáo),
+    /// vì đây vẫn là mục đích chính của recorder audio-only.</summary>
     private async Task RelayPendingAudioAsync(CancellationToken ct)
     {
         var pending = await _context.ClassSessions
             .Where(s => s.Audiorecordings3key != null)
             .OrderBy(s => s.Classsessionid)
             .Take(BatchSize)
+            .Select(s => new
+            {
+                ClassSession = s,
+                TutorName = s.Tutor != null && s.Tutor.Tutor != null ? s.Tutor.Tutor.Fullname : null,
+                StudentName = s.Student != null ? s.Student.Fullname : null,
+            })
             .ToListAsync(ct);
 
         if (pending.Count == 0) return;
 
         using var s3 = CreateS3Client();
 
-        foreach (var session in pending)
+        foreach (var item in pending)
         {
+            var session = item.ClassSession;
             var key = session.Audiorecordings3key!;
+            var fileName = $"session-{session.Classsessionid}-audio.mp3";
+            string? tempPath = null;
             try
             {
+                // Tải về file tạm (đọc lại được nhiều lần) thay vì đọc thẳng ResponseStream — cần dùng
+                // nội dung này 2 lần (upload Gemini + upload Drive), stream S3 chỉ đọc được 1 lần.
                 long contentLength;
-                MV.DomainLayer.DTO.ResponseModel.GeminiUploadedFile uploaded;
+                tempPath = Path.Combine(Path.GetTempPath(), $"class-session-audio-relay-{Guid.NewGuid():N}.mp3");
                 using (var s3Obj = await s3.GetObjectAsync(_rec.StorageBucket, key, ct))
                 {
                     contentLength = s3Obj.ContentLength;
-                    uploaded = await _gemini.UploadVideoAsync(
-                        s3Obj.ResponseStream, contentLength, "audio/mp4",
-                        $"class-session-{session.Classsessionid}-audio.mp4", ct);
+                    await using var fileStream = File.Create(tempPath);
+                    await s3Obj.ResponseStream.CopyToAsync(fileStream, ct);
+                }
+
+                // ① forward lên Gemini File API — cache cho pipeline AI, giống PrewarmGeminiFileAsync.
+                MV.DomainLayer.DTO.ResponseModel.GeminiUploadedFile uploaded;
+                await using (var geminiStream = File.OpenRead(tempPath))
+                {
+                    uploaded = await _gemini.UploadVideoAsync(geminiStream, contentLength, "audio/mp4", fileName, ct);
                 }
                 await _gemini.WaitForFileActiveAsync(uploaded.Name, ct);
+
+                // ② relay lên Drive lưu vĩnh viễn — cùng cấu trúc thư mục Tutor/Student với video, chống
+                // upload trùng theo tên cố định giống hệt logic video ở RelayPendingAsync phía trên.
+                var driveFileId = await _drive.FindFileIdByNameAsync(fileName, ct);
+                if (driveFileId == null)
+                {
+                    var tutorFolderName = !string.IsNullOrWhiteSpace(item.TutorName)
+                        ? $"{item.TutorName} ({session.Tutorid})" : session.Tutorid ?? "unknown-tutor";
+                    var studentFolderName = !string.IsNullOrWhiteSpace(item.StudentName)
+                        ? $"{item.StudentName} ({session.Studentid})" : session.Studentid ?? "unknown-student";
+                    var folderId = await _drive.GetRecordingFolderAsync(tutorFolderName, studentFolderName, ct);
+
+                    await using var driveStream = File.OpenRead(tempPath);
+                    driveFileId = await _drive.UploadAsync(driveStream, fileName, "audio/mp4", folderId, ct);
+                }
 
                 // Job "prewarm" giả — chỉ để EnsureUploadedFileAsync (ClassSessionVideoAiService) tìm
                 // thấy GeminiFileUri còn hạn khi có job tóm tắt/điền báo cáo thật cho session này.
@@ -217,7 +253,8 @@ public class RecordingRelayService : IRecordingRelayService
                     Completedat = TimeZoneHelper.UtcNow
                 });
 
-                session.Audiorecordings3key = null; // đã xử lý xong
+                session.Audiorecordingurl = $"https://drive.google.com/file/d/{driveFileId}/view";
+                session.Audiorecordings3key = null; // đã xử lý xong (cả Gemini lẫn Drive)
                 await _context.SaveChangesAsync(ct);
 
                 try
@@ -226,12 +263,12 @@ public class RecordingRelayService : IRecordingRelayService
                 }
                 catch (Exception delEx)
                 {
-                    _logger.LogWarning(delEx, "Đã forward audio lên Gemini nhưng xóa file S3 {Key} thất bại (không nghiêm trọng)", key);
+                    _logger.LogWarning(delEx, "Đã relay audio xong nhưng xóa file S3 {Key} thất bại (không nghiêm trọng)", key);
                 }
 
                 _logger.LogInformation(
-                    "Forwarded audio-only recording lên Gemini: session={Session} geminiFile={Name}",
-                    session.Classsessionid, uploaded.Name);
+                    "Relayed audio-only recording: session={Session} geminiFile={Name} driveFileId={FileId}",
+                    session.Classsessionid, uploaded.Name, driveFileId);
             }
             catch (Amazon.S3.Model.NoSuchKeyException)
             {
@@ -246,8 +283,16 @@ public class RecordingRelayService : IRecordingRelayService
             catch (Exception ex)
             {
                 _logger.LogWarning(ex,
-                    "Forward audio-only recording session {Session} lên Gemini thất bại, sẽ thử lại vòng sau.",
+                    "Relay audio-only recording session {Session} thất bại, sẽ thử lại vòng sau.",
                     session.Classsessionid);
+            }
+            finally
+            {
+                if (tempPath != null)
+                {
+                    try { File.Delete(tempPath); }
+                    catch (Exception cleanupEx) { _logger.LogWarning(cleanupEx, "Không xoá được file tạm {Path}.", tempPath); }
+                }
             }
         }
     }
