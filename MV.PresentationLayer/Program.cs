@@ -455,7 +455,10 @@ builder.Services.AddHangfire(config => config
 builder.Services.AddHangfireServer(options =>
 {
     options.WorkerCount = 2;
-    options.Queues = new[] { "default" };
+    // Thứ tự rút job: "interactive" (người dùng đang chờ kết quả — tóm tắt, điền báo cáo) trước, rồi
+    // "default" (job không gắn [Queue], vd phân loại khiếu nại), cuối cùng mới tới "bulk" (job chạy nền
+    // rất lâu — chép lời, tổng hợp chuỗi, làm nóng cache video) để không chặn các job cần phản hồi nhanh.
+    options.Queues = new[] { "interactive", "default", "bulk" };
 });
 
 builder.Services.AddHttpClient(ServiceKeys.HttpClients.VietQR, client =>
