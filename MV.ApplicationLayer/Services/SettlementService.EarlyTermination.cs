@@ -59,11 +59,13 @@ public partial class SettlementService
             var sessions = booking.ClassSessions;
             var hasDeliveredSession = sessions.Any(s => s.Status == Completed || s.Issettled == true);
             var hasBlockingSession = sessions.Any(s =>
-                s.Status is InProgress or PendingConfirmation or Disputed or NoShow or CancelledNoshow);
+                s.Status is InProgress or PendingConfirmation or Disputed or NoShow or CancelledNoshow or Interrupted);
 
             // Nothing delivered yet → this is ordinary pre-start cancellation, not early termination.
-            // Anything mid-flight (in progress, awaiting confirm, disputed, no-show) must be resolved
-            // through its own flow first — finalizing now would silently strand or misprice it.
+            // Anything mid-flight (in progress, awaiting confirm, disputed, no-show, interrupted) must
+            // be resolved through its own flow first — finalizing now would silently strand or
+            // misprice it (an Interrupted session counts as neither delivered nor remaining below, so
+            // its escrow would otherwise never be released once this method sets Status=Completed).
             if (!hasDeliveredSession || hasBlockingSession)
             {
                 await tx.CommitAsync(ct);
@@ -225,7 +227,7 @@ public partial class SettlementService
             // từ FindWithRelationsForUpdateAsync) để trả false chính xác thay vì dựa vào no-op
             // im lặng bên trong CancelRemainingSessionsAsync.
             var hasBlockingSession = booking.ClassSessions.Any(s =>
-                s.Status is InProgress or PendingConfirmation or Disputed or NoShow);
+                s.Status is InProgress or PendingConfirmation or Disputed or NoShow or Interrupted);
             if (hasBlockingSession)
             {
                 await tx.CommitAsync(ct);

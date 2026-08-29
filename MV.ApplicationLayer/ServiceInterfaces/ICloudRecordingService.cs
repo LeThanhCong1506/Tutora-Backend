@@ -29,6 +29,9 @@ public interface ICloudRecordingService
     /// <summary>True nếu tính năng đã bật (AgoraRecording:Enabled). Dùng để bỏ qua khi chưa cấu hình.</summary>
     bool Enabled { get; }
 
+    /// <summary>True nếu recorder audio-only song song đã bật (AgoraRecording:AudioRecordingEnabled).</summary>
+    bool AudioOnlyEnabled { get; }
+
     /// <summary>
     /// Bắt đầu record cho một buổi học. <paramref name="channel"/> PHẢI là channel mà client
     /// đang join (xem <c>AgoraChannelName.ForSession</c> — channel riêng theo buổi).
@@ -38,4 +41,13 @@ public interface ICloudRecordingService
 
     /// <summary>Dừng record. Cần đúng channel lúc start + resourceId + sid nhận được lúc start.</summary>
     Task<CloudRecordingResult> StopAsync(int classSessionId, string channel, string resourceId, string sid, CancellationToken ct = default);
+
+    /// <summary>Recorder audio-only, chạy song song với recorder video (uid riêng — Agora không cho 2
+    /// recorder chung uid trong 1 channel). Dùng để pipeline AI (tóm tắt/điền báo cáo) tải file audio nhỏ
+    /// thẳng từ đây thay vì phải tải nguyên video rồi ffmpeg tách audio.</summary>
+    Task<CloudRecordingHandle> StartAudioAsync(int classSessionId, string channel, CancellationToken ct = default);
+
+    /// <summary>Dừng recorder audio-only. Cần đúng resourceId/sid nhận được lúc StartAudioAsync (khác với
+    /// resourceId/sid của recorder video).</summary>
+    Task<CloudRecordingResult> StopAudioAsync(int classSessionId, string channel, string resourceId, string sid, CancellationToken ct = default);
 }

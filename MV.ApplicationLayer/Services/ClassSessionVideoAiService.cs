@@ -93,8 +93,24 @@ public class ClassSessionVideoAiService(
         var rootSessionId = chain[0].ClassSessionId;
         var jobType = chain.Count > 1 ? ClassSessionAiJobType.ChainSummary : ClassSessionAiJobType.StudentSummary;
 
-        var job = await FindLatestJobAsync(rootSessionId, jobType, ct);
-        return job == null ? new ClassSessionAiJobResponse { Status = "none" } : ToResponse(job);
+        var job = await FindBestJobAsync(rootSessionId, jobType, ct);
+        if (job == null)
+            return new ClassSessionAiJobResponse { Status = "none" };
+
+        var response = ToResponse(job);
+
+        // Chuỗi vừa dài thêm ra (có buổi bù/phụ/học lại mới) sau khi job chain_summary đã chạy xong —
+        // job chép lời của buổi lẻ (job.Classsessionid == classSessionId) chạy tách riêng, có thể xong
+        // SAU job chain_summary nên chain_summary chưa kịp có Transcripttext. Không để mất bản chép lời
+        // đã có sẵn của buổi lẻ hiện tại chỉ vì chain_summary (cấp cao hơn) chưa gộp kịp.
+        if (job.Jobtype == ClassSessionAiJobType.ChainSummary && response.TranscriptText == null)
+        {
+            var legJob = await FindBestJobAsync(classSessionId, ClassSessionAiJobType.StudentSummary, ct);
+            if (legJob?.Transcripttext != null)
+                response.TranscriptText = legJob.Transcripttext;
+        }
+
+        return response;
     }
 
     public async Task<string> AskFollowUpAsync(int classSessionId, string studentUserId, string question, CancellationToken ct = default)
@@ -312,24 +328,14 @@ public class ClassSessionVideoAiService(
             job.Stage = null;
             await db.SaveChangesAsync();
 
-            // Nâng ngữ cảnh chat lên bản chép lời (chi tiết hơn tóm tắt) cho các câu hỏi sau. Chèn thêm 1
-            // message system thay vì sửa message cũ — LoadChatContextAsync lấy message system cuối cùng.
+            // Nâng ngữ cảnh chat lên bản chép lời (chi tiết hơn tóm tắt) cho các câu hỏi sau. Gọi qua
+            // EnsureVideoSummaryChatSessionAsync (thay vì tự tìm+chèn message như trước) để: (1) TẠO LUÔN
+            // phiên chat nếu học sinh chưa từng mở khung chat (trước đây bỏ qua hoàn toàn nếu chatSession
+            // == null, khiến transcript không bao giờ tới được chat của những học sinh mở chat muộn), và
+            // (2) refresh đúng 1 lần nếu nội dung thật sự khác bản đã lưu, không chèn trùng lặp.
             try
             {
-                var chatSession = await aiChatRepo.FindSessionByUserAndClassSessionAsync(
-                    job.Requestedbyuserid, ChatSessionType.VideoSummary, job.Classsessionid);
-                if (chatSession != null)
-                {
-                    aiChatRepo.AddMessage(new ChatHistory
-                    {
-                        MessageId = Guid.NewGuid(),
-                        SessionId = chatSession.SessionId,
-                        Role = ChatHistoryRole.System,
-                        Content = transcript,
-                        CreatedAt = TimeZoneHelper.UtcNow
-                    });
-                    await aiChatRepo.SaveChangesAsync();
-                }
+                await EnsureVideoSummaryChatSessionAsync(job.Classsessionid, job.Requestedbyuserid, transcript);
             }
             catch (Exception chatEx)
             {
@@ -344,6 +350,10 @@ public class ClassSessionVideoAiService(
                 "Chép lời buổi học {ClassSessionId} thất bại — tóm tắt vẫn giữ nguyên, chỉ thiếu tab Hội thoại.",
                 job.Classsessionid);
             job.Stage = null;
+            // Ghi lại lỗi thật thay vì chỉ xoá Stage — nếu không, job Completed/Stage=null/Transcripttext=null
+            // này không phân biệt được với job Completed thật sự khoẻ mạnh, khiến GetStudentSummaryStatusAsync
+            // (hoặc bất kỳ ai đọc lại sau) không biết đây là job đã fail chép lời.
+            job.Errormessage = ex is BadRequestException ? ex.Message : "Chép lời thất bại, vui lòng thử lại.";
             try
             {
                 await db.SaveChangesAsync();
@@ -450,6 +460,21 @@ public class ClassSessionVideoAiService(
             job.Completedat = TimeZoneHelper.UtcNow;
             await db.SaveChangesAsync();
 
+            // Trước đây job này KHÔNG bao giờ đụng tới phiên chat — học sinh hỏi tiếp về 1 buổi trong
+            // chuỗi vẫn chỉ nhận ngữ cảnh của leg đầu tiên (từ lúc chuỗi chưa dài ra) mãi mãi. Giờ
+            // EnsureVideoSummaryChatSessionAsync tự refresh nếu nội dung khác bản đã lưu (xem hàm đó),
+            // nên gọi lại đây là đủ để chat luôn bắt kịp bản tổng hợp chuỗi mới nhất.
+            try
+            {
+                await EnsureVideoSummaryChatSessionAsync(job.Classsessionid, job.Requestedbyuserid, merged);
+            }
+            catch (Exception seedEx)
+            {
+                logger.LogError(seedEx,
+                    "[VideoSummaryChat] LỖI khi refresh phiên chat cho chain summary classSession {ClassSessionId}",
+                    job.Classsessionid);
+            }
+
             await NotifyAsync(
                 job.Requestedbyuserid,
                 "Tóm tắt buổi học đã sẵn sàng",
@@ -503,6 +528,68 @@ public class ClassSessionVideoAiService(
         }
 
         return (legJob.Resulttext!, legJob.Transcripttext);
+    }
+
+    /// <summary>Best-effort: tải/tách audio/upload video buổi học lên Gemini trước, KHÔNG gọi model sinh
+    /// nội dung gì cả — chỉ để tới lúc học sinh/gia sư bấm tóm tắt/điền báo cáo, cache GeminiFileUri
+    /// (xem EnsureUploadedFileAsync) đã sẵn sàng từ trước, khỏi phải trả giá tải+transcode+upload (thường
+    /// là phần chiếm phần lớn thời gian chờ). Gọi từ RecordingRelayService ngay sau khi video relay xong
+    /// lên Drive, trước khi có ai request gì cả. Không throw ra ngoài: lỗi ở đây không ảnh hưởng chức năng
+    /// chính, job tóm tắt/điền báo cáo thật vẫn tự upload lại bình thường nếu cache chưa kịp có.</summary>
+    public async Task PrewarmGeminiFileAsync(int classSessionId)
+    {
+        var now = TimeZoneHelper.UtcNow;
+        var alreadyWarm = await db.ClassSessionAiJobs.AnyAsync(j => j.Classsessionid == classSessionId
+            && j.Geminifileuri != null && j.Geminifilename != null
+            && j.Geminifileexpiresat != null && j.Geminifileexpiresat > now);
+        if (alreadyWarm)
+            return;
+
+        var job = new ClassSessionAiJob
+        {
+            JobId = Guid.NewGuid(),
+            Classsessionid = classSessionId,
+            Jobtype = ClassSessionAiJobType.Prewarm,
+            Requestedbyuserid = "system",
+            Status = ClassSessionAiJobStatus.Processing,
+            Createdat = now
+        };
+        db.ClassSessionAiJobs.Add(job);
+        try
+        {
+            await db.SaveChangesAsync();
+        }
+        catch (DbUpdateException)
+        {
+            // Race hiếm: request thật (tóm tắt/điền báo cáo) đã tự upload và cache xong trước khi prewarm
+            // kịp lưu job — coi như đã "nóng" rồi, không cần làm gì thêm.
+            return;
+        }
+
+        try
+        {
+            await EnsureUploadedFileAsync(job, CancellationToken.None);
+            job.Status = ClassSessionAiJobStatus.Completed;
+            job.Completedat = TimeZoneHelper.UtcNow;
+            await db.SaveChangesAsync();
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex,
+                "Prewarm Gemini file cho classSession {ClassSessionId} thất bại — không ảnh hưởng chức năng chính, job tóm tắt/điền báo cáo thật sẽ tự upload lại khi cần.",
+                classSessionId);
+            job.Status = ClassSessionAiJobStatus.Failed;
+            job.Errormessage = "Prewarm thất bại (không ảnh hưởng chức năng chính).";
+            job.Completedat = TimeZoneHelper.UtcNow;
+            try
+            {
+                await db.SaveChangesAsync();
+            }
+            catch (Exception saveEx)
+            {
+                logger.LogError(saveEx, "Không lưu được trạng thái Failed cho prewarm job classSession {ClassSessionId}.", classSessionId);
+            }
+        }
     }
 
     // ── Helpers dùng chung ─────────────────────────────────────────────
@@ -623,6 +710,19 @@ public class ClassSessionVideoAiService(
             .OrderByDescending(j => j.Createdat)
             .FirstOrDefaultAsync(ct);
 
+    /// <summary>Như FindLatestJobAsync, nhưng ưu tiên job đã Completed VÀ thực sự có nội dung
+    /// (Resulttext != null) trước, mới tới mới nhất theo Createdat. Bắt buộc phải lọc theo nội dung vì
+    /// RunStudentTranscriptJobAsync/RunChainSummaryJobAsync có thể tạo 1 job MỚI hơn nhưng job đó fail
+    /// âm thầm (Completed nhưng Resulttext/Transcripttext rỗng) — nếu chỉ lấy theo Createdat mới nhất,
+    /// job rỗng này sẽ đè lên job cũ đã có kết quả tốt, khiến client thấy "completed" nhưng rỗng nội dung.</summary>
+    private Task<ClassSessionAiJob?> FindBestJobAsync(int classSessionId, string jobType, CancellationToken ct)
+        => db.ClassSessionAiJobs
+            .AsNoTracking()
+            .Where(j => j.Classsessionid == classSessionId && j.Jobtype == jobType)
+            .OrderByDescending(j => j.Status == ClassSessionAiJobStatus.Completed && j.Resulttext != null)
+            .ThenByDescending(j => j.Createdat)
+            .FirstOrDefaultAsync(ct);
+
     private async Task<ClassSessionAiJob> CreateJobAsync(int classSessionId, string jobType, string userId, CancellationToken ct)
     {
         var job = new ClassSessionAiJob
@@ -692,14 +792,19 @@ public class ClassSessionVideoAiService(
         }
     }
 
-    /// <summary>Tìm hoặc tạo phiên chat tóm tắt cho (user, classSessionId); tự vá message "system" còn thiếu
-    /// nếu phiên đã tồn tại nhưng vì lý do gì đó chưa có tóm tắt (self-healing, không phụ thuộc bước seed
-    /// trong Hangfire job phải chạy đúng thì chat mới dùng được).</summary>
+    /// <summary>Tìm hoặc tạo phiên chat tóm tắt cho (user, classSessionId); luôn refresh message "system"
+    /// nếu ngữ cảnh mới nhất (summary/transcript/chain vừa cập nhật) khác nội dung đã lưu — self-healing,
+    /// không phụ thuộc bước seed trong Hangfire job phải chạy đúng và đúng thứ tự thì chat mới dùng được.
+    ///
+    /// Trước đây chỉ chèn message system MỘT LẦN DUY NHẤT lúc tạo phiên rồi bỏ qua mãi mãi nếu đã có 1
+    /// message system bất kỳ — khiến chat bị "đóng băng" ở bản tóm tắt ngắn ban đầu, không bao giờ thấy
+    /// được bản chép lời chi tiết hơn (job riêng, chạy xong sau) hay bản tổng hợp chuỗi mới hơn. Giờ luôn
+    /// so sánh với nội dung mới nhất, chỉ chèn thêm khi thực sự khác — không so dựa vào "có message system
+    /// hay chưa" nữa.</summary>
     private async Task<ChatSession> EnsureVideoSummaryChatSessionAsync(int classSessionId, string userId, string summary)
     {
-        var existing = await aiChatRepo.FindSessionByUserAndClassSessionAsync(userId, ChatSessionType.VideoSummary, classSessionId);
         var now = TimeZoneHelper.UtcNow;
-        bool needsSystemMessage;
+        var existing = await aiChatRepo.FindSessionByUserAndClassSessionAsync(userId, ChatSessionType.VideoSummary, classSessionId);
 
         if (existing == null)
         {
@@ -715,16 +820,25 @@ public class ClassSessionVideoAiService(
                 UpdatedAt = now
             };
             aiChatRepo.AddSession(existing);
-            needsSystemMessage = true;
-        }
-        else
-        {
-            // Message system (tóm tắt gốc) luôn được chèn đầu tiên nên nếu có sẽ nằm ở trang đầu tiên.
-            var (items, _) = await aiChatRepo.GetMessagesPagedAsync(existing.SessionId, 1, 1);
-            needsSystemMessage = items.Count == 0 || items[0].Role != ChatHistoryRole.System;
+            try
+            {
+                await aiChatRepo.SaveChangesAsync();
+            }
+            catch (DbUpdateException)
+            {
+                // Race: job tóm tắt (tự seed) và học sinh hỏi câu đầu tiên (AskFollowUpAsync cũng tự gọi
+                // hàm này) có thể cùng thấy existing == null và cùng insert — unique index
+                // ux_chat_sessions_user_type_class_session là nguồn sự thật, request thua cuộc dùng lại
+                // đúng phiên của người thắng thay vì tạo phiên trùng (từng gây ra 2 phiên độc lập, ngữ
+                // cảnh mới bị ghi nhầm vào phiên mà chat KHÔNG dùng).
+                existing = await aiChatRepo.FindSessionByUserAndClassSessionAsync(userId, ChatSessionType.VideoSummary, classSessionId)
+                    ?? throw new InvalidOperationException("Không thể tạo phiên chat tóm tắt video.");
+            }
         }
 
-        if (needsSystemMessage)
+        var (items, _) = await aiChatRepo.GetMessagesPagedAsync(existing.SessionId, 1, 200);
+        var lastSystemContent = items.LastOrDefault(m => m.Role == ChatHistoryRole.System)?.Content;
+        if (lastSystemContent != summary)
         {
             aiChatRepo.AddMessage(new ChatHistory
             {

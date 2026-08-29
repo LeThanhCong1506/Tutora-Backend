@@ -23,8 +23,19 @@ public class AgoraRecordingSettings
     /// <summary>RESTful API Customer Secret.</summary>
     public string CustomerSecret { get; set; } = string.Empty;
 
-    /// <summary>UID (số) của "recorder" — phải khác UID của mọi người dùng thật trong kênh.</summary>
+    /// <summary>UID (số) của "recorder" video (mix) — phải khác UID của mọi người dùng thật trong kênh.</summary>
     public uint RecorderUid { get; set; } = 999999;
+
+    /// <summary>UID của recorder audio-only — chạy song song với recorder video ở trên trong CÙNG 1
+    /// channel, nên bắt buộc phải là 1 UID KHÁC (Agora không cho 2 recorder chung UID trong 1 channel).
+    /// Bật/tắt riêng qua <see cref="AudioRecordingEnabled"/> — recorder video vẫn luôn chạy độc lập.</summary>
+    public uint AudioRecorderUid { get; set; } = 999998;
+
+    /// <summary>Bật/tắt recorder audio-only song song (mục đích: pipeline AI dùng file audio nhỏ này thay
+    /// vì phải tải nguyên video rồi ffmpeg tách audio). Tắt mặc định — bật riêng sau khi đã xác nhận cấu
+    /// hình acquire/start audio-only hoạt động đúng trên tài khoản Agora thật, tránh phát sinh phí ghi
+    /// hình kép (2 recorder cùng lúc) khi chưa chắc chạy đúng.</summary>
+    public bool AudioRecordingEnabled { get; set; } = false;
 
     /// <summary>Thời hạn token recorder (giây). Phải đủ dài cho buổi học dài. Tối đa 86400 (24h).</summary>
     public uint TokenExpireSeconds { get; set; } = 86400;
