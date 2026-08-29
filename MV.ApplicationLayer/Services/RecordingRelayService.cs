@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Amazon;
 using Amazon.Runtime;
 using Amazon.S3;
+using Hangfire;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -31,6 +32,7 @@ public class RecordingRelayService : IRecordingRelayService
     private readonly IAppDbContext _context;
     private readonly IGoogleDriveService _drive;
     private readonly INotificationService _notificationService;
+    private readonly IBackgroundJobClient _backgroundJobClient;
     private readonly AgoraRecordingSettings _rec;
     private readonly ILogger<RecordingRelayService> _logger;
 
@@ -38,12 +40,14 @@ public class RecordingRelayService : IRecordingRelayService
         IAppDbContext context,
         IGoogleDriveService drive,
         INotificationService notificationService,
+        IBackgroundJobClient backgroundJobClient,
         IOptions<AgoraRecordingSettings> rec,
         ILogger<RecordingRelayService> logger)
     {
         _context = context;
         _drive = drive;
         _notificationService = notificationService;
+        _backgroundJobClient = backgroundJobClient;
         _rec = rec.Value;
         _logger = logger;
     }
@@ -127,6 +131,11 @@ public class RecordingRelayService : IRecordingRelayService
                 // Video vừa ghi xong không thể xem/dùng AI ngay (RTC record → S3 → Drive mất vài phút) —
                 // báo chủ động cho học sinh/gia sư khi đã thật sự sẵn sàng, khỏi phải tự bấm kiểm tra lại.
                 await NotifyRecordingReadyAsync(session.Classsessionid, item.StudentNotifyUserId, session.Tutorid, item.ParentUserId);
+
+                // Làm nóng cache GeminiFileUri ngay từ đây (tải+transcode+upload lên Gemini) — để tới lúc
+                // học sinh/gia sư bấm tóm tắt/điền báo cáo, phần tốn thời gian nhất đã chạy xong từ trước.
+                // Best-effort, chạy queue "bulk" nên không tranh worker với job tương tác trực tiếp.
+                _backgroundJobClient.Enqueue<IClassSessionVideoAiService>(s => s.PrewarmGeminiFileAsync(session.Classsessionid));
             }
             catch (Amazon.S3.Model.NoSuchKeyException)
             {
