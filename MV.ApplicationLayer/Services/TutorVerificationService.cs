@@ -25,13 +25,10 @@ namespace MV.ApplicationLayer.Services
         private const string CacheKeyPrefix = "tutor_preview:";
         private static readonly TimeSpan CacheDuration = TimeSpan.FromMinutes(15);
 
-        private const string FullProfileCacheKeyPrefix = "tutor_full_profile:";
-        private static readonly TimeSpan FullProfileCacheDuration = TimeSpan.FromMinutes(20);
         private const string ProfileInfoCacheKeyPrefix = "tutor_profile_info:";
         private static readonly TimeSpan ProfileInfoCacheDuration = TimeSpan.FromMinutes(20);
         private const string ScheduleCacheKeyPrefix = "tutor_schedule:";
         private static readonly TimeSpan ScheduleCacheDuration = TimeSpan.FromMinutes(10);
-        private static readonly TimeSpan CacheOperationTimeout = TimeSpan.FromMilliseconds(200);
 
         public TutorVerificationService(
             ITutorRepository tutorRepository,

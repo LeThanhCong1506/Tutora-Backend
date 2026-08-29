@@ -455,6 +455,26 @@ public partial class ClassSessionService
             classSession.Recordingresourceid = handle.ResourceId;
             classSession.Recordingsid = handle.Sid;
             await _context.SaveChangesAsync();
+
+            // Recorder audio-only chạy song song, uid riêng — lỗi ở đây KHÔNG được ảnh hưởng recorder
+            // video (đã start thành công ở trên): tách try/catch riêng, chỉ log cảnh báo. Thiếu bản
+            // audio-only chỉ khiến pipeline AI rơi về nhánh cũ (tải video + ffmpeg), không mất gì cả.
+            if (_cloudRecording.AudioOnlyEnabled)
+            {
+                try
+                {
+                    var audioHandle = await _cloudRecording.StartAudioAsync(classSession.Classsessionid, channel);
+                    classSession.Audiorecordingresourceid = audioHandle.ResourceId;
+                    classSession.Audiorecordingsid = audioHandle.Sid;
+                    await _context.SaveChangesAsync();
+                }
+                catch (Exception audioEx)
+                {
+                    _logger.LogWarning(audioEx,
+                        "Không thể bắt đầu recorder audio-only cho buổi học {ClassSessionId} — recorder video vẫn chạy bình thường.",
+                        classSession.Classsessionid);
+                }
+            }
         }
         catch (Exception ex)
         {
@@ -504,6 +524,31 @@ public partial class ClassSessionService
         {
             // Nuốt lỗi để không hỏng check-out, nhưng đây là mất bản ghi thật sự → Error, không phải Warning.
             _logger.LogError(ex, "Không thể dừng Cloud Recording cho buổi học {ClassSessionId}", classSession.Classsessionid);
+        }
+
+        // Dừng recorder audio-only (nếu đã start) — tách hẳn try/catch, lỗi ở đây không phải mất bản ghi
+        // thật sự (video mix ở trên vẫn còn), chỉ khiến pipeline AI rơi về nhánh cũ (tải video + ffmpeg).
+        if (!string.IsNullOrEmpty(classSession.Audiorecordingresourceid) && !string.IsNullOrEmpty(classSession.Audiorecordingsid))
+        {
+            try
+            {
+                var channel = AgoraChannelName.ForSession(classSession.Classsessionid, classSession.Bookingid);
+                var audioResult = await _cloudRecording.StopAudioAsync(
+                    classSession.Classsessionid, channel, classSession.Audiorecordingresourceid, classSession.Audiorecordingsid);
+
+                var audioKey = audioResult.FileNames.FirstOrDefault(f => f.EndsWith(".mp4", StringComparison.OrdinalIgnoreCase))
+                    ?? audioResult.FileNames.FirstOrDefault(f => f.EndsWith(".m4a", StringComparison.OrdinalIgnoreCase))
+                    ?? audioResult.FileNames.FirstOrDefault();
+
+                classSession.Audiorecordings3key = audioKey; // RecordingRelayService forward thẳng lên Gemini rồi xoá
+                await _context.SaveChangesAsync();
+            }
+            catch (Exception audioEx)
+            {
+                _logger.LogWarning(audioEx,
+                    "Không thể dừng recorder audio-only cho buổi học {ClassSessionId} — không ảnh hưởng video mix.",
+                    classSession.Classsessionid);
+            }
         }
     }
 
