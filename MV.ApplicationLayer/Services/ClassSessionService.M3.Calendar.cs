@@ -20,9 +20,16 @@ public partial class ClassSessionService
             ? endDate 
             : DateTime.SpecifyKind(endDate, DateTimeKind.Utc);
 
+        // Ô lịch buổi này rơi vào NGÀY nào: ngày check-in thực tế nếu đã vào học, còn chưa thì
+        // ngày hẹn. Khớp hành vi "buổi phụ chờ ngoài giờ" — vào học sớm/muộn khác ngày hẹn (test
+        // hoặc do gia sư/học sinh chủ động vào ngoài giờ) sẽ hiện đúng ngày đã học, không còn kẹt ở
+        // ô ngày hẹn cũ như một buổi "ma" chưa từng diễn ra. Không đụng field Scheduledstart thật —
+        // slot-conflict/thanh toán/tranh chấp vẫn dùng nguyên giờ hẹn gốc.
         var classSessions = await _context.ClassSessions
             .AsNoTracking()
-            .Where(l => l.Tutorid == tutorId && l.Scheduledstart >= startUtc && l.Scheduledstart <= endUtc)
+            .Where(l => l.Tutorid == tutorId
+                     && (l.Checkintime ?? l.Scheduledstart) >= startUtc
+                     && (l.Checkintime ?? l.Scheduledstart) <= endUtc)
             .Include(l => l.Booking)
                 .ThenInclude(b => b!.Tutorsubjectgradeprice)
                     .ThenInclude(p => p!.Subject)
@@ -32,9 +39,14 @@ public partial class ClassSessionService
             .OrderBy(l => l.Scheduledstart)
             .ToListAsync();
 
-        // Group theo NGÀY Việt Nam để tránh lệch ngày do UTC+7
+        // Group theo NGÀY Việt Nam để tránh lệch ngày do UTC+7 — phải convert sang giờ VN trước khi
+        // lấy .Date, vì Scheduledstart/Checkintime lưu UTC nên buổi 00:00-06:59 giờ VN rơi vào NGÀY
+        // UTC hôm trước (vd 01:58 27/08 VN = 18:58 26/08 UTC), lấy .Date thẳng trên UTC sẽ lệch ngày.
+        var vietnamTimeZone = TimeZoneHelper.GetTimeZoneInfo("Asia/Ho_Chi_Minh");
         var grouped = classSessions
-            .GroupBy(l => l.Scheduledstart.Date)
+            .GroupBy(l => TimeZoneInfo.ConvertTimeFromUtc(
+                DateTime.SpecifyKind(l.Checkintime ?? l.Scheduledstart, DateTimeKind.Utc),
+                vietnamTimeZone).Date)
             .Select(g => new CalendarDayResponse
             {
                 Date = g.Key,
@@ -81,11 +93,12 @@ public partial class ClassSessionService
         if (profile == null)
             return new List<CalendarDayResponse>();
 
+        // Xem giải thích ở GetTutorCalendarAsync: bucket theo ngày check-in thực tế nếu đã vào học.
         var classSessions = await _context.ClassSessions
             .AsNoTracking()
             .Where(l => l.Studentid == profile.Studentid
-                     && l.Scheduledstart >= startUtc
-                     && l.Scheduledstart <= endUtc)
+                     && (l.Checkintime ?? l.Scheduledstart) >= startUtc
+                     && (l.Checkintime ?? l.Scheduledstart) <= endUtc)
             .Include(l => l.Booking)
                 .ThenInclude(b => b!.Tutorsubjectgradeprice)
                     .ThenInclude(p => p!.Subject)
@@ -97,8 +110,13 @@ public partial class ClassSessionService
             .OrderBy(l => l.Scheduledstart)
             .ToListAsync();
 
+        // Xem giải thích ở GetTutorCalendarAsync: convert sang giờ VN trước khi lấy .Date để tránh
+        // lệch ngày với buổi 00:00-06:59 giờ VN.
+        var studentVietnamTimeZone = TimeZoneHelper.GetTimeZoneInfo("Asia/Ho_Chi_Minh");
         return classSessions
-            .GroupBy(l => l.Scheduledstart.Date)
+            .GroupBy(l => TimeZoneInfo.ConvertTimeFromUtc(
+                DateTime.SpecifyKind(l.Checkintime ?? l.Scheduledstart, DateTimeKind.Utc),
+                studentVietnamTimeZone).Date)
             .Select(g => new CalendarDayResponse
             {
                 Date = g.Key,
@@ -396,13 +414,15 @@ public partial class ClassSessionService
             var continuation = await _context.ClassSessions
                 .AsNoTracking()
                 .Where(c => c.Originalsessionid == classSessionId && c.Iscontinuation && c.Status == Scheduled)
-                .Select(c => new { c.Classsessionid, c.Tutorskipconfirmedat, c.Studentskipconfirmedat })
+                .Select(c => new { c.Classsessionid, c.Tutorskipconfirmedat, c.Studentskipconfirmedat, c.Scheduledstart, c.Scheduledend })
                 .FirstOrDefaultAsync();
             if (continuation != null)
             {
                 response.ContinuationSessionId = continuation.Classsessionid;
                 response.ContinuationSkipBothConfirmed =
                     continuation.Tutorskipconfirmedat.HasValue && continuation.Studentskipconfirmedat.HasValue;
+                response.ContinuationScheduledStart = continuation.Scheduledstart;
+                response.ContinuationScheduledEnd = continuation.Scheduledend;
             }
         }
 

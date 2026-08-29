@@ -78,6 +78,12 @@ public partial class BookingService(
 
         var tutor = await context.Tutorprofiles.Include(t => t.Tutor).FirstOrDefaultAsync(t => t.Tutorid == dto.TutorId)
             ?? throw new BookingException(BookingErrorCodes.TutorNotFound, "Không tìm thấy gia sư", 404);
+        // Ispublic đã bị các luồng suspend/deactivate hiện có (tự khóa, admin khóa, auto-suspend
+        // do cảnh cáo) tắt kèm theo, nhưng đó là suy luận gián tiếp qua một cờ hiển thị marketplace —
+        // kiểm thẳng Status của chính tài khoản tutor (cùng cờ mà OnTokenValidated ở Program.cs dùng
+        // để chặn đăng nhập) để không phụ thuộc mọi nơi ghi suspension đều nhớ đồng bộ Ispublic.
+        if (tutor.Tutor?.Status == 0)
+            throw new BookingException(BookingErrorCodes.TutorNotAvailable, "Tài khoản gia sư đã bị khóa hoặc tạm ngưng", 409);
         if (!string.Equals(tutor.Profilestatus, TutorProfileStatus.Active, StringComparison.OrdinalIgnoreCase) || tutor.Ispublic != true)
             throw new BookingException(BookingErrorCodes.TutorNotAvailable, "Gia sư chưa được duyệt hoặc chưa hiển thị công khai", 409);
         if (!tutor.Isacceptingbookings)
@@ -597,14 +603,27 @@ public partial class BookingService(
                 && l.Status != CancelledNoshow
                 && l.Status != Completed
                 && l.Status != NoShow)
-            .OrderBy(l => l.Scheduledstart)
+            .Select(l => new { l.Scheduledstart, l.Scheduledend, l.Bookingid, BookingStatus = l.Booking!.Status })
             .ToListAsync();
 
-        return classSessions.Select(l => new BookedSlotResponse
-        {
-            ScheduledStart = DateTime.SpecifyKind(l.Scheduledstart, DateTimeKind.Utc),
-            ScheduledEnd = DateTime.SpecifyKind(l.Scheduledend, DateTimeKind.Utc)
-        }).ToList();
+        // Khung giờ chỉ thực sự "khóa" khi gia sư đã accept 1 booking (deposit_paid+) cho đúng
+        // khung giờ đó — pending_tutor/pending_payment chỉ được đếm để cảnh báo, không khóa gì cả
+        // (xem BookingScheduleLockPolicy).
+        return classSessions
+            .GroupBy(l => (l.Scheduledstart, l.Scheduledend))
+            .Select(g => new BookedSlotResponse
+            {
+                ScheduledStart = DateTime.SpecifyKind(g.Key.Scheduledstart, DateTimeKind.Utc),
+                ScheduledEnd = DateTime.SpecifyKind(g.Key.Scheduledend, DateTimeKind.Utc),
+                IsLocked = g.Any(x => BookingScheduleLockPolicy.IsLockingStatus(x.BookingStatus)),
+                PendingCount = g.Where(x => x.BookingStatus == BookingStatus.PendingTutor)
+                    .Select(x => x.Bookingid)
+                    .Distinct()
+                    .Count()
+            })
+            .Where(r => r.IsLocked || r.PendingCount > 0)
+            .OrderBy(r => r.ScheduledStart)
+            .ToList();
     }
 
 
@@ -624,9 +643,11 @@ public partial class BookingService(
             var startUtc = TimeOnly.FromTimeSpan(slot.Start.TimeOfDay);
             var endUtc = TimeOnly.FromTimeSpan(slot.End.TimeOfDay);
 
-            // Local (+7) conversions kept only for human-readable error messages and logging
-            var startVn = slot.Start;
-            var endVn = slot.End;
+            // Local (+7) conversions kept only for human-readable error messages and logging —
+            // slot.Start/End ở trên là UTC, phải cộng lệch múi giờ thật thì message mới đúng giờ
+            // VN hiển thị cho người dùng (trước đây gán thẳng UTC nên báo nhầm "00:00" thay vì "07:00").
+            var startVn = slot.Start.AddHours(7);
+            var endVn = slot.End.AddHours(7);
             var bookingDate = DateOnly.FromDateTime(startVn);
 
             if (slot.Start <= TimeZoneHelper.UtcNow)
@@ -670,12 +691,22 @@ public partial class BookingService(
                 throw new BookingException(BookingErrorCodes.ScheduleNotInAvailability,
                     $"Slot {startVn:dd/MM/yyyy HH:mm}-{endVn:HH:mm} nằm ngoài lịch rảnh của gia sư", 400);
 
+            // Chỉ chặn khi khung giờ đã thực sự bị "khóa" (gia sư đã accept 1 booking khác —
+            // deposit_paid trở lên). Booking đang pending_tutor/pending_payment không chặn ai cả,
+            // kể cả chính người đã tạo nó — lịch luôn mở cho tới khi gia sư chủ động xác nhận.
             var hasConflict = await context.ClassSessions.AnyAsync(l =>
                 l.Tutorid == tutorId
                 && l.Status != Cancelled
                 && l.Status != CancelledNoshow
                 && l.Status != Completed
                 && l.Status != NoShow
+                && l.Booking != null
+                && (l.Booking.Status == BookingStatus.Accepted
+                    || l.Booking.Status == BookingStatus.DepositPaid
+                    || l.Booking.Status == BookingStatus.PendingRemainingPayment
+                    || l.Booking.Status == BookingStatus.Paid
+                    || l.Booking.Status == BookingStatus.Ongoing
+                    || l.Booking.Status == BookingStatus.Completed)
                 && l.Scheduledstart < slot.End
                 && l.Scheduledend > slot.Start);
 

@@ -456,6 +456,19 @@ public partial class ClassSessionService
         if (hasTutorConflict)
             throw new ClassSessionException(ClassSessionErrorCodes.InvalidClassSessionStatus, "Gia sư đã có lịch trong khung giờ học bù", 409);
 
+        // Cùng giới hạn chuỗi với buổi phụ do ngắt kết nối / buổi học lại do hoà giải dispute
+        // (DisputeRelearnPolicy.MaxRelearnSessionsPerChain) — đếm theo TỔNG số buổi trong chuỗi vì
+        // ClassSessionRecordingChainHelper (nguồn hiển thị tab "Buổi N" ở trang xem lại video) đi
+        // theo Originalsessionid bất kể Iscontinuation/Isdisputerelearn/Ismakeup, nên nếu không chặn
+        // ở đây thì đường học-bù-no-show có thể kéo dài chuỗi vượt quá giới hạn mà 2 đường kia tuân thủ.
+        var existingSessionCount = await DisputeRelearnPolicy.CountSessionsInChainAsync(_context, originalClassSessionId);
+        if (existingSessionCount >= DisputeRelearnPolicy.MaxRelearnSessionsPerChain)
+            throw new ClassSessionException(
+                ClassSessionErrorCodes.SessionChainLimitReached,
+                $"Chuỗi buổi học này đã có {DisputeRelearnPolicy.MaxRelearnSessionsPerChain} buổi — không thể tạo thêm buổi bù nữa, " +
+                "vui lòng chọn \"Hoàn tiền & hủy buổi\" hoặc \"Hủy khóa học và hoàn tiền\".",
+                409);
+
         var makeupClassSession = new ClassSession
         {
             Bookingid = originalClassSession.Bookingid,

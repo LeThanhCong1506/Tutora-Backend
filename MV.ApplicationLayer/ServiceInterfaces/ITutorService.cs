@@ -24,6 +24,12 @@ namespace MV.ApplicationLayer.ServiceInterfaces
         Task<CccdUploadResponse> UploadCccdImagesAsync(string userId, UploadCccdRequest request);
 
         /// <summary>
+        /// Gia sư xác nhận đưa thông tin trên CCCD vào hồ sơ (họ tên, ngày sinh, giới tính,
+        /// địa chỉ thường trú). Dữ liệu lấy từ ekyc_raw_data đã lưu ở bước quét, không nhận từ client.
+        /// </summary>
+        Task<CccdProfileConfirmResponse> ConfirmCccdProfileAsync(string userId);
+
+        /// <summary>
         /// Update basic tutor info: headline, teaching area, teaching mode.
         /// Returns <see cref="ProfileUpdateOutcome.PendingApproval"/> instead of applying the change
         /// directly when the profile is already Active (needs Admin re-approval — see RequiresApprovalForEdits).
