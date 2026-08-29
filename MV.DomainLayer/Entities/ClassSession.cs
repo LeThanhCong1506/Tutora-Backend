@@ -112,9 +112,14 @@ public partial class ClassSession
     /// <summary>sid của recorder audio-only — cần để gọi stop.</summary>
     public string? Audiorecordingsid { get; set; }
 
-    /// <summary>Object key file audio trên S3 — RecordingRelayService tải về, forward thẳng lên Gemini rồi
-    /// xoá (không relay lên Drive, không có nhu cầu phát lại audio riêng). Null sau khi đã xử lý xong.</summary>
+    /// <summary>Object key file audio trên S3 (kho đệm) — RecordingRelayService tải về, forward lên Gemini
+    /// (cache cho AI) VÀ relay lên Drive (lưu vĩnh viễn, xem Audiorecordingurl) rồi mới xoá khỏi S3.
+    /// Null sau khi đã xử lý xong.</summary>
     public string? Audiorecordings3key { get; set; }
+
+    /// <summary>Link Drive của file audio-only sau khi relay xong — vĩnh viễn, giống hệt Recordingurl
+    /// nhưng cho audio (không xoá như trước, chỉ xoá bản đệm tạm trên S3).</summary>
+    public string? Audiorecordingurl { get; set; }
 
     /// <summary>UUID phòng Agora Interactive Whiteboard (Netless) của buổi học. Null nếu chưa mở bảng.</summary>
     public string? Whiteboardroomuuid { get; set; }
