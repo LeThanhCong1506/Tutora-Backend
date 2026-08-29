@@ -172,18 +172,13 @@ namespace MV.ApplicationLayer.Services
                 throw new UnauthorizedAccessException(
                     $"Bạn không có quyền cập nhật {unauthorizedSlots.Count} slot(s) lịch học này.");
 
-            // Future-classSession guard: block if any old slot has an upcoming booking
-            foreach (var availability in availabilities)
-            {
-                var slotDayOfWeek = availability.Dayofweek!.Value;
-                var slotStartTime = availability.Starttime!.Value.ToTimeSpan();
-                var slotEndTime = availability.Endtime!.Value.ToTimeSpan();
-
-                var hasUpcomingClassSessions = await HasFutureClassSessionInSlotAsync(tutorId, slotDayOfWeek, slotStartTime, slotEndTime);
-                if (hasUpcomingClassSessions)
-                    throw new InvalidOperationException(
-                        $"Không thể cập nhật khung giờ {availability.Starttime:HH:mm}-{availability.Endtime:HH:mm} (ngày {availability.Dayofweek}) vì đang có buổi học được đặt lịch. Vui lòng hủy booking trước khi cập nhật.");
-            }
+            // KHÔNG kiểm tra buổi học đã đặt ở đây. Lịch rảnh là LỜI MỜI nhận booking MỚI, còn
+            // buổi đã đặt là CAM KẾT đã chốt — hai thứ độc lập. Gỡ một khung giờ khỏi lịch rảnh
+            // không huỷ, không dời, không chặn buổi nào đã nằm trong class_sessions:
+            // ClassSessionScheduleConflictGuard (thứ quyết định cho vào lớp) không hề đọc bảng
+            // tutor_availability, và lịch rảnh chỉ được dùng ở BookingService.ValidateSlotsAsync
+            // khi tạo booking mới. Ràng buộc cũ khiến gia sư nhận một buổi vào thứ Sáu là bị khoá
+            // cứng toàn bộ thứ Sáu, dù chỉ muốn đóng bớt khung nhận booking mới.
 
             // Get all existing slots for this tutor excluding the ones being updated (for overlap check)
             var otherExistingSlots = await _context.Tutoravailabilities
@@ -227,6 +222,12 @@ namespace MV.ApplicationLayer.Services
 
                 processedNewSlots.Add((utcStartDay, utcStartTime, utcEndTime, item.Availabilityid));
             }
+
+            // KHÔNG kiểm tra ràng buộc với gói cố định ở đây: endpoint này thường là MỘT BƯỚC trong
+            // chuỗi DELETE → PATCH → POST của client, nên trạng thái tại thời điểm này chưa phải
+            // trạng thái cuối mà người dùng muốn lưu. Kiểm tra ở đây sẽ chặn oan một thao tác hợp
+            // lệ (vd xoá hết thứ Hai rồi thêm lại khung mới ngay sau đó). Ràng buộc được kiểm ở
+            // ReplaceAvailabilitiesAsync — đường lưu chính thức, nhìn được trạng thái cuối.
 
             // Apply updates to tracked entities
             foreach (var item in request.Availabilities)
@@ -280,15 +281,25 @@ namespace MV.ApplicationLayer.Services
                 throw new UnauthorizedAccessException("Bạn không có quyền xóa slot lịch học này.");
             }
 
-            var slotDayOfWeek = availability.Dayofweek!.Value;
-            var slotStartTime = availability.Starttime!.Value.ToTimeSpan();
-            var slotEndTime = availability.Endtime!.Value.ToTimeSpan();
+            // KHÔNG kiểm tra buổi học đã đặt ở đây. Lịch rảnh là LỜI MỜI nhận booking MỚI, còn
+            // buổi đã đặt là CAM KẾT đã chốt — hai thứ độc lập. Gỡ một khung giờ khỏi lịch rảnh
+            // không huỷ, không dời, không chặn buổi nào đã nằm trong class_sessions:
+            // ClassSessionScheduleConflictGuard (thứ quyết định cho vào lớp) không hề đọc bảng
+            // tutor_availability, và lịch rảnh chỉ được dùng ở BookingService.ValidateSlotsAsync
+            // khi tạo booking mới. Ràng buộc cũ khiến gia sư nhận một buổi vào thứ Sáu là bị khoá
+            // cứng toàn bộ thứ Sáu, dù chỉ muốn đóng bớt khung nhận booking mới.
 
-            var hasUpcomingClassSessions = await HasFutureClassSessionInSlotAsync(tutorId, slotDayOfWeek, slotStartTime, slotEndTime);
+            // Lịch rảnh SAU khi xoá = mọi slot khác của gia sư.
+            var remainingAfterDelete = await _context.Tutoravailabilities
+                .AsNoTracking()
+                .Where(a => a.Tutorid == tutorId && a.Availabilityid != availabilityId)
+                .ToListAsync();
 
-            if (hasUpcomingClassSessions)
-                throw new InvalidOperationException(
-                    "Không thể xóa khung giờ này vì đang có buổi học được đặt lịch. Vui lòng hủy booking trước khi xóa.");
+            await EnsureActivePackageSlotsStillCoveredAsync(
+                tutorId,
+                remainingAfterDelete
+                    .Where(a => a.Dayofweek.HasValue && a.Starttime.HasValue && a.Endtime.HasValue)
+                    .Select(a => ToWindow(a.Dayofweek!.Value, a.Starttime!.Value, a.Endtime!.Value)));
 
             _context.Tutoravailabilities.Remove(availability);
             await _context.SaveChangesAsync();
@@ -318,26 +329,15 @@ namespace MV.ApplicationLayer.Services
                     $"Bạn không có quyền xóa {unauthorizedSlots.Count} slot(s) lịch học này.");
             }
 
-            // Check for upcoming classSessions in any of the slots
-            foreach (var availability in availabilities)
-            {
-                var slotDayOfWeek = availability.Dayofweek!.Value;
-                var slotStartTime = availability.Starttime!.Value.ToTimeSpan();
-                var slotEndTime = availability.Endtime!.Value.ToTimeSpan();
+            // KHÔNG kiểm tra buổi học đã đặt ở đây. Lịch rảnh là LỜI MỜI nhận booking MỚI, còn
+            // buổi đã đặt là CAM KẾT đã chốt — hai thứ độc lập. Gỡ một khung giờ khỏi lịch rảnh
+            // không huỷ, không dời, không chặn buổi nào đã nằm trong class_sessions:
+            // ClassSessionScheduleConflictGuard (thứ quyết định cho vào lớp) không hề đọc bảng
+            // tutor_availability, và lịch rảnh chỉ được dùng ở BookingService.ValidateSlotsAsync
+            // khi tạo booking mới. Ràng buộc cũ khiến gia sư nhận một buổi vào thứ Sáu là bị khoá
+            // cứng toàn bộ thứ Sáu, dù chỉ muốn đóng bớt khung nhận booking mới.
 
-                var hasUpcomingClassSessions = await HasFutureClassSessionInSlotAsync(tutorId, slotDayOfWeek, slotStartTime, slotEndTime);
-
-                if (hasUpcomingClassSessions)
-                {
-                    var startLocal = MV.ApplicationLayer.Helpers.TutorScheduleGuard.UtcTimeOfDayToVietnameseLocal(
-                        availability.Starttime!.Value.ToString("HH:mm"));
-                    var endLocal = MV.ApplicationLayer.Helpers.TutorScheduleGuard.UtcTimeOfDayToVietnameseLocal(
-                        availability.Endtime!.Value.ToString("HH:mm"));
-                    var dayLabel = MV.ApplicationLayer.Helpers.TutorScheduleGuard.IsoDayOfWeekToVietnameseName(availability.Dayofweek!.Value);
-                    throw new InvalidOperationException(
-                        $"Không thể xóa khung giờ {startLocal}-{endLocal} ({dayLabel}) vì đang có buổi học được đặt lịch. Vui lòng hủy booking trước khi xóa.");
-                }
-            }
+            // Không kiểm tra ràng buộc gói cố định ở đây — cùng lý do với BulkUpdateAvailabilitiesAsync.
 
             // All validations passed, delete all slots
             _context.Tutoravailabilities.RemoveRange(availabilities);
@@ -382,16 +382,115 @@ namespace MV.ApplicationLayer.Services
             });
         }
 
-        private async Task<bool> HasFutureClassSessionInSlotAsync(string tutorId, int utcDayOfWeek, TimeSpan utcSlotStart, TimeSpan utcSlotEnd)
-        {
-            // Dùng guard chung (nguồn sự thật duy nhất) — xem TutorScheduleGuard.
-            var sessions = await TutorScheduleGuard.GetFutureCommittedSessionsAsync(_context, tutorId);
-            return TutorScheduleGuard.OverlapsWeeklySlot(sessions, utcDayOfWeek, utcSlotStart, utcSlotEnd);
-        }
-
         /// <summary>
         /// Map entity to response DTO. Returns UTC values — FE handles display conversion.
         /// </summary>
+
+
+        /// <inheritdoc/>
+        public async Task<List<TutorAvailabilityResponse>> ReplaceAvailabilitiesAsync(
+            string tutorId, ReplaceAvailabilityRequest request)
+        {
+            var newSlots = new List<(int Day, TimeOnly Start, TimeOnly End)>();
+
+            foreach (var item in request.Availabilities)
+            {
+                var start = ParseTimeOnly(item.Starttime);
+                var end = ParseTimeOnly(item.Endtime);
+
+                if (start >= end)
+                    throw new ArgumentException(
+                        $"Giờ bắt đầu phải trước giờ kết thúc ({item.Starttime}-{item.Endtime}).");
+
+                // Chồng giờ trong CÙNG payload là lỗi của client, không phải trạng thái hợp lệ.
+                var clash = newSlots.FirstOrDefault(x =>
+                    x.Day == item.Dayofweek && start < x.End && end > x.Start);
+                if (clash != default)
+                    throw new InvalidOperationException(
+                        $"Khung {item.Starttime}-{item.Endtime} trùng với khung "
+                        + $"{clash.Start.ToString("HH:mm")}-{clash.End.ToString("HH:mm")} trong cùng yêu cầu.");
+
+                newSlots.Add((item.Dayofweek, start, end));
+            }
+
+            // Kiểm tra ràng buộc trên ĐÚNG trạng thái cuối — đây là lý do endpoint này tồn tại.
+            await EnsureActivePackageSlotsStillCoveredAsync(
+                tutorId,
+                newSlots.Select(x => ToWindow(x.Day, x.Start, x.End)));
+
+            var existing = await _context.Tutoravailabilities
+                .Where(a => a.Tutorid == tutorId)
+                .ToListAsync();
+
+            // Xoá-rồi-thêm trong MỘT transaction: availability_id không được bảng nào tham chiếu
+            // (không có khoá ngoại trỏ tới tutor_availability), nên id đổi là vô hại, và client
+            // luôn đọc lại danh sách sau khi lưu.
+            await using var tx = await _context.Database.BeginTransactionAsync();
+            try
+            {
+                _context.Tutoravailabilities.RemoveRange(existing);
+                await _context.SaveChangesAsync();
+
+                var now = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
+                var created = newSlots
+                    .Select(x => new Tutoravailability
+                    {
+                        Tutorid = tutorId,
+                        Dayofweek = x.Day,
+                        Starttime = x.Start,
+                        Endtime = x.End,
+                        Createdat = now
+                    })
+                    .ToList();
+
+                _context.Tutoravailabilities.AddRange(created);
+                await _context.SaveChangesAsync();
+                await tx.CommitAsync();
+
+                return created
+                    .OrderBy(a => a.Dayofweek)
+                    .ThenBy(a => a.Starttime)
+                    .Select(MapToResponse)
+                    .ToList();
+            }
+            catch
+            {
+                await tx.RollbackAsync();
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// Chặn nếu lịch rảnh SAU thao tác không còn bao trọn khung cố định của một gói đang
+        /// active. Xem PackageAvailabilityGuard để biết vì sao ràng buộc này chính đáng trong khi
+        /// ràng buộc theo buổi đã đặt thì không.
+        /// </summary>
+        private async Task EnsureActivePackageSlotsStillCoveredAsync(
+            string tutorId,
+            IEnumerable<PackageAvailabilityGuard.AvailabilityWindow> remainingWindows)
+        {
+            var packageSlots = await PackageAvailabilityGuard.GetActivePackageSlotsAsync(_context, tutorId);
+            if (packageSlots.Count == 0) return;
+
+            var orphan = PackageAvailabilityGuard.FindSlotOutsideAvailability(packageSlots, remainingWindows);
+            if (orphan == null) return;
+
+            var o = orphan.Value;
+            var startLocal = TutorScheduleGuard.UtcTimeOfDayToVietnameseLocal(
+                TimeOnly.FromTimeSpan(o.Start).ToString("HH:mm"));
+            var endLocal = TutorScheduleGuard.UtcTimeOfDayToVietnameseLocal(
+                TimeOnly.FromTimeSpan(o.End).ToString("HH:mm"));
+            var dayLabel = TutorScheduleGuard.IsoDayOfWeekToVietnameseName(o.DayOfWeek);
+
+            throw new InvalidOperationException(
+                $"Lịch rảnh mới không còn phủ khung {startLocal}-{endLocal} ({dayLabel}) của gói \"{o.PackageName}\". "
+                + "Phụ huynh sẽ không đặt được gói này. Vui lòng sửa gói lịch học trước, hoặc giữ lại khung giờ trên.");
+        }
+
+        /// <summary>Khung rảnh còn lại sau thao tác, ở dạng PackageAvailabilityGuard đọc được.</summary>
+        private static PackageAvailabilityGuard.AvailabilityWindow ToWindow(int day, TimeOnly start, TimeOnly end)
+            => new(day, start.ToTimeSpan(), end.ToTimeSpan());
+
         private static TutorAvailabilityResponse MapToResponse(Tutoravailability entity)
         {
             return new TutorAvailabilityResponse

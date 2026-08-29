@@ -87,10 +87,10 @@ public class DisputeController : ControllerBase
     /// </summary>
     [RequirePermission(Permissions.DisputeView)]
     [HttpGet("{id}/chat")]
-    public async Task<ActionResult<APIResponse<List<ChatMessageResponse>>>> GetChatHistory(int id)
+    public async Task<ActionResult<APIResponse<DisputeChatHistoryResponse>>> GetChatHistory(int id)
     {
         var result = await _disputeService.GetDisputeChatHistoryAsync(id);
-        return Ok(APIResponse<List<ChatMessageResponse>>.Success(result, "Lấy lịch sử chat thành công."));
+        return Ok(APIResponse<DisputeChatHistoryResponse>.Success(result, "Lấy lịch sử chat thành công."));
     }
 
     /// <summary>

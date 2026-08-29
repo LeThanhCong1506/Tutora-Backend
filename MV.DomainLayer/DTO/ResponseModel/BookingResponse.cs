@@ -126,6 +126,13 @@ public class BookingResponse
     public DateTime? StartDate { get; set; }
     public DateTime? CreatedAt { get; set; }
     public DateTime? PaymentDueAt { get; set; }
+
+    /// <summary>
+    /// Vai trò của người TẠO booking ("Student" / "Parent"). Booking do học sinh tạo dừng ở
+    /// pending_payment chờ phụ huynh duyệt và trả tiền — FE dùng cờ này để gắn nhãn phân biệt
+    /// trong cùng danh sách đặt lịch của phụ huynh.
+    /// </summary>
+    public string? CreatedByRole { get; set; }
     /// <summary>UTC deadline for the tutor to accept or decline a pending booking.</summary>
     public DateTime? ResponseDeadline { get; set; }
     public decimal? DepositAmount { get; set; }

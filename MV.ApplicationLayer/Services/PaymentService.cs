@@ -749,7 +749,11 @@ public partial class PaymentService(
             booking.Paymentstatus = DepositEscrowed;
             booking.Paymentdueat = null; // Clear deposit deadline
             booking.Depositpaidat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
-            booking.Responsedeadline = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow.AddHours(24);
+            // Hạn phản hồi bị chặn trên bởi chính giờ học — xem BookingLeadTimePolicy để biết vì
+            // sao mốc cố định 24h cũ cho phép gia sư duyệt một buổi đã trôi qua.
+            booking.Responsedeadline = BookingLeadTimePolicy.ResolveResponseDeadline(
+                MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow,
+                booking.ClassSessions.OrderBy(x => x.Scheduledstart).Select(x => (DateTime?)x.Scheduledstart).FirstOrDefault());
             booking.Escrowstatus = EscrowStatus.Holding;
             booking.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
             // Đánh dấu để tặng AI credit SAU khi commit — tiền buổi đầu đã vào escrow.

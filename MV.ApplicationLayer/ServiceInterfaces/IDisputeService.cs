@@ -29,7 +29,7 @@ public interface IDisputeService
     /// <summary>
     /// Get chat history for a booking (dispute context)
     /// </summary>
-    Task<List<ChatMessageResponse>> GetDisputeChatHistoryAsync(int disputeId);
+    Task<DisputeChatHistoryResponse> GetDisputeChatHistoryAsync(int disputeId);
 
     /// <summary>
     /// Marks a dispute as investigating. Blocked for the first 48h after creation (so the tutor has

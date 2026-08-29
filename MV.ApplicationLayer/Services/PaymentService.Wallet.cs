@@ -151,7 +151,10 @@ public partial class PaymentService
                 booking.Paymentstatus = DepositEscrowed;
                 booking.Depositpaidat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
                 booking.Paymentdueat = null;
-                booking.Responsedeadline = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow.AddHours(24);
+                // Cùng luật với nhánh thanh toán cổng ngoài — xem BookingLeadTimePolicy.
+                booking.Responsedeadline = BookingLeadTimePolicy.ResolveResponseDeadline(
+                    MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow,
+                    booking.ClassSessions.OrderBy(x => x.Scheduledstart).Select(x => (DateTime?)x.Scheduledstart).FirstOrDefault());
                 booking.Escrowstatus = EscrowStatus.Holding;
                 booking.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 
@@ -289,8 +292,12 @@ public partial class PaymentService
                 {
                     Userid = booking.Tutorid,
                     Title = isDepositPhase ? "Yêu cầu đặt lịch mới đã thanh toán" : "Booking đã thanh toán đầy đủ",
+                    // Hạn phản hồi KHÔNG còn cố định 24 giờ (BookingLeadTimePolicy chặn trên bằng
+                    // giờ học), nên phải ghi mốc thật. Ghi "24 giờ" như trước sẽ khiến gia sư ngủ
+                    // một giấc rồi mất booking mà không hiểu vì sao.
                     Message = isDepositPhase
-                        ? $"Phụ huynh đã thanh toán buổi học đầu tiên cho booking #{booking.Bookingid}. Vui lòng phản hồi trong 24 giờ."
+                        ? $"Phụ huynh đã thanh toán buổi học đầu tiên cho booking #{booking.Bookingid}. "
+                          + $"Vui lòng phản hồi trước {booking.Responsedeadline:HH:mm dd/MM/yyyy}."
                         : $"Booking #{booking.Bookingid} đã được thanh toán đầy đủ.",
                     Type = isDepositPhase ? NotificationType.BookingNew : NotificationType.PaymentSuccess,
                     Referenceid = booking.Bookingid.ToString()

@@ -34,5 +34,12 @@ namespace MV.ApplicationLayer.ServiceInterfaces
         /// Delete multiple availability slots at once (only owner can delete)
         /// </summary>
         Task<int> BulkDeleteAvailabilitiesAsync(string tutorId, BulkDeleteAvailabilityRequest request);
+
+        /// <summary>
+        /// Thay TOÀN BỘ lịch rảnh của gia sư bằng danh sách gửi lên. Đây là đường lưu chính thức
+        /// cho màn hình thiết lập lịch rảnh — xem ReplaceAvailabilityRequest để biết vì sao ràng
+        /// buộc chéo với gói cố định chỉ kiểm tra được ở đây chứ không ở từng lệnh lẻ.
+        /// </summary>
+        Task<List<TutorAvailabilityResponse>> ReplaceAvailabilitiesAsync(string tutorId, ReplaceAvailabilityRequest request);
     }
 }
