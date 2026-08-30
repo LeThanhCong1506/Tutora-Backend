@@ -227,7 +227,12 @@ public class GeminiVideoAnalysisService : IGeminiVideoAnalysisService
               cập gì tới việc giao bài tập, PHẢI ghi rõ "Không đề cập giao bài tập." — không tự suy ra là gia
               sư không giao bài (có thể audio bị cắt/không nghe rõ đoạn đó), chỉ nói đúng sự thật là không
               nghe thấy đề cập. Tuyệt đối không để trống hay chỉ viết vài chữ ngắn.
-            - tutorNotes: Ghi chú thêm của gia sư về buổi học (thái độ học, điểm cần cải thiện...).
+            - tutorNotes: Ghi chú thêm của gia sư về buổi học (thái độ học, điểm cần cải thiện...) — CHỈ ghi
+              đúng những gì THẬT SỰ quan sát/nghe được trong audio (ví dụ gia sư có nhận xét trực tiếp, hoặc
+              thái độ/hành vi học sinh thể hiện rõ ràng qua lời nói), tuyệt đối không tự suy đoán hay bịa thêm
+              nhận xét chung chung không có căn cứ từ audio. Nếu audio KHÔNG có gì để nhận xét thêm, PHẢI ghi
+              rõ "Không đề cập gì thêm." — không bịa ra nhận xét nghe có vẻ hợp lý nhưng thực chất không dựa
+              trên nội dung buổi học. Tuyệt đối không để trống hay chỉ viết vài chữ ngắn.
             """;
 
         var schema = new GeminiSchema
