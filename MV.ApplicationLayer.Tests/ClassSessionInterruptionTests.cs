@@ -669,6 +669,83 @@ public class ClassSessionAutoCloseInterruptedSessionsTests
         Assert.Equal(ClassSessionStatus.Cancelled, reloadedOriginal.Status);
     }
 
+    /// <summary>
+    /// Ca "zombie": buổi phụ đã được vào học (InProgress) nhưng chưa từng nộp báo cáo khi job này
+    /// chạy — chưa có báo cáo/settle nào gắn vào nó nên vẫn an toàn để settle buổi gốc như bình
+    /// thường, đồng thời phải đóng luôn buổi phụ (Cancelled + Checkouttime) để không treo lơ lửng
+    /// InProgress vĩnh viễn (không job nào khác từng đụng tới nó nữa).
+    /// </summary>
+    [Fact]
+    public async Task ExpiredInterruption_WithInProgressUnreportedContinuation_SettlesOriginal_AndClosesContinuation()
+    {
+        await using var db = CreateContext();
+        var original = SeedInterruptedSession(db, interruptedAt: DateTime.UtcNow.AddDays(-1));
+        var continuation = new ClassSession
+        {
+            Classsessionid = original.Classsessionid + 1000,
+            Bookingid = BookingId,
+            Tutorid = TutorId,
+            Studentid = original.Studentid,
+            Iscontinuation = true,
+            Originalsessionid = original.Classsessionid,
+            Status = ClassSessionStatus.InProgress,
+            Checkintime = DateTime.UtcNow.AddMinutes(-30),
+            Scheduledstart = DateTime.UtcNow.AddMinutes(-30),
+            Scheduledend = DateTime.UtcNow.AddMinutes(30),
+        };
+        db.ClassSessions.Add(continuation);
+        await db.SaveChangesAsync();
+        var settlement = new RecordingSettlementService();
+        var service = CreateService(db, settlement);
+
+        var closedCount = await service.AutoCloseExpiredInterruptedSessionsAsync();
+
+        Assert.Equal(1, closedCount);
+        Assert.Contains(original.Classsessionid, settlement.SettledClassSessionIds);
+        db.ChangeTracker.Clear();
+        var reloadedContinuation = await db.ClassSessions.SingleAsync(x => x.Classsessionid == continuation.Classsessionid);
+        Assert.Equal(ClassSessionStatus.Cancelled, reloadedContinuation.Status);
+        Assert.NotNull(reloadedContinuation.Checkouttime);
+    }
+
+    /// <summary>
+    /// Buổi phụ đã nộp báo cáo và đang chờ xác nhận (PendingConfirmation) đúng lúc job chạy — đã có
+    /// báo cáo thật gắn vào nên không được đụng vào (không huỷ, không settle hộ), và buổi gốc cũng
+    /// không được settle lại — y hệt xử lý với buổi phụ đã Completed.
+    /// </summary>
+    [Fact]
+    public async Task ExpiredInterruption_WithPendingConfirmationContinuation_DoesNotDoubleSettleOriginal_AndLeavesContinuationUntouched()
+    {
+        await using var db = CreateContext();
+        var original = SeedInterruptedSession(db, interruptedAt: DateTime.UtcNow.AddDays(-1));
+        var continuation = new ClassSession
+        {
+            Classsessionid = original.Classsessionid + 1000,
+            Bookingid = BookingId,
+            Tutorid = TutorId,
+            Studentid = original.Studentid,
+            Iscontinuation = true,
+            Originalsessionid = original.Classsessionid,
+            Status = ClassSessionStatus.PendingConfirmation,
+            Scheduledstart = DateTime.UtcNow.AddMinutes(-30),
+            Scheduledend = DateTime.UtcNow.AddMinutes(30),
+        };
+        db.ClassSessions.Add(continuation);
+        await db.SaveChangesAsync();
+        var settlement = new RecordingSettlementService();
+        var service = CreateService(db, settlement);
+
+        var closedCount = await service.AutoCloseExpiredInterruptedSessionsAsync();
+
+        Assert.Equal(1, closedCount);
+        Assert.DoesNotContain(original.Classsessionid, settlement.SettledClassSessionIds);
+        db.ChangeTracker.Clear();
+        var reloadedOriginal = await db.ClassSessions.SingleAsync(x => x.Classsessionid == original.Classsessionid);
+        Assert.Equal(ClassSessionStatus.Cancelled, reloadedOriginal.Status);
+        var reloadedContinuation = await db.ClassSessions.SingleAsync(x => x.Classsessionid == continuation.Classsessionid);
+        Assert.Equal(ClassSessionStatus.PendingConfirmation, reloadedContinuation.Status);
+    }
+
     [Fact]
     public async Task MultipleExpiredInterruptions_AreAllClosed_AndCountedCorrectly()
     {
@@ -765,7 +842,7 @@ public class ClassSessionAutoCloseInterruptedSessionsTests
             zaloOAService: null!,
             storageService: null!,
             presence: null!,
-            cloudRecording: null!,
+            cloudRecording: new DisabledCloudRecordingService(),
             settlementService: settlementService,
             warningService: null!,
             recordingAccessTokenService: null!,
@@ -773,6 +850,22 @@ public class ClassSessionAutoCloseInterruptedSessionsTests
             rescheduleProposalService: null!,
             sessionLogService: null!,
             logger: NullLogger<ClassSessionService>.Instance);
+
+    /// <summary>Cloud Recording tắt (Enabled=false) -> TryStopRecordingAsync no-op (đường huỷ buổi phụ
+    /// InProgress vẫn gọi hàm này trước khi Cancel), các method khác không bao giờ được gọi.</summary>
+    private sealed class DisabledCloudRecordingService : ICloudRecordingService
+    {
+        public bool Enabled => false;
+        public bool AudioOnlyEnabled => false;
+        public Task<CloudRecordingHandle> StartAsync(int classSessionId, string channel, CancellationToken ct = default)
+            => throw new NotImplementedException();
+        public Task<CloudRecordingResult> StopAsync(int classSessionId, string channel, string resourceId, string sid, CancellationToken ct = default)
+            => throw new NotImplementedException();
+        public Task<CloudRecordingHandle> StartAudioAsync(int classSessionId, string channel, CancellationToken ct = default)
+            => throw new NotImplementedException();
+        public Task<CloudRecordingResult> StopAudioAsync(int classSessionId, string channel, string resourceId, string sid, CancellationToken ct = default)
+            => throw new NotImplementedException();
+    }
 
     private static AgoraDbContext CreateContext()
     {
@@ -1040,6 +1133,53 @@ public class ClassSessionSkipContinuationTests
         Assert.False(await db.ClassSessionReports.AnyAsync(r => r.Classsessionid == OriginalSessionId));
     }
 
+    /// <summary>
+    /// Buổi phụ đã nộp báo cáo và đang chờ xác nhận (PendingConfirmation) — cùng lý do chặn với
+    /// Completed: đã có báo cáo thật gắn vào buổi phụ, không được đụng vào hay chốt buổi gốc lại.
+    /// </summary>
+    [Fact]
+    public async Task SubmitReportOnInterruptedOriginal_WithPendingConfirmationContinuation_Throws()
+    {
+        await using var db = CreateContext();
+        SeedChain(db, continuationStatus: ClassSessionStatus.PendingConfirmation);
+        await db.SaveChangesAsync();
+        var service = CreateService(db);
+
+        var ex = await Assert.ThrowsAsync<ClassSessionException>(
+            () => service.SubmitReportAsync(OriginalSessionId, TutorId, MakeReportRequest()));
+
+        Assert.Equal(ClassSessionErrorCodes.ContinuationAlreadySettled, ex.ErrorCode);
+        db.ChangeTracker.Clear();
+        var original = await db.ClassSessions.SingleAsync(x => x.Classsessionid == OriginalSessionId);
+        Assert.Equal(ClassSessionStatus.Interrupted, original.Status);
+        var continuation = await db.ClassSessions.SingleAsync(x => x.Classsessionid == ContinuationSessionId);
+        Assert.Equal(ClassSessionStatus.PendingConfirmation, continuation.Status); // không bị đụng vào
+    }
+
+    /// <summary>
+    /// Ca "zombie": buổi phụ đã được vào học (InProgress) nhưng chưa nộp báo cáo — chưa có báo
+    /// cáo/settle nào gắn vào nó nên vẫn cho nộp báo cáo buổi gốc bình thường, đồng thời phải đóng
+    /// luôn buổi phụ (Cancelled + Checkouttime) để không treo lơ lửng InProgress vĩnh viễn.
+    /// </summary>
+    [Fact]
+    public async Task SubmitReportOnInterruptedOriginal_WithInProgressUnreportedContinuation_Succeeds_AndClosesContinuation()
+    {
+        await using var db = CreateContext();
+        SeedChain(db, continuationStatus: ClassSessionStatus.InProgress);
+        await db.SaveChangesAsync();
+        var service = CreateService(db);
+
+        var result = await service.SubmitReportAsync(OriginalSessionId, TutorId, MakeReportRequest());
+
+        Assert.NotNull(result);
+        db.ChangeTracker.Clear();
+        var original = await db.ClassSessions.SingleAsync(x => x.Classsessionid == OriginalSessionId);
+        Assert.Equal(ClassSessionStatus.PendingConfirmation, original.Status);
+        var continuation = await db.ClassSessions.SingleAsync(x => x.Classsessionid == ContinuationSessionId);
+        Assert.Equal(ClassSessionStatus.Cancelled, continuation.Status);
+        Assert.NotNull(continuation.Checkouttime);
+    }
+
     private static SubmitReportRequest MakeReportRequest() => new()
     {
         ContentCovered = "Đã dạy 80% nội dung trước khi bị ngắt.",
@@ -1132,7 +1272,7 @@ public class ClassSessionSkipContinuationTests
             zaloOAService: null!,
             storageService: null!,
             presence: null!,
-            cloudRecording: null!,
+            cloudRecording: new DisabledCloudRecordingService(),
             settlementService: null!,
             warningService: null!,
             recordingAccessTokenService: null!,
@@ -1140,6 +1280,23 @@ public class ClassSessionSkipContinuationTests
             rescheduleProposalService: rescheduleProposalService,
             sessionLogService: null!,
             logger: NullLogger<ClassSessionService>.Instance);
+    }
+
+    /// <summary>Cloud Recording tắt (Enabled=false) -> TryStopRecordingAsync no-op (đường huỷ buổi phụ
+    /// InProgress trong SubmitReportAsync vẫn gọi hàm này trước khi Cancel), các method khác không bao
+    /// giờ được gọi.</summary>
+    private sealed class DisabledCloudRecordingService : ICloudRecordingService
+    {
+        public bool Enabled => false;
+        public bool AudioOnlyEnabled => false;
+        public Task<CloudRecordingHandle> StartAsync(int classSessionId, string channel, CancellationToken ct = default)
+            => throw new NotImplementedException();
+        public Task<CloudRecordingResult> StopAsync(int classSessionId, string channel, string resourceId, string sid, CancellationToken ct = default)
+            => throw new NotImplementedException();
+        public Task<CloudRecordingHandle> StartAudioAsync(int classSessionId, string channel, CancellationToken ct = default)
+            => throw new NotImplementedException();
+        public Task<CloudRecordingResult> StopAudioAsync(int classSessionId, string channel, string resourceId, string sid, CancellationToken ct = default)
+            => throw new NotImplementedException();
     }
 
     private static AgoraDbContext CreateContext()

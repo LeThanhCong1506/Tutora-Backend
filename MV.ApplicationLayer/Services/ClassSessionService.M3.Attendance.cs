@@ -348,18 +348,22 @@ public partial class ClassSessionService
     /// <see cref="RequestInterruptionAsync"/> và guard tương ứng trong
     /// ClassSessionRescheduleProposalService.ProposeAsync). Nếu qua nửa đêm của ngày đó
     /// (Interruptedat.Date + 1 ngày, UTC thuần) mà vẫn chưa xử lý xong, tự đóng buổi gốc theo 1
-    /// trong 2 nhánh, tuỳ buổi phụ đã tự settle độc lập chưa (buổi phụ có thể đi hết vòng đời bình
+    /// trong 2 nhánh, tuỳ buổi phụ đã CÓ BÁO CÁO/settle chưa (buổi phụ có thể đi hết vòng đời bình
     /// thường của riêng nó — check-in → report → confirm/auto-confirm → settle — nếu được học thật
     /// mà không skip):
-    /// - Buổi phụ CHƯA settle (null, hoặc còn Scheduled/chưa dùng): buổi gốc được settle qua đường
-    ///   bỏ-qua-status-guard mà dispute đang dùng (SettleDisputedClassSessionAsync) nên chuyển thẳng
-    ///   sang Completed và trừ Sessionsremaining đúng 1 lần dù đang ở Interrupted (trạng thái mà
-    ///   SettleClassSessionAsync bình thường sẽ từ chối); buổi phụ còn Scheduled (chưa dùng) chuyển
-    ///   sang Cancelled để không còn nằm "lơ lửng" trên dashboard.
-    /// - Buổi phụ ĐÃ settle (Completed/Issettled — đã tự trừ Sessionsremaining và tự tính vào
-    ///   deliveredCount của ReleaseEscrowIfBookingCompleteAsync rồi): buổi gốc KHÔNG được settle lại,
-    ///   nếu không cùng 1 buổi học logic sẽ bị tính "đã dạy" 2 lần (2 dòng Completed cho 1 buổi, escrow
-    ///   giải ngân sớm/nhiều hơn thực tế). Buổi gốc chỉ chuyển sang Cancelled — buổi phụ mới là bản ghi
+    /// - Buổi phụ CHƯA có báo cáo nào (null, còn Scheduled = chưa vào, hoặc InProgress = đã vào
+    ///   nhưng chưa nộp báo cáo): buổi gốc được settle qua đường bỏ-qua-status-guard mà dispute đang
+    ///   dùng (SettleDisputedClassSessionAsync) nên chuyển thẳng sang Completed và trừ
+    ///   Sessionsremaining đúng 1 lần dù đang ở Interrupted (trạng thái mà SettleClassSessionAsync
+    ///   bình thường sẽ từ chối); buổi phụ Scheduled/InProgress chuyển sang Cancelled luôn (nếu đang
+    ///   InProgress thì đóng phòng + dừng ghi hình trước) để không còn nằm "lơ lửng" trên dashboard —
+    ///   qua mốc nửa đêm này thì chắc chắn không còn cơ hội nộp báo cáo cho nó nữa nên huỷ luôn là an
+    ///   toàn, không mất dữ liệu gì (2 trạng thái này chưa từng gắn báo cáo/tiền nào).
+    /// - Buổi phụ ĐÃ có báo cáo (PendingConfirmation = đang chờ xác nhận, hoặc
+    ///   Completed/Issettled = đã tự trừ Sessionsremaining và tự tính vào deliveredCount của
+    ///   ReleaseEscrowIfBookingCompleteAsync rồi): buổi gốc KHÔNG được settle lại và buổi phụ KHÔNG bị
+    ///   đụng vào — nếu không cùng 1 buổi học logic sẽ bị tính "đã dạy" 2 lần, hoặc report/settle đang
+    ///   dở dang của buổi phụ bị phá. Buổi gốc chỉ chuyển sang Cancelled — buổi phụ mới là bản ghi
     ///   được settle cho buổi học này.
     /// </summary>
     public async Task<int> AutoCloseExpiredInterruptedSessionsAsync(CancellationToken ct = default)
@@ -383,13 +387,15 @@ public partial class ClassSessionService
                 var continuation = await _context.ClassSessions.FirstOrDefaultAsync(c =>
                     c.Originalsessionid == original.Classsessionid && c.Iscontinuation, ct);
 
+                // Buổi phụ đã có báo cáo/tiền thật gắn vào rồi (đang chờ xác nhận hoặc đã xong) —
+                // không settle lại buổi gốc, và không đụng vào buổi phụ.
                 var continuationAlreadySettled = continuation != null
-                    && (continuation.Status == Completed || continuation.Issettled == true);
+                    && (continuation.Status == PendingConfirmation || continuation.Status == Completed || continuation.Issettled == true);
 
                 if (continuationAlreadySettled)
                 {
-                    // Buổi phụ đã là bản ghi được settle cho buổi học này (đã tự trừ Sessionsremaining
-                    // và tự tính vào deliveredCount) — không settle lại buổi gốc, chỉ đóng cho gọn.
+                    // Buổi phụ đã là bản ghi được settle (hoặc đang chờ settle) cho buổi học này —
+                    // không settle lại buổi gốc, chỉ đóng cho gọn.
                     original.Status = Cancelled;
                     await _context.SaveChangesAsync(ct);
                 }
@@ -399,8 +405,17 @@ public partial class ClassSessionService
                     // không bọc thêm transaction ở đây để tránh nested-transaction.
                     await _settlementService.SettleDisputedClassSessionAsync(original.Classsessionid);
 
-                    if (continuation is { Status: Scheduled })
+                    // Buổi phụ chưa từng có báo cáo (Scheduled = chưa vào, InProgress = đã vào nhưng
+                    // chưa nộp báo cáo) — qua mốc nửa đêm này chắc chắn không còn cơ hội nộp báo cáo
+                    // cho nó nữa, huỷ luôn để không treo lơ lửng vĩnh viễn trên dashboard.
+                    if (continuation is { Status: Scheduled or InProgress })
                     {
+                        if (continuation.Status == InProgress)
+                        {
+                            continuation.Checkouttime ??= now;
+                            continuation.Realend ??= now;
+                            await TryStopRecordingAsync(continuation);
+                        }
                         continuation.Status = Cancelled;
                         await _context.SaveChangesAsync(ct);
                     }
@@ -618,10 +633,11 @@ public partial class ClassSessionService
             // như buổi đã chốt, bất kể buổi phụ có được học hay không. Nếu có buổi phụ đang Scheduled
             // chưa dùng, tự huỷ luôn trong cùng transaction để không treo lơ lửng (xem bên dưới).
             //
-            // Nhưng nếu buổi phụ đã tự đi hết vòng đời riêng và settle độc lập (Completed/Issettled —
-            // đã tự trừ Sessionsremaining + tự tính vào deliveredCount của
-            // ReleaseEscrowIfBookingCompleteAsync rồi), KHÔNG được cho nộp báo cáo buổi gốc nữa — nếu
-            // không cùng 1 buổi học logic sẽ bị tính "đã dạy" 2 lần. Cùng gốc bug với
+            // Nhưng nếu buổi phụ đã CÓ báo cáo/tiền thật gắn vào rồi — đang chờ xác nhận
+            // (PendingConfirmation) hoặc đã xong (Completed/Issettled, đã tự trừ Sessionsremaining +
+            // tự tính vào deliveredCount của ReleaseEscrowIfBookingCompleteAsync) — KHÔNG được cho
+            // nộp báo cáo buổi gốc nữa, nếu không cùng 1 buổi học logic sẽ bị tính "đã dạy" 2 lần,
+            // hoặc report/settle đang dở dang của buổi phụ bị phá. Cùng gốc bug với
             // AutoCloseExpiredInterruptedSessionsAsync, chỉ khác cửa vào (tutor tự nộp thay vì job nền).
             ClassSession? continuationToCancel = null;
             if (classSession.Status == Interrupted)
@@ -629,13 +645,17 @@ public partial class ClassSessionService
                 var continuation = await _context.ClassSessions.FirstOrDefaultAsync(
                     c => c.Originalsessionid == classSessionId && c.Iscontinuation);
 
-                if (continuation != null && (continuation.Status == Completed || continuation.Issettled == true))
+                if (continuation != null &&
+                    (continuation.Status == PendingConfirmation || continuation.Status == Completed || continuation.Issettled == true))
                     throw new ClassSessionException(
                         ClassSessionErrorCodes.ContinuationAlreadySettled,
-                        $"Buổi phụ #{continuation.Classsessionid} đã hoàn tất và được xử lý rồi — buổi học này đã được coi là xong, không cần nộp báo cáo nữa.",
+                        $"Buổi phụ #{continuation.Classsessionid} đã có báo cáo/được xử lý rồi — buổi học này đã được coi là xong, không cần nộp báo cáo nữa.",
                         400);
 
-                if (continuation is { Status: Scheduled })
+                // Buổi phụ chưa từng có báo cáo (Scheduled = chưa vào, InProgress = đã vào nhưng chưa
+                // nộp báo cáo) — huỷ luôn cùng lúc với việc chốt buổi gốc để không treo lơ lửng vĩnh
+                // viễn; không mất dữ liệu gì vì chưa có báo cáo/settle nào gắn vào nó ở 2 trạng thái này.
+                if (continuation is { Status: Scheduled or InProgress })
                     continuationToCancel = continuation;
             }
 
@@ -702,7 +722,18 @@ public partial class ClassSessionService
             }
 
             if (continuationToCancel != null)
+            {
+                if (continuationToCancel.Status == InProgress)
+                {
+                    // Buổi phụ đang được dạy dở (hoặc còn mở phòng) đúng lúc buổi gốc bị chốt — đóng
+                    // phòng + dừng ghi hình của nó trước khi huỷ, tránh treo 1 kết nối/recorder không ai
+                    // dọn.
+                    continuationToCancel.Checkouttime ??= now;
+                    continuationToCancel.Realend ??= now;
+                    await TryStopRecordingAsync(continuationToCancel);
+                }
                 continuationToCancel.Status = Cancelled;
+            }
 
             await _context.SaveChangesAsync();
             await tx.CommitAsync();
