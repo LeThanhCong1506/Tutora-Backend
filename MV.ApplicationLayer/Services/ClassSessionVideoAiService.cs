@@ -140,8 +140,9 @@ public class ClassSessionVideoAiService(
             .FirstOrDefaultAsync(ct)
             ?? throw new InvalidOperationException("Chưa có tóm tắt video cho buổi học này.");
 
-        // Transcript chi tiết hơn tóm tắt — ưu tiên dùng làm ngữ cảnh nếu có (job cũ trước tính năng này thì chưa có).
-        var context = summaryJob.Transcripttext ?? summaryJob.Resulttext!;
+        // Dùng cả tóm tắt lẫn hội thoại đầy đủ khi có đủ cả 2 (xem BuildChatContext) — job cũ trước khi
+        // có tính năng chép lời thì Transcripttext vẫn null, tự động rơi về chỉ dùng tóm tắt.
+        var context = BuildChatContext(summaryJob.Resulttext, summaryJob.Transcripttext);
         // Phiên chat gắn theo buổi GỐC của chuỗi — hỏi từ trang buổi nào trong chuỗi cũng ra cùng 1
         // lịch sử hội thoại, không đứt quãng khi chuỗi dài thêm (có buổi phụ/học lại mới).
         var chatSession = await EnsureVideoSummaryChatSessionAsync(rootSessionId, studentUserId, context);
@@ -338,7 +339,8 @@ public class ClassSessionVideoAiService(
             // (2) refresh đúng 1 lần nếu nội dung thật sự khác bản đã lưu, không chèn trùng lặp.
             try
             {
-                await EnsureVideoSummaryChatSessionAsync(job.Classsessionid, job.Requestedbyuserid, transcript);
+                await EnsureVideoSummaryChatSessionAsync(
+                    job.Classsessionid, job.Requestedbyuserid, BuildChatContext(job.Resulttext, transcript));
             }
             catch (Exception chatEx)
             {
@@ -469,7 +471,8 @@ public class ClassSessionVideoAiService(
             // nên gọi lại đây là đủ để chat luôn bắt kịp bản tổng hợp chuỗi mới nhất.
             try
             {
-                await EnsureVideoSummaryChatSessionAsync(job.Classsessionid, job.Requestedbyuserid, merged);
+                await EnsureVideoSummaryChatSessionAsync(
+                    job.Classsessionid, job.Requestedbyuserid, BuildChatContext(merged, mergedTranscript));
             }
             catch (Exception seedEx)
             {
@@ -800,6 +803,19 @@ public class ClassSessionVideoAiService(
         {
             logger.LogWarning(ex, "Không gửi được thông báo {Type} cho user {UserId}", type, userId);
         }
+    }
+
+    /// <summary>Ghép tóm tắt + hội thoại đầy đủ làm ngữ cảnh chat khi có đủ cả 2 — tóm tắt cho cái nhìn
+    /// tổng quan súc tích (đã có cấu trúc, công thức, ý chính), hội thoại cho chi tiết nguyên văn khi học
+    /// sinh cần hỏi trích dẫn chính xác câu chữ gia sư nói. Chỉ dùng 1 trong 2 khi cái còn lại chưa có
+    /// (job chép lời/tổng hợp transcript chạy nền riêng, có thể chưa xong tại thời điểm gọi).</summary>
+    private static string BuildChatContext(string? resultText, string? transcriptText)
+    {
+        if (string.IsNullOrWhiteSpace(transcriptText))
+            return resultText ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(resultText))
+            return transcriptText;
+        return $"## Tóm tắt\n{resultText}\n\n## Hội thoại đầy đủ\n{transcriptText}";
     }
 
     /// <summary>Tìm hoặc tạo phiên chat tóm tắt cho (user, classSessionId); luôn refresh message "system"
