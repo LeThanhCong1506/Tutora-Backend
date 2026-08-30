@@ -14,4 +14,13 @@ public class LearningMaterialResponse
     public int? FileSize { get; set; }
     public bool? IsPublic { get; set; }
     public DateTime? CreatedAt { get; set; }
+
+    /// <summary>
+    /// Trạng thái trích nội dung để AI sinh bài tập: processing | ready | failed.
+    /// Null = định dạng không trích được (không dùng sinh câu hỏi, vẫn xem/tải bình thường).
+    /// FE dựa vào đây để disable tài liệu chưa sẵn sàng trong bộ chọn.
+    /// </summary>
+    public string? ContentStatus { get; set; }
+
+    public int? PageCount { get; set; }
 }

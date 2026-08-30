@@ -236,4 +236,68 @@ namespace MV.DomainLayer.Exceptions
         public MaterialAccessDeniedException()
             : base("Bạn không có quyền truy cập tài liệu của booking này.") { }
     }
+
+    // ── Bài tập nhanh trong buổi học ─────────────────────────────────────────
+
+    public class PracticeSetNotFoundException : NotFoundException
+    {
+        public PracticeSetNotFoundException()
+            : base("Không tìm thấy bộ bài tập.") { }
+    }
+
+    public class PracticeQuestionNotFoundException : NotFoundException
+    {
+        public PracticeQuestionNotFoundException()
+            : base("Không tìm thấy câu hỏi.") { }
+    }
+
+    /// <summary>Chỉ gia sư của booking mới được tạo/sửa/gửi bài tập.</summary>
+    public class PracticeAccessDeniedException : BadRequestException
+    {
+        public PracticeAccessDeniedException()
+            : base("Bạn không có quyền thao tác với bài tập của buổi học này.") { }
+    }
+
+    /// <summary>Bộ đã gửi thì không sửa/xoá được nữa — học sinh có thể đang làm dở.</summary>
+    public class PracticeSetAlreadySentException : BadRequestException
+    {
+        public PracticeSetAlreadySentException()
+            : base("Bộ bài tập đã gửi cho học sinh, không sửa được nữa.") { }
+    }
+
+    /// <summary>Học sinh chỉ làm được bài đã gửi.</summary>
+    public class PracticeSetNotSentException : BadRequestException
+    {
+        public PracticeSetNotSentException()
+            : base("Bài tập này chưa được gia sư gửi.") { }
+    }
+
+    public class MaterialContentNotReadyException : BadRequestException
+    {
+        public MaterialContentNotReadyException(string materialTitle)
+            : base($"Tài liệu \"{materialTitle}\" chưa xử lý xong nội dung, chưa dùng để tạo câu hỏi được.") { }
+    }
+
+    public class PracticeQuestionInvalidException : BadRequestException
+    {
+        public PracticeQuestionInvalidException(string message) : base(message) { }
+    }
+
+    public class PracticeSetEmptyException : BadRequestException
+    {
+        public PracticeSetEmptyException()
+            : base("Bộ bài tập chưa có câu hỏi nào.") { }
+    }
+
+    /// <summary>AI từ chối yêu cầu (lạc đề, chat chit, đòi lộ prompt...) — kèm lý do.</summary>
+    public class PracticeGenerationRefusedException : BadRequestException
+    {
+        public PracticeGenerationRefusedException(string reason) : base(reason) { }
+    }
+
+    public class PracticeGenerationFailedException : BadRequestException
+    {
+        public PracticeGenerationFailedException()
+            : base("Chưa tạo được câu hỏi từ tài liệu này. Bạn thử mô tả rõ hơn hoặc chọn tài liệu khác nhé.") { }
+    }
 }
