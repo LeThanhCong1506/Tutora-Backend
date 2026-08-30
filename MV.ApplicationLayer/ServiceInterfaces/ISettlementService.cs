@@ -58,7 +58,8 @@ public interface ISettlementService
 
     /// <summary>
     /// Admin/staff hủy booking sau khi xác minh ngoài hệ thống rằng phụ huynh đã "nghỉ ngang".
-    /// Giải ngân toàn bộ escrow còn lại (kể cả các buổi chưa dạy) cho gia sư.
+    /// Gia sư nhận tiền các buổi đã dạy; phụ huynh được hoàn tiền các buổi chưa dạy theo giá gốc,
+    /// không gồm phí dịch vụ.
     /// </summary>
     Task<bool> CancelGhostBookingAsync(
         int bookingId,

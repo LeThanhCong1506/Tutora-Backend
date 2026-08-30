@@ -133,9 +133,14 @@ public class LiveSessionAutoEndTests
     private sealed class DisabledCloudRecordingService : ICloudRecordingService
     {
         public bool Enabled => false;
+        public bool AudioOnlyEnabled => false;
         public Task<CloudRecordingHandle> StartAsync(int classSessionId, string channel, CancellationToken ct = default) =>
             throw new NotSupportedException();
         public Task<CloudRecordingResult> StopAsync(int classSessionId, string channel, string resourceId, string sid, CancellationToken ct = default) =>
+            throw new NotSupportedException();
+        public Task<CloudRecordingHandle> StartAudioAsync(int classSessionId, string channel, CancellationToken ct = default) =>
+            throw new NotSupportedException();
+        public Task<CloudRecordingResult> StopAudioAsync(int classSessionId, string channel, string resourceId, string sid, CancellationToken ct = default) =>
             throw new NotSupportedException();
     }
 

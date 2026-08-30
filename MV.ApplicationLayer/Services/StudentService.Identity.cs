@@ -91,13 +91,18 @@ namespace MV.ApplicationLayer.Services
 
             var resp = new StudentBookingEligibilityResponse();
 
-            // Tài khoản do phụ huynh tạo/quản lý → phụ huynh mới được đặt lịch.
+            // Tài khoản do phụ huynh quản lý VẪN chọn được gia sư và khung giờ — chỉ khác ở chỗ
+            // không tự thanh toán: booking dừng ở pending_payment và hiện trong danh sách của phụ
+            // huynh để duyệt và trả tiền (xem BookingService.CreateBookingAsync).
+            //
+            // Cũng vì thế mà KHÔNG kiểm tra hồ sơ / CCCD / độ tuổi ở nhánh này: những thứ đó chỉ
+            // cần cho học sinh TỰ trả tiền, còn ở đây phụ huynh mới là người chịu trách nhiệm.
             if (profile?.Parentid != null)
             {
                 resp.IsParentManaged = true;
-                resp.CanBook = false;
-                resp.ReasonCode = BookingErrorCodes.StudentManagedByParent;
-                resp.Reason = "Bạn không thể đặt lịch học, vui lòng liên hệ bố mẹ hỗ trợ";
+                resp.RequiresParentPayment = true;
+                resp.CanBook = true;
+                resp.Reason = "Bạn chọn gia sư và khung giờ, phụ huynh sẽ duyệt và thanh toán.";
                 return resp;
             }
 

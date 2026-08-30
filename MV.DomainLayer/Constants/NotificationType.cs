@@ -25,6 +25,9 @@ public static class NotificationType
     public const string LessonConfirmed = "lesson_confirmed";
     public const string LessonConfirmDeadline = "lesson_confirm_deadline";
     public const string LessonNoShow    = "lesson_no_show";
+
+    /// <summary>Buổi học trôi qua mà hệ thống không ghi nhận ai vào lớp.</summary>
+    public const string LessonNoAttendance = "lesson_no_attendance";
     public const string LessonScheduleChange = "lesson_schedule_change";
     /// <summary>Có đề xuất dời giờ học mới, gửi cho người đối ứng cần phản hồi. Referenceid = classSessionId.</summary>
     public const string RescheduleProposed = "reschedule_proposed";

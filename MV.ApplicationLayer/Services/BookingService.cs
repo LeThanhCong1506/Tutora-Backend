@@ -58,12 +58,17 @@ public partial class BookingService(
         if (userRole == UserRole.Student && student.Studentid != userId && student.Linkeduserid != userId)
             throw new BookingException(BookingErrorCodes.NotStudentOwner, "Bạn chỉ có thể đặt lịch cho chính mình", 403);
 
-        if (userRole == UserRole.Student)
-        {
-            if (!string.IsNullOrWhiteSpace(student.Parentid))
-                throw new BookingException(BookingErrorCodes.StudentManagedByParent,
-                    "Bạn không thể đặt lịch học, vui lòng liên hệ bố mẹ hỗ trợ", 403);
+        // Học sinh do phụ huynh quản lý VẪN tạo được yêu cầu đặt lịch, nhưng không tự thanh toán:
+        // booking dừng ở pending_payment và hiện trong danh sách của phụ huynh để duyệt và trả
+        // tiền. Trước đây chặn thẳng, khiến học sinh không thể chủ động chọn gia sư và khung giờ.
+        //
+        // Học sinh TỰ đăng ký (không có phụ huynh) thì tự trả nên vẫn phải xác minh tuổi — không
+        // có ai đứng ra chịu trách nhiệm thay.
+        var isStudentRequestForParent = userRole == UserRole.Student
+            && !string.IsNullOrWhiteSpace(student.Parentid);
 
+        if (userRole == UserRole.Student && !isStudentRequestForParent)
+        {
             var studentUser = await context.Users.FirstOrDefaultAsync(u => u.Userid == userId)
                 ?? throw new BookingException(BookingErrorCodes.NotStudentOwner, "Không tìm thấy tài khoản học sinh", 404);
 
@@ -115,7 +120,23 @@ public partial class BookingService(
             ? GenerateFixedPackageSlots(package, dto.StartDate, totalSessions)
             : GenerateFlexibleSlots(dto, price.Durationminutespersession, totalSessions);
 
-        await ValidateSlotsAsync(dto.TutorId, classSessionSlots);
+        // Chỉ gói LINH HOẠT mới cần kiểm phân bổ: gói cố định tự sinh lịch theo khung tuần của
+        // chính nó nên phụ huynh không chọn gì. Xem BookingSchedulePolicy.
+        if (package.Packagetype != Tutorpackage.FixedPackageType)
+        {
+            try
+            {
+                BookingSchedulePolicy.EnsureValidDistribution(
+                    classSessionSlots.Select(x => x.Start).ToList(),
+                    price.Sessionsperweek);
+            }
+            catch (InvalidOperationException ex)
+            {
+                throw new BookingException(BookingErrorCodes.InvalidSchedule, ex.Message, 400);
+            }
+        }
+
+        await ValidateSlotsAsync(dto.TutorId, classSessionSlots, isStudentRequestForParent);
 
         // Tính theo TỔNG SỐ GIỜ THỰC của các slot đã sinh ra (classSessionSlots), không phải
         // price.Durationminutespersession × totalSessions. Với gói cố định, mỗi buổi lấy giờ thật
@@ -167,7 +188,14 @@ public partial class BookingService(
             Remainingamount = remainingAmount,
             Status = BookingStatus.PendingPayment,
             Paymentstatus = PaymentStatus.Pending,
-            Paymentdueat = TimeZoneHelper.UtcNow.AddMinutes(10),
+            // Người tự trả có 10 phút (vừa bấm đặt là đi trả luôn). Yêu cầu do học sinh tạo thì
+            // phải chờ phụ huynh xem, nên hạn tính theo BookingLeadTimePolicy — vẫn chừa trọn
+            // cửa sổ phản hồi cho gia sư dù phụ huynh trả vào giây cuối.
+            Paymentdueat = isStudentRequestForParent
+                ? BookingLeadTimePolicy.ResolveParentPaymentDeadline(
+                    TimeZoneHelper.UtcNow, classSessionSlots.Min(s => s.Start))
+                : TimeZoneHelper.UtcNow.AddMinutes(10),
+            Createdbyrole = userRole,
             Locationcity = dto.LocationCity,
             Locationdistrict = dto.LocationDistrict,
             Locationward = dto.LocationWard,
@@ -214,6 +242,30 @@ public partial class BookingService(
         booking.Student = student;
         booking.Tutorsubjectgradeprice = price;
         booking.Package = package;
+
+        // Yêu cầu do học sinh tạo dừng ở pending_payment và KHÔNG ai được chuyển sang trang thanh
+        // toán — phụ huynh là người trả. Không báo cho họ thì yêu cầu nằm im tới lúc hết hạn.
+        if (isStudentRequestForParent && !string.IsNullOrWhiteSpace(booking.Parentid))
+        {
+            try
+            {
+                await notificationService.CreateNotificationAsync(new NotificationRequest
+                {
+                    Userid = booking.Parentid,
+                    Title = "Con bạn vừa gửi yêu cầu đặt lịch học",
+                    Message = $"{student.Fullname ?? "Học sinh"} đã chọn gia sư và khung giờ cho booking "
+                              + $"#{booking.Bookingid}. Vui lòng xem và thanh toán trước "
+                              + $"{booking.Paymentdueat:HH:mm dd/MM/yyyy}, sau mốc này yêu cầu sẽ tự hủy.",
+                    Type = NotificationType.BookingNew,
+                    Referenceid = booking.Bookingid.ToString()
+                });
+            }
+            catch (Exception ex)
+            {
+                // Booking đã commit — thông báo hỏng không được làm hỏng kết quả trả về.
+                logger.LogError(ex, "Không thể báo phụ huynh về yêu cầu đặt lịch {BookingId}", booking.Bookingid);
+            }
+        }
 
         return MapToResponse(booking, student, tutor, price.Subject, parentFeePct, tutorFeePct);
     }
@@ -627,7 +679,14 @@ public partial class BookingService(
     }
 
 
-    private async Task ValidateSlotsAsync(string tutorId, IReadOnlyList<ClassSessionSlot> classSessionSlots)
+    /// <param name="isStudentRequestForParent">
+    /// Yêu cầu do học sinh tạo, chờ phụ huynh duyệt — cần thời gian báo trước dài hơn vì phải
+    /// gộp cả cửa sổ duyệt của phụ huynh lẫn cửa sổ phản hồi của gia sư.
+    /// </param>
+    private async Task ValidateSlotsAsync(
+        string tutorId,
+        IReadOnlyList<ClassSessionSlot> classSessionSlots,
+        bool isStudentRequestForParent = false)
     {
         if (classSessionSlots.Count == 0)
             throw new BookingException(BookingErrorCodes.InvalidSchedule, "Không tìm thấy lịch học hợp lệ", 400);
@@ -653,6 +712,23 @@ public partial class BookingService(
             if (slot.Start <= TimeZoneHelper.UtcNow)
                 throw new BookingException(BookingErrorCodes.SlotInPast,
                     $"Khung giờ {startVn:dd/MM/yyyy HH:mm}-{endVn:HH:mm} đã ở trong quá khứ, vui lòng chọn giờ khác", 400);
+
+            // Gia sư cần thời gian sắp xếp, và hạn phản hồi của họ được tính lùi từ giờ học
+            // (BookingLeadTimePolicy) — đặt quá sát thì hạn đó rơi vào quá khứ ngay khi booking
+            // vừa sinh ra. Chặn tại đây thay vì để nó lọt xuống rồi tự hủy.
+            if (isStudentRequestForParent
+                && !BookingLeadTimePolicy.IsFarEnoughForStudentRequest(TimeZoneHelper.UtcNow, slot.Start))
+                throw new BookingException(BookingErrorCodes.SlotInPast,
+                    $"Khung giờ {startVn:dd/MM/yyyy HH:mm}-{endVn:HH:mm} quá sát. Yêu cầu của bạn cần thời gian "
+                    + $"để phụ huynh duyệt và gia sư sắp xếp — vui lòng chọn buổi cách ít nhất "
+                    + $"{BookingLeadTimePolicy.MinimumLeadHoursForStudentRequest} giờ.",
+                    400);
+
+            if (!BookingLeadTimePolicy.IsFarEnoughToBook(TimeZoneHelper.UtcNow, slot.Start))
+                throw new BookingException(BookingErrorCodes.SlotInPast,
+                    $"Khung giờ {startVn:dd/MM/yyyy HH:mm}-{endVn:HH:mm} quá sát. "
+                    + $"Vui lòng đặt trước ít nhất {BookingLeadTimePolicy.MinimumLeadHours} giờ để gia sư kịp sắp xếp.",
+                    400);
 
             // Debug logging
             logger.LogInformation(
@@ -887,6 +963,7 @@ public partial class BookingService(
             FinalPrice = b.Finalprice,
             PlatformFee = b.Platformfee,
             Status = b.Status,
+            CreatedByRole = b.Createdbyrole,
             PaymentStatus = b.Paymentstatus,
             PaymentCode = b.Paymentrequests
                 .OrderByDescending(r => r.Createdat)

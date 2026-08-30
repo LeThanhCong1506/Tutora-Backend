@@ -106,6 +106,21 @@ public partial class ClassSession
     /// <summary>Object key của file trên S3 (kho đệm) — job relay dùng để đẩy lên Drive rồi xóa. Null sau khi đã relay.</summary>
     public string? Recordings3key { get; set; }
 
+    /// <summary>resourceId của recorder audio-only (song song với recorder video ở trên) — cần để gọi stop.</summary>
+    public string? Audiorecordingresourceid { get; set; }
+
+    /// <summary>sid của recorder audio-only — cần để gọi stop.</summary>
+    public string? Audiorecordingsid { get; set; }
+
+    /// <summary>Object key file audio trên S3 (kho đệm) — RecordingRelayService tải về, forward lên Gemini
+    /// (cache cho AI) VÀ relay lên Drive (lưu vĩnh viễn, xem Audiorecordingurl) rồi mới xoá khỏi S3.
+    /// Null sau khi đã xử lý xong.</summary>
+    public string? Audiorecordings3key { get; set; }
+
+    /// <summary>Link Drive của file audio-only sau khi relay xong — vĩnh viễn, giống hệt Recordingurl
+    /// nhưng cho audio (không xoá như trước, chỉ xoá bản đệm tạm trên S3).</summary>
+    public string? Audiorecordingurl { get; set; }
+
     /// <summary>UUID phòng Agora Interactive Whiteboard (Netless) của buổi học. Null nếu chưa mở bảng.</summary>
     public string? Whiteboardroomuuid { get; set; }
 

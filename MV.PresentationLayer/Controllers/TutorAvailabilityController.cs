@@ -193,5 +193,47 @@ namespace MV.PresentationLayer.Controllers
                 return StatusCode(500, APIResponse<object>.Fail(ApiMessages.GenericErrorPrefix + ex.Message, 500));
             }
         }
+
+        /// <summary>
+        /// Thay TOÀN BỘ lịch rảnh bằng danh sách gửi lên.
+        /// PUT /api/tutor/availabilities
+        ///
+        /// Đường lưu chính thức cho màn hình thiết lập lịch rảnh. Client KHÔNG nên tự ghép
+        /// DELETE → PATCH → POST nữa: ràng buộc chéo với khung cố định của gói chỉ kiểm tra được
+        /// trên trạng thái cuối, mà chuỗi nhiều request thì đi qua các trạng thái trung gian.
+        /// </summary>
+        [HttpPut]
+        public async Task<IActionResult> ReplaceAvailabilities([FromBody] ReplaceAvailabilityRequest request)
+        {
+            try
+            {
+                if (!ModelState.IsValid)
+                {
+                    return BadRequest(APIResponse<object>.Fail(ApiMessages.InvalidRequestData, 400, ModelState));
+                }
+
+                var tutorId = GetCurrentUserId();
+                var result = await _availabilityService.ReplaceAvailabilitiesAsync(tutorId, request);
+
+                return Ok(APIResponse<List<TutorAvailabilityResponse>>.Success(
+                    result, $"Đã lưu {result.Count} khung giờ rảnh."));
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(APIResponse<object>.Fail(ex.Message, 400));
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Conflict(APIResponse<object>.Fail(ex.Message, 409));
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return StatusCode(403, APIResponse<object>.Fail(ex.Message, 403));
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, APIResponse<object>.Fail(ApiMessages.GenericErrorPrefix + ex.Message, 500));
+            }
+        }
     }
 }

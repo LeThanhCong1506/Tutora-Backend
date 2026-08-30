@@ -130,7 +130,12 @@ public class BookingProgressDto
     public string Subject { get; set; } = "";
     public int TotalSessions { get; set; }
     public int DeliveredSessions { get; set; }
+
+    /// <summary>Tổng doanh thu nền tảng của booking (phí phụ huynh + phí sàn gia sư). Muốn xem
+    /// tách 2 nguồn thì mở trang chi tiết booking (CMS: /admin-portal/bookings/:id).</summary>
     public decimal ContractedFee { get; set; }
+
+    /// <summary>Phần doanh thu đã thực hiện: phí/buổi × số buổi đã quyết toán.</summary>
     public decimal RecognisedFee { get; set; }
     public DateTime? CreatedAt { get; set; }
     public string Status { get; set; } = "";

@@ -13,9 +13,9 @@ public static class BookingStatus
     public const string CancelledNoshow = "cancelled_noshow";
     /// <summary>
     /// Staff/admin hủy booking sau khi xác minh phụ huynh "nghỉ ngang" (ghost, không còn phản
-    /// hồi) ngoài hệ thống (qua tổng đài) — tách khỏi <see cref="CancelledNoshow"/> vì hướng tiền
-    /// ngược lại (toàn bộ escrow còn lại chuyển cho gia sư, không hoàn cho phụ huynh) và không nên
-    /// lẫn vào số liệu "tutor no-show" của <see cref="CancelledNoshow"/>.
+    /// hồi) ngoài hệ thống (qua tổng đài) — tách khỏi <see cref="CancelledNoshow"/> vì đây không
+    /// phải trường hợp gia sư vắng mặt và không nên lẫn vào số liệu "tutor no-show". Gia sư nhận
+    /// tiền các buổi đã dạy; phụ huynh được hoàn tiền các buổi chưa dạy.
     /// </summary>
     public const string CancelledByStaff = "cancelled_by_staff";
     /// <summary>

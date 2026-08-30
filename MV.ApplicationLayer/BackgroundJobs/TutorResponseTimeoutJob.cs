@@ -104,7 +104,9 @@ public class TutorResponseTimeoutJob(IServiceProvider sp, ILogger<TutorResponseT
             b.Status = BookingStatus.Cancelled;
             b.Cancelledby = SystemActors.System;
             b.Cancelledat = now;
-            b.Cancellationreason = "Gia sư không phản hồi trong 24 giờ";
+            // Hạn phản hồi không còn cố định 24 giờ (BookingLeadTimePolicy chặn trên bằng giờ
+            // học), nên không nêu con số trong câu chữ nữa — nêu sẽ sai với booking đặt sát.
+            b.Cancellationreason = "Gia sư không phản hồi trước hạn";
             b.Updatedat = now;
             b.Responsedeadline = null;
 
@@ -133,7 +135,7 @@ public class TutorResponseTimeoutJob(IServiceProvider sp, ILogger<TutorResponseT
                 {
                     Userid = learnerUserId,
                     Title = "Booking đã tự động hủy",
-                    Message = $"Booking #{b.Bookingid} đã bị hủy do gia sư không phản hồi trong 24 giờ. Tiền cọc đã được hoàn vào ví của bạn.",
+                    Message = $"Booking #{b.Bookingid} đã bị hủy do gia sư không phản hồi trước hạn. Tiền cọc đã được hoàn vào ví của bạn.",
                     Type = NotificationType.BookingTimeout,
                     Referenceid = b.Bookingid.ToString()
                 });
@@ -145,14 +147,14 @@ public class TutorResponseTimeoutJob(IServiceProvider sp, ILogger<TutorResponseT
                 {
                     Userid = b.Tutorid,
                     Title = "Booking đã bị hủy",
-                    Message = $"Booking #{b.Bookingid} đã bị hủy do bạn không phản hồi trong 24 giờ.",
+                    Message = $"Booking #{b.Bookingid} đã bị hủy do bạn không phản hồi trước hạn.",
                     Type = NotificationType.BookingTimeout,
                     Referenceid = b.Bookingid.ToString()
                 });
             }
 
             await tx.CommitAsync(ct);
-            logger.LogInformation("Booking {BookingId} đã tự động hủy do gia sư không phản hồi trong 24 giờ.", b.Bookingid);
+            logger.LogInformation("Booking {BookingId} đã tự động hủy do gia sư không phản hồi trước hạn.", b.Bookingid);
         }
         catch (Exception ex)
         {
