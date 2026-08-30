@@ -146,7 +146,10 @@ public class ClassSessionVideoAiService(
         // lịch sử hội thoại, không đứt quãng khi chuỗi dài thêm (có buổi phụ/học lại mới).
         var chatSession = await EnsureVideoSummaryChatSessionAsync(rootSessionId, studentUserId, context);
         var (history, summary) = await LoadChatContextAsync(chatSession.SessionId);
-        var summaryText = summary ?? context;
+        // "??" chỉ chặn null, không chặn chuỗi rỗng — message system lưu trong DB có thể là "" nếu từng
+        // bị 1 lượt refresh trước đó ghi đè bằng transcript rỗng (xem EnsureVideoSummaryChatSessionAsync).
+        // Coi rỗng như chưa có, luôn fallback về context vừa tính lại từ job (chắc chắn không rỗng).
+        var summaryText = !string.IsNullOrWhiteSpace(summary) ? summary : context;
 
         var now = TimeZoneHelper.UtcNow;
         aiChatRepo.AddMessage(new ChatHistory
@@ -720,6 +723,13 @@ public class ClassSessionVideoAiService(
             .AsNoTracking()
             .Where(j => j.Classsessionid == classSessionId && j.Jobtype == jobType)
             .OrderByDescending(j => j.Status == ClassSessionAiJobStatus.Completed && j.Resulttext != null)
+            // Không có unique index chặn tạo job mới khi job cũ đã Completed (TriggerStudentSummaryAsync
+            // chỉ tái dùng job đang Pending/Processing) — bấm tóm tắt lại tạo hẳn 1 row mới. Row mới có
+            // thể đã Completed + có Resulttext nhưng job chép lời riêng (RunStudentTranscriptJobAsync)
+            // của NÓ chưa xong/đã fail, nên Transcripttext vẫn null — nếu chỉ so theo Createdat, row mới
+            // rỗng transcript này sẽ đè lên 1 row CŨ hơn đã có transcript đầy đủ. Ưu tiên transcript có
+            // nội dung trước khi so tới thời gian.
+            .ThenByDescending(j => j.Transcripttext != null)
             .ThenByDescending(j => j.Createdat)
             .FirstOrDefaultAsync(ct);
 
@@ -838,7 +848,14 @@ public class ClassSessionVideoAiService(
 
         var (items, _) = await aiChatRepo.GetMessagesPagedAsync(existing.SessionId, 1, 200);
         var lastSystemContent = items.LastOrDefault(m => m.Role == ChatHistoryRole.System)?.Content;
-        if (lastSystemContent != summary)
+        // Chặn ghi đè bằng chuỗi RỖNG: TranscribeVideoAsync/SummarizeVideoForStudentAsync chỉ kiểm tra
+        // != null trước khi trả về, không kiểm tra rỗng — Gemini có thể hợp lệ về mặt JSON nhưng trả
+        // transcript/summary rỗng (buổi ghi âm quá ngắn/im lặng...). Nếu không chặn ở đây, message system
+        // TỐT đang có (tóm tắt đầy đủ) sẽ bị 1 lượt gọi sau đó (vd job chép lời fail-nhẹ trả về "") ghi đè
+        // thành rỗng — từ đó AskFollowUpAsync gửi context rỗng cho Gemini, học sinh nhận câu trả lời kiểu
+        // "chưa có nội dung buổi học" dù tóm tắt vẫn hiển thị đầy đủ trên UI (đọc thẳng từ Resulttext, không
+        // qua chat_histories).
+        if (!string.IsNullOrWhiteSpace(summary) && lastSystemContent != summary)
         {
             aiChatRepo.AddMessage(new ChatHistory
             {
