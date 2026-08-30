@@ -686,6 +686,9 @@ public class AgoraController(
         {
             channel = roomInfo.Channel,
             classSessionId = roomInfo.ClassSessionId,
+            // FE cần bookingId ngay trong phòng học để gọi API bài tập/tài liệu
+            // (đều gắn theo booking, không theo buổi) mà không phải fetch thêm.
+            bookingId = classSession.Bookingid,
             uid = roomInfo.Uid,
             token = roomInfo.Token,
             appId = roomInfo.AppId,

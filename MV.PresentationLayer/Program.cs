@@ -339,6 +339,7 @@ builder.Services.AddScoped<ITutorSearchRepository, TutorSearchRepository>();
 builder.Services.AddScoped<IStaffPermissionRepository, StaffPermissionRepository>();
 builder.Services.AddScoped<IPermissionGroupRepository, PermissionGroupRepository>();
 builder.Services.AddScoped<ILearningMaterialRepository, LearningMaterialRepository>();
+builder.Services.AddScoped<ISessionPracticeRepository, SessionPracticeRepository>();
 builder.Services.AddScoped<IAssessmentRepository, AssessmentRepository>();
 builder.Services.AddScoped<IQuestionRepository, QuestionRepository>();
 builder.Services.AddScoped<ISourceDocumentRepository, SourceDocumentRepository>();
@@ -411,6 +412,7 @@ builder.Services.AddScoped<ITutorFinanceService, TutorFinanceService>();
 builder.Services.AddScoped<IBankAccountOtpService, BankAccountOtpService>();
 builder.Services.AddScoped<IBankAccountService, BankAccountService>();
 builder.Services.AddScoped<ILearningMaterialService, LearningMaterialService>();
+builder.Services.AddScoped<ISessionPracticeService, SessionPracticeService>();
 
 builder.Services.AddHttpContextAccessor();
 
@@ -454,13 +456,32 @@ builder.Services.AddHangfire(config => config
         PrepareSchemaIfNecessary = false
     }));
 
+// 2 Hangfire server riêng biệt thay vì 1 server dùng chung WorkerCount cho cả 3 queue.
+// Lý do: nếu chỉ 1 server với Queues=["interactive","default","bulk"], thứ tự đó chỉ quyết định
+// worker RẢNH sẽ rút job ở queue nào trước — KHÔNG cho phép "interactive" ngắt ngang 1 job "bulk"
+// đang chạy dở. Hễ cả 2 worker cùng đang bận xử lý job "bulk" (chép lời dài, tổng hợp chuỗi, prewarm
+// cache — ngày càng nhiều từ khi tách audio relay + prewarm) thì job "interactive" (tóm tắt/điền báo
+// cáo mà người dùng đang chờ ngay) phải xếp hàng chờ tới khi 1 trong 2 worker đó rảnh ra, khiến
+// response chậm y hệt bulk dù được set "ưu tiên". Tách server đảm bảo "interactive" luôn có worker
+// dành riêng, không bao giờ bị bulk chiếm dụng hết.
+// interactive-worker = 2 (không phải 1): nếu chỉ 1 worker, 2 người dùng bấm tóm tắt/điền báo cáo
+// CÙNG LÚC sẽ luôn phải chạy tuần tự — người thứ 2 chờ TOÀN BỘ 2-8 phút của người thứ 1 xong mới
+// được bắt đầu, dù background-worker đang rảnh hoàn toàn. Bản gốc (1 server, WorkerCount=2 dùng
+// chung) từng cho phép 2 job "interactive" chạy song song khi may mắn cả 2 worker đều rảnh; giữ
+// interactive-worker=2 khôi phục lại khả năng đó, cộng thêm việc không bao giờ bị bulk chiếm mất.
+// Tổng WorkerCount = 3 (tăng 1 so với bản gốc) — cần xác nhận VPS còn dư RAM/CPU trước khi deploy
+// (xem `docker stats` / `free -h`), vì có thể chạy đồng thời 2 lệnh gọi Gemini + 1 job nền.
 builder.Services.AddHangfireServer(options =>
 {
+    options.ServerName = "interactive-worker";
     options.WorkerCount = 2;
-    // Thứ tự rút job: "interactive" (người dùng đang chờ kết quả — tóm tắt, điền báo cáo) trước, rồi
-    // "default" (job không gắn [Queue], vd phân loại khiếu nại), cuối cùng mới tới "bulk" (job chạy nền
-    // rất lâu — chép lời, tổng hợp chuỗi, làm nóng cache video) để không chặn các job cần phản hồi nhanh.
-    options.Queues = new[] { "interactive", "default", "bulk" };
+    options.Queues = new[] { "interactive" };
+});
+builder.Services.AddHangfireServer(options =>
+{
+    options.ServerName = "background-worker";
+    options.WorkerCount = 1;
+    options.Queues = new[] { "default", "bulk" };
 });
 
 builder.Services.AddHttpClient(ServiceKeys.HttpClients.VietQR, client =>
@@ -558,7 +579,10 @@ builder.Services.AddAuthentication(options =>
 
     options.Events = new JwtBearerEvents
     {
-        // Cho phép nhận token từ query string cho SignalR
+        // Cho phép nhận token từ query string cho SignalR, và cho Hangfire dashboard — dashboard
+        // được mở trực tiếp bằng cách gõ URL trên trình duyệt nên không có cách nào gắn header
+        // Authorization; phải nhận token qua query string thì HangfireAuthorizationFilter (check
+        // IsAuthenticated + role Admin) mới có gì để đọc.
         OnMessageReceived = context =>
         {
             var accessToken = context.Request.Query[OAuthFieldNames.AccessToken];
@@ -567,7 +591,8 @@ builder.Services.AddAuthentication(options =>
                 && (path.StartsWithSegments("/notificationHub")
                     || path.StartsWithSegments("/hubs/chat")
                     || path.StartsWithSegments("/hubs/session-lobby")
-                    || path.StartsWithSegments("/hubs/live-session")))
+                    || path.StartsWithSegments("/hubs/live-session")
+                    || path.StartsWithSegments("/hangfire")))
             {
                 context.Token = accessToken;
             }
