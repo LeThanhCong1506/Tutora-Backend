@@ -299,8 +299,11 @@ public class TutorFinanceService(
             if (wallet == null)
                 throw new WalletNotFoundException();
 
-            if (await HasActiveDisputeAsync(tutorId, ct))
-                throw new ActiveDisputeException();
+            // Không chặn rút tiền khi đang có tranh chấp mở: tiền của buổi bị tranh chấp vẫn nằm
+            // trong escrow (Frozenbalance) vì ProcessAutoConfirmAsync bỏ qua mọi buổi còn dispute chưa
+            // Resolved/Closed, nên nó chưa bao giờ đi vào wallet.Balance. Chặn toàn bộ yêu cầu rút chỉ khiến
+            // gia sư không rút được phần số dư hợp lệ không liên quan đến tranh chấp. FE chỉ hiển thị
+            // cảnh báo số tiền đang bị giữ (HasActiveDispute/DisputedAmount trong summary).
 
             if ((wallet.Balance ?? 0) < request.Amount)
                 throw new InsufficientBalanceException();
