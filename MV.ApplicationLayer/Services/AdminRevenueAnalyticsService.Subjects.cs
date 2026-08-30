@@ -93,10 +93,9 @@ public partial class AdminRevenueAnalyticsService
         var revenueBookingById = revenueBookings.ToDictionary(b => b.BookingId);
         var topSubjects = subjects.Take(6).ToList();
         var trend = new List<Dictionary<string, object>>();
-        foreach (var ms in MonthBuckets(fromUtc, toUtc))
+        foreach (var (ms, me, label) in TimeBuckets(fromUtc, toUtc))
         {
-            var me = ms.AddMonths(1);
-            var point = new Dictionary<string, object> { ["month"] = MonthKey(ms) };
+            var point = new Dictionary<string, object> { ["month"] = label };
             var monthSettled = sessions
                 .Where(s => s.Settled && s.When >= ms && s.When < me
                             && revenueBookingById.ContainsKey(s.BookingId))

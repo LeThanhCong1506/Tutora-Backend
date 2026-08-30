@@ -117,13 +117,12 @@ public partial class AdminRevenueAnalyticsService
         // được lượt. Nếu ledger ghi mốc chạy script thì biểu đồ sẽ ra nghịch lý
         // kiểu "tháng này cấp 0 nhưng vẫn dùng được".
         var flow = new List<AiCreditFlowDto>();
-        foreach (var ms in MonthBuckets(fromUtc, toUtc))
+        foreach (var (ms, me, label) in TimeBuckets(fromUtc, toUtc))
         {
-            var me = ms.AddMonths(1);
             var msDate = DateOnly.FromDateTime(ms);
             flow.Add(new AiCreditFlowDto
             {
-                Month = MonthKey(ms),
+                Month = label,
                 // Chỉ đếm lượt cấp cho nhóm đã từng hỏi bài — xem ghi chú ở
                 // AiCreditFlowDto.Granted về lý do lọc.
                 Granted = creditTx
@@ -158,12 +157,11 @@ public partial class AdminRevenueAnalyticsService
             .ToList();
 
         var trend = new List<RevenueTrendPointDto>();
-        foreach (var ms in MonthBuckets(fromUtc, toUtc))
+        foreach (var (ms, me, label) in TimeBuckets(fromUtc, toUtc))
         {
-            var me = ms.AddMonths(1);
             trend.Add(new RevenueTrendPointDto
             {
-                Month = MonthKey(ms),
+                Month = label,
                 AiRevenue = purchases.Where(p => p.When >= ms && p.When < me).Sum(p => p.Amount),
             });
         }

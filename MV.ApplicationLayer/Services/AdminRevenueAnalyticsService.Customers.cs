@@ -106,9 +106,8 @@ public partial class AdminRevenueAnalyticsService
 
         // ARPU theo từng tháng trong khoảng đang xem
         var arpu = new List<ArpuPointDto>();
-        foreach (var ms in MonthBuckets(fromUtc, toUtc))
+        foreach (var (ms, me, label) in TimeBuckets(fromUtc, toUtc))
         {
-            var me = ms.AddMonths(1);
             var monthRevenue = RecognisedIn(sessions, bookingById, ms, me);
             var monthParents = revenueBookings
                 .Where(b => b.CreatedAt >= ms && b.CreatedAt < me)
@@ -117,7 +116,7 @@ public partial class AdminRevenueAnalyticsService
                 .Count();
             arpu.Add(new ArpuPointDto
             {
-                Month = MonthKey(ms),
+                Month = label,
                 Arpu = monthParents == 0 ? 0 : Math.Round(monthRevenue / monthParents, 0),
                 ActiveParents = monthParents,
             });
@@ -129,9 +128,8 @@ public partial class AdminRevenueAnalyticsService
             .ToDictionary(g => g.Key, g => g.Min(b => b.CreatedAt));
 
         var newVsReturning = new List<NewVsReturningDto>();
-        foreach (var ms in MonthBuckets(fromUtc, toUtc))
+        foreach (var (ms, me, label) in TimeBuckets(fromUtc, toUtc))
         {
-            var me = ms.AddMonths(1);
             var monthCustomers = revenueBookings
                 .Where(b => b.CreatedAt >= ms && b.CreatedAt < me)
                 .Select(CustomerKey)
@@ -139,7 +137,7 @@ public partial class AdminRevenueAnalyticsService
                 .ToList();
             newVsReturning.Add(new NewVsReturningDto
             {
-                Month = MonthKey(ms),
+                Month = label,
                 NewCustomers = monthCustomers.Count(k =>
                     firstBookingByParent.TryGetValue(k, out var f) && f >= ms && f < me),
                 Returning = monthCustomers.Count(k =>
@@ -161,6 +159,9 @@ public partial class AdminRevenueAnalyticsService
         }).ToList();
 
         // Cohort giữ chân — mỗi tháng trong khoảng là một hàng, bề rộng lưới bằng số tháng
+        // Cố ý KHÔNG dùng TimeBuckets ở đây: bảng giữ chân đọc theo "Tháng 0, Tháng 1,
+        // Tháng 2…" kể từ lần đặt đầu tiên, nên mốc phải luôn là tháng. Chia theo ngày sẽ
+        // sinh ra hàng trăm cohort mỗi cohort một người, và cột "Tháng 1" mất nghĩa.
         var cohortMonths = MonthBuckets(fromUtc, toUtc);
         var lastCohortIndex = cohortMonths.Count - 1;
         var cohorts = new List<CohortRowDto>();

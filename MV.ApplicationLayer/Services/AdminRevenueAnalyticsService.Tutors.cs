@@ -64,15 +64,17 @@ public partial class AdminRevenueAnalyticsService
         var rows = new List<TutorRevenueDto>();
         foreach (var g in periodSessions.GroupBy(s => s.TutorId!))
         {
-            var delivered = g.Count(s => s.Settled);
+            // Cùng bộ lọc với doanh thu bên dưới: nếu đếm buổi gồm cả lịch đã hủy mà hoa hồng
+            // thì không, con số "hoa hồng mỗi buổi" sẽ bị chia sai mẫu số.
+            var delivered = g.Count(s => s.Settled && IsRevenueSession(s, bookingById));
             var cancelled = g.Count(s =>
                 s.Status is ClassSessionStatus.Cancelled
                     or ClassSessionStatus.CancelledNoshow
                     or ClassSessionStatus.NoShow);
             var denom = delivered + cancelled;
 
-            var revenue = g.Where(s => s.Settled)
-                .Sum(s => bookingById.TryGetValue(s.BookingId, out var b) ? FeePerSession(b) : 0);
+            var revenue = g.Where(s => s.Settled && IsRevenueSession(s, bookingById))
+                .Sum(s => FeePerSession(bookingById[s.BookingId]));
 
             var tutorBookings = bookings
                 .Where(b => b.TutorId == g.Key
@@ -103,9 +105,10 @@ public partial class AdminRevenueAnalyticsService
                 // Chỉ so sánh tương đối: GMV theo booking tạo trong kỳ, doanh thu theo
                 // buổi đã dạy — hai mốc khác nhau.
                 TakeRate = gmv == 0 ? 0 : Math.Round(revenue / gmv * 100, 1),
-                TutorEarnings = g.Where(s => s.Settled)
-                    .Sum(s => bookingById.TryGetValue(s.BookingId, out var b) && b.TotalSessions > 0
-                        ? Math.Round(b.TutorFee / b.TotalSessions, 2)
+                TutorEarnings = g.Where(s => s.Settled && IsRevenueSession(s, bookingById))
+                    .Sum(s => bookingById[s.BookingId].TotalSessions > 0
+                        ? Math.Round(bookingById[s.BookingId].TutorFee
+                                     / bookingById[s.BookingId].TotalSessions, 2)
                         : 0),
                 EscrowHeld = escrow.TryGetValue(g.Key, out var fz) ? fz : 0,
                 SessionsDelivered = delivered,
