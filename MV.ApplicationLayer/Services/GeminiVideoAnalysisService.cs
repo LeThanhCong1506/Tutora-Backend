@@ -179,22 +179,24 @@ public class GeminiVideoAnalysisService : IGeminiVideoAnalysisService
             - Không xác định được ai đang nói thì ghi "**Không rõ:** ".
             - Nếu cả buổi chỉ có 1 người nói (ví dụ gia sư thử mic, học sinh chưa vào), vẫn phải gắn nhãn
               cho từng đoạn đúng như trên.
+
+            Trả lời trực tiếp bằng văn bản chép lời, KHÔNG bọc trong JSON.
             """;
 
-        var schema = new GeminiSchema
-        {
-            Type = "OBJECT",
-            Properties = new Dictionary<string, GeminiSchema> { ["transcript"] = new() { Type = "STRING" } },
-            Required = ["transcript"]
-        };
-
-        var requestBody = BuildGenerateContentRequest(fileUri, mimeType, prompt, schema, _settings.TranscriptMaxOutputTokens);
+        // Cố tình KHÔNG dùng structured JSON output (jsonSchema: null) cho lượt chép lời — khác với
+        // tóm tắt/điền báo cáo. Lý do: buổi học dài có thể khiến Gemini bị cắt giữa chừng do chạm trần
+        // maxOutputTokens (65536 — trần CỨNG của cả dòng Gemini hiện tại, không thể tăng qua config).
+        // Với JSON, bị cắt giữa chừng = chuỗi "transcript" chưa đóng ngoặc kép/ngoặc nhọn → parse lỗi →
+        // MẤT TOÀN BỘ transcript dù phần lớn đã chép đúng. Với văn bản thường, bị cắt giữa chừng chỉ đơn
+        // giản là dừng lại giữa câu — vẫn là text hợp lệ, dùng được ngay phần đã chép, không cần parse gì
+        // cả. Đánh đổi: mất khả năng ép cấu trúc chặt ở tầng schema, nhưng QUY TẮC ĐỊNH DẠNG ở trên đã đủ
+        // chặt để Gemini tuân theo mà không cần schema ép buộc.
+        var requestBody = BuildGenerateContentRequest(fileUri, mimeType, prompt, jsonSchema: null, _settings.TranscriptMaxOutputTokens);
         var text = await SendGenerateContentAsync(requestBody, _settings.TranscriptModel, ct);
 
-        var parsed = ParseOrThrow<TranscriptJson>(text, "hội thoại");
-        if (string.IsNullOrWhiteSpace(parsed.Transcript))
+        if (string.IsNullOrWhiteSpace(text))
             throw new GeminiResponseParseException("Gemini trả về hội thoại không hợp lệ.");
-        return parsed.Transcript.Trim();
+        return text.Trim();
     }
 
     /// <summary>Nếu Gemini bị cắt giữa chừng do vượt maxOutputTokens (buổi học quá dài), JSON trả về sẽ dở
@@ -516,11 +518,6 @@ public class GeminiVideoAnalysisService : IGeminiVideoAnalysisService
     private class SummaryJson
     {
         public string? Summary { get; set; }
-    }
-
-    private class TranscriptJson
-    {
-        public string? Transcript { get; set; }
     }
 
     private class GeminiFileEnvelope
