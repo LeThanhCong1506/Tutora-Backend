@@ -14,6 +14,11 @@ public class TutorClassAggregate
     /// <summary>True if any session is still neither completed nor cancelled.</summary>
     public bool HasNonTerminal { get; set; }
 
+    /// <summary>
+    /// True khi còn buổi ở trạng thái <c>reserved</c>
+    /// </summary>
+    public bool HasReserved { get; set; }
+
     public DateTime? NextSessionStart { get; set; }
     public DateTime LatestStart { get; set; }
     public string? Schedule { get; set; }
