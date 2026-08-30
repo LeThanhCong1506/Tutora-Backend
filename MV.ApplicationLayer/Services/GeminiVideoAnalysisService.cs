@@ -155,7 +155,7 @@ public class GeminiVideoAnalysisService : IGeminiVideoAnalysisService
         };
 
         var requestBody = BuildGenerateContentRequest(fileUri, mimeType, prompt, schema);
-        var text = await SendGenerateContentAsync(requestBody, _settings.Model, ct);
+        var text = await SendGenerateContentAsync(requestBody, _settings.Model, ct, "StudentSummary", fileUri);
 
         var parsed = ParseOrThrow<SummaryJson>(text, "tóm tắt");
         if (string.IsNullOrWhiteSpace(parsed.Summary))
@@ -192,7 +192,7 @@ public class GeminiVideoAnalysisService : IGeminiVideoAnalysisService
         // cả. Đánh đổi: mất khả năng ép cấu trúc chặt ở tầng schema, nhưng QUY TẮC ĐỊNH DẠNG ở trên đã đủ
         // chặt để Gemini tuân theo mà không cần schema ép buộc.
         var requestBody = BuildGenerateContentRequest(fileUri, mimeType, prompt, jsonSchema: null, _settings.TranscriptMaxOutputTokens);
-        var text = await SendGenerateContentAsync(requestBody, _settings.TranscriptModel, ct);
+        var text = await SendGenerateContentAsync(requestBody, _settings.TranscriptModel, ct, "Transcript", fileUri);
 
         if (string.IsNullOrWhiteSpace(text))
             throw new GeminiResponseParseException("Gemini trả về hội thoại không hợp lệ.");
@@ -248,7 +248,7 @@ public class GeminiVideoAnalysisService : IGeminiVideoAnalysisService
         };
 
         var requestBody = BuildGenerateContentRequest(fileUri, mimeType, prompt, schema);
-        var text = await SendGenerateContentAsync(requestBody, _settings.Model, ct);
+        var text = await SendGenerateContentAsync(requestBody, _settings.Model, ct, "TutorReportFill", fileUri);
 
         var parsed = JsonSerializer.Deserialize<TutorReportAiFillResult>(text, CamelCaseOptions);
         if (parsed is null)
@@ -310,7 +310,7 @@ public class GeminiVideoAnalysisService : IGeminiVideoAnalysisService
             }
         };
 
-        var text = await SendGenerateContentAsync(requestBody, _settings.Model, ct);
+        var text = await SendGenerateContentAsync(requestBody, _settings.Model, ct, "FollowUp");
         return text.Trim();
     }
 
@@ -361,7 +361,7 @@ public class GeminiVideoAnalysisService : IGeminiVideoAnalysisService
             }
         };
 
-        var text = await SendGenerateContentAsync(requestBody, _settings.Model, ct);
+        var text = await SendGenerateContentAsync(requestBody, _settings.Model, ct, "ChainSummary");
         var parsed = ParseOrThrow<SummaryJson>(text, "tóm tắt tổng hợp");
         if (string.IsNullOrWhiteSpace(parsed.Summary))
             throw new GeminiResponseParseException("Gemini trả về tóm tắt tổng hợp không hợp lệ.");
@@ -421,7 +421,7 @@ public class GeminiVideoAnalysisService : IGeminiVideoAnalysisService
         };
     }
 
-    private async Task<string> SendGenerateContentAsync(object requestBody, string model, CancellationToken ct)
+    private async Task<string> SendGenerateContentAsync(object requestBody, string model, CancellationToken ct, string caller, string? fileUri = null)
     {
         EnsureConfigured();
 
@@ -445,11 +445,16 @@ public class GeminiVideoAnalysisService : IGeminiVideoAnalysisService
         // Số liệu thật để xác nhận thinking có đang chiếm phần lớn thời gian không, thay vì đoán —
         // xem lại log này nếu sau khi tắt thinkingConfig vẫn còn chậm (model mới, chưa chắc field
         // thinkingBudget=0 có tác dụng như kỳ vọng).
+        // {Caller}/{FileUri} chỉ để debug thủ công: nhiều loại job (tóm tắt, chép lời, điền báo cáo,
+        // hỏi tiếp, tổng hợp chuỗi) đều log chung 1 dòng này nên khi nhiều việc chạy song song trên
+        // production, không có 2 trường này thì không cách nào biết dòng log nào ứng với job/buổi học
+        // nào. Với job có audio, FileUri khớp trực tiếp với cột Geminifileuri trong class_session_ai_jobs
+        // — tra SQL theo giá trị đó ra được classSessionId chính xác.
         if (parsed?.UsageMetadata is { } usage)
         {
             _logger.LogInformation(
-                "Gemini usage ({Model}): thoughtsTokens={ThoughtsTokens}, outputTokens={OutputTokens}, totalTokens={TotalTokens}, elapsed={ElapsedMs}ms",
-                model, usage.ThoughtsTokenCount, usage.CandidatesTokenCount, usage.TotalTokenCount, sw.ElapsedMilliseconds);
+                "Gemini usage ({Model}) caller={Caller} fileUri={FileUri}: thoughtsTokens={ThoughtsTokens}, outputTokens={OutputTokens}, totalTokens={TotalTokens}, elapsed={ElapsedMs}ms",
+                model, caller, fileUri, usage.ThoughtsTokenCount, usage.CandidatesTokenCount, usage.TotalTokenCount, sw.ElapsedMilliseconds);
         }
 
         return text;
