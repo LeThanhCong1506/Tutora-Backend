@@ -289,6 +289,12 @@ namespace MV.DomainLayer.Exceptions
             : base("Bộ bài tập chưa có câu hỏi nào.") { }
     }
 
+    /// <summary>AI từ chối yêu cầu (lạc đề, chat chit, đòi lộ prompt...) — kèm lý do.</summary>
+    public class PracticeGenerationRefusedException : BadRequestException
+    {
+        public PracticeGenerationRefusedException(string reason) : base(reason) { }
+    }
+
     public class PracticeGenerationFailedException : BadRequestException
     {
         public PracticeGenerationFailedException()

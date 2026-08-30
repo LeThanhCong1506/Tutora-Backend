@@ -12,13 +12,6 @@ namespace MV.ApplicationLayer.Services;
 
 /// <summary>
 /// Bài tập nhanh trong buổi học.
-///
-/// BỐI CẢNH ĐIỀU KHIỂN THIẾT KẾ: gia sư đang đứng lớp, mọi thao tác phải nhanh và
-/// không được sai. Vì vậy:
-///   • AI sinh xong là NHÁP — không tự đến tay học sinh. Gia sư đọc rồi mới gửi.
-///   • Bộ đã gửi thì khoá sửa/xoá: học sinh có thể đang làm dở, đổi đề giữa chừng
-///     là mất bài làm và làm học sinh rối.
-///   • Đáp án đúng + gợi ý bị CHE với học sinh cho tới khi em trả lời câu đó.
 /// </summary>
 public class SessionPracticeService(
     ISessionPracticeRepository repo,
@@ -38,8 +31,7 @@ public class SessionPracticeService(
 
         var sets = await repo.GetSetsByBookingAsync(bookingId, sentOnly: !isTutor);
 
-        // Học sinh: ghép bài làm của chính em vào từng câu (1 truy vấn cho cả trang,
-        // không N+1).
+        // Học sinh: ghép bài làm của chính em vào từng câu
         Dictionary<Guid, SessionPracticeAnswer> myAnswers = [];
         if (!isTutor)
         {
@@ -87,8 +79,13 @@ public class SessionPracticeService(
         var generated = await aiClient.GeneratePracticeAsync(sources, request.Prompt);
         if (generated == null || generated.Questions.Count == 0)
         {
-            logger.LogWarning("Sinh bài tập thất bại cho booking {BookingId}, tutor {TutorId}", bookingId, tutorUserId);
-            throw new PracticeGenerationFailedException();
+            logger.LogWarning("Sinh bài tập thất bại cho booking {BookingId}, tutor {TutorId}: {Reason}",
+                bookingId, tutorUserId, generated?.Refusal ?? "(không rõ)");
+            // AI từ chối vì yêu cầu lạc đề/không phải ra đề -> nói rõ lý do, gia sư biết
+            // đường sửa.
+            throw string.IsNullOrWhiteSpace(generated?.Refusal)
+                ? new PracticeGenerationFailedException()
+                : new PracticeGenerationRefusedException(generated.Refusal);
         }
 
         var now = TimeZoneHelper.UtcNow;
@@ -155,9 +152,7 @@ public class SessionPracticeService(
             throw new PracticeGenerationFailedException();
 
         repo.AddSet(set);
-        // Gắn tài liệu nguồn bằng ID, KHÔNG add entity Learningmaterial lấy từ
-        // GetByBookingIdAsync: chúng là AsNoTracking, attach vào là EF coi như bản ghi
-        // mới và cố INSERT lại tài liệu đã tồn tại.
+        // Gắn tài liệu nguồn bằng ID
         await repo.LinkMaterialsAsync(set.Id, validMaterialIds);
         await repo.SaveChangesAsync();
 
@@ -173,7 +168,7 @@ public class SessionPracticeService(
         var question = await repo.GetQuestionAsync(questionId)
             ?? throw new PracticeQuestionNotFoundException();
 
-        EnsureDraftOwnedByTutor(question.Set, tutorUserId);
+        EnsureQuestionEditable(question, tutorUserId);
 
         if (question.QuestionFormat == SessionPracticeQuestionFormat.MultipleChoice)
         {
@@ -201,10 +196,34 @@ public class SessionPracticeService(
         var question = await repo.GetQuestionAsync(questionId)
             ?? throw new PracticeQuestionNotFoundException();
 
-        EnsureDraftOwnedByTutor(question.Set, tutorUserId);
+        EnsureQuestionEditable(question, tutorUserId);
 
         repo.RemoveQuestion(question);
         await repo.SaveChangesAsync();
+    }
+
+    public async Task<SessionPracticeQuestionResponse> SendQuestionAsync(Guid questionId, string tutorUserId)
+    {
+        var question = await repo.GetQuestionAsync(questionId)
+            ?? throw new PracticeQuestionNotFoundException();
+
+        var set = question.Set ?? throw new PracticeSetNotFoundException();
+        if (set.TutorId != tutorUserId)
+            throw new PracticeAccessDeniedException();
+        if (question.SentAt != null)
+            throw new PracticeSetAlreadySentException();
+
+        var now = TimeZoneHelper.UtcNow;
+        question.SentAt = now;
+        question.UpdatedAt = now;
+        MarkSetSent(set, now);
+
+        await repo.SaveChangesAsync();
+
+        logger.LogInformation("Tutor {TutorId} gửi câu {QuestionId} (bộ {SetId})",
+            tutorUserId, questionId, set.Id);
+
+        return MapQuestion(question, revealAnswer: true, myAnswer: null);
     }
 
     public async Task<SessionPracticeSetResponse> SendAsync(Guid setId, string tutorUserId)
@@ -213,21 +232,38 @@ public class SessionPracticeService(
 
         if (set.TutorId != tutorUserId)
             throw new PracticeAccessDeniedException();
-        if (set.Status == SessionPracticeSetStatus.Sent)
-            throw new PracticeSetAlreadySentException();
         if (set.Questions.Count == 0)
             throw new PracticeSetEmptyException();
 
-        set.Status = SessionPracticeSetStatus.Sent;
-        set.SentAt = TimeZoneHelper.UtcNow;
-        set.UpdatedAt = set.SentAt.Value;
+        var pending = set.Questions.Where(q => q.SentAt == null).ToList();
+        if (pending.Count == 0)
+            throw new PracticeSetAlreadySentException();
+
+        var now = TimeZoneHelper.UtcNow;
+        foreach (var question in pending)
+        {
+            question.SentAt = now;
+            question.UpdatedAt = now;
+        }
+        MarkSetSent(set, now);
 
         await repo.SaveChangesAsync();
 
-        logger.LogInformation("Tutor {TutorId} gửi bộ bài tập {SetId} ({Count} câu)",
-            tutorUserId, setId, set.Questions.Count);
+        logger.LogInformation("Tutor {TutorId} gửi {Count} câu còn lại của bộ {SetId}",
+            tutorUserId, pending.Count, setId);
 
         return MapSet(set, isTutor: true, myAnswers: new Dictionary<Guid, SessionPracticeAnswer>());
+    }
+
+    /// <summary>
+    /// Trạng thái bộ giờ chỉ là TỔNG HỢP: 'sent' = đã gửi ít nhất 1 câu. Nguồn sự thật
+    /// cho "học sinh thấy câu nào" là SessionPracticeQuestion.SentAt.
+    /// </summary>
+    private static void MarkSetSent(SessionPracticeSet set, DateTime now)
+    {
+        set.Status = SessionPracticeSetStatus.Sent;
+        set.SentAt ??= now;
+        set.UpdatedAt = now;
     }
 
     public async Task<SessionPracticeAnswerResponse> SubmitAnswerAsync(
@@ -238,8 +274,9 @@ public class SessionPracticeService(
 
         var set = question.Set ?? throw new PracticeSetNotFoundException();
 
-        // Chưa gửi thì học sinh không được thấy, càng không được làm.
-        if (set.Status != SessionPracticeSetStatus.Sent)
+        // Chưa gửi thì học sinh không được thấy, càng không được làm. Kiểm tra theo
+        // CÂU: bộ có thể đã 'sent' nhưng câu này vẫn còn nháp.
+        if (question.SentAt == null)
             throw new PracticeSetNotSentException();
 
         var booking = await bookingRepository.FindWithStudentAsync(set.BookingId)
@@ -280,19 +317,25 @@ public class SessionPracticeService(
             Answer = existing.Answer,
             IsCorrect = existing.IsCorrect,
             AnsweredAt = existing.AnsweredAt,
+            // Đã nộp rồi thì được xem đáp án — trả luôn để FE khỏi gọi lại.
+            CorrectAnswer = question.CorrectAnswer,
+            Explanation = question.Explanation,
         };
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────
 
-    private static void EnsureDraftOwnedByTutor(SessionPracticeSet? set, string tutorUserId)
+    /// <summary>
+    /// Chỉ gia sư sở hữu mới thao tác được, và CHỈ khi câu đó chưa gửi — câu đã gửi
+    /// thì học sinh có thể đang làm dở, sửa/xoá là mất bài làm.
+    /// Khoá theo TỪNG CÂU (không theo bộ) vì gia sư gửi lẻ từng câu.
+    /// </summary>
+    private static void EnsureQuestionEditable(SessionPracticeQuestion question, string tutorUserId)
     {
-        if (set == null)
-            throw new PracticeSetNotFoundException();
+        var set = question.Set ?? throw new PracticeSetNotFoundException();
         if (set.TutorId != tutorUserId)
             throw new PracticeAccessDeniedException();
-        // Đã gửi thì khoá: học sinh có thể đang làm dở.
-        if (set.Status == SessionPracticeSetStatus.Sent)
+        if (question.SentAt != null)
             throw new PracticeSetAlreadySentException();
     }
 
@@ -327,6 +370,9 @@ public class SessionPracticeService(
                 .Select(m => new SessionPracticeMaterialRef { MaterialId = m.Materialid, Title = m.Title })
                 .ToList(),
             Questions = set.Questions
+                // Học sinh CHỈ thấy câu đã gửi — gia sư gửi lẻ nên trong cùng một bộ
+                // có thể vừa có câu đã gửi vừa có câu còn nháp.
+                .Where(q => isTutor || q.SentAt != null)
                 .OrderBy(q => q.DisplayOrder)
                 .Select(q =>
                 {
@@ -355,6 +401,7 @@ public class SessionPracticeService(
         Explanation = revealAnswer ? q.Explanation : null,
         SourceMaterialId = q.SourceMaterialId,
         SourcePage = q.SourcePage,
+        SentAt = q.SentAt,
         MyAnswer = myAnswer == null ? null : new SessionPracticeAnswerResponse
         {
             Answer = myAnswer.Answer,

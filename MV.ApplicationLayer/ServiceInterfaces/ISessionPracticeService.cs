@@ -25,7 +25,13 @@ public interface ISessionPracticeService
     /// <summary>Gia sư xoá 1 câu (chỉ khi bộ còn nháp).</summary>
     Task DeleteQuestionAsync(Guid questionId, string tutorUserId);
 
-    /// <summary>Gia sư gửi bộ cho học sinh — từ đây học sinh thấy và làm được.</summary>
+    /// <summary>
+    /// Gia sư gửi RIÊNG 1 câu cho học sinh. Gửi lẻ chứ không gửi cả bộ: gia sư duyệt
+    /// tới đâu gửi tới đó, câu chưa ưng vẫn sửa/xoá được.
+    /// </summary>
+    Task<SessionPracticeQuestionResponse> SendQuestionAsync(Guid questionId, string tutorUserId);
+
+    /// <summary>Gửi mọi câu CHƯA gửi trong bộ — nút "gửi tất cả".</summary>
     Task<SessionPracticeSetResponse> SendAsync(Guid setId, string tutorUserId);
 
     /// <summary>Học sinh trả lời 1 câu. Trắc nghiệm chấm ngay; làm lại thì ghi đè.</summary>

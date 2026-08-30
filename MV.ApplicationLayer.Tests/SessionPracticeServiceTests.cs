@@ -26,8 +26,7 @@ public class SessionPracticeServiceTests
     private const string StudentId = "student-1";
     private const string OtherTutorId = "tutor-2";
 
-    // ── Che đáp án ───────────────────────────────────────────────────────────
-
+    // Che đáp án 
     [Fact]
     public async Task Student_KhongThayDapAn_TruocKhiTraLoi()
     {
@@ -39,7 +38,6 @@ public class SessionPracticeServiceTests
         var sets = await CreateService(db).GetSetsAsync(BookingId, StudentId);
 
         var question = Assert.Single(sets).Questions.First();
-        // Lộ đáp án ở API là học sinh mở DevTools ra xem, bài tập thành vô nghĩa.
         Assert.Null(question.CorrectAnswer);
         Assert.Null(question.Explanation);
         // Phương án vẫn phải trả để em còn chọn.
@@ -81,7 +79,7 @@ public class SessionPracticeServiceTests
         Assert.Equal("A", Assert.Single(sets).Questions.First().CorrectAnswer);
     }
 
-    // ── Phạm vi hiển thị ─────────────────────────────────────────────────────
+    // Phạm vi hiển thị
 
     [Fact]
     public async Task Student_KhongThayBoNhap()
@@ -111,7 +109,7 @@ public class SessionPracticeServiceTests
                 new SubmitSessionPracticeAnswerRequest { Answer = "A" }));
     }
 
-    // ── Khoá bộ đã gửi ───────────────────────────────────────────────────────
+    // Khoá bộ đã gửi
 
     [Fact]
     public async Task KhongSuaDuocCauCuaBoDaGui()
@@ -140,7 +138,7 @@ public class SessionPracticeServiceTests
     }
 
     [Fact]
-    public async Task KhongGuiLaiBoDaGui()
+    public async Task KhongGuiLaiCauDaGui()
     {
         await using var db = CreateContext();
         Seed(db);
@@ -148,10 +146,87 @@ public class SessionPracticeServiceTests
         await db.SaveChangesAsync();
 
         await Assert.ThrowsAsync<PracticeSetAlreadySentException>(() =>
-            CreateService(db).SendAsync(set.Id, TutorId));
+            CreateService(db).SendQuestionAsync(set.Questions.First().Id, TutorId));
     }
 
-    // ── Quyền ────────────────────────────────────────────────────────────────
+    // Gửi LẺ từng câu
+    [Fact]
+    public async Task GuiMotCau_KhongLamAnhHuongCauKhac()
+    {
+        await using var db = CreateContext();
+        Seed(db);
+        // Bộ nháp 2 câu: gửi câu 1, câu 2 PHẢI vẫn là nháp.
+        var set = SeedSet(db, SessionPracticeSetStatus.Draft, withEssay: true);
+        await db.SaveChangesAsync();
+        var service = CreateService(db);
+
+        var first = set.Questions.OrderBy(q => q.DisplayOrder).First();
+        var second = set.Questions.OrderBy(q => q.DisplayOrder).Last();
+
+        await service.SendQuestionAsync(first.Id, TutorId);
+
+        Assert.NotNull((await db.SessionPracticeQuestions.FindAsync(first.Id))!.SentAt);
+        Assert.Null((await db.SessionPracticeQuestions.FindAsync(second.Id))!.SentAt);
+    }
+
+    [Fact]
+    public async Task Student_ChiThayCauDaGui_TrongCungMotBo()
+    {
+        await using var db = CreateContext();
+        Seed(db);
+        var set = SeedSet(db, SessionPracticeSetStatus.Draft, withEssay: true);
+        await db.SaveChangesAsync();
+        var service = CreateService(db);
+
+        var first = set.Questions.OrderBy(q => q.DisplayOrder).First();
+        await service.SendQuestionAsync(first.Id, TutorId);
+
+        // Gia sư thấy cả 2; học sinh chỉ thấy câu đã gửi.
+        Assert.Equal(2, (await service.GetSetsAsync(BookingId, TutorId)).Single().Questions.Count);
+        var studentQuestions = (await service.GetSetsAsync(BookingId, StudentId)).Single().Questions;
+        Assert.Equal(first.Id, Assert.Single(studentQuestions).Id);
+    }
+
+    [Fact]
+    public async Task VanSuaDuocCauChuaGui_KhiCauKhacDaGui()
+    {
+        await using var db = CreateContext();
+        Seed(db);
+        var set = SeedSet(db, SessionPracticeSetStatus.Draft, withEssay: true);
+        await db.SaveChangesAsync();
+        var service = CreateService(db);
+
+        var first = set.Questions.OrderBy(q => q.DisplayOrder).First();
+        var second = set.Questions.OrderBy(q => q.DisplayOrder).Last();
+        await service.SendQuestionAsync(first.Id, TutorId);
+
+        // Câu 2 chưa gửi -> vẫn sửa được dù bộ đã chuyển sang 'sent'.
+        var updated = await service.UpdateQuestionAsync(second.Id, TutorId,
+            new UpdateSessionPracticeQuestionRequest { Content = "Đề đã sửa" });
+        Assert.Equal("Đề đã sửa", updated.Content);
+    }
+
+    [Fact]
+    public async Task GuiTatCa_ChiGuiCauConLai()
+    {
+        await using var db = CreateContext();
+        Seed(db);
+        var set = SeedSet(db, SessionPracticeSetStatus.Draft, withEssay: true);
+        await db.SaveChangesAsync();
+        var service = CreateService(db);
+
+        var first = set.Questions.OrderBy(q => q.DisplayOrder).First();
+        await service.SendQuestionAsync(first.Id, TutorId);
+        var firstSentAt = (await db.SessionPracticeQuestions.FindAsync(first.Id))!.SentAt;
+
+        await service.SendAsync(set.Id, TutorId);
+
+        // Câu đã gửi giữ nguyên mốc cũ, không bị ghi đè.
+        Assert.Equal(firstSentAt, (await db.SessionPracticeQuestions.FindAsync(first.Id))!.SentAt);
+        Assert.All(await db.SessionPracticeQuestions.ToListAsync(), q => Assert.NotNull(q.SentAt));
+    }
+
+    // Quyền 
 
     [Fact]
     public async Task GiaSuKhac_KhongSuaDuocCau()
@@ -178,7 +253,7 @@ public class SessionPracticeServiceTests
             CreateService(db).GetSetsAsync(BookingId, "nguoi-la"));
     }
 
-    // ── Chấm và ghi đè ───────────────────────────────────────────────────────
+    // Chấm và ghi đè
 
     [Fact]
     public async Task TracNghiem_ChamNgay_TuLuan_KhongCham()
@@ -216,7 +291,7 @@ public class SessionPracticeServiceTests
         Assert.Equal(1, await db.SessionPracticeAnswers.CountAsync(a => a.QuestionId == questionId));
     }
 
-    // ── Lọc câu hỏng do AI sinh ──────────────────────────────────────────────
+    // Lọc câu hỏng do AI sinh
 
     [Fact]
     public async Task BoQuaCauTracNghiemThieuDapAn()
@@ -233,7 +308,7 @@ public class SessionPracticeServiceTests
             new AiGeneratedQuestion("mc", "Thiếu đáp án", [new AiAnswerOption("A", "1"), new AiAnswerOption("B", "2")], null, null, 10, 4),
             // correct_answer trỏ phương án không tồn tại -> chấm kiểu gì cũng sai.
             new AiGeneratedQuestion("mc", "Đáp án lạ", [new AiAnswerOption("A", "1")], "Z", null, 10, 5),
-        ]));
+        ], null));
 
         var result = await CreateService(db, ai).GenerateAsync(BookingId, TutorId,
             new GenerateSessionPracticeRequest { MaterialIds = [10], Prompt = "5 câu" });
@@ -254,12 +329,31 @@ public class SessionPracticeServiceTests
         // AI trả material_id 999 không nằm trong tập gia sư chọn -> nhận vào là FK lỗi.
         var ai = new StubAiClient(new AiGeneratedPractice("Ôn tập", [
             new AiGeneratedQuestion("mc", "Câu", [new AiAnswerOption("A", "1"), new AiAnswerOption("B", "2")], "A", null, 999, 3),
-        ]));
+        ], null));
 
         var result = await CreateService(db, ai).GenerateAsync(BookingId, TutorId,
             new GenerateSessionPracticeRequest { MaterialIds = [10], Prompt = "1 câu" });
 
         Assert.Null(Assert.Single(result.Questions).SourceMaterialId);
+    }
+
+    [Fact]
+    public async Task AiTuChoi_TraDungLyDoChoGiaSu()
+    {
+        await using var db = CreateContext();
+        Seed(db);
+        SeedMaterialWithContent(db);
+        await db.SaveChangesAsync();
+
+        const string reason = "Yêu cầu là lời chào hỏi, không phải yêu cầu ra đề.";
+        var ai = new StubAiClient(new AiGeneratedPractice(string.Empty, [], reason));
+
+        // Nói rõ VÌ SAO bị từ chối, không nuốt thành thông báo chung chung — gia sư
+        // đang đứng lớp cần biết ngay phải sửa yêu cầu thế nào.
+        var ex = await Assert.ThrowsAsync<PracticeGenerationRefusedException>(() =>
+            CreateService(db, ai).GenerateAsync(BookingId, TutorId,
+                new GenerateSessionPracticeRequest { MaterialIds = [10], Prompt = "chào bạn" }));
+        Assert.Equal(reason, ex.Message);
     }
 
     [Fact]
@@ -298,7 +392,7 @@ public class SessionPracticeServiceTests
                 new GenerateSessionPracticeRequest { MaterialIds = [20], Prompt = "5 câu" }));
     }
 
-    // ── Helpers ──────────────────────────────────────────────────────────────
+    // Helpers 
 
     private static AgoraDbContext CreateContext()
     {
@@ -366,10 +460,13 @@ public class SessionPracticeServiceTests
             UpdatedAt = now,
         };
 
+        var sentAt = status == SessionPracticeSetStatus.Sent ? now : (DateTime?)null;
+
         set.Questions.Add(new SessionPracticeQuestion
         {
             Id = Guid.NewGuid(),
             DisplayOrder = 1,
+            SentAt = sentAt,
             QuestionFormat = SessionPracticeQuestionFormat.MultipleChoice,
             Content = "Đạo hàm của $x^2$ là:",
             AnswerOptions = [new AnswerOption { Key = "A", Text = "$2x$" }, new AnswerOption { Key = "B", Text = "$x$" }],
@@ -385,6 +482,7 @@ public class SessionPracticeServiceTests
             {
                 Id = Guid.NewGuid(),
                 DisplayOrder = 2,
+                SentAt = sentAt,
                 QuestionFormat = SessionPracticeQuestionFormat.Essay,
                 Content = "Trình bày quy tắc chuỗi.",
                 CreatedAt = now,

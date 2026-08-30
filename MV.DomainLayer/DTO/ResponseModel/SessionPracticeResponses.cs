@@ -48,6 +48,9 @@ public class SessionPracticeQuestionResponse
     public string? SourceMaterialTitle { get; set; }
     public int? SourcePage { get; set; }
 
+    /// <summary>Null = chưa gửi (chỉ gia sư thấy). Có giá trị = học sinh làm được.</summary>
+    public DateTime? SentAt { get; set; }
+
     /// <summary>Bài làm của học sinh đang xem. Null nếu chưa làm / người xem là gia sư.</summary>
     public SessionPracticeAnswerResponse? MyAnswer { get; set; }
 }
@@ -57,6 +60,14 @@ public class SessionPracticeAnswerResponse
     public string Answer { get; set; } = string.Empty;
     public bool? IsCorrect { get; set; }
     public DateTime AnsweredAt { get; set; }
+
+    /// <summary>
+    /// Đáp án đúng, chỉ trả SAU khi học sinh đã nộp câu này
+    /// </summary>
+    public string? CorrectAnswer { get; set; }
+
+    /// <summary>Giải thích ngắn — cùng quy tắc lộ như <see cref="CorrectAnswer"/>.</summary>
+    public string? Explanation { get; set; }
 }
 
 /// <summary>Trạng thái trích xuất nội dung tài liệu — FE chặn chọn khi chưa 'ready'.</summary>

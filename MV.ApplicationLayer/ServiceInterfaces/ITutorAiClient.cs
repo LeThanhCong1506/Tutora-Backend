@@ -81,7 +81,10 @@ namespace MV.ApplicationLayer.ServiceInterfaces
     public record AiMaterialSource(int MaterialId, string Title, string FullText);
 
     /// <summary>Kết quả AI sinh đề: tiêu đề gợi ý + danh sách câu.</summary>
-    public record AiGeneratedPractice(string Title, List<AiGeneratedQuestion> Questions);
+    /// <summary>
+    /// Kết quả sinh đề. <paramref name="Refusal"/> có giá trị khi AI TỪ CHỐI vì yêu
+    /// </summary>
+    public record AiGeneratedPractice(string Title, List<AiGeneratedQuestion> Questions, string? Refusal);
 
     /// <summary>
     /// 1 câu AI sinh ra. Format 'mc' phải có Options + CorrectAnswer; 'essay' thì không.

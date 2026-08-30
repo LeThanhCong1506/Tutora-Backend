@@ -107,7 +107,27 @@ public class SessionPracticeController(ISessionPracticeService practiceService) 
         }
     }
 
-    /// <summary>Gia sư gửi bộ cho học sinh — từ đây học sinh thấy và làm được.</summary>
+    /// <summary>Gia sư gửi RIÊNG 1 câu — câu còn lại vẫn ở trạng thái nháp.</summary>
+    [HttpPost("practice-questions/{questionId:guid}/send")]
+    public async Task<IActionResult> SendQuestion(Guid questionId)
+    {
+        try
+        {
+            var tutorId = UserHelper.GetUserId(User);
+            var result = await practiceService.SendQuestionAsync(questionId, tutorId);
+            return Ok(APIResponse<SessionPracticeQuestionResponse>.Success(result, "Đã gửi câu hỏi cho học sinh."));
+        }
+        catch (NotFoundException ex)
+        {
+            return NotFound(APIResponse.Fail(ex.Message, 404));
+        }
+        catch (BadRequestException ex)
+        {
+            return BadRequest(APIResponse.Fail(ex.Message));
+        }
+    }
+
+    /// <summary>Gửi mọi câu CHƯA gửi trong bộ.</summary>
     [HttpPost("practice-sets/{setId:guid}/send")]
     public async Task<IActionResult> Send(Guid setId)
     {

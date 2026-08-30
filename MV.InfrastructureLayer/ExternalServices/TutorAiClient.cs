@@ -590,7 +590,10 @@ public class TutorAiClient : ITutorAiClient
             if (result?.Questions == null || result.Questions.Count == 0)
             {
                 _logger.LogWarning("TutorAI practice/generate không sinh được câu nào: {Error}", result?.Error);
-                return null;
+                // Có lý do cụ thể (AI từ chối yêu cầu) -> trả về để hiện cho gia sư.
+                return string.IsNullOrWhiteSpace(result?.Error)
+                    ? null
+                    : new AiGeneratedPractice(string.Empty, new List<AiGeneratedQuestion>(), result.Error);
             }
 
             var questions = result.Questions
@@ -604,7 +607,7 @@ public class TutorAiClient : ITutorAiClient
                     q.SourcePage))
                 .ToList();
 
-            return new AiGeneratedPractice(result.Title ?? "Bài tập", questions);
+            return new AiGeneratedPractice(result.Title ?? "Bài tập", questions, null);
         }
         catch (Exception ex)
         {

@@ -4,9 +4,6 @@ namespace MV.DomainLayer.Entities;
 
 /// <summary>
 /// Một câu hỏi trong bộ bài tập buổi học (`practice_questions`).
-///
-/// KHÔNG BAO GIỜ embed vào pool RAG: nếu embed thì buổi sau học sinh chụp chính câu
-/// này gửi /solve là AI đọc luôn lời giải — bài kiểm tra tự phá chính nó.
 /// </summary>
 public partial class SessionPracticeQuestion
 {
@@ -36,6 +33,11 @@ public partial class SessionPracticeQuestion
     public int? SourceMaterialId { get; set; }
 
     public int? SourcePage { get; set; }
+
+    /// <summary>
+    /// Mốc gia sư gửi RIÊNG câu này cho học sinh.
+    /// </summary>
+    public DateTime? SentAt { get; set; }
 
     public DateTime CreatedAt { get; set; }
 

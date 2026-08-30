@@ -4068,6 +4068,7 @@ entity.HasOne(d => d.Tutor).WithOne(p => p.Tutorprofile)
             entity.Property(e => e.Explanation).HasColumnName("explanation");
             entity.Property(e => e.SourceMaterialId).HasColumnName("source_material_id");
             entity.Property(e => e.SourcePage).HasColumnName("source_page");
+            entity.Property(e => e.SentAt).HasColumnType("timestamp with time zone").HasColumnName("sent_at");
             entity.Property(e => e.CreatedAt)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnType("timestamp with time zone")
