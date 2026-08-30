@@ -170,12 +170,6 @@ namespace MV.DomainLayer.Exceptions
             : base("Vui lòng cập nhật thông tin ngân hàng trước.") { }
     }
 
-    public class ActiveDisputeException : BadRequestException
-    {
-        public ActiveDisputeException()
-            : base("Bạn đang có buổi học bị tranh chấp, vui lòng chờ xử lý xong tranh chấp trước khi tạo yêu cầu rút tiền.") { }
-    }
-
     public class ExternalApiException : Exception
     {
         public ExternalApiException(string message) : base(message)
