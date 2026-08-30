@@ -456,13 +456,28 @@ builder.Services.AddHangfire(config => config
         PrepareSchemaIfNecessary = false
     }));
 
+// 2 Hangfire server riêng biệt thay vì 1 server dùng chung WorkerCount cho cả 3 queue.
+// Lý do: nếu chỉ 1 server với Queues=["interactive","default","bulk"], thứ tự đó chỉ quyết định
+// worker RẢNH sẽ rút job ở queue nào trước — KHÔNG cho phép "interactive" ngắt ngang 1 job "bulk"
+// đang chạy dở. Hễ cả 2 worker cùng đang bận xử lý job "bulk" (chép lời dài, tổng hợp chuỗi, prewarm
+// cache — ngày càng nhiều từ khi tách audio relay + prewarm) thì job "interactive" (tóm tắt/điền báo
+// cáo mà người dùng đang chờ ngay) phải xếp hàng chờ tới khi 1 trong 2 worker đó rảnh ra, khiến
+// response chậm y hệt bulk dù được set "ưu tiên". Tách server đảm bảo "interactive" luôn có 1 worker
+// dành riêng, không bao giờ bị bulk chiếm dụng hết. Tổng WorkerCount giữ nguyên = 2 như cũ (không
+// tăng tải RAM/CPU thêm trên VPS) — nếu sau này thấy nhiều người dùng tóm tắt/điền báo cáo cùng lúc
+// vẫn xếp hàng, cân nhắc tăng WorkerCount của "interactive-worker" lên 2 sau khi xác nhận VPS còn dư
+// RAM (xem `docker stats` / `free -h`).
 builder.Services.AddHangfireServer(options =>
 {
-    options.WorkerCount = 2;
-    // Thứ tự rút job: "interactive" (người dùng đang chờ kết quả — tóm tắt, điền báo cáo) trước, rồi
-    // "default" (job không gắn [Queue], vd phân loại khiếu nại), cuối cùng mới tới "bulk" (job chạy nền
-    // rất lâu — chép lời, tổng hợp chuỗi, làm nóng cache video) để không chặn các job cần phản hồi nhanh.
-    options.Queues = new[] { "interactive", "default", "bulk" };
+    options.ServerName = "interactive-worker";
+    options.WorkerCount = 1;
+    options.Queues = new[] { "interactive" };
+});
+builder.Services.AddHangfireServer(options =>
+{
+    options.ServerName = "background-worker";
+    options.WorkerCount = 1;
+    options.Queues = new[] { "default", "bulk" };
 });
 
 builder.Services.AddHttpClient(ServiceKeys.HttpClients.VietQR, client =>
