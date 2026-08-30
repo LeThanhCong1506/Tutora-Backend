@@ -462,15 +462,19 @@ builder.Services.AddHangfire(config => config
 // đang chạy dở. Hễ cả 2 worker cùng đang bận xử lý job "bulk" (chép lời dài, tổng hợp chuỗi, prewarm
 // cache — ngày càng nhiều từ khi tách audio relay + prewarm) thì job "interactive" (tóm tắt/điền báo
 // cáo mà người dùng đang chờ ngay) phải xếp hàng chờ tới khi 1 trong 2 worker đó rảnh ra, khiến
-// response chậm y hệt bulk dù được set "ưu tiên". Tách server đảm bảo "interactive" luôn có 1 worker
-// dành riêng, không bao giờ bị bulk chiếm dụng hết. Tổng WorkerCount giữ nguyên = 2 như cũ (không
-// tăng tải RAM/CPU thêm trên VPS) — nếu sau này thấy nhiều người dùng tóm tắt/điền báo cáo cùng lúc
-// vẫn xếp hàng, cân nhắc tăng WorkerCount của "interactive-worker" lên 2 sau khi xác nhận VPS còn dư
-// RAM (xem `docker stats` / `free -h`).
+// response chậm y hệt bulk dù được set "ưu tiên". Tách server đảm bảo "interactive" luôn có worker
+// dành riêng, không bao giờ bị bulk chiếm dụng hết.
+// interactive-worker = 2 (không phải 1): nếu chỉ 1 worker, 2 người dùng bấm tóm tắt/điền báo cáo
+// CÙNG LÚC sẽ luôn phải chạy tuần tự — người thứ 2 chờ TOÀN BỘ 2-8 phút của người thứ 1 xong mới
+// được bắt đầu, dù background-worker đang rảnh hoàn toàn. Bản gốc (1 server, WorkerCount=2 dùng
+// chung) từng cho phép 2 job "interactive" chạy song song khi may mắn cả 2 worker đều rảnh; giữ
+// interactive-worker=2 khôi phục lại khả năng đó, cộng thêm việc không bao giờ bị bulk chiếm mất.
+// Tổng WorkerCount = 3 (tăng 1 so với bản gốc) — cần xác nhận VPS còn dư RAM/CPU trước khi deploy
+// (xem `docker stats` / `free -h`), vì có thể chạy đồng thời 2 lệnh gọi Gemini + 1 job nền.
 builder.Services.AddHangfireServer(options =>
 {
     options.ServerName = "interactive-worker";
-    options.WorkerCount = 1;
+    options.WorkerCount = 2;
     options.Queues = new[] { "interactive" };
 });
 builder.Services.AddHangfireServer(options =>
