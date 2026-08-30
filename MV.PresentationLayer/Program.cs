@@ -575,7 +575,10 @@ builder.Services.AddAuthentication(options =>
 
     options.Events = new JwtBearerEvents
     {
-        // Cho phép nhận token từ query string cho SignalR
+        // Cho phép nhận token từ query string cho SignalR, và cho Hangfire dashboard — dashboard
+        // được mở trực tiếp bằng cách gõ URL trên trình duyệt nên không có cách nào gắn header
+        // Authorization; phải nhận token qua query string thì HangfireAuthorizationFilter (check
+        // IsAuthenticated + role Admin) mới có gì để đọc.
         OnMessageReceived = context =>
         {
             var accessToken = context.Request.Query[OAuthFieldNames.AccessToken];
@@ -584,7 +587,8 @@ builder.Services.AddAuthentication(options =>
                 && (path.StartsWithSegments("/notificationHub")
                     || path.StartsWithSegments("/hubs/chat")
                     || path.StartsWithSegments("/hubs/session-lobby")
-                    || path.StartsWithSegments("/hubs/live-session")))
+                    || path.StartsWithSegments("/hubs/live-session")
+                    || path.StartsWithSegments("/hangfire")))
             {
                 context.Token = accessToken;
             }
