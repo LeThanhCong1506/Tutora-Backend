@@ -176,14 +176,14 @@ public partial class ClassSessionService : IClassSessionService
 
     /// <summary>
     /// Derived class status shown on the tutor list. Mirrors the flags computed at the DB in
-    /// <c>GetTutorClassesPagedAsync</c>: all sessions terminal → completed; otherwise
-    /// in_progress > pending_confirmation > scheduled.
+    /// <c>GetTutorClassesPagedAsync</c>: in_progress > pending_confirmation scheduled.
     /// </summary>
     private static string DeriveClassStatus(TutorClassAggregate a)
     {
-        if (!a.HasNonTerminal) return ClassSessionStatus.Completed;
         if (a.HasInProgress) return ClassSessionStatus.InProgress;
         if (a.HasPending) return ClassSessionStatus.PendingConfirmation;
+        if (!a.HasNonTerminal && a.HasReserved) return ClassSessionStatus.Reserved;
+        if (!a.HasNonTerminal) return ClassSessionStatus.Completed;
         return ClassSessionStatus.Scheduled;
     }
 
