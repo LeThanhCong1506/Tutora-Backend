@@ -54,9 +54,12 @@ public class ClassSessionRescheduleProposalService(
             counterpartUserId = approver.UserId;
             counterpartRole = approver.Role;
         }
-        else if (!string.IsNullOrWhiteSpace(approver.UserId) && approver.UserId == userId)
+        else if (IsLearnerSideActor(session, userId))
         {
-            proposerRole = approver.Role;
+            // Học sinh do phụ huynh quản lý được tự đề xuất đổi lịch (trước đây chỉ phụ huynh mới
+            // được, xem IsLearnerSideActor) — không gate theo tuổi như nhánh tự quản lý vì phụ huynh
+            // đã đứng ra chịu trách nhiệm cho tài khoản này.
+            proposerRole = LearnerActorRole(session, userId);
             counterpartUserId = session.Tutorid ?? string.Empty;
             counterpartRole = UserRole.Tutor;
         }
@@ -158,6 +161,16 @@ public class ClassSessionRescheduleProposalService(
             NotificationType.RescheduleProposed,
             classSessionId);
 
+        if (proposerRole == UserRole.Student && !string.IsNullOrWhiteSpace(session.ParentId))
+        {
+            await NotifyAsync(
+                session.ParentId!,
+                "Con bạn đã đề xuất đổi lịch học",
+                $"Con bạn đã đề xuất dời buổi học #{classSessionId} sang {FormatVietnamTime(proposedScheduledStart)}.",
+                NotificationType.RescheduleProposed,
+                classSessionId);
+        }
+
         return await MapAsync(proposal, session, cancellationToken);
     }
 
@@ -191,8 +204,25 @@ public class ClassSessionRescheduleProposalService(
             throw new InvalidOperationException("Đề xuất đổi lịch đã hết hạn.");
         }
 
-        if (proposal.Counterpartuserid != userId)
+        // Cho phép đúng người được lưu làm counterpart PHẢN HỒI, hoặc — khi counterpart là phụ
+        // huynh — chính học sinh do phụ huynh đó quản lý (đối xứng với nhánh đề xuất ở ProposeAsync).
+        var respondedByManagedStudent = proposal.Counterpartrole == UserRole.Parent
+            && IsLearnerSideActor(session, userId)
+            && userId != proposal.Counterpartuserid;
+        if (proposal.Counterpartuserid != userId && !respondedByManagedStudent)
             throw new UnauthorizedAccessException("Bạn không phải người có quyền phản hồi đề xuất này.");
+
+        if (respondedByManagedStudent && !string.IsNullOrWhiteSpace(session.ParentId))
+        {
+            await NotifyAsync(
+                session.ParentId!,
+                "Con bạn đã phản hồi đề xuất đổi lịch",
+                accepted
+                    ? $"Con bạn đã đồng ý dời buổi học #{classSessionId} sang {FormatVietnamTime(proposal.Proposedscheduledstart)}."
+                    : $"Con bạn đã từ chối đề xuất dời buổi học #{classSessionId}.",
+                accepted ? NotificationType.RescheduleAccepted : NotificationType.RescheduleRejected,
+                classSessionId);
+        }
 
         if (!accepted)
         {
@@ -425,6 +455,18 @@ public class ClassSessionRescheduleProposalService(
 
         return (string.Empty, UserRole.Parent, "Phụ huynh");
     }
+
+    // Học sinh do phụ huynh quản lý (session.ParentId có giá trị) VẪN được coi là actor hợp lệ
+    // ở phía "learner", song song với phụ huynh — khác với ResolveLearnerApprover (chỉ trả về MỘT
+    // approver "chính" để dùng làm counterpart lưu DB khi gia sư là người đề xuất).
+    private static bool IsLearnerSideActor(SessionSnapshot session, string userId)
+        => (!string.IsNullOrWhiteSpace(session.ParentId) && session.ParentId == userId)
+            || (!string.IsNullOrWhiteSpace(session.StudentUserId) && session.StudentUserId == userId);
+
+    private static string LearnerActorRole(SessionSnapshot session, string userId)
+        => !string.IsNullOrWhiteSpace(session.StudentUserId) && session.StudentUserId == userId
+            ? UserRole.Student
+            : UserRole.Parent;
 
     private sealed record SessionSnapshot(
         int Classsessionid,
