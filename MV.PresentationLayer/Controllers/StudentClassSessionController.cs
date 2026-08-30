@@ -192,7 +192,8 @@ namespace MV.PresentationLayer.Controllers
         }
 
         /// <summary>
-        /// Học sinh tự quản lý đề xuất dời buổi học sang giờ khác.
+        /// Học sinh đề xuất dời buổi học sang giờ khác — cả học sinh tự quản lý lẫn học sinh do
+        /// phụ huynh quản lý (ClassSessionRescheduleProposalService.IsLearnerSideActor chấp nhận cả hai).
         /// </summary>
         [HttpPost("class-sessions/{id}/reschedule-proposal")]
         public async Task<ActionResult<APIResponse<ClassSessionRescheduleProposalResponse>>> ProposeReschedule(
@@ -221,7 +222,8 @@ namespace MV.PresentationLayer.Controllers
         }
 
         /// <summary>
-        /// Học sinh tự quản lý đồng ý/từ chối đề xuất đổi lịch đang chờ do gia sư gửi.
+        /// Học sinh đồng ý/từ chối đề xuất đổi lịch đang chờ do gia sư gửi — cả học sinh tự quản lý
+        /// lẫn học sinh do phụ huynh quản lý (phụ huynh sẽ được báo qua thông báo khi con phản hồi).
         /// </summary>
         [HttpPost("class-sessions/{id}/reschedule-proposal/respond")]
         public async Task<ActionResult<APIResponse<ClassSessionRescheduleProposalResponse>>> RespondToReschedule(
