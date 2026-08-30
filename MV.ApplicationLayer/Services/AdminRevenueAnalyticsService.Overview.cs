@@ -52,8 +52,45 @@ public partial class AdminRevenueAnalyticsService
             .Select(r => (r.Amount, When: r.Paidat ?? r.Createdat ?? TimeZoneHelper.UtcNow))
             .ToList();
 
+        // Bộ số cho khối chia tiền. Tất cả bám đúng MỘT tập: booking phát sinh doanh thu
+        // được tạo trong kỳ. Cùng tập thì mới cộng khớp, và đó là toàn bộ mục đích của khối
+        // này — người đọc cộng nhẩm ra đúng số thì không phải đi tìm lời giải thích nữa.
+        var soldInPeriod = revenueBookings
+            .Where(b => b.CreatedAt >= fromUtc && b.CreatedAt < toUtc)
+            .ToList();
+        var soldIds = soldInPeriod.Select(b => b.BookingId).ToHashSet();
+
+        var settledByBooking = sessions
+            .Where(x => x.Settled && x.When < toUtc)
+            .GroupBy(x => x.BookingId)
+            .ToDictionary(g => g.Key, g => g.Count());
+
+        var commissionSold = soldInPeriod.Sum(b => b.PlatformFee);
+        var baseAmount = soldInPeriod.Sum(b => b.FinalPrice - b.ParentFee);
+        var tutorReceivable = soldInPeriod.Sum(b => b.TutorFee);
+        var commissionEarned = soldInPeriod.Sum(b =>
+            FeePerSession(b) * Math.Min(
+                settledByBooking.TryGetValue(b.BookingId, out var c) ? c : 0,
+                b.TotalSessions));
+
+        // Buổi đã giải ngân của booking KHÔNG còn trạng thái doanh thu (đã hủy, hủy do khiếu
+        // nại, staff hủy…). Hoa hồng này đã kiếm được thật — buổi đã dạy, tiền đã chuyển cho
+        // gia sư — nên không xoá đi được, nhưng nó nằm ngoài CommissionSold.
+        var commissionFromCancelled = sessions
+            .Where(x => x.Settled && x.When >= fromUtc && x.When < toUtc
+                        && !soldIds.Contains(x.BookingId))
+            .Sum(x => bookingById.TryGetValue(x.BookingId, out var b)
+                      && !RevenueBookingStatuses.Contains(b.Status ?? "")
+                ? FeePerSession(b)
+                : 0);
+
         var summary = new RevenueSummaryDto
         {
+            BaseAmount = baseAmount,
+            TutorReceivable = tutorReceivable,
+            CommissionSold = commissionSold,
+            CommissionEarned = commissionEarned,
+            CommissionFromCancelled = commissionFromCancelled,
             RecognisedRevenue = recognised,
             RecognisedPrevious = recognisedPrev,
             ContractedRevenue = contracted,
@@ -68,12 +105,11 @@ public partial class AdminRevenueAnalyticsService
 
         // Xu hướng theo từng tháng trong khoảng đang xem
         var trend = new List<RevenueTrendPointDto>();
-        foreach (var monthStart in MonthBuckets(fromUtc, toUtc))
+        foreach (var (monthStart, monthEnd, label) in TimeBuckets(fromUtc, toUtc))
         {
-            var monthEnd = monthStart.AddMonths(1);
             trend.Add(new RevenueTrendPointDto
             {
-                Month = MonthKey(monthStart),
+                Month = label,
                 Recognised = RecognisedIn(sessions, bookingById, monthStart, monthEnd),
                 Contracted = ContractedIn(bookings, monthStart, monthEnd),
                 AiRevenue = aiIn(monthStart, monthEnd),
