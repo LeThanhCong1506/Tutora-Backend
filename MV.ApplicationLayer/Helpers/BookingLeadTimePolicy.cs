@@ -51,44 +51,4 @@ public static class BookingLeadTimePolicy
     /// <summary>Buổi học có đủ xa để được đặt không.</summary>
     public static bool IsFarEnoughToBook(DateTime nowUtc, DateTime sessionStartUtc)
         => sessionStartUtc >= nowUtc.AddHours(MinimumLeadHours);
-
-    // ── Yêu cầu đặt lịch do HỌC SINH tạo, chờ phụ huynh xem và thanh toán ────────────────────
-
-    /// <summary>Cửa sổ ngắn hơn chừng này thì phụ huynh không kịp thao tác — từ chối ngay lúc tạo.</summary>
-    public const int MinimumParentWindowHours = 2;
-
-    /// <summary>
-    /// Buổi học phải cách chừng này thì yêu cầu do học sinh tạo mới khả thi: đủ để phụ huynh
-    /// thanh toán trước mốc <see cref="MinimumLeadHours"/> mà vẫn còn ít nhất
-    /// <see cref="MinimumParentWindowHours"/> để thao tác.
-    /// </summary>
-    public const int MinimumLeadHoursForStudentRequest = MinimumLeadHours + MinimumParentWindowHours;
-
-    /// <summary>Phụ huynh không được giữ một yêu cầu quá lâu — học sinh và gia sư đều đang chờ.</summary>
-    public const int ParentReviewHours = 24;
-
-    /// <summary>
-    /// Hạn để phụ huynh xem và thanh toán = sớm hơn giữa <c>lúc gửi + 24h</c> và
-    /// <c>giờ buổi đầu − 24h</c>. Cả HAI vế đều cần, vì chúng chặn hai chuyện khác nhau:
-    ///
-    /// Vế "lúc gửi + 24h" — phụ huynh phải phản hồi trong một ngày. Học sinh gửi 9h thứ Hai thì
-    /// biết chậm nhất 9h thứ Ba là có câu trả lời, không phải chờ mòn mỏi tới sát buổi học.
-    ///
-    /// Vế "giờ buổi đầu − 24h" — cùng luật với phụ huynh tự đặt lịch: không buổi nào được kích
-    /// hoạt khi chỉ còn dưới 24 giờ. Vế này chặn ca gửi sát giờ, nơi vế trên quá rộng.
-    ///
-    /// Với buổi học đủ xa, vế đầu thắng và phụ huynh có đúng 24 giờ. Với buổi gần, vế sau thắng
-    /// và cửa sổ co lại — tối thiểu <see cref="MinimumParentWindowHours"/> nhờ ngưỡng
-    /// <see cref="MinimumLeadHoursForStudentRequest"/> chặn từ lúc chọn lịch.
-    /// </summary>
-    public static DateTime ResolveParentPaymentDeadline(DateTime nowUtc, DateTime firstSessionStartUtc)
-    {
-        var byReviewWindow = nowUtc.AddHours(ParentReviewHours);
-        var byLessonLead = firstSessionStartUtc.AddHours(-MinimumLeadHours);
-        return byLessonLead < byReviewWindow ? byLessonLead : byReviewWindow;
-    }
-
-    /// <summary>Buổi học có đủ xa để học sinh gửi yêu cầu cho phụ huynh không.</summary>
-    public static bool IsFarEnoughForStudentRequest(DateTime nowUtc, DateTime sessionStartUtc)
-        => sessionStartUtc >= nowUtc.AddHours(MinimumLeadHoursForStudentRequest);
 }

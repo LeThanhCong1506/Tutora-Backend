@@ -274,15 +274,15 @@ public class ParentService : IParentService
             ? await _context.Studentprofiles.Where(s => s.Parentid == userId).Select(s => s.Studentid).ToListAsync()
             : await _context.Studentprofiles.Where(s => s.Studentid == userId || s.Linkeduserid == userId).Select(s => s.Studentid).ToListAsync();
 
+        // Học sinh do phụ huynh quản lý ĐƯỢC tự tạo khiếu nại (trước đây chặn thẳng) — phụ huynh
+        // vẫn giữ quyền tài chính (duyệt hoàn tiền do admin resolve) nên chỉ cần được báo, không
+        // cần là người đứng ra tạo. managingParentId dùng để bắn thông báo cho phụ huynh bên dưới.
+        string? managingParentId = null;
         if (role == UserRole.Student)
         {
             var studentProfile = await _context.Studentprofiles
                 .FirstOrDefaultAsync(s => s.Studentid == userId || s.Linkeduserid == userId);
-            if (studentProfile?.Parentid != null)
-                throw new ClassSessionException(
-                    BookingErrorCodes.StudentManagedByParent,
-                    "Tài khoản học sinh do phụ huynh quản lý không thể tự tạo tranh chấp",
-                    403);
+            managingParentId = studentProfile?.Parentid;
         }
 
         if (!DisputeTypes.All.Contains(request.DisputeType))
@@ -428,7 +428,7 @@ public class ParentService : IParentService
                     {
                         Userid = reviewerId,
                         Title = "Tranh chấp mới",
-                        Message = $"Phụ huynh đã tạo tranh chấp cho buổi học #{classSessionId}. Lý do: {request.Reason}",
+                        Message = $"{(role == UserRole.Parent ? "Phụ huynh" : "Học sinh")} đã tạo tranh chấp cho buổi học #{classSessionId}. Lý do: {request.Reason}",
                         Type = NotificationType.DisputeNew,
                         Referenceid = dispute.Disputeid.ToString()
                     }));
@@ -443,6 +443,18 @@ public class ParentService : IParentService
                         Message = $"Một khiếu nại đã được tạo cho buổi học #{classSessionId}. Bạn có thể xem chi tiết và gửi phản hồi.",
                         Type = NotificationType.DisputeReceived,
                         Referenceid = classSessionId.ToString()
+                    });
+                }
+
+                if (!string.IsNullOrWhiteSpace(managingParentId))
+                {
+                    await _notificationService.CreateNotificationAsync(new NotificationRequest
+                    {
+                        Userid = managingParentId,
+                        Title = "Con bạn đã tạo khiếu nại",
+                        Message = $"Con bạn đã tạo khiếu nại cho buổi học #{classSessionId}. Lý do: {request.Reason}",
+                        Type = NotificationType.DisputeNew,
+                        Referenceid = dispute.Disputeid.ToString()
                     });
                 }
             }

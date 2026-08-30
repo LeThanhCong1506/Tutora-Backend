@@ -17,13 +17,6 @@ public class StudentBookingEligibilityResponse
     /// <summary>Tài khoản do phụ huynh tạo/quản lý — phụ huynh mới được đặt lịch.</summary>
     public bool IsParentManaged { get; set; }
 
-    /// <summary>
-    /// Học sinh CHỌN được gia sư và khung giờ, nhưng không tự thanh toán: booking dừng ở
-    /// pending_payment và hiện trong danh sách của phụ huynh để duyệt và trả tiền.
-    /// Đi kèm <see cref="CanBook"/> = true và <see cref="IsParentManaged"/> = true.
-    /// </summary>
-    public bool RequiresParentPayment { get; set; }
-
     /// <summary>Cần hoàn thiện thông tin hồ sơ.</summary>
     public bool NeedProfile { get; set; }
 

@@ -35,4 +35,8 @@ public static class ClassSessionErrorCodes
     // Chuỗi buổi (gốc + mọi buổi phụ/bù/học lại) đã chạm MaxRelearnSessionsPerChain — không tạo
     // thêm buổi bù no-show được nữa, dù đường này khác với đường hoà giải dispute ở trên.
     public const string SessionChainLimitReached = "SESSION_CHAIN_LIMIT_REACHED";
+
+    // Buổi phụ (Iscontinuation) của buổi gốc đang Interrupted đã tự settle độc lập (Completed) rồi —
+    // không cho nộp báo cáo buổi gốc nữa, tránh double-settle cùng 1 buổi học logic.
+    public const string ContinuationAlreadySettled = "CONTINUATION_ALREADY_SETTLED";
 }

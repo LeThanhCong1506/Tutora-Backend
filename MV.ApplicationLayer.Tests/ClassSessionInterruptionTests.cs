@@ -632,6 +632,43 @@ public class ClassSessionAutoCloseInterruptedSessionsTests
         Assert.Equal(ClassSessionStatus.Completed, reloaded.Status);
     }
 
+    /// <summary>
+    /// Regression cho bug double-settle: nếu buổi phụ đã tự settle độc lập (Completed) trước khi job
+    /// này chạy, buổi gốc KHÔNG được settle lại (nếu không cùng 1 buổi học logic bị tính "đã dạy" 2
+    /// lần — 2 dòng Completed, Sessionsremaining bị trừ 2 lần). Buổi gốc chỉ chuyển sang Cancelled.
+    /// </summary>
+    [Fact]
+    public async Task ExpiredInterruption_WithAlreadySettledContinuation_DoesNotDoubleSettleOriginal()
+    {
+        await using var db = CreateContext();
+        var original = SeedInterruptedSession(db, interruptedAt: DateTime.UtcNow.AddDays(-1));
+        var continuation = new ClassSession
+        {
+            Classsessionid = original.Classsessionid + 1000,
+            Bookingid = BookingId,
+            Tutorid = TutorId,
+            Studentid = original.Studentid,
+            Iscontinuation = true,
+            Originalsessionid = original.Classsessionid,
+            Status = ClassSessionStatus.Completed,
+            Issettled = true, // đã tự trừ Sessionsremaining + giải ngân độc lập trước khi job này chạy
+            Scheduledstart = DateTime.UtcNow.AddMinutes(-30),
+            Scheduledend = DateTime.UtcNow.AddMinutes(30),
+        };
+        db.ClassSessions.Add(continuation);
+        await db.SaveChangesAsync();
+        var settlement = new RecordingSettlementService();
+        var service = CreateService(db, settlement);
+
+        var closedCount = await service.AutoCloseExpiredInterruptedSessionsAsync();
+
+        Assert.Equal(1, closedCount);
+        Assert.DoesNotContain(original.Classsessionid, settlement.SettledClassSessionIds);
+        db.ChangeTracker.Clear();
+        var reloadedOriginal = await db.ClassSessions.SingleAsync(x => x.Classsessionid == original.Classsessionid);
+        Assert.Equal(ClassSessionStatus.Cancelled, reloadedOriginal.Status);
+    }
+
     [Fact]
     public async Task MultipleExpiredInterruptions_AreAllClosed_AndCountedCorrectly()
     {
@@ -976,6 +1013,31 @@ public class ClassSessionSkipContinuationTests
 
         var continuation = await db.ClassSessions.SingleAsync(x => x.Classsessionid == ContinuationSessionId);
         Assert.Equal(ClassSessionStatus.Cancelled, continuation.Status);
+    }
+
+    /// <summary>
+    /// Regression cho bug double-settle qua cửa SubmitReportAsync (khác cửa job nền
+    /// AutoCloseExpiredInterruptedSessionsAsync, nhưng cùng gốc): nếu buổi phụ đã tự đi hết vòng đời
+    /// riêng và settle độc lập (Completed) TRƯỚC KHI tutor nộp báo cáo buổi gốc, việc nộp báo cáo
+    /// phải bị chặn — không được cho buổi gốc chuyển PendingConfirmation rồi settle lần 2 cho cùng
+    /// 1 buổi học logic.
+    /// </summary>
+    [Fact]
+    public async Task SubmitReportOnInterruptedOriginal_WithAlreadySettledContinuation_Throws()
+    {
+        await using var db = CreateContext();
+        SeedChain(db, continuationStatus: ClassSessionStatus.Completed);
+        await db.SaveChangesAsync();
+        var service = CreateService(db);
+
+        var ex = await Assert.ThrowsAsync<ClassSessionException>(
+            () => service.SubmitReportAsync(OriginalSessionId, TutorId, MakeReportRequest()));
+
+        Assert.Equal(ClassSessionErrorCodes.ContinuationAlreadySettled, ex.ErrorCode);
+        db.ChangeTracker.Clear();
+        var original = await db.ClassSessions.SingleAsync(x => x.Classsessionid == OriginalSessionId);
+        Assert.Equal(ClassSessionStatus.Interrupted, original.Status); // không đổi gì, không có báo cáo được tạo
+        Assert.False(await db.ClassSessionReports.AnyAsync(r => r.Classsessionid == OriginalSessionId));
     }
 
     private static SubmitReportRequest MakeReportRequest() => new()

@@ -347,11 +347,20 @@ public partial class ClassSessionService
     /// Buổi học bị ngắt giữa chừng chỉ được phép có buổi phụ trong đúng ngày bị ngắt (xem
     /// <see cref="RequestInterruptionAsync"/> và guard tương ứng trong
     /// ClassSessionRescheduleProposalService.ProposeAsync). Nếu qua nửa đêm của ngày đó
-    /// (Interruptedat.Date + 1 ngày, UTC thuần) mà vẫn chưa xử lý xong, tự đóng: buổi gốc được
-    /// settle qua đường bỏ-qua-status-guard mà dispute đang dùng (SettleDisputedClassSessionAsync)
-    /// nên chuyển thẳng sang Completed và trừ Sessionsremaining đúng 1 lần dù đang ở Interrupted
-    /// (trạng thái mà SettleClassSessionAsync bình thường sẽ từ chối); buổi phụ chưa dùng (nếu có,
-    /// còn Scheduled) chuyển sang Cancelled để không còn nằm "lơ lửng" trên dashboard.
+    /// (Interruptedat.Date + 1 ngày, UTC thuần) mà vẫn chưa xử lý xong, tự đóng buổi gốc theo 1
+    /// trong 2 nhánh, tuỳ buổi phụ đã tự settle độc lập chưa (buổi phụ có thể đi hết vòng đời bình
+    /// thường của riêng nó — check-in → report → confirm/auto-confirm → settle — nếu được học thật
+    /// mà không skip):
+    /// - Buổi phụ CHƯA settle (null, hoặc còn Scheduled/chưa dùng): buổi gốc được settle qua đường
+    ///   bỏ-qua-status-guard mà dispute đang dùng (SettleDisputedClassSessionAsync) nên chuyển thẳng
+    ///   sang Completed và trừ Sessionsremaining đúng 1 lần dù đang ở Interrupted (trạng thái mà
+    ///   SettleClassSessionAsync bình thường sẽ từ chối); buổi phụ còn Scheduled (chưa dùng) chuyển
+    ///   sang Cancelled để không còn nằm "lơ lửng" trên dashboard.
+    /// - Buổi phụ ĐÃ settle (Completed/Issettled — đã tự trừ Sessionsremaining và tự tính vào
+    ///   deliveredCount của ReleaseEscrowIfBookingCompleteAsync rồi): buổi gốc KHÔNG được settle lại,
+    ///   nếu không cùng 1 buổi học logic sẽ bị tính "đã dạy" 2 lần (2 dòng Completed cho 1 buổi, escrow
+    ///   giải ngân sớm/nhiều hơn thực tế). Buổi gốc chỉ chuyển sang Cancelled — buổi phụ mới là bản ghi
+    ///   được settle cho buổi học này.
     /// </summary>
     public async Task<int> AutoCloseExpiredInterruptedSessionsAsync(CancellationToken ct = default)
     {
@@ -371,18 +380,30 @@ public partial class ClassSessionService
         {
             try
             {
-                // SettleDisputedClassSessionAsync tự mở transaction Serializable riêng của nó —
-                // không bọc thêm transaction ở đây để tránh nested-transaction.
-                await _settlementService.SettleDisputedClassSessionAsync(original.Classsessionid);
+                var continuation = await _context.ClassSessions.FirstOrDefaultAsync(c =>
+                    c.Originalsessionid == original.Classsessionid && c.Iscontinuation, ct);
 
-                var unusedContinuation = await _context.ClassSessions.FirstOrDefaultAsync(c =>
-                    c.Originalsessionid == original.Classsessionid
-                    && c.Iscontinuation
-                    && c.Status == Scheduled, ct);
-                if (unusedContinuation != null)
+                var continuationAlreadySettled = continuation != null
+                    && (continuation.Status == Completed || continuation.Issettled == true);
+
+                if (continuationAlreadySettled)
                 {
-                    unusedContinuation.Status = Cancelled;
+                    // Buổi phụ đã là bản ghi được settle cho buổi học này (đã tự trừ Sessionsremaining
+                    // và tự tính vào deliveredCount) — không settle lại buổi gốc, chỉ đóng cho gọn.
+                    original.Status = Cancelled;
                     await _context.SaveChangesAsync(ct);
+                }
+                else
+                {
+                    // SettleDisputedClassSessionAsync tự mở transaction Serializable riêng của nó —
+                    // không bọc thêm transaction ở đây để tránh nested-transaction.
+                    await _settlementService.SettleDisputedClassSessionAsync(original.Classsessionid);
+
+                    if (continuation is { Status: Scheduled })
+                    {
+                        continuation.Status = Cancelled;
+                        await _context.SaveChangesAsync(ct);
+                    }
                 }
 
                 closedCount++;
@@ -391,14 +412,19 @@ public partial class ClassSessionService
                 {
                     var studentUserId = original.Booking?.Student?.Linkeduserid;
                     var parentId = original.Booking?.Student?.Parentid ?? original.Booking?.Parentid;
-                    var tutorMessage = $"Buổi học #{original.Classsessionid} bị ngắt giữa chừng và đã quá thời hạn học tiếp trong ngày. Hệ thống đã tự động ghi nhận hoàn tất buổi học.";
+                    var tutorAndStudentMessage = continuationAlreadySettled
+                        ? $"Buổi học #{original.Classsessionid} bị ngắt giữa chừng đã được hoàn tất thông qua buổi học bù. Hệ thống đã tự động đóng buổi học gốc."
+                        : $"Buổi học #{original.Classsessionid} bị ngắt giữa chừng và đã quá thời hạn học tiếp trong ngày. Hệ thống đã tự động ghi nhận hoàn tất buổi học.";
+                    var parentMessage = continuationAlreadySettled
+                        ? $"Buổi học #{original.Classsessionid} của con bạn bị ngắt giữa chừng đã được hoàn tất thông qua buổi học bù. Hệ thống đã tự động đóng buổi học gốc."
+                        : $"Buổi học #{original.Classsessionid} của con bạn bị ngắt giữa chừng và đã quá thời hạn học tiếp trong ngày. Hệ thống đã tự động ghi nhận hoàn tất buổi học.";
                     var notifications = new List<NotificationRequest>();
                     if (!string.IsNullOrWhiteSpace(original.Tutorid))
                         notifications.Add(new NotificationRequest
                         {
                             Userid = original.Tutorid,
                             Title = "Buổi học bị ngắt đã tự động hoàn tất",
-                            Message = tutorMessage,
+                            Message = tutorAndStudentMessage,
                             Type = NotificationType.LessonInterruptionAutoClosed,
                             Referenceid = original.Classsessionid.ToString()
                         });
@@ -407,7 +433,7 @@ public partial class ClassSessionService
                         {
                             Userid = studentUserId,
                             Title = "Buổi học bị ngắt đã tự động hoàn tất",
-                            Message = tutorMessage,
+                            Message = tutorAndStudentMessage,
                             Type = NotificationType.LessonInterruptionAutoClosed,
                             Referenceid = original.Classsessionid.ToString()
                         });
@@ -416,7 +442,7 @@ public partial class ClassSessionService
                         {
                             Userid = parentId,
                             Title = "Buổi học bị ngắt đã tự động hoàn tất",
-                            Message = $"Buổi học #{original.Classsessionid} của con bạn bị ngắt giữa chừng và đã quá thời hạn học tiếp trong ngày. Hệ thống đã tự động ghi nhận hoàn tất buổi học.",
+                            Message = parentMessage,
                             Type = NotificationType.LessonInterruptionAutoClosed,
                             Referenceid = original.Classsessionid.ToString()
                         });
@@ -591,11 +617,26 @@ public partial class ClassSessionService
             // đang interrupted, không cần chờ 2 bên đồng ý bỏ buổi phụ nữa — nộp báo cáo xong coi
             // như buổi đã chốt, bất kể buổi phụ có được học hay không. Nếu có buổi phụ đang Scheduled
             // chưa dùng, tự huỷ luôn trong cùng transaction để không treo lơ lửng (xem bên dưới).
+            //
+            // Nhưng nếu buổi phụ đã tự đi hết vòng đời riêng và settle độc lập (Completed/Issettled —
+            // đã tự trừ Sessionsremaining + tự tính vào deliveredCount của
+            // ReleaseEscrowIfBookingCompleteAsync rồi), KHÔNG được cho nộp báo cáo buổi gốc nữa — nếu
+            // không cùng 1 buổi học logic sẽ bị tính "đã dạy" 2 lần. Cùng gốc bug với
+            // AutoCloseExpiredInterruptedSessionsAsync, chỉ khác cửa vào (tutor tự nộp thay vì job nền).
             ClassSession? continuationToCancel = null;
             if (classSession.Status == Interrupted)
             {
-                continuationToCancel = await _context.ClassSessions.FirstOrDefaultAsync(
-                    c => c.Originalsessionid == classSessionId && c.Iscontinuation && c.Status == Scheduled);
+                var continuation = await _context.ClassSessions.FirstOrDefaultAsync(
+                    c => c.Originalsessionid == classSessionId && c.Iscontinuation);
+
+                if (continuation != null && (continuation.Status == Completed || continuation.Issettled == true))
+                    throw new ClassSessionException(
+                        ClassSessionErrorCodes.ContinuationAlreadySettled,
+                        $"Buổi phụ #{continuation.Classsessionid} đã hoàn tất và được xử lý rồi — buổi học này đã được coi là xong, không cần nộp báo cáo nữa.",
+                        400);
+
+                if (continuation is { Status: Scheduled })
+                    continuationToCancel = continuation;
             }
 
             // Yêu cầu buổi đã được check-in (in_progress), đang bị ngắt (interrupted), hoặc là

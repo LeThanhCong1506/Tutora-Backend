@@ -1327,12 +1327,15 @@ public class DisputeService : IDisputeService
             ? await _context.Studentprofiles.Where(s => s.Parentid == userId).Select(s => s.Studentid).ToListAsync()
             : await _context.Studentprofiles.Where(s => s.Studentid == userId || s.Linkeduserid == userId).Select(s => s.Studentid).ToListAsync();
 
+        // Học sinh do phụ huynh quản lý ĐƯỢC tự phản hồi tranh chấp do gia sư tạo (trước đây chặn
+        // thẳng) — đối xứng với CreateDisputeAsync ở ParentService. managingParentId dùng để báo
+        // cho phụ huynh biết bên dưới.
+        string? managingParentId = null;
         if (role == UserRole.Student)
         {
             var studentProfile = await _context.Studentprofiles
                 .FirstOrDefaultAsync(s => s.Studentid == userId || s.Linkeduserid == userId);
-            if (studentProfile?.Parentid != null)
-                throw new InvalidOperationException("Tài khoản học sinh do phụ huynh quản lý không thể tự phản hồi tranh chấp");
+            managingParentId = studentProfile?.Parentid;
         }
 
         var dispute = await _context.Disputes
@@ -1351,6 +1354,26 @@ public class DisputeService : IDisputeService
         await _context.SaveChangesAsync();
 
         _logger.LogInformation("User {UserId} submitted a respondent response to dispute {DisputeId}", userId, dispute.Disputeid);
+
+        if (!string.IsNullOrWhiteSpace(managingParentId))
+        {
+            try
+            {
+                await _notificationService.CreateNotificationAsync(new NotificationRequest
+                {
+                    Userid = managingParentId,
+                    Title = "Con bạn đã phản hồi khiếu nại",
+                    Message = $"Con bạn đã gửi phản hồi cho khiếu nại về buổi học #{classSessionId}.",
+                    Type = NotificationType.DisputeResponded,
+                    Referenceid = dispute.Disputeid.ToString()
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to notify parent {ParentId} of student's respondent response for dispute {DisputeId}",
+                    managingParentId, dispute.Disputeid);
+            }
+        }
 
         if (!string.IsNullOrEmpty(dispute.Createdby))
         {
