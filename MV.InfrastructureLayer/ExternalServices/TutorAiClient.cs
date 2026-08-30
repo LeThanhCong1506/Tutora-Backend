@@ -491,4 +491,207 @@ public class TutorAiClient : ITutorAiClient
     
 
 }
+
+    // ── Bài tập nhanh trong buổi học ─────────────────────────────────────────
+
+    public async Task<AiMaterialExtraction?> ExtractMaterialAsync(
+        byte[] fileBytes, string fileName, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var client = _httpClientFactory.CreateClient(ServiceKeys.HttpClients.TutorAi);
+
+            using var form = new MultipartFormDataContent();
+            var fileContent = new ByteArrayContent(fileBytes);
+            fileContent.Headers.ContentType =
+                new System.Net.Http.Headers.MediaTypeHeaderValue(ContentTypeForFile(fileName));
+            form.Add(fileContent, "file", fileName);
+
+            using var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/materials/extract")
+            {
+                Content = form
+            };
+            if (!string.IsNullOrWhiteSpace(_apiKey))
+                request.Headers.Add("X-API-Key", _apiKey);
+
+            // Tài liệu dài + có thể phải OCR ảnh -> timeout rộng như extract-pdf.
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            cts.CancelAfter(TimeSpan.FromSeconds(180));
+
+            using var response = await client.SendAsync(request, cts.Token);
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogWarning("TutorAI materials/extract trả status {StatusCode}.", (int)response.StatusCode);
+                return null;
+            }
+
+            var content = await response.Content.ReadAsStringAsync(cts.Token);
+            var result = JsonSerializer.Deserialize<MaterialExtractResponse>(content, _jsonOptions);
+            if (string.IsNullOrWhiteSpace(result?.FullText))
+            {
+                _logger.LogWarning("TutorAI materials/extract không đọc được nội dung: {Error}", result?.Error);
+                return null;
+            }
+
+            return new AiMaterialExtraction(result.FullText, result.PageCount);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Lỗi gọi TutorAI materials/extract.");
+            return null;
+        }
+    }
+
+    public async Task<AiGeneratedPractice?> GeneratePracticeAsync(
+        IReadOnlyList<AiMaterialSource> materials,
+        string prompt,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var client = _httpClientFactory.CreateClient(ServiceKeys.HttpClients.TutorAi);
+
+            var payload = new GeneratePracticeRequestBody
+            {
+                Prompt = prompt,
+                Materials = materials
+                    .Select(m => new GeneratePracticeMaterial
+                    {
+                        MaterialId = m.MaterialId,
+                        Title = m.Title,
+                        FullText = m.FullText,
+                    })
+                    .ToList(),
+            };
+
+            using var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/practice/generate")
+            {
+                Content = new StringContent(
+                    JsonSerializer.Serialize(payload, _jsonOptions),
+                    System.Text.Encoding.UTF8,
+                    "application/json"),
+            };
+            if (!string.IsNullOrWhiteSpace(_apiKey))
+                request.Headers.Add("X-API-Key", _apiKey);
+
+            // Gia sư đang đứng lớp chờ -> không để treo quá lâu. 90s là trần chấp nhận được.
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            cts.CancelAfter(TimeSpan.FromSeconds(90));
+
+            using var response = await client.SendAsync(request, cts.Token);
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogWarning("TutorAI practice/generate trả status {StatusCode}.", (int)response.StatusCode);
+                return null;
+            }
+
+            var content = await response.Content.ReadAsStringAsync(cts.Token);
+            var result = JsonSerializer.Deserialize<GeneratePracticeResponse>(content, _jsonOptions);
+            if (result?.Questions == null || result.Questions.Count == 0)
+            {
+                _logger.LogWarning("TutorAI practice/generate không sinh được câu nào: {Error}", result?.Error);
+                // Có lý do cụ thể (AI từ chối yêu cầu) -> trả về để hiện cho gia sư.
+                return string.IsNullOrWhiteSpace(result?.Error)
+                    ? null
+                    : new AiGeneratedPractice(string.Empty, new List<AiGeneratedQuestion>(), result.Error);
+            }
+
+            var questions = result.Questions
+                .Select(q => new AiGeneratedQuestion(
+                    q.Format ?? "mc",
+                    q.Content ?? string.Empty,
+                    q.Options?.Select(o => new AiAnswerOption(o.Key ?? string.Empty, o.Text ?? string.Empty)).ToList(),
+                    q.CorrectAnswer,
+                    q.Explanation,
+                    q.SourceMaterialId,
+                    q.SourcePage))
+                .ToList();
+
+            return new AiGeneratedPractice(result.Title ?? "Bài tập", questions, null);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Lỗi gọi TutorAI practice/generate.");
+            return null;
+        }
+    }
+
+    private sealed class MaterialExtractResponse
+    {
+        [JsonPropertyName("full_text")]
+        public string? FullText { get; set; }
+
+        [JsonPropertyName("page_count")]
+        public int? PageCount { get; set; }
+
+        [JsonPropertyName("error")]
+        public string? Error { get; set; }
+    }
+
+    private sealed class GeneratePracticeRequestBody
+    {
+        [JsonPropertyName("prompt")]
+        public string Prompt { get; set; } = "";
+
+        [JsonPropertyName("materials")]
+        public List<GeneratePracticeMaterial> Materials { get; set; } = new();
+    }
+
+    private sealed class GeneratePracticeMaterial
+    {
+        [JsonPropertyName("material_id")]
+        public int MaterialId { get; set; }
+
+        [JsonPropertyName("title")]
+        public string Title { get; set; } = "";
+
+        [JsonPropertyName("full_text")]
+        public string FullText { get; set; } = "";
+    }
+
+    private sealed class GeneratePracticeResponse
+    {
+        [JsonPropertyName("title")]
+        public string? Title { get; set; }
+
+        [JsonPropertyName("questions")]
+        public List<GeneratedQuestionItem>? Questions { get; set; }
+
+        [JsonPropertyName("error")]
+        public string? Error { get; set; }
+    }
+
+    private sealed class GeneratedQuestionItem
+    {
+        [JsonPropertyName("format")]
+        public string? Format { get; set; }
+
+        [JsonPropertyName("content")]
+        public string? Content { get; set; }
+
+        [JsonPropertyName("options")]
+        public List<GeneratedOptionItem>? Options { get; set; }
+
+        [JsonPropertyName("correct_answer")]
+        public string? CorrectAnswer { get; set; }
+
+        [JsonPropertyName("explanation")]
+        public string? Explanation { get; set; }
+
+        [JsonPropertyName("source_material_id")]
+        public int? SourceMaterialId { get; set; }
+
+        [JsonPropertyName("source_page")]
+        public int? SourcePage { get; set; }
+    }
+
+    private sealed class GeneratedOptionItem
+    {
+        [JsonPropertyName("key")]
+        public string? Key { get; set; }
+
+        [JsonPropertyName("text")]
+        public string? Text { get; set; }
+    }
+
 }

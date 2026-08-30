@@ -1,5 +1,6 @@
 using System;
 using MV.ApplicationLayer.Interfaces;
+using MV.DomainLayer.Constants;
 using MV.DomainLayer.Entities;
 using Microsoft.EntityFrameworkCore;
 using Npgsql.EntityFrameworkCore.PostgreSQL;
@@ -94,6 +95,14 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
     public virtual DbSet<TutoraKbDocument> TutoraKbDocuments { get; set; }
 
     public virtual DbSet<TutoraKbChunk> TutoraKbChunks { get; set; }
+
+    public virtual DbSet<LearningMaterialContent> LearningMaterialContents { get; set; }
+
+    public virtual DbSet<SessionPracticeSet> SessionPracticeSets { get; set; }
+
+    public virtual DbSet<SessionPracticeQuestion> SessionPracticeQuestions { get; set; }
+
+    public virtual DbSet<SessionPracticeAnswer> SessionPracticeAnswers { get; set; }
 
     /// <summary>
     /// Cấu hình JSON cho các cột jsonb có object bên trong (answer_options...).
@@ -3974,6 +3983,159 @@ entity.HasOne(d => d.Tutor).WithOne(p => p.Tutorprofile)
                 .HasForeignKey(d => d.Userid)
                 .OnDelete(DeleteBehavior.Cascade)
                 .HasConstraintName("staff_permissions_userid_fkey");
+        });
+
+        // ── Bài tập nhanh trong buổi học ─────────────────────────────────────
+        // Xem migrations/V20260829__practice_sets_and_material_contents.sql.
+
+        modelBuilder.Entity<LearningMaterialContent>(entity =>
+        {
+            entity.HasKey(e => e.MaterialId).HasName("learning_material_contents_pkey");
+
+            entity.ToTable("learning_material_contents");
+
+            // Khoá chính CŨNG là khoá ngoại -> EF phải biết đây là quan hệ 1-1,
+            // không thì nó tự sinh thêm cột shadow FK.
+            entity.Property(e => e.MaterialId).ValueGeneratedNever().HasColumnName("material_id");
+            entity.Property(e => e.FullText).HasColumnName("full_text");
+            entity.Property(e => e.PageCount).HasColumnName("page_count");
+            entity.Property(e => e.Status).HasMaxLength(20).HasDefaultValue(MaterialContentStatus.Processing).HasColumnName("status");
+            entity.Property(e => e.ErrorMessage).HasColumnName("error_message");
+            entity.Property(e => e.ExtractedAt)
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
+                .HasColumnType("timestamp with time zone")
+                .HasColumnName("extracted_at");
+
+            entity.HasOne(d => d.Material).WithOne()
+                .HasForeignKey<LearningMaterialContent>(d => d.MaterialId)
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("learning_material_contents_material_fk");
+        });
+
+        modelBuilder.Entity<SessionPracticeSet>(entity =>
+        {
+            entity.HasKey(e => e.Id).HasName("practice_sets_pkey");
+
+            entity.ToTable("practice_sets");
+
+            entity.HasIndex(e => new { e.BookingId, e.CreatedAt }, "idx_practice_sets_booking");
+
+            entity.Property(e => e.Id).HasDefaultValueSql("gen_random_uuid()").HasColumnName("id");
+            entity.Property(e => e.BookingId).HasColumnName("booking_id");
+            entity.Property(e => e.ClassSessionId).HasColumnName("class_session_id");
+            entity.Property(e => e.TutorId).HasMaxLength(50).HasColumnName("tutor_id");
+            entity.Property(e => e.Title).HasMaxLength(255).HasColumnName("title");
+            entity.Property(e => e.Prompt).HasColumnName("prompt");
+            entity.Property(e => e.Status).HasMaxLength(20).HasDefaultValue(SessionPracticeSetStatus.Draft).HasColumnName("status");
+            entity.Property(e => e.SentAt).HasColumnType("timestamp with time zone").HasColumnName("sent_at");
+            entity.Property(e => e.CreatedAt)
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
+                .HasColumnType("timestamp with time zone")
+                .HasColumnName("created_at");
+            entity.Property(e => e.UpdatedAt)
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
+                .HasColumnType("timestamp with time zone")
+                .HasColumnName("updated_at");
+
+            entity.HasOne(d => d.Booking).WithMany()
+                .HasForeignKey(d => d.BookingId)
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("practice_sets_booking_fk");
+
+            // N-N với tài liệu qua bảng nối practice_set_materials (không có entity
+            // riêng — bảng chỉ có 2 cột khoá, EF tự quản).
+            entity.HasMany(d => d.Materials).WithMany()
+                .UsingEntity<Dictionary<string, object>>(
+                    "PracticeSetMaterial",
+                    r => r.HasOne<Learningmaterial>().WithMany()
+                        .HasForeignKey("material_id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .HasConstraintName("practice_set_materials_material_fk"),
+                    l => l.HasOne<SessionPracticeSet>().WithMany()
+                        .HasForeignKey("set_id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .HasConstraintName("practice_set_materials_set_fk"),
+                    j =>
+                    {
+                        j.HasKey("set_id", "material_id").HasName("practice_set_materials_pkey");
+                        j.ToTable("practice_set_materials");
+                    });
+        });
+
+        modelBuilder.Entity<SessionPracticeQuestion>(entity =>
+        {
+            entity.HasKey(e => e.Id).HasName("practice_questions_pkey");
+
+            entity.ToTable("practice_questions");
+
+            entity.HasIndex(e => new { e.SetId, e.DisplayOrder }, "idx_practice_questions_set");
+
+            entity.Property(e => e.Id).HasDefaultValueSql("gen_random_uuid()").HasColumnName("id");
+            entity.Property(e => e.SetId).HasColumnName("set_id");
+            entity.Property(e => e.DisplayOrder).HasDefaultValue(0).HasColumnName("display_order");
+            entity.Property(e => e.QuestionFormat).HasMaxLength(20).HasColumnName("question_format");
+            entity.Property(e => e.Content).HasColumnName("content");
+            entity.Property(e => e.CorrectAnswer).HasMaxLength(20).HasColumnName("correct_answer");
+            entity.Property(e => e.Explanation).HasColumnName("explanation");
+            entity.Property(e => e.SourceMaterialId).HasColumnName("source_material_id");
+            entity.Property(e => e.SourcePage).HasColumnName("source_page");
+            entity.Property(e => e.SentAt).HasColumnType("timestamp with time zone").HasColumnName("sent_at");
+            entity.Property(e => e.CreatedAt)
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
+                .HasColumnType("timestamp with time zone")
+                .HasColumnName("created_at");
+            entity.Property(e => e.UpdatedAt)
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
+                .HasColumnType("timestamp with time zone")
+                .HasColumnName("updated_at");
+
+            // jsonb <-> List<AnswerOption>: giống assessment_questions.answer_options —
+            // so sánh bằng chuỗi JSON để EF phát hiện thay đổi bên trong collection.
+            entity.Property(e => e.AnswerOptions)
+                .HasColumnType("jsonb")
+                .HasColumnName("answer_options")
+                .HasConversion(
+                    v => v == null ? null : System.Text.Json.JsonSerializer.Serialize(v, JsonbOptions),
+                    v => v == null ? null : System.Text.Json.JsonSerializer.Deserialize<List<AnswerOption>>(v, JsonbOptions))
+                .Metadata.SetValueComparer(new Microsoft.EntityFrameworkCore.ChangeTracking.ValueComparer<List<AnswerOption>?>(
+                    (a, b) => System.Text.Json.JsonSerializer.Serialize(a, JsonbOptions) == System.Text.Json.JsonSerializer.Serialize(b, JsonbOptions),
+                    v => v == null ? 0 : System.Text.Json.JsonSerializer.Serialize(v, JsonbOptions).GetHashCode(),
+                    v => v == null ? null : System.Text.Json.JsonSerializer.Deserialize<List<AnswerOption>>(System.Text.Json.JsonSerializer.Serialize(v, JsonbOptions), JsonbOptions)));
+
+            entity.HasOne(d => d.Set).WithMany(p => p.Questions)
+                .HasForeignKey(d => d.SetId)
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("practice_questions_set_fk");
+
+            entity.HasOne(d => d.SourceMaterial).WithMany()
+                .HasForeignKey(d => d.SourceMaterialId)
+                .OnDelete(DeleteBehavior.SetNull)
+                .HasConstraintName("practice_questions_material_fk");
+        });
+
+        modelBuilder.Entity<SessionPracticeAnswer>(entity =>
+        {
+            entity.HasKey(e => e.Id).HasName("practice_answers_pkey");
+
+            entity.ToTable("practice_answers");
+
+            // 1 học sinh 1 bài làm / câu — làm lại thì ghi đè.
+            entity.HasIndex(e => new { e.QuestionId, e.StudentId }, "practice_answers_unique").IsUnique();
+
+            entity.Property(e => e.Id).HasDefaultValueSql("gen_random_uuid()").HasColumnName("id");
+            entity.Property(e => e.QuestionId).HasColumnName("question_id");
+            entity.Property(e => e.StudentId).HasMaxLength(50).HasColumnName("student_id");
+            entity.Property(e => e.Answer).HasColumnName("answer");
+            entity.Property(e => e.IsCorrect).HasColumnName("is_correct");
+            entity.Property(e => e.AnsweredAt)
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
+                .HasColumnType("timestamp with time zone")
+                .HasColumnName("answered_at");
+
+            entity.HasOne(d => d.Question).WithMany(p => p.Answers)
+                .HasForeignKey(d => d.QuestionId)
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("practice_answers_question_fk");
         });
 
         OnModelCreatingPartial(modelBuilder);
