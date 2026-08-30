@@ -154,7 +154,7 @@ public class GeminiVideoAnalysisService : IGeminiVideoAnalysisService
         var text = await SendGenerateContentAsync(requestBody, _settings.Model, ct);
 
         var parsed = ParseOrThrow<SummaryJson>(text, "tóm tắt");
-        if (parsed.Summary is null)
+        if (string.IsNullOrWhiteSpace(parsed.Summary))
             throw new GeminiResponseParseException("Gemini trả về tóm tắt không hợp lệ.");
         return parsed.Summary.Trim();
     }
@@ -188,7 +188,7 @@ public class GeminiVideoAnalysisService : IGeminiVideoAnalysisService
         var text = await SendGenerateContentAsync(requestBody, _settings.TranscriptModel, ct);
 
         var parsed = ParseOrThrow<TranscriptJson>(text, "hội thoại");
-        if (parsed.Transcript is null)
+        if (string.IsNullOrWhiteSpace(parsed.Transcript))
             throw new GeminiResponseParseException("Gemini trả về hội thoại không hợp lệ.");
         return parsed.Transcript.Trim();
     }
@@ -349,7 +349,7 @@ public class GeminiVideoAnalysisService : IGeminiVideoAnalysisService
 
         var text = await SendGenerateContentAsync(requestBody, _settings.Model, ct);
         var parsed = ParseOrThrow<SummaryJson>(text, "tóm tắt tổng hợp");
-        if (parsed.Summary is null)
+        if (string.IsNullOrWhiteSpace(parsed.Summary))
             throw new GeminiResponseParseException("Gemini trả về tóm tắt tổng hợp không hợp lệ.");
         return parsed.Summary.Trim();
     }
