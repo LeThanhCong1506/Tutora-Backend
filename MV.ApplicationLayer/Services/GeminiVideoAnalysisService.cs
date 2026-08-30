@@ -141,6 +141,10 @@ public class GeminiVideoAnalysisService : IGeminiVideoAnalysisService
             QUAN TRỌNG: chỉ viết những mục thật sự có nội dung trong buổi học. Mục nào không có thì BỎ HẲN,
             không in tiêu đề của mục đó ra. Tuyệt đối không viết những câu như "Không có.", "Không đề cập.",
             "Buổi học này không giao bài tập." — thà thiếu mục còn hơn có mục rỗng.
+
+            TUYỆT ĐỐI KHÔNG BỊA: không tự suy đoán hay thêm nội dung không thực sự có trong audio — đặc biệt
+            là bài tập về nhà. Nếu audio không đề cập rõ ràng việc giao bài tập, coi như không có (bỏ hẳn mục
+            này theo quy tắc ở trên), tuyệt đối không đoán/viết thêm bài tập không được nhắc tới trong buổi học.
             """;
 
         var schema = new GeminiSchema
@@ -216,8 +220,11 @@ public class GeminiVideoAnalysisService : IGeminiVideoAnalysisService
             Bạn là trợ lý giúp gia sư viết báo cáo sau buổi học 1-kèm-1, dựa trên bản ghi âm buổi học.
             Hãy nghe kỹ và trả về đúng 3 nội dung sau, viết bằng tiếng Việt, ở góc nhìn của gia sư viết cho phụ huynh/học sinh đọc:
             - lessonContent: Nội dung đã dạy trong buổi học.
-            - homework: Bài tập về nhà đã giao cho học sinh. Nếu buổi học KHÔNG giao bài tập nào, PHẢI ghi
-              rõ "Không giao bài tập gì cả." — tuyệt đối không để trống hay chỉ viết vài chữ ngắn.
+            - homework: Bài tập về nhà đã giao cho học sinh — CHỈ ghi đúng những gì gia sư THẬT SỰ nói trong
+              audio, tuyệt đối không tự suy đoán hay bịa thêm bài tập không được nhắc tới. Nếu audio KHÔNG đề
+              cập gì tới việc giao bài tập, PHẢI ghi rõ "Không đề cập giao bài tập." — không tự suy ra là gia
+              sư không giao bài (có thể audio bị cắt/không nghe rõ đoạn đó), chỉ nói đúng sự thật là không
+              nghe thấy đề cập. Tuyệt đối không để trống hay chỉ viết vài chữ ngắn.
             - tutorNotes: Ghi chú thêm của gia sư về buổi học (thái độ học, điểm cần cải thiện...).
             """;
 
@@ -247,7 +254,7 @@ public class GeminiVideoAnalysisService : IGeminiVideoAnalysisService
         // luôn cả trường hợp "có nội dung nhưng quá ngắn", không chỉ trường hợp rỗng hoàn toàn.
         const int minHomeworkLength = 10;
         if (parsed.Homework == null || parsed.Homework.Trim().Length < minHomeworkLength)
-            parsed.Homework = "Không giao bài tập gì cả.";
+            parsed.Homework = "Không đề cập giao bài tập.";
 
         return parsed;
     }
