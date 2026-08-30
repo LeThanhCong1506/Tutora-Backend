@@ -38,6 +38,8 @@ public partial class AdminRevenueAnalyticsService(
         decimal PlatformFee,
         decimal FinalPrice,
         decimal TutorFee,
+        /// <summary>5% thu thêm của phụ huynh. FinalPrice trừ khoản này ra học phí gốc.</summary>
+        decimal ParentFee,
         int TotalSessions,
         DateTime? CreatedAt,
         DateTime? PaymentDueAt,
@@ -128,6 +130,66 @@ public partial class AdminRevenueAnalyticsService(
         return months;
     }
 
+    /// <summary>Độ mịn của trục thời gian trên biểu đồ.</summary>
+    private enum BucketSize { Day, Week, Month }
+
+    /// <summary>Một cột trên trục thời gian: khoảng [Start, End) và nhãn hiển thị.</summary>
+    private sealed record TimeBucket(DateTime Start, DateTime End, string Label);
+
+    /// <summary>
+    /// Chia khoảng đang xem thành các mốc vẽ biểu đồ.
+    ///
+    /// Trước đây mọi biểu đồ đều chia theo tháng, nên khi người dùng chọn một tuần hoặc một
+    /// khoảng vài ngày thì cả biểu đồ chỉ còn một cột — không đọc được gì.
+    ///
+    /// Ngưỡng lấy đúng theo dashboard (<c>AdminDashboardService</c>) để hai trang không cho ra
+    /// hai cách chia khác nhau trên cùng một khoảng: ≤31 ngày xem theo ngày, ≤90 ngày theo
+    /// tuần, dài hơn thì theo tháng.
+    ///
+    /// Nhãn của ba mức cố ý khác dạng nhau — "05/08", "05/08 – 11/08", "08/2026" — để người
+    /// đọc biết ngay một cột đại diện cho bao lâu mà không cần chú thích riêng.
+    /// </summary>
+    private static List<TimeBucket> TimeBuckets(DateTime fromUtc, DateTime toUtc)
+    {
+        var totalDays = (toUtc.Date - fromUtc.Date).TotalDays + 1;
+        var size = totalDays <= 31 ? BucketSize.Day
+            : totalDays <= 90 ? BucketSize.Week
+            : BucketSize.Month;
+
+        var buckets = new List<TimeBucket>();
+
+        if (size == BucketSize.Month)
+        {
+            foreach (var ms in MonthBuckets(fromUtc, toUtc))
+            {
+                buckets.Add(new TimeBucket(ms, ms.AddMonths(1), MonthKey(ms)));
+            }
+            return buckets;
+        }
+
+        if (size == BucketSize.Day)
+        {
+            for (var cursor = fromUtc.Date; cursor < toUtc; cursor = cursor.AddDays(1))
+            {
+                buckets.Add(new TimeBucket(cursor, cursor.AddDays(1), cursor.ToString("dd/MM")));
+            }
+            return buckets;
+        }
+
+        // Tuần bắt đầu từ thứ Hai, khớp cách chia tuần ISO của dashboard.
+        var weekStart = fromUtc.Date;
+        var dow = (int)weekStart.DayOfWeek;
+        weekStart = weekStart.AddDays(-(dow == 0 ? 6 : dow - 1));
+        while (weekStart < toUtc)
+        {
+            var end = weekStart.AddDays(7);
+            buckets.Add(new TimeBucket(
+                weekStart, end, $"{weekStart:dd/MM} – {end.AddDays(-1):dd/MM}"));
+            weekStart = end;
+        }
+        return buckets;
+    }
+
     /// <summary>Chuẩn hoá về UTC; mặc định 12 tháng gần nhất.</summary>
     private static (DateTime FromUtc, DateTime ToUtc) Normalise(DateTime? from, DateTime? to)
     {
@@ -161,6 +223,7 @@ public partial class AdminRevenueAnalyticsService(
                 b.Platformfee ?? 0,
                 b.Finalprice ?? 0,
                 b.Tutorfee ?? 0,
+                b.Parentfee ?? 0,
                 b.Totalsessions ?? 1,
                 b.Createdat,
                 b.Paymentdueat,
@@ -173,6 +236,19 @@ public partial class AdminRevenueAnalyticsService(
         await context.ClassSessions
             .AsNoTracking()
             .Where(l => l.Bookingid != null)
+            // Buổi phụ và buổi học lại do khiếu nại nằm NGOÀI gói đã bán: chúng được xếp thêm
+            // để bù cho một buổi hỏng, giá mỗi buổi bằng 0, người học không trả thêm đồng nào.
+            // Đếm chúng vào đây thì số buổi đã settle vượt quá TotalSessions, và vì hoa hồng
+            // mỗi buổi = PlatformFee / TotalSessions nên nền tảng ghi nhận doanh thu LỚN HƠN
+            // khoản phí thực sự đã thu của chính booking đó (booking #285: thu 25.000, ghi
+            // nhận 30.000).
+            //
+            // Buổi bù (Ismakeup) thì ngược lại: nó THAY THẾ một buổi đã bán bị dời, buổi gốc
+            // không settle, nên vẫn phải tính — loại nó ra sẽ làm hụt doanh thu.
+            //
+            // Lọc ngay ở đây thay vì ở từng chỗ dùng: mọi phần của báo cáo doanh thu đều quy
+            // buổi đã settle ra tiền hoặc ra tiến độ, không có chỗ nào cần đếm buổi ngoài gói.
+            .Where(l => !l.Iscontinuation && !l.Isdisputerelearn)
             .Select(l => new SessionFlat(
                 l.Bookingid!.Value,
                 l.Tutorid,
@@ -185,7 +261,28 @@ public partial class AdminRevenueAnalyticsService(
     private static decimal FeePerSession(BookingFlat b) =>
         b.TotalSessions <= 0 ? 0 : Math.Round(b.PlatformFee / b.TotalSessions, 2);
 
-    /// <summary>Doanh thu ĐÃ GIAO trong kỳ: phí của các buổi đã settle.</summary>
+    /// <summary>
+    /// Buổi này có được tính vào hoa hồng nền tảng không.
+    ///
+    /// Một chỗ duy nhất định nghĩa quy tắc, để các tab không tự đặt ra bộ lọc riêng rồi ra
+    /// những con số lệch nhau như trước.
+    /// </summary>
+    private static bool IsRevenueSession(SessionFlat s, Dictionary<int, BookingFlat> bookingById) =>
+        bookingById.TryGetValue(s.BookingId, out var b)
+        && RevenueBookingStatuses.Contains(b.Status ?? "");
+
+    /// <summary>
+    /// Hoa hồng nền tảng của các buổi đã dạy xong và đã giải ngân trong kỳ.
+    ///
+    /// Chỉ tính buổi thuộc booking CÒN nằm trong nhóm phát sinh doanh thu. Trước đây hàm này
+    /// tra toàn bộ booking nên gộp cả buổi thuộc lịch về sau bị hủy, trong khi tab Môn &amp; Lớp
+    /// lại loại chúng ra — hai tab cùng đo một thứ mà lệch nhau đúng bằng khoản đó, không có
+    /// chỗ nào giải thích.
+    ///
+    /// Khoản hoa hồng của lịch đã hủy không mất đi: nó được báo riêng qua
+    /// <c>RevenueSummaryDto.CommissionFromCancelled</c> và hiện thành ghi chú trên giao diện,
+    /// nên vẫn thấy được mà không làm lệch các con số cộng dồn.
+    /// </summary>
     private static decimal RecognisedIn(
         IEnumerable<SessionFlat> sessions,
         Dictionary<int, BookingFlat> bookingById,
@@ -193,7 +290,10 @@ public partial class AdminRevenueAnalyticsService(
         DateTime toUtc) =>
         sessions
             .Where(s => s.Settled && s.When >= fromUtc && s.When < toUtc)
-            .Sum(s => bookingById.TryGetValue(s.BookingId, out var b) ? FeePerSession(b) : 0);
+            .Sum(s => bookingById.TryGetValue(s.BookingId, out var b)
+                      && RevenueBookingStatuses.Contains(b.Status ?? "")
+                ? FeePerSession(b)
+                : 0);
 
     /// <summary>Doanh thu ĐÃ KÝ trong kỳ: toàn bộ phí quy về ngày tạo booking.</summary>
     private static decimal ContractedIn(

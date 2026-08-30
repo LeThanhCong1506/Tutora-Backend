@@ -94,14 +94,13 @@ public partial class AdminRevenueAnalyticsService
         };
 
         var stalledTrend = new List<StalledTrendPointDto>();
-        foreach (var ms in MonthBuckets(fromUtc, toUtc))
+        foreach (var (ms, me, label) in TimeBuckets(fromUtc, toUtc))
         {
-            var me = ms.AddMonths(1);
             // Cohort lấy từ toàn bộ booking để gồm cả ca huỷ sau khi trả cọc.
             var cohort = bookings.Where(b => b.CreatedAt >= ms && b.CreatedAt < me).ToList();
             stalledTrend.Add(new StalledTrendPointDto
             {
-                Month = MonthKey(ms),
+                Month = label,
                 Stalled = cohort.Count(b => IsStalledAfterDeposit(b, now, SettledOf(b))),
                 Converted = cohort.Count(b =>
                     b.Status is BookingStatus.Paid or BookingStatus.Ongoing or BookingStatus.Completed),
@@ -136,13 +135,12 @@ public partial class AdminRevenueAnalyticsService
         };
 
         var refundTrend = new List<RefundTrendPointDto>();
-        foreach (var ms in MonthBuckets(fromUtc, toUtc))
+        foreach (var (ms, me, label) in TimeBuckets(fromUtc, toUtc))
         {
-            var me = ms.AddMonths(1);
             var monthRefunds = refundTx.Where(t => t.Createdat >= ms && t.Createdat < me).ToList();
             refundTrend.Add(new RefundTrendPointDto
             {
-                Month = MonthKey(ms),
+                Month = label,
                 Amount = monthRefunds.Sum(t => t.Amount),
                 Count = monthRefunds.Count,
             });

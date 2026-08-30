@@ -30,6 +30,39 @@ public class RevenueSummaryDto
     /// <summary>Tiền mặt thực thu trong kỳ (payment_transactions thành công).</summary>
     public decimal CashCollected { get; set; }
     public decimal CashPrevious { get; set; }
+
+    // ── Bộ số dùng cho khối chia tiền ở tab Tổng quan ──────────────────────────────
+    // Bốn số dưới đây CÙNG một phạm vi: booking phát sinh doanh thu, tạo trong kỳ.
+    // Cùng phạm vi là điều kiện để chúng cộng khớp — đây chính là thứ ba thẻ rời
+    // trước đây không làm được, khiến người đọc tự cộng rồi thấy lệch.
+    //
+    //   Gmv = TutorReceivable + CommissionSold          (theo BookingFeeCalculator)
+    //   CommissionSold = CommissionEarned + phần còn chờ
+    //
+    // CommissionFromCancelled đứng NGOÀI hai đẳng thức trên: nó là hoa hồng của buổi
+    // đã dạy và đã giải ngân thuộc booking về sau bị hủy, nên không nằm trong
+    // CommissionSold nhưng vẫn là tiền Tutora đã kiếm được.
+
+    /// <summary>
+    /// Học phí gốc của booking tạo trong kỳ — MẪU SỐ của mọi tỉ lệ phí.
+    ///
+    /// Cần lộ ra vì hoa hồng 10% tính trên số này, không phải trên Gmv (Gmv đã cộng thêm 5%
+    /// phí phụ huynh). Thiếu nó thì người đọc lấy hoa hồng chia Gmv sẽ ra 9,5% và tưởng hệ
+    /// thống tính sai.
+    /// </summary>
+    public decimal BaseAmount { get; set; }
+
+    /// <summary>Tiền gia sư nhận từ booking tạo trong kỳ (học phí gốc trừ 5% phí gia sư).</summary>
+    public decimal TutorReceivable { get; set; }
+
+    /// <summary>Hoa hồng 10% của booking tạo trong kỳ. Không gồm doanh thu bán gói AI.</summary>
+    public decimal CommissionSold { get; set; }
+
+    /// <summary>Phần hoa hồng trên đã ứng với buổi dạy xong và giải ngân tính tới cuối kỳ.</summary>
+    public decimal CommissionEarned { get; set; }
+
+    /// <summary>Hoa hồng của buổi đã giải ngân thuộc booking về sau bị hủy.</summary>
+    public decimal CommissionFromCancelled { get; set; }
 }
 
 public class RevenueTrendPointDto
