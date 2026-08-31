@@ -36,6 +36,10 @@ public class EkycVerificationResult
     /// <summary>Đã đánh dấu xác minh danh tính hay chưa.</summary>
     public bool Verified { get; set; }
 
+    /// <summary>true khi OCR thất bại đủ ngưỡng và đã escalate cho Admin duyệt thủ công thay vì
+    /// tự động từ chối — ảnh đã được nhận/lưu, Verified vẫn false cho tới khi Admin quyết định.</summary>
+    public bool PendingManualReview { get; set; }
+
     /// <summary>Response chuẩn hóa để trả về client (caller có thể chỉnh Message).</summary>
     public CccdUploadResponse Response { get; set; } = new();
 }

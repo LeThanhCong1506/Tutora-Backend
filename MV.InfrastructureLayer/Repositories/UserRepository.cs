@@ -301,6 +301,21 @@ namespace MV.InfrastructureLayer.Repositories
             return true;
         }
 
+        public async Task<int> IncrementCccdOcrFailedAttemptsAsync(string userId)
+        {
+            // Tăng bằng biểu thức SQL (cccd_ocr_failed_attempts + 1) thay vì đọc-rồi-ghi-đè bằng giá
+            // trị tính sẵn ở app — tránh lost update nếu 2 request cùng lúc (double-click/mạng chậm
+            // rồi bấm lại) cùng tăng đếm.
+            await _context.Users
+                .Where(u => u.Userid == userId)
+                .ExecuteUpdateAsync(s => s.SetProperty(u => u.Cccdocrfailedattempts, u => u.Cccdocrfailedattempts + 1));
+
+            return await _context.Users
+                .Where(u => u.Userid == userId)
+                .Select(u => u.Cccdocrfailedattempts)
+                .FirstOrDefaultAsync();
+        }
+
         public Task UpdateTutorProfileAsync(Tutorprofile profile)
         {
             _context.Tutorprofiles.Update(profile);
