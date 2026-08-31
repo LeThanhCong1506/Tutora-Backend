@@ -3,6 +3,11 @@ namespace MV.DomainLayer.DTO.ResponseModel;
 public class CccdUploadResponse
 {
     public bool OcrSuccess { get; set; }
+
+    /// <summary>true khi OCR thất bại đủ ngưỡng lần liên tiếp và ảnh đã được gửi cho Admin xem thủ công
+    /// thay vì tự động từ chối. Danh tính CHƯA được xác minh (chờ Admin quyết định) — client nên
+    /// hiển thị trạng thái "đang chờ duyệt" thay vì "đã xác minh" hay lỗi.</summary>
+    public bool PendingManualReview { get; set; }
     /// <summary>
     /// True when verified OCR data changed the canonical personal information on the account.
     /// The client uses this to explain the change to the account owner.

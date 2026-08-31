@@ -9,5 +9,8 @@ namespace MV.DomainLayer.DTO.ResponseModel
         public string? FrontImageUrl { get; set; }
         public string? BackImageUrl { get; set; }
         public bool IsIdentityVerified { get; set; }
+        /// <summary>true khi OCR tự động thất bại đủ ngưỡng lần liên tiếp — ảnh đã nhận nhưng đang chờ
+        /// Admin xem thủ công. Luôn false khi IsIdentityVerified = true.</summary>
+        public bool IsPendingReview { get; set; }
     }
 }

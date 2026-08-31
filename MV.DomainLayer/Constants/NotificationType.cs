@@ -92,4 +92,15 @@ public static class NotificationType
     /// <summary>Admin/Staff đã đóng một tranh chấp theo hướng học lại và lên lịch buổi học lại mới.
     /// Referenceid = classSessionId của buổi HỌC LẠI mới tạo.</summary>
     public const string DisputeRelearnScheduled = "dispute_relearn_scheduled";
+    /// <summary>Gửi cho CHÍNH người dùng (Tutor hoặc Student, cùng cột CCCD): OCR CCCD thất bại đủ
+    /// số lần cho phép, ảnh đã được nhận và gửi cho Admin xem thủ công thay vì tự động từ chối.</summary>
+    public const string IdentityPendingReview = "identity_pending_review";
+    /// <summary>Gửi cho Admin/Staff có quyền xem CCCD (TutorCccdView): có 1 hồ sơ (Tutor hoặc
+    /// Student) cần xem thủ công. Không có referenceid (CMS mở trang người dùng bằng UserId, không
+    /// có route detail theo id nên không gắn deep-link).</summary>
+    public const string IdentityReviewRequested = "identity_review_requested";
+    /// <summary>Admin đã duyệt CCCD gửi thủ công — danh tính chính thức được xác minh.</summary>
+    public const string IdentityManuallyVerified = "identity_manually_verified";
+    /// <summary>Admin đã từ chối CCCD gửi thủ công — người dùng cần chụp và gửi lại từ đầu.</summary>
+    public const string IdentityManuallyRejected = "identity_manually_rejected";
 }
