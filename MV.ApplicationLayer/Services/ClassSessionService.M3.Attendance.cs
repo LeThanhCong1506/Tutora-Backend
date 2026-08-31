@@ -808,6 +808,20 @@ public partial class ClassSessionService
             classSession.Attendancenote = isSoloTutorNoShow
                 ? $"[Học viên không vào lớp] {request.AttendanceNote}".Trim()
                 : request.AttendanceNote;
+
+            // Buổi đã check-in thật (Checkintime có giá trị) nhưng gia sư nộp báo cáo TRƯỚC khi
+            // bấm "Kết thúc buổi học" (CheckOutAsync chưa từng được gọi): phải tự đóng phòng +
+            // dừng ghi hình ngay tại đây. Nếu không, Status chuyển PendingConfirmation ngay bên
+            // dưới khiến CheckOutAsync (yêu cầu Status==InProgress) vĩnh viễn không gọi được nữa,
+            // và Cloud Recording sẽ không còn bất kỳ đường nào để dừng (AutoCloseExpiredLiveSessionsAsync
+            // cũng chỉ quét Status==InProgress, không còn khớp session này nữa).
+            if (classSession.Checkintime.HasValue && !classSession.Checkouttime.HasValue)
+            {
+                classSession.Checkouttime = now;
+                classSession.Realend = now;
+                await TryStopRecordingAsync(classSession);
+            }
+
             classSession.Status = PendingConfirmation;
             classSession.Submittedat = now;
             classSession.Confirmdeadline = now.AddHours(12);
