@@ -553,6 +553,16 @@ public class AutoEndLiveSessionJob : BackgroundService
         {
             _logger.LogInformation("AutoEndLiveSessionJob: Đã tự động đóng {Count} phòng học quá giờ.", closedCount);
         }
+
+        // Buổi đã bị ép đóng phòng ở trên nhưng gia sư biến mất luôn, không bao giờ quay lại nộp báo
+        // cáo: không job nào khác từng đưa được buổi ra khỏi InProgress, nên phải tự nộp thay ở đây
+        // để session/Sessionsremaining/escrow không kẹt vĩnh viễn.
+        var autoSubmittedCount = await classSessionService.AutoSubmitMissingReportsAsync(ct);
+
+        if (autoSubmittedCount > 0)
+        {
+            _logger.LogWarning("AutoEndLiveSessionJob: Đã tự động nộp báo cáo thay cho {Count} buổi học bị bỏ dở.", autoSubmittedCount);
+        }
     }
 }
 

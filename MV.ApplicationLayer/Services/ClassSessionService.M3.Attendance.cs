@@ -361,6 +361,119 @@ public partial class ClassSessionService
     }
 
     /// <summary>
+    /// Số giờ chờ thêm SAU KHI phòng đã bị <see cref="AutoCloseExpiredLiveSessionsAsync"/> ép đóng
+    /// (Checkouttime đã có giá trị) mà gia sư vẫn không nộp báo cáo. Qua mốc này, hệ thống tự nộp 1
+    /// báo cáo rỗng thay gia sư — không có bất kỳ job/luồng nào khác từng đưa được buổi ra khỏi
+    /// InProgress nếu SubmitReportAsync/RequestInterruptionAsync không được chính người dùng gọi
+    /// (kể cả Dispute cũng không nhận session đang InProgress, xem DisputeSettlementPolicy), nên nếu
+    /// gia sư đóng trình duyệt luôn sau khi bị ép đóng phòng, session/Booking.Sessionsremaining/escrow
+    /// sẽ kẹt vĩnh viễn nếu không có bước này. Phụ huynh vẫn có đủ 12h xác nhận bình thường
+    /// (Confirmdeadline, giống mọi báo cáo khác) để tranh chấp nếu thấy buổi không hợp lý.
+    /// </summary>
+    public const int AutoSubmitMissingReportAfterHours = 6;
+
+    /// <summary>
+    /// Tự nộp 1 báo cáo hệ thống cho các buổi <c>in_progress</c> đã bị ép đóng phòng quá
+    /// <see cref="AutoSubmitMissingReportAfterHours"/> giờ mà gia sư chưa từng nộp báo cáo thật —
+    /// dùng bởi background job (chạy cùng nhịp với AutoCloseExpiredLiveSessionsAsync). Chuyển
+    /// InProgress → PendingConfirmation với Confirmdeadline = giờ chạy job + 12h, đi đúng pipeline
+    /// xác nhận/tự-động-thanh-toán sẵn có (AutoConfirmClassSessionJob) như mọi báo cáo bình thường.
+    /// Thông báo cho cả gia sư lẫn phụ huynh (giống báo cáo thật, xem SubmitReportAsync) — phụ huynh
+    /// cần biết để vào xác nhận/tranh chấp trong 12h, không thì không ai hay có báo cáo mới đang chờ.
+    /// Trả về số buổi đã tự nộp thay.
+    /// </summary>
+    public async Task<int> AutoSubmitMissingReportsAsync(CancellationToken ct = default)
+    {
+        var now = TimeZoneHelper.UtcNow;
+        var cutoff = now.AddHours(-AutoSubmitMissingReportAfterHours);
+
+        var stuckSessions = await _context.ClassSessions
+            .Include(l => l.Booking)
+                .ThenInclude(b => b!.Student)
+            .Where(l => l.Status == InProgress
+                && l.Checkouttime != null
+                && l.Checkouttime <= cutoff
+                && !_context.ClassSessionReports.Any(r => r.Classsessionid == l.Classsessionid))
+            .ToListAsync(ct);
+
+        if (stuckSessions.Count == 0) return 0;
+
+        var autoSubmittedCount = 0;
+        foreach (var classSession in stuckSessions)
+        {
+            try
+            {
+                classSession.Status = PendingConfirmation;
+                classSession.Submittedat = now;
+                classSession.Confirmdeadline = now.AddHours(12);
+
+                _context.ClassSessionReports.Add(new ClassSessionReport
+                {
+                    Classsessionid = classSession.Classsessionid,
+                    Createdbytutorid = classSession.Tutorid,
+                    Contentcovered = "[Hệ thống tự nộp] Không nhận được báo cáo từ gia sư sau khi phòng đã tự đóng.",
+                    Createdat = now
+                });
+
+                await _context.SaveChangesAsync(ct);
+                autoSubmittedCount++;
+
+                _logger.LogWarning(
+                    "Tự động nộp báo cáo thay cho buổi học {ClassSessionId}: gia sư không nộp báo cáo sau {Hours}h kể từ khi phòng tự đóng.",
+                    classSession.Classsessionid, AutoSubmitMissingReportAfterHours);
+
+                if (!string.IsNullOrEmpty(classSession.Tutorid))
+                {
+                    try
+                    {
+                        await _notificationService.CreateNotificationAsync(new NotificationRequest
+                        {
+                            Userid = classSession.Tutorid,
+                            Title = "Buổi học đã tự động được chốt",
+                            Message = $"Buổi học #{classSession.Classsessionid} đã bị hệ thống tự động chốt do bạn không nộp báo cáo. Vui lòng liên hệ hỗ trợ nếu có sai sót.",
+                            Type = NotificationType.LessonReport,
+                            Referenceid = classSession.Classsessionid.ToString()
+                        });
+                    }
+                    catch (Exception notifyEx)
+                    {
+                        _logger.LogWarning(notifyEx, "Không thể gửi thông báo tự nộp báo cáo cho buổi học {ClassSessionId}", classSession.Classsessionid);
+                    }
+                }
+
+                // Báo cáo hệ thống tự nộp vẫn đi vào đúng pipeline Confirmdeadline=12h như báo cáo
+                // thật (xem SubmitReportAsync) — phụ huynh phải được biết để vào xác nhận/tranh chấp,
+                // nếu không sẽ không ai hay có báo cáo mới đang chờ.
+                var parentId = classSession.Booking?.Student?.Parentid;
+                if (!string.IsNullOrEmpty(parentId))
+                {
+                    try
+                    {
+                        await _notificationService.CreateNotificationAsync(new NotificationRequest
+                        {
+                            Userid = parentId,
+                            Title = "Buổi học đã tự động được chốt",
+                            Message = $"Buổi học #{classSession.Classsessionid} đã bị hệ thống tự động chốt do gia sư không nộp báo cáo. Vui lòng kiểm tra và xác nhận trong vòng 12h.",
+                            Type = NotificationType.LessonReport,
+                            Referenceid = classSession.Classsessionid.ToString()
+                        });
+                    }
+                    catch (Exception notifyEx)
+                    {
+                        _logger.LogWarning(notifyEx, "Không thể gửi thông báo tự nộp báo cáo cho phụ huynh của buổi học {ClassSessionId}", classSession.Classsessionid);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Không thể tự nộp báo cáo thay cho buổi học {ClassSessionId}.", classSession.Classsessionid);
+            }
+        }
+
+        return autoSubmittedCount;
+    }
+
+    /// <summary>
     /// Buổi học bị ngắt giữa chừng chỉ được phép có buổi phụ trong đúng ngày bị ngắt (xem
     /// <see cref="RequestInterruptionAsync"/> và guard tương ứng trong
     /// ClassSessionRescheduleProposalService.ProposeAsync). Nếu qua nửa đêm của ngày đó
