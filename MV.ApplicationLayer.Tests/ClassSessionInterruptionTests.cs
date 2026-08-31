@@ -484,6 +484,8 @@ public class ClassSessionServiceRequestInterruptionTests
             => throw new NotImplementedException();
         public Task<CloudRecordingResult> StopAudioAsync(int classSessionId, string channel, string resourceId, string sid, CancellationToken ct = default)
             => throw new NotImplementedException();
+        public Task<CloudRecordingQueryResult> QueryAsync(string resourceId, string sid, CancellationToken ct = default)
+            => throw new NotImplementedException();
     }
 
     /// <summary>Trả về OverlapRatio cố định do test khai báo, không cần dữ liệu Agora thật.</summary>
@@ -864,6 +866,8 @@ public class ClassSessionAutoCloseInterruptedSessionsTests
         public Task<CloudRecordingHandle> StartAudioAsync(int classSessionId, string channel, CancellationToken ct = default)
             => throw new NotImplementedException();
         public Task<CloudRecordingResult> StopAudioAsync(int classSessionId, string channel, string resourceId, string sid, CancellationToken ct = default)
+            => throw new NotImplementedException();
+        public Task<CloudRecordingQueryResult> QueryAsync(string resourceId, string sid, CancellationToken ct = default)
             => throw new NotImplementedException();
     }
 
@@ -1296,6 +1300,8 @@ public class ClassSessionSkipContinuationTests
         public Task<CloudRecordingHandle> StartAudioAsync(int classSessionId, string channel, CancellationToken ct = default)
             => throw new NotImplementedException();
         public Task<CloudRecordingResult> StopAudioAsync(int classSessionId, string channel, string resourceId, string sid, CancellationToken ct = default)
+            => throw new NotImplementedException();
+        public Task<CloudRecordingQueryResult> QueryAsync(string resourceId, string sid, CancellationToken ct = default)
             => throw new NotImplementedException();
     }
 

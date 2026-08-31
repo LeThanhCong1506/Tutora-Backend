@@ -269,6 +269,8 @@ public class SubmitReportAsyncRemainingPaymentDeadlineTests
             throw new NotSupportedException();
         public Task<CloudRecordingResult> StopAudioAsync(int classSessionId, string channel, string resourceId, string sid, CancellationToken ct = default) =>
             throw new NotSupportedException();
+        public Task<CloudRecordingQueryResult> QueryAsync(string resourceId, string sid, CancellationToken ct = default) =>
+            throw new NotSupportedException();
     }
 
     private sealed class NoOpNotificationService : INotificationService
