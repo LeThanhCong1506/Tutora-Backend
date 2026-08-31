@@ -269,27 +269,44 @@ public partial class ClassSessionService
 
     public async Task<ClassSessionDetailResponse> CheckOutAsync(int classSessionId, string tutorId, CheckOutRequest request)
     {
-        var classSession = await _context.ClassSessions
-            .Include(l => l.Booking)
-            .FirstOrDefaultAsync(l => l.Classsessionid == classSessionId && l.Tutorid == tutorId)
-            ?? throw new ClassSessionException(ClassSessionErrorCodes.ClassSessionNotFound, "Không tìm thấy buổi học", 404);
+        await using var tx = await _context.Database.BeginTransactionAsync();
+        try
+        {
+            // Lock trước khi đọc Status: SubmitReportAsync và RequestInterruptionAsync đều có thể
+            // đang chuyển Status của CÙNG session này cùng lúc (ClassSession không có concurrency
+            // token) — không lock sẽ để bên ghi sau âm thầm đè lên claim của bên trước (VD: gia sư
+            // vừa checkout xong nhưng bị RequestInterruptionAsync lật ngược lại thành Interrupted).
+            var classSession = await ClassSessionLockHelper.LockById(_context, classSessionId)
+                .Include(l => l.Booking)
+                .SingleOrDefaultAsync()
+                ?? throw new ClassSessionException(ClassSessionErrorCodes.ClassSessionNotFound, "Không tìm thấy buổi học", 404);
 
-        if (classSession.Status != InProgress)
-            throw new ClassSessionException(ClassSessionErrorCodes.InvalidClassSessionStatus, "Buổi học không ở trạng thái đang diễn ra", 400);
+            if (classSession.Tutorid != tutorId)
+                throw new ClassSessionException(ClassSessionErrorCodes.ClassSessionNotFound, "Không tìm thấy buổi học", 404);
 
-        if (!classSession.Checkintime.HasValue)
-            throw new ClassSessionException(ClassSessionErrorCodes.NotCheckedIn, "Vui lòng điểm danh vào trước", 400);
+            if (classSession.Status != InProgress)
+                throw new ClassSessionException(ClassSessionErrorCodes.InvalidClassSessionStatus, "Buổi học không ở trạng thái đang diễn ra", 400);
 
-        classSession.Checkouttime = TimeZoneHelper.UtcNow;
-        classSession.Realend = TimeZoneHelper.UtcNow;
+            if (!classSession.Checkintime.HasValue)
+                throw new ClassSessionException(ClassSessionErrorCodes.NotCheckedIn, "Vui lòng điểm danh vào trước", 400);
 
-        await _context.SaveChangesAsync();
-        _logger.LogInformation("Tutor {TutorId} checked out from classSession {ClassSessionId}", tutorId, classSessionId);
+            classSession.Checkouttime = TimeZoneHelper.UtcNow;
+            classSession.Realend = TimeZoneHelper.UtcNow;
 
-        // ── Tự động dừng Cloud Recording (nếu đang record) ──
-        await TryStopRecordingAsync(classSession);
+            // ── Tự động dừng Cloud Recording (nếu đang record) ──
+            await TryStopRecordingAsync(classSession);
 
-        return (await GetTutorClassSessionDetailAsync(classSessionId, tutorId))!;
+            await _context.SaveChangesAsync();
+            await tx.CommitAsync();
+            _logger.LogInformation("Tutor {TutorId} checked out from classSession {ClassSessionId}", tutorId, classSessionId);
+
+            return (await GetTutorClassSessionDetailAsync(classSessionId, tutorId))!;
+        }
+        catch
+        {
+            await tx.RollbackAsync();
+            throw;
+        }
     }
 
     /// <summary>
@@ -790,10 +807,14 @@ public partial class ClassSessionService
         await using var tx = await _context.Database.BeginTransactionAsync();
         try
         {
-            var classSession = await _context.ClassSessions
+            // Lock trước khi đọc Status: CheckOutAsync/SubmitReportAsync có thể đang chuyển Status
+            // của CÙNG session này cùng lúc (ClassSession không có concurrency token) — không lock
+            // sẽ để bên ghi sau âm thầm đè lên claim của bên trước (VD: gia sư vừa checkout xong
+            // nhưng bị request này lật ngược lại thành Interrupted, sinh buổi phụ thừa).
+            var classSession = await ClassSessionLockHelper.LockById(_context, classSessionId)
                 .Include(l => l.Booking)
                     .ThenInclude(b => b!.Student)
-                .FirstOrDefaultAsync(l => l.Classsessionid == classSessionId)
+                .SingleOrDefaultAsync()
                 ?? throw new ClassSessionException(ClassSessionErrorCodes.ClassSessionNotFound, "Không tìm thấy buổi học", 404);
 
             var studentUserId = classSession.Booking?.Student?.Linkeduserid;
