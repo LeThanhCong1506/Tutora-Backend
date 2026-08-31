@@ -672,13 +672,14 @@ public class ClassSessionAutoCloseInterruptedSessionsTests
     }
 
     /// <summary>
-    /// Ca "zombie": buổi phụ đã được vào học (InProgress) nhưng chưa từng nộp báo cáo khi job này
-    /// chạy — chưa có báo cáo/settle nào gắn vào nó nên vẫn an toàn để settle buổi gốc như bình
-    /// thường, đồng thời phải đóng luôn buổi phụ (Cancelled + Checkouttime) để không treo lơ lửng
-    /// InProgress vĩnh viễn (không job nào khác từng đụng tới nó nữa).
+    /// Ca "zombie": buổi phụ đã được vào học thật (InProgress, có nỗ lực học) nhưng chưa từng nộp báo
+    /// cáo khi job này chạy — KHÔNG được settle buổi gốc là "đã dạy đủ 100%" như buổi phụ chưa từng
+    /// có ai vào (mất công bằng, xem bug thật ở booking #313 dev). Buổi phụ vẫn đóng phòng
+    /// (Cancelled + Checkouttime) để không treo lơ lửng InProgress vĩnh viễn, nhưng buổi gốc chuyển
+    /// sang Disputed và hệ thống tự tạo 1 Dispute (Other, Pending) để admin xem lại thay vì tự chốt.
     /// </summary>
     [Fact]
-    public async Task ExpiredInterruption_WithInProgressUnreportedContinuation_SettlesOriginal_AndClosesContinuation()
+    public async Task ExpiredInterruption_WithInProgressUnreportedContinuation_RaisesDisputeInsteadOfSettling()
     {
         await using var db = CreateContext();
         var original = SeedInterruptedSession(db, interruptedAt: DateTime.UtcNow.AddDays(-1));
@@ -703,11 +704,20 @@ public class ClassSessionAutoCloseInterruptedSessionsTests
         var closedCount = await service.AutoCloseExpiredInterruptedSessionsAsync();
 
         Assert.Equal(1, closedCount);
-        Assert.Contains(original.Classsessionid, settlement.SettledClassSessionIds);
+        Assert.DoesNotContain(original.Classsessionid, settlement.SettledClassSessionIds);
         db.ChangeTracker.Clear();
+
+        var reloadedOriginal = await db.ClassSessions.SingleAsync(x => x.Classsessionid == original.Classsessionid);
+        Assert.Equal(ClassSessionStatus.Disputed, reloadedOriginal.Status);
+
         var reloadedContinuation = await db.ClassSessions.SingleAsync(x => x.Classsessionid == continuation.Classsessionid);
         Assert.Equal(ClassSessionStatus.Cancelled, reloadedContinuation.Status);
         Assert.NotNull(reloadedContinuation.Checkouttime);
+
+        var dispute = await db.Disputes.SingleAsync(d => d.Classsessionid == original.Classsessionid);
+        Assert.Equal(DisputeTypes.Other, dispute.Disputetype);
+        Assert.Equal(DisputeStatus.Pending, dispute.Status);
+        Assert.Equal(SystemActors.System, dispute.Createdby);
     }
 
     /// <summary>
@@ -1161,27 +1171,32 @@ public class ClassSessionSkipContinuationTests
     }
 
     /// <summary>
-    /// Ca "zombie": buổi phụ đã được vào học (InProgress) nhưng chưa nộp báo cáo — chưa có báo
-    /// cáo/settle nào gắn vào nó nên vẫn cho nộp báo cáo buổi gốc bình thường, đồng thời phải đóng
-    /// luôn buổi phụ (Cancelled + Checkouttime) để không treo lơ lửng InProgress vĩnh viễn.
+    /// Buổi phụ đã check-in thật (InProgress, 2 bên đã vào phòng và đang dạy dở) khi tutor nộp báo
+    /// cáo trên buổi gốc — PHẢI bị chặn, không cho "lách" qua phần đã dạy dở đó để hưởng full giá
+    /// buổi gốc trong khi buổi phụ (đang có công sức thật) bị âm thầm huỷ trắng không ghi nhận gì.
+    /// Bug thật đã xảy ra ở booking #313 (dev): tutor ngắt buổi ở phút 40/60, buổi phụ được check-in
+    /// 18 giây rồi tutor nộp thẳng báo cáo trên buổi gốc — buổi gốc được tính "đã dạy đủ" 100% giá,
+    /// buổi phụ bị huỷ không dấu vết. Từ nay tutor phải nộp báo cáo trên chính buổi phụ đang dạy dở.
     /// </summary>
     [Fact]
-    public async Task SubmitReportOnInterruptedOriginal_WithInProgressUnreportedContinuation_Succeeds_AndClosesContinuation()
+    public async Task SubmitReportOnInterruptedOriginal_WithInProgressUnreportedContinuation_Throws()
     {
         await using var db = CreateContext();
         SeedChain(db, continuationStatus: ClassSessionStatus.InProgress);
         await db.SaveChangesAsync();
         var service = CreateService(db);
 
-        var result = await service.SubmitReportAsync(OriginalSessionId, TutorId, MakeReportRequest());
+        var ex = await Assert.ThrowsAsync<ClassSessionException>(
+            () => service.SubmitReportAsync(OriginalSessionId, TutorId, MakeReportRequest()));
 
-        Assert.NotNull(result);
+        Assert.Equal(ClassSessionErrorCodes.ContinuationInProgress, ex.ErrorCode);
         db.ChangeTracker.Clear();
         var original = await db.ClassSessions.SingleAsync(x => x.Classsessionid == OriginalSessionId);
-        Assert.Equal(ClassSessionStatus.PendingConfirmation, original.Status);
+        Assert.Equal(ClassSessionStatus.Interrupted, original.Status); // không đổi gì, không có báo cáo được tạo
+        Assert.False(await db.ClassSessionReports.AnyAsync(r => r.Classsessionid == OriginalSessionId));
         var continuation = await db.ClassSessions.SingleAsync(x => x.Classsessionid == ContinuationSessionId);
-        Assert.Equal(ClassSessionStatus.Cancelled, continuation.Status);
-        Assert.NotNull(continuation.Checkouttime);
+        Assert.Equal(ClassSessionStatus.InProgress, continuation.Status); // không bị đụng vào
+        Assert.Null(continuation.Checkouttime);
     }
 
     private static SubmitReportRequest MakeReportRequest() => new()
@@ -1286,9 +1301,9 @@ public class ClassSessionSkipContinuationTests
             logger: NullLogger<ClassSessionService>.Instance);
     }
 
-    /// <summary>Cloud Recording tắt (Enabled=false) -> TryStopRecordingAsync no-op (đường huỷ buổi phụ
-    /// InProgress trong SubmitReportAsync vẫn gọi hàm này trước khi Cancel), các method khác không bao
-    /// giờ được gọi.</summary>
+    /// <summary>Cloud Recording tắt (Enabled=false) -> TryStopRecordingAsync no-op (đường checkout buổi
+    /// gốc trong SubmitReportAsync khi nộp báo cáo mà chưa bấm "Kết thúc buổi học" vẫn gọi hàm này),
+    /// các method khác không bao giờ được gọi.</summary>
     private sealed class DisabledCloudRecordingService : ICloudRecordingService
     {
         public bool Enabled => false;
