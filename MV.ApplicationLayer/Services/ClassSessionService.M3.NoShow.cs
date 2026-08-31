@@ -427,6 +427,138 @@ public partial class ClassSessionService
         return result;
     }
 
+    /// <summary>
+    /// Quét các buổi <c>scheduled</c> đã quá giờ kết thúc dự kiến + <see cref="ClassSessionService.LiveSessionAutoEndGraceMinutes"/>
+    /// phút mà KHÔNG AI từng vào phòng (Istutorpresent VÀ Isstudentpresent đều chưa từng được ghi
+    /// nhận true — chưa từng có 1 nhịp heartbeat/auto-check-in nào) và cũng không ai chủ động gọi
+    /// <see cref="ReportTutorNoShowAsync"/>. Không có bước này, một buổi mà cả 2 phía đều lặng lẽ
+    /// không tham gia sẽ kẹt vĩnh viễn ở Scheduled — không job/luồng nào khác quét trạng thái này.
+    /// <para>
+    /// QUYẾT ĐỊNH SẢN PHẨM (cần đội sản phẩm xác nhận lại): vì hệ thống không thể tự biết lỗi thuộc
+    /// về bên nào, phương án chọn là tái dùng NGUYÊN VẸN luồng dispute no-show đã có (giống hệt khi
+    /// phụ huynh/học viên chủ động báo cáo qua ReportTutorNoShowAsync) — Status → no_show, tạo
+    /// Dispute (Pending) để admin xác nhận rồi 2 bên tự chọn 1 trong 3 remedy sẵn có
+    /// (FreeSession/Makeup/ChangeTutor). Hệ thống KHÔNG tự phán quyết/hoàn tiền ở bước này.
+    /// </para>
+    /// Loại trừ buổi phụ (Iscontinuation): Scheduledend của nó chỉ là mốc ước tính lúc tạo, không
+    /// phải cam kết giờ học thật (xem TryAutoCheckInAsync/AutoCloseExpiredLiveSessionsAsync).
+    /// Dùng bởi background job. Trả về số buổi đã tự phát hiện no-show.
+    /// </summary>
+    public async Task<int> AutoReportMissedSessionsAsync(CancellationToken ct = default)
+    {
+        var now = TimeZoneHelper.UtcNow;
+        var cutoff = now.AddMinutes(-LiveSessionAutoEndGraceMinutes);
+
+        var missedSessions = await _context.ClassSessions
+            .Include(l => l.Booking)
+            .Where(l => l.Status == Scheduled
+                && !l.Iscontinuation
+                && l.Scheduledend <= cutoff
+                && l.Istutorpresent != true
+                && l.Isstudentpresent != true)
+            .ToListAsync(ct);
+
+        if (missedSessions.Count == 0) return 0;
+
+        var reportedCount = 0;
+        foreach (var ownedSession in missedSessions)
+        {
+            if (DisputeSettlementPolicy.IsTerminalBooking(ownedSession.Booking?.Status))
+                continue;
+
+            var classSessionId = ownedSession.Classsessionid;
+            await using var tx = await _context.Database.BeginTransactionAsync();
+            Dispute dispute;
+            ClassSession classSession;
+            try
+            {
+                // Lock + re-check: buổi có thể vừa được 1 bên chủ động báo cáo (ReportTutorNoShowAsync)
+                // hoặc vừa check-in đúng lúc job này chạy tới.
+                classSession = await ClassSessionLockHelper.LockById(_context, classSessionId)
+                    .Include(l => l.Booking)
+                    .SingleOrDefaultAsync();
+                if (classSession == null
+                    || classSession.Status != Scheduled
+                    || classSession.Istutorpresent == true
+                    || classSession.Isstudentpresent == true
+                    || DisputeSettlementPolicy.IsTerminalBooking(classSession.Booking?.Status))
+                {
+                    await tx.RollbackAsync();
+                    continue;
+                }
+
+                classSession.Status = NoShow;
+                classSession.Istutorpresent = false;
+
+                dispute = new Dispute
+                {
+                    Classsessionid = classSessionId,
+                    Bookingid = classSession.Bookingid,
+                    Createdby = SystemActors.System,
+                    Disputetype = DisputeTypes.NoShow,
+                    Reason = $"[Hệ thống tự phát hiện] Không ghi nhận được gia sư lẫn học viên vào phòng, đã quá {LiveSessionAutoEndGraceMinutes} phút sau giờ kết thúc dự kiến {classSession.Scheduledend:o}.",
+                    Status = DisputeStatus.Pending,
+                    Createdat = now
+                };
+                _context.Disputes.Add(dispute);
+
+                await _context.SaveChangesAsync(ct);
+                await tx.CommitAsync();
+                reportedCount++;
+            }
+            catch (Exception ex)
+            {
+                await tx.RollbackAsync();
+                _logger.LogError(ex, "Không thể tự phát hiện no-show 2 phía cho buổi học {ClassSessionId}", classSessionId);
+                continue;
+            }
+
+            try
+            {
+                _backgroundJobClient.Enqueue<IDisputeService>(
+                    s => s.ClassifyDisputePriorityAsync(dispute.Disputeid, SystemActors.System, true));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to enqueue priority classification job for auto-detected no-show dispute {DisputeId}", dispute.Disputeid);
+            }
+
+            try
+            {
+                var notifications = new List<NotificationRequest>();
+                if (!string.IsNullOrWhiteSpace(classSession.Tutorid))
+                    notifications.Add(new NotificationRequest
+                    {
+                        Userid = classSession.Tutorid,
+                        Title = "Buổi học không có ai tham gia",
+                        Message = $"Buổi học #{classSessionId} đã quá giờ kết thúc mà không ghi nhận được ai vào phòng. Hệ thống đã tự động ghi nhận vắng mặt để xử lý.",
+                        Type = NotificationType.LessonNoShow,
+                        Referenceid = classSessionId.ToString()
+                    });
+                var parentId = ownedSession.Booking?.Parentid;
+                if (!string.IsNullOrWhiteSpace(parentId))
+                    notifications.Add(new NotificationRequest
+                    {
+                        Userid = parentId,
+                        Title = "Buổi học không có ai tham gia",
+                        Message = $"Buổi học #{classSessionId} đã quá giờ kết thúc mà không ghi nhận được ai vào phòng. Hệ thống đã tự động ghi nhận vắng mặt để xử lý.",
+                        Type = NotificationType.LessonNoShow,
+                        Referenceid = classSessionId.ToString()
+                    });
+                if (notifications.Count > 0)
+                    await _notificationService.CreateNotificationsAsync(notifications);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Không thể gửi thông báo tự phát hiện no-show cho buổi học {ClassSessionId}", classSessionId);
+            }
+
+            _logger.LogWarning("Hệ thống tự phát hiện no-show 2 phía cho buổi học {ClassSessionId}, dispute {DisputeId} đã tạo", classSessionId, dispute.Disputeid);
+        }
+
+        return reportedCount;
+    }
+
     public async Task<ClassSessionDetailResponse> CreateMakeupClassSessionAsync(int originalClassSessionId, DateTime newScheduledStart, string tutorId)
     {
         var originalClassSession = await _context.ClassSessions

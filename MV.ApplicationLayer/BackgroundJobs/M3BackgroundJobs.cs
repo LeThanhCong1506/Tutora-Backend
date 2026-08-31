@@ -209,10 +209,34 @@ public class ClassSessionReminderJob : BackgroundService
                 _logger.LogError(ex, "Lỗi trong ClassSessionReminderJob.");
             }
 
+            try
+            {
+                await AutoReportMissedSessionsAsync(stoppingToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi khi tự phát hiện buổi học không ai tham gia trong ClassSessionReminderJob.");
+            }
+
             await Task.Delay(_interval, stoppingToken);
         }
 
         _logger.LogInformation("ClassSessionReminderJob dừng.");
+    }
+
+    // Buổi Scheduled mà cả 2 phía đều lặng lẽ không tham gia (không heartbeat, không ai chủ động
+    // báo cáo) sẽ kẹt vĩnh viễn nếu không quét ở đây — không job/luồng nào khác xử lý trạng thái này.
+    private async Task AutoReportMissedSessionsAsync(CancellationToken ct)
+    {
+        using var scope = _serviceProvider.CreateScope();
+        var classSessionService = scope.ServiceProvider.GetRequiredService<IClassSessionService>();
+
+        var reportedCount = await classSessionService.AutoReportMissedSessionsAsync(ct);
+
+        if (reportedCount > 0)
+        {
+            _logger.LogWarning("ClassSessionReminderJob: Đã tự phát hiện {Count} buổi học không ai tham gia.", reportedCount);
+        }
     }
 
     private async Task SendRemindersAsync(CancellationToken ct)

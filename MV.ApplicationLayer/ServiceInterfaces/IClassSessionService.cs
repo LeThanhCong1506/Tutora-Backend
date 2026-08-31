@@ -201,6 +201,15 @@ public interface IClassSessionService
     Task<ClassSessionDetailResponse> ReportTutorNoShowAsync(int classSessionId, string userId, string role, ReportNoShowRequest? request = null);
 
     /// <summary>
+    /// Tự phát hiện các buổi <c>scheduled</c> quá giờ mà KHÔNG AI (gia sư lẫn học viên) từng vào
+    /// phòng và cũng chưa được ai chủ động báo cáo — dùng bởi background job để buổi không bị kẹt
+    /// vĩnh viễn ở <c>scheduled</c>. Tái dùng nguyên vẹn luồng dispute no-show đã có (giống hệt
+    /// <see cref="ReportTutorNoShowAsync"/>), không tự phán quyết lỗi thuộc bên nào. Trả về số buổi
+    /// đã tự phát hiện.
+    /// </summary>
+    Task<int> AutoReportMissedSessionsAsync(CancellationToken ct = default);
+
+    /// <summary>
     /// Parent (or self-managed student) selects a resolution action after a tutor no-show
     /// (free session, makeup classSession, or change tutor).
     /// </summary>
