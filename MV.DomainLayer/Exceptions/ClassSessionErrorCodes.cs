@@ -18,6 +18,7 @@ public static class ClassSessionErrorCodes
     public const string NotCheckedIn = "NOT_CHECKED_IN";
     public const string NotCheckedOut = "NOT_CHECKED_OUT";
     public const string ReportAlreadySubmitted = "REPORT_ALREADY_SUBMITTED";
+    public const string TooEarlyToReportNoShow = "TOO_EARLY_TO_REPORT_NO_SHOW";
     public const string InvalidNoShowAction = "INVALID_NO_SHOW_ACTION";
     public const string MakeupTimeRequired = "MAKEUP_TIME_REQUIRED";
     public const string ClassSessionAlreadyConfirmed = "LESSON_ALREADY_CONFIRMED";

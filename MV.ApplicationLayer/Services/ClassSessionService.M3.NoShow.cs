@@ -18,6 +18,13 @@ public partial class ClassSessionService
 {
     // ── M3-T7: No-show Handling ───────────────────────────────────────────────
 
+    /// <summary>
+    /// Gia sư còn trong thời gian được coi là "có thể đang vào lớp trễ" — báo vắng mặt chỉ mở
+    /// sau khi buổi đã trễ chừng này so với giờ bắt đầu (khôi phục lại ràng buộc gốc, bị gỡ ở
+    /// commit 7f509cf theo một quyết định sản phẩm hoá ra lại cho báo vắng mặt được cả TRƯỚC giờ học).
+    /// </summary>
+    public const int NoShowReportEarliestMinutes = 15;
+
     public async Task<ClassSessionDetailResponse> ReportTutorNoShowAsync(int classSessionId, string userId, string role, ReportNoShowRequest? request = null)
     {
         var studentIds = role == UserRole.Parent
@@ -46,9 +53,15 @@ public partial class ClassSessionService
 
         var now = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 
-        // Reported time is advisory context for admin only — not a gate (no more 15-minute
-        // requirement, per product decision to let the reporter flag no-show any time the
-        // session is still Scheduled).
+        if ((now - ownedSession.Scheduledstart).TotalMinutes < NoShowReportEarliestMinutes)
+            throw new ClassSessionException(
+                ClassSessionErrorCodes.TooEarlyToReportNoShow,
+                $"Chỉ có thể báo cáo vắng mặt sau {NoShowReportEarliestMinutes} phút kể từ giờ bắt đầu",
+                400);
+
+        // Reported time is advisory context folded into the dispute reason text — it's not
+        // compared against Scheduledstart; only the real server clock (now, gated above) decides
+        // when reporting opens.
         var reportedAt = request?.ReportedAt ?? now;
         var reasonText = !string.IsNullOrWhiteSpace(request?.Reason)
             ? $"Tutor no-show lúc {reportedAt:dd/MM/yyyy HH:mm}: {request!.Reason}"
