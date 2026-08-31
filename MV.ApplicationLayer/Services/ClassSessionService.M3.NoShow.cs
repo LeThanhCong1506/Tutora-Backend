@@ -578,13 +578,8 @@ public partial class ClassSessionService
         if (scheduledStartUtc <= TimeZoneHelper.UtcNow)
             throw new ClassSessionException(ClassSessionErrorCodes.MakeupTimeRequired, "Thời gian học bù phải ở tương lai", 400);
 
-        var hasTutorConflict = await _context.ClassSessions.AnyAsync(l =>
-            l.Tutorid == tutorId
-            && l.Classsessionid != originalClassSessionId
-            && l.Status != Cancelled
-            && l.Status != CancelledNoshow
-            && l.Scheduledstart < scheduledEndUtc
-            && l.Scheduledend > scheduledStartUtc);
+        var hasTutorConflict = await HasTutorSchedulingConflictAsync(
+            tutorId, originalClassSessionId, scheduledStartUtc, scheduledEndUtc);
         if (hasTutorConflict)
             throw new ClassSessionException(ClassSessionErrorCodes.InvalidClassSessionStatus, "Gia sư đã có lịch trong khung giờ học bù", 409);
 

@@ -89,6 +89,10 @@ public static class NotificationType
     /// <summary>Buổi phụ quá hạn trong ngày mà không ai quay lại học, hệ thống đã tự đóng buổi gốc
     /// thành hoàn tất. Referenceid = classSessionId của buổi GỐC.</summary>
     public const string LessonInterruptionAutoClosed = "lesson_interruption_auto_closed";
+    /// <summary>Buổi phụ đã được tạo nhưng hệ thống không tự tìm được khe giờ trống nào cho gia sư
+    /// sau khi tự dời giờ nhiều lần — gia sư cần chủ động đề xuất đổi lịch. Referenceid = classSessionId
+    /// của BUỔI PHỤ (không phải buổi gốc).</summary>
+    public const string LessonContinuationScheduleConflict = "lesson_continuation_schedule_conflict";
     /// <summary>Admin/Staff đã đóng một tranh chấp theo hướng học lại và lên lịch buổi học lại mới.
     /// Referenceid = classSessionId của buổi HỌC LẠI mới tạo.</summary>
     public const string DisputeRelearnScheduled = "dispute_relearn_scheduled";

@@ -610,6 +610,27 @@ public partial class ClassSessionService
     }
 
     /// <summary>
+    /// True nếu gia sư <paramref name="tutorId"/> đã có 1 buổi học khác (không tính
+    /// <paramref name="excludeSessionId"/>, không tính buổi đã Cancelled/CancelledNoshow) chồng giờ
+    /// với khung [<paramref name="start"/>, <paramref name="end"/>) — dùng chung cho buổi bù no-show
+    /// (<see cref="CreateMakeupClassSessionAsync"/>) và buổi phụ do ngắt kết nối
+    /// (<see cref="RequestInterruptionAsync"/>), cả 2 đều tự sinh giờ học mới mà không hỏi lại gia
+    /// sư trước, nên phải tự chống double-book thay vì để người dùng tự phát hiện sau.
+    /// </summary>
+    private async Task<bool> HasTutorSchedulingConflictAsync(string? tutorId, int excludeSessionId, DateTime start, DateTime end)
+    {
+        if (string.IsNullOrEmpty(tutorId)) return false;
+
+        return await _context.ClassSessions.AnyAsync(l =>
+            l.Tutorid == tutorId
+            && l.Classsessionid != excludeSessionId
+            && l.Status != Cancelled
+            && l.Status != CancelledNoshow
+            && l.Scheduledstart < end
+            && l.Scheduledend > start);
+    }
+
+    /// <summary>
     /// Bắt đầu Agora Cloud Recording cho buổi học (nếu tính năng bật).
     /// Lỗi record KHÔNG được làm hỏng check-in → nuốt exception, chỉ log cảnh báo.
     /// </summary>
@@ -996,6 +1017,38 @@ public partial class ClassSessionService
             await TryStopRecordingAsync(classSession);
 
             var continuation = ClassSessionInterruptionPolicy.BuildContinuationSession(classSession, now);
+
+            // Giờ mặc định (now+1h) do HỆ THỐNG tự tính, không phải gia sư chọn — nếu trùng lịch dạy
+            // khác của chính gia sư này, tự dời từng 30 phút (tối đa 3 tiếng, tính từ giờ mặc định
+            // now+1h — tổng cộng thử trong khung 4h kể từ bây giờ) thay vì chặn cứng request ngắt
+            // buổi (người dùng không hề nhập giờ này để mà sửa lại). Nếu vẫn không tìm được khe
+            // trống, giữ nguyên giờ mặc định cuối cùng, chỉ log cảnh báo, VÀ báo rõ cho gia sư biết
+            // (xem notification LessonContinuationScheduleConflict bên dưới) — 2 bên vẫn có thể tự
+            // dùng luồng "Đề xuất đổi lịch" sẵn có để thương lượng lại (Status vẫn Scheduled nên
+            // tương thích), chỉ là hệ thống không tự đoán được khe trống nào hợp lý hơn nữa.
+            const int maxShiftAttempts = 6;
+            var shift = TimeSpan.FromMinutes(30);
+            var scheduleConflictRemains = false;
+            for (var attempt = 0; attempt < maxShiftAttempts; attempt++)
+            {
+                var hasConflict = await HasTutorSchedulingConflictAsync(
+                    classSession.Tutorid, classSessionId, continuation.Scheduledstart, continuation.Scheduledend);
+                if (!hasConflict)
+                {
+                    scheduleConflictRemains = false;
+                    break;
+                }
+
+                scheduleConflictRemains = true;
+                continuation.Scheduledstart = continuation.Scheduledstart.Add(shift);
+                continuation.Scheduledend = continuation.Scheduledend.Add(shift);
+
+                if (attempt == maxShiftAttempts - 1)
+                    _logger.LogWarning(
+                        "Buổi phụ cho classSession {ClassSessionId} vẫn trùng lịch gia sư sau {Attempts} lần tự dời giờ — giữ nguyên giờ {Start:o}, cần 2 bên tự đề xuất đổi lịch.",
+                        classSessionId, maxShiftAttempts, continuation.Scheduledstart);
+            }
+
             _context.ClassSessions.Add(continuation);
 
             await _context.SaveChangesAsync();
@@ -1050,6 +1103,28 @@ public partial class ClassSessionService
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Không thể gửi thông báo tạo buổi phụ cho classSession {ClassSessionId}", classSessionId);
+            }
+
+            // Hệ thống đã thử tự tìm giờ trong 1h mặc định + 3h tự dời mà vẫn không ra khe trống —
+            // phải báo rõ với gia sư lý do (đang có lịch dạy trùng), không thì gia sư không biết
+            // buổi phụ đang được tạo ở giờ nào để mà tự đề xuất đổi lịch.
+            if (scheduleConflictRemains && !string.IsNullOrWhiteSpace(classSession.Tutorid))
+            {
+                try
+                {
+                    await _notificationService.CreateNotificationAsync(new NotificationRequest
+                    {
+                        Userid = classSession.Tutorid,
+                        Title = "Chưa thể sắp xếp buổi học phụ",
+                        Message = $"Hệ thống chưa thể tự sắp xếp giờ học phù hợp cho buổi học phụ #{continuation.Classsessionid} (của buổi #{classSessionId} bị ngắt giữa chừng) vì bạn đã có lịch dạy khác trùng khung giờ đó. Vui lòng chủ động đề xuất đổi lịch cho buổi học phụ này.",
+                        Type = NotificationType.LessonContinuationScheduleConflict,
+                        Referenceid = continuation.Classsessionid.ToString()
+                    });
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Không thể gửi thông báo xung đột lịch buổi phụ cho classSession {ClassSessionId}", classSessionId);
+                }
             }
 
             return (await GetTutorClassSessionDetailAsync(classSessionId, classSession.Tutorid!))!;
