@@ -73,6 +73,21 @@ public class CloudRecordingService : ICloudRecordingService
         int classSessionId, string channel, string resourceId, string sid, CancellationToken ct = default)
         => StopInternalAsync(classSessionId, channel, resourceId, sid, _rec.AudioRecorderUid, ct);
 
+    public async Task<CloudRecordingQueryResult> QueryAsync(string resourceId, string sid, CancellationToken ct = default)
+    {
+        Validate();
+        var url = $"{BaseUrl}/{_agora.AppId}/cloud_recording/resourceid/{Uri.EscapeDataString(resourceId)}/sid/{Uri.EscapeDataString(sid)}/mode/mix/query";
+        var query = await GetAsync<QueryResponse>(url, ct);
+
+        var files = query.ServerResponse?.FileList?
+            .Select(f => f.FileName)
+            .Where(n => !string.IsNullOrEmpty(n))
+            .Select(n => n!)
+            .ToList() ?? new List<string>();
+
+        return new CloudRecordingQueryResult(query.ServerResponse?.Status ?? -1, files);
+    }
+
     // ── Core (dùng chung cho cả recorder video và recorder audio-only) ─────────
 
     private async Task<CloudRecordingHandle> StartInternalAsync(
@@ -263,6 +278,24 @@ public class CloudRecordingService : ICloudRecordingService
             ?? throw new InvalidOperationException($"Không parse được phản hồi Agora: {respJson}");
     }
 
+    private async Task<T> GetAsync<T>(string url, CancellationToken ct)
+    {
+        using var req = new HttpRequestMessage(HttpMethod.Get, url);
+        var basic = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{_rec.CustomerId}:{_rec.CustomerSecret}"));
+        req.Headers.Authorization = new AuthenticationHeaderValue("Basic", basic);
+
+        using var resp = await _http.SendAsync(req, ct);
+        var respJson = await resp.Content.ReadAsStringAsync(ct);
+        if (!resp.IsSuccessStatusCode)
+        {
+            _logger.LogError("Agora recording API {Url} lỗi {Status}: {Body}", url, (int)resp.StatusCode, respJson);
+            throw new InvalidOperationException($"Agora recording API lỗi {(int)resp.StatusCode}: {respJson}");
+        }
+
+        return JsonSerializer.Deserialize<T>(respJson, JsonOpts)
+            ?? throw new InvalidOperationException($"Không parse được phản hồi Agora: {respJson}");
+    }
+
     // ── DTO phản hồi Agora ──────────────────────────────────────────────────
     private sealed record AcquireResponse(
         [property: JsonPropertyName("resourceId")] string? ResourceId);
@@ -281,4 +314,13 @@ public class CloudRecordingService : ICloudRecordingService
 
     private sealed record StopFile(
         [property: JsonPropertyName("fileName")] string? FileName);
+
+    private sealed record QueryResponse(
+        [property: JsonPropertyName("resourceId")] string? ResourceId,
+        [property: JsonPropertyName("sid")] string? Sid,
+        [property: JsonPropertyName("serverResponse")] QueryServerResponse? ServerResponse);
+
+    private sealed record QueryServerResponse(
+        [property: JsonPropertyName("status")] int? Status,
+        [property: JsonPropertyName("fileList")] List<StopFile>? FileList);
 }

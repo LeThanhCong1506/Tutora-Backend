@@ -20,6 +20,11 @@ public record CloudRecordingResult(
     IReadOnlyList<string> FileNames,
     string? PlaybackUrl);
 
+/// <summary>Kết quả khi hỏi lại Agora trạng thái thật của 1 phiên record (không cần đang chạy).</summary>
+/// <param name="Status">Mã trạng thái recorder phía Agora (xem docs mode=mix) — 0=idle,1=starting,2=in progress,3=stopping,4/5=stopped/exited...</param>
+/// <param name="FileNames">Danh sách file Agora đã ghi được cho tới thời điểm hỏi (rỗng nếu chưa có).</param>
+public record CloudRecordingQueryResult(int Status, IReadOnlyList<string> FileNames);
+
 /// <summary>
 /// Agora Cloud Recording — gọi REST API acquire/start/stop để ghi lại buổi học lên cloud storage.
 /// Docs: https://docs.agora.io/en/cloud-recording/reference/rest-api
@@ -50,4 +55,12 @@ public interface ICloudRecordingService
     /// <summary>Dừng recorder audio-only. Cần đúng resourceId/sid nhận được lúc StartAudioAsync (khác với
     /// resourceId/sid của recorder video).</summary>
     Task<CloudRecordingResult> StopAudioAsync(int classSessionId, string channel, string resourceId, string sid, CancellationToken ct = default);
+
+    /// <summary>
+    /// Hỏi lại Agora trạng thái thật của 1 phiên record đã start — dùng để phục hồi khi lần gọi
+    /// StopAsync trước đó thất bại (vd Agora tạm sập/mất mạng đúng lúc checkout): resourceId/sid
+    /// vẫn còn hợp lệ trên Agora (chưa hết hạn resourceExpiredHour) nên hỏi lại vẫn ra được file
+    /// đã ghi, không cần gọi lại stop (Agora có thể coi resource đã dừng và từ chối stop lần 2).
+    /// </summary>
+    Task<CloudRecordingQueryResult> QueryAsync(string resourceId, string sid, CancellationToken ct = default);
 }

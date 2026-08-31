@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Amazon;
 using Amazon.Runtime;
 using Amazon.S3;
+using Amazon.S3.Model;
 using Hangfire;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -31,8 +32,13 @@ public class RecordingRelayService : IRecordingRelayService
 {
     private const int BatchSize = 3; // số file xử lý mỗi vòng, tránh nghẽn
 
+    // Agora acquire() cấp resourceExpiredHour=24 (CloudRecordingService.StartInternalAsync) — quá mốc
+    // này thì resourceId/sid không còn hỏi lại được nữa, ngừng thử để khỏi hầu Agora vô ích.
+    private const int RecoveryWindowHours = 20;
+
     private readonly IAppDbContext _context;
     private readonly IGoogleDriveService _drive;
+    private readonly ICloudRecordingService _cloudRecording;
     private readonly INotificationService _notificationService;
     private readonly IBackgroundJobClient _backgroundJobClient;
     private readonly IGeminiVideoAnalysisService _gemini;
@@ -42,6 +48,7 @@ public class RecordingRelayService : IRecordingRelayService
     public RecordingRelayService(
         IAppDbContext context,
         IGoogleDriveService drive,
+        ICloudRecordingService cloudRecording,
         INotificationService notificationService,
         IBackgroundJobClient backgroundJobClient,
         IGeminiVideoAnalysisService gemini,
@@ -50,11 +57,113 @@ public class RecordingRelayService : IRecordingRelayService
     {
         _context = context;
         _drive = drive;
+        _cloudRecording = cloudRecording;
         _notificationService = notificationService;
         _backgroundJobClient = backgroundJobClient;
         _gemini = gemini;
         _rec = rec.Value;
         _logger = logger;
+    }
+
+    /// <summary>
+    /// Buổi đã checkout nhưng TryStopRecordingAsync (ClassSessionService.M3.Attendance) không lấy
+    /// được file — thường vì lệnh stop() gọi lúc đó bị lỗi (Agora tạm sập/mất mạng, hoặc recorder đã
+    /// tự thoát theo maxIdleTime trước khi mình kịp gọi stop). resourceId/sid vẫn còn nằm trên
+    /// ClassSession nên thử phục hồi trong <see cref="RecoveryWindowHours"/> giờ kể từ checkout.
+    /// Có file thì gán Recordings3key y như một lượt stop() thành công, để RelayPendingAsync bên
+    /// dưới tự nhặt lên trong lượt quét kế tiếp — không cần đường dẫn xử lý riêng.
+    /// </summary>
+    public async Task<int> RecoverStuckRecordingsAsync(CancellationToken ct = default)
+    {
+        if (!_cloudRecording.Enabled) return 0;
+
+        var now = TimeZoneHelper.UtcNow;
+        var cutoff = now.AddMinutes(-2); // tránh đua với 1 lượt checkout vừa commit, còn chưa kịp có kết quả stop()
+        var expiryFloor = now.AddHours(-RecoveryWindowHours);
+
+        var stuck = await _context.ClassSessions
+            .Where(s => s.Checkouttime != null
+                     && s.Checkouttime <= cutoff
+                     && s.Checkouttime >= expiryFloor
+                     && s.Recordingresourceid != null
+                     && s.Recordingsid != null
+                     && s.Recordingurl == null
+                     && s.Recordings3key == null)
+            .OrderBy(s => s.Classsessionid)
+            .Take(BatchSize)
+            .ToListAsync(ct);
+
+        if (stuck.Count == 0) return 0;
+
+        using var s3 = CreateS3Client();
+        var recoveredCount = 0;
+        foreach (var session in stuck)
+        {
+            try
+            {
+                var mp4Key = await FindRecordingFileKeyAsync(
+                    s3, session.Classsessionid, session.Recordingresourceid!, session.Recordingsid!, ct);
+
+                // Chưa tìm ra file (Agora chưa xử lý xong, hoặc thật sự chưa ghi được gì) — thử lại
+                // vòng sau, vẫn còn trong RecoveryWindowHours nên không vội kết luận hỏng.
+                if (mp4Key == null) continue;
+
+                session.Recordings3key = mp4Key;
+                await _context.SaveChangesAsync(ct);
+                recoveredCount++;
+
+                _logger.LogInformation(
+                    "Phục hồi được bản ghi cho classSession {ClassSessionId} (resourceId={ResourceId}) sau khi stop() thất bại lúc checkout.",
+                    session.Classsessionid, session.Recordingresourceid);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "Không phục hồi được bản ghi cho classSession {ClassSessionId}, thử lại vòng sau.",
+                    session.Classsessionid);
+            }
+        }
+
+        return recoveredCount;
+    }
+
+    /// <summary>
+    /// ① Hỏi Agora control-plane (query — không phải stop, xem RecoverStuckRecordingsAsync) trước:
+    /// nhanh, ra đúng tên file nếu resourceId/sid vẫn còn "sống" trên Agora.
+    /// ② Agora trả "failed to find worker" (control-plane đã dọn resource, thường do recorder tự
+    /// thoát theo maxIdleTime) KHÔNG có nghĩa file đã mất — Agora tải file lên storage độc lập với
+    /// control-plane, nên phải tự dò thẳng bucket theo đúng prefix cấu hình lúc acquire
+    /// (CloudRecordingService.BuildStorageConfig: "recordings/{classSessionId}/...") trước khi kết
+    /// luận hỏng. Bug thật đã gặp ở buổi 1062: query() báo 404 nhưng file .mp4 445MB vẫn nguyên
+    /// trong Storj, tra bằng tay mới lôi được ra — bước ② tồn tại để không cần tra tay nữa.
+    /// </summary>
+    private async Task<string?> FindRecordingFileKeyAsync(
+        IAmazonS3 s3, int classSessionId, string resourceId, string sid, CancellationToken ct)
+    {
+        try
+        {
+            var result = await _cloudRecording.QueryAsync(resourceId, sid, ct);
+            var mp4FromAgora = result.FileNames.FirstOrDefault(f => f.EndsWith(".mp4", StringComparison.OrdinalIgnoreCase));
+            if (mp4FromAgora != null) return mp4FromAgora;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogInformation(ex,
+                "Agora query() không trả được trạng thái cho classSession {ClassSessionId}, thử dò thẳng kho lưu trữ.",
+                classSessionId);
+        }
+
+        var listing = await s3.ListObjectsV2Async(new ListObjectsV2Request
+        {
+            BucketName = _rec.StorageBucket,
+            Prefix = $"recordings/{classSessionId}/",
+        }, ct);
+
+        return listing.S3Objects?
+            .Where(o => o.Key.EndsWith(".mp4", StringComparison.OrdinalIgnoreCase) && o.Key.Contains(sid))
+            .OrderByDescending(o => o.Size)
+            .Select(o => o.Key)
+            .FirstOrDefault();
     }
 
     public async Task RelayPendingAsync(CancellationToken ct = default)
