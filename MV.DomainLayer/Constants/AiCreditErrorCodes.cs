@@ -36,6 +36,11 @@ public static class AiCreditConfigKeys
 
     /// <summary>Số lượt tặng khi tài khoản mới xác thực SĐT thành công.</summary>
     public const string FreeOnSignup = "ai_credit_free_on_signup";
+
+    /// <summary>
+    /// Tỉ giá USD sang VND để hiển thị chi phí gọi Gemini (Google tính bằng USD).
+    /// </summary>
+    public const string UsdVndRate = "ai_usage_usd_vnd_rate";
 }
 
 /// <summary>Nguồn của một LÔ credit (ai_credit_batches.source).</summary>
