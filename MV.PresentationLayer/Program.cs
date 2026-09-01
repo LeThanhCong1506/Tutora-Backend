@@ -445,13 +445,28 @@ builder.Services.AddScoped<IAdminAiUsageService, AdminAiUsageService>();
 builder.Services.AddScoped<IAdminBookingService, AdminBookingService>();
 builder.Services.AddScoped<IAdminDashboardService, AdminDashboardService>();
 
+// Connection string riêng cho Hangfire, giới hạn Maximum Pool Size — connection string gốc
+// (ConfigurationKeys.ConnectionStrings.DefaultConnection) không khai báo tham số này nên Npgsql tự
+// áp mặc định 100 cho MỌI pool tạo từ nó. EF Core (qua NpgsqlDataSource) và Hangfire.PostgreSql (qua
+// UseNpgsqlConnection ở đây) tạo pool RIÊNG dù dùng chung 1 chuỗi kết nối — cộng lại có thể xin tới
+// 200 connection từ phía client, trong khi Supavisor (Supabase pooler) chỉ cấp tối đa 20 cho toàn
+// app. Hangfire lại có nhiều thread nội bộ (polling hàng đợi, heartbeat, dọn job hết hạn) chạy nền
+// liên tục cho MỖI server — 2 server hiện tại (interactive-worker + background-worker, xem dưới)
+// nhân đôi phần chi phí nền đó. Chốt cứng 10 — đủ dư cho 3 worker (2+1) cộng vài connection nội bộ
+// mỗi server, mà vẫn chừa hẳn chỗ cho EF Core và các tiến trình khác trong ngân sách 20 của Supavisor.
+var hangfireConnectionString = new NpgsqlConnectionStringBuilder(
+    builder.Configuration.GetConnectionString(ConfigurationKeys.ConnectionStrings.DefaultConnection))
+{
+    MaxPoolSize = 10
+}.ConnectionString;
+
 builder.Services.AddHangfire(config => config
     .SetDataCompatibilityLevel(CompatibilityLevel.Version_180)
     .UseSimpleAssemblyNameTypeSerializer()
     .UseRecommendedSerializerSettings()
     .UsePostgreSqlStorage(options =>
     {
-        options.UseNpgsqlConnection(builder.Configuration.GetConnectionString(ConfigurationKeys.ConnectionStrings.DefaultConnection));
+        options.UseNpgsqlConnection(hangfireConnectionString);
     }, new PostgreSqlStorageOptions
     {
         PrepareSchemaIfNecessary = false
