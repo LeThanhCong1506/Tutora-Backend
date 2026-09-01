@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text.Json;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
+using MV.ApplicationLayer.Helpers;
 using MV.ApplicationLayer.Interfaces;
 using MV.ApplicationLayer.RepositoryInterfaces;
 using MV.ApplicationLayer.ServiceInterfaces;
@@ -17,17 +18,22 @@ namespace MV.ApplicationLayer.Services
 {
     /// <summary>
     /// Xác minh CCCD/eKYC dùng chung (FPT.AI OCR). Trích xuất từ luồng tutor để tutor và học sinh
-    /// dùng chung một nguồn logic duy nhất.
+    /// dùng chung một nguồn logic duy nhất. OCR đọc thất bại đủ ngưỡng lần liên tiếp (xem
+    /// <see cref="HandleOcrFailureAsync"/>) → không chặn nữa nếu options.RequireOcr = false, chuyển
+    /// sang chờ Admin xem thủ công — cùng cơ chế với <see cref="StudentIdentityService"/>.
     /// </summary>
     public class EkycService : IEkycService
     {
         private const double MinConfidence = 90.0;       // < 90% → ảnh mờ/giả
         private const string CccdBucket = StorageBucket.CccdFiles;
+        private const int MaxOcrAttemptsBeforeManualReview = 2;
 
         private readonly IFptAiService _fptAiService;
         private readonly IEncryptionService _encryption;
         private readonly IUserRepository _userRepository;
         private readonly IFileStorageService _storageService;
+        private readonly INotificationService _notificationService;
+        private readonly IAppDbContext _context;
         private readonly ILogger<EkycService> _logger;
 
         public EkycService(
@@ -35,12 +41,16 @@ namespace MV.ApplicationLayer.Services
             IEncryptionService encryption,
             IUserRepository userRepository,
             IFileStorageService storageService,
+            INotificationService notificationService,
+            IAppDbContext context,
             ILogger<EkycService> logger)
         {
             _fptAiService = fptAiService ?? throw new ArgumentNullException(nameof(fptAiService));
             _encryption = encryption ?? throw new ArgumentNullException(nameof(encryption));
             _userRepository = userRepository ?? throw new ArgumentNullException(nameof(userRepository));
             _storageService = storageService ?? throw new ArgumentNullException(nameof(storageService));
+            _notificationService = notificationService ?? throw new ArgumentNullException(nameof(notificationService));
+            _context = context ?? throw new ArgumentNullException(nameof(context));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         }
 
@@ -59,45 +69,58 @@ namespace MV.ApplicationLayer.Services
 
             var ocrResult = await RunFptAiOcrAsync(frontBytes, request.FrontImage.FileName);
 
-            // 2. Bắt buộc đọc được CCCD (nếu yêu cầu).
-            if (ocrResult == null && options.RequireOcr)
-                throw new InvalidOperationException(
-                    "Không đọc được thông tin trên CCCD. Vui lòng chụp lại rõ nét hơn.");
+            // 2. Bắt buộc đọc được CCCD (nếu yêu cầu). RequireOcr=false (luồng tutor hiện tại) → OCR
+            // thất bại đủ ngưỡng lần liên tiếp thì không chặn cứng nữa, chuyển cho Admin xem thủ công
+            // (xem HandleOcrFailureAsync) thay vì cho qua ngay từ lần đầu như trước.
+            if (ocrResult == null)
+            {
+                const string unreadableMessage = "Không đọc được thông tin trên CCCD. Vui lòng chụp lại rõ nét hơn.";
+                if (options.RequireOcr)
+                    throw new InvalidOperationException(unreadableMessage);
+
+                return await HandleOcrFailureAsync(user, request, unreadableMessage);
+            }
 
             DateOnly? dob = null;
 
-            if (ocrResult != null)
+            // 3. Độ tin cậy OCR.
+            if (ocrResult.Probability < MinConfidence)
             {
-                // 3. Độ tin cậy OCR.
-                if (ocrResult.Probability < MinConfidence)
+                const string lowConfidenceMessage = "Ảnh CCCD không đủ rõ nét hoặc có dấu hiệu giả mạo. Vui lòng chụp lại.";
+                if (options.RequireOcr)
+                    throw new InvalidOperationException(lowConfidenceMessage);
+
+                return await HandleOcrFailureAsync(user, request, lowConfidenceMessage);
+            }
+
+            // OCR đọc thành công (dù có thể vẫn bị từ chối ở bước tuổi/trùng CCCD ngay dưới đây) →
+            // reset đếm thất bại, không để dồn từ những lần lỗi trước đó sang lần xác minh sau.
+            user.Cccdocrfailedattempts = 0;
+
+            // 4. Kiểm tra độ tuổi (nếu yêu cầu) — phải parse được DOB và đủ tuổi mới cho xác minh.
+            if (!string.IsNullOrWhiteSpace(ocrResult.Dob) &&
+                DateOnly.TryParseExact(ocrResult.Dob, "dd/MM/yyyy", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsedDob))
+                dob = parsedDob;
+
+            if (options.MinAgeRequired.HasValue)
+            {
+                if (dob == null)
                     throw new InvalidOperationException(
-                        $"Ảnh CCCD không đủ rõ nét hoặc có dấu hiệu giả mạo. Vui lòng chụp lại.");
+                        "Không đọc được ngày sinh trên CCCD. Vui lòng chụp lại rõ nét hơn.");
 
-                // 4. Kiểm tra độ tuổi (nếu yêu cầu) — phải parse được DOB và đủ tuổi mới cho xác minh.
-                if (!string.IsNullOrWhiteSpace(ocrResult.Dob) &&
-                    DateOnly.TryParseExact(ocrResult.Dob, "dd/MM/yyyy", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsedDob))
-                    dob = parsedDob;
+                var age = AgeHelper.CalculateAge(dob.Value);
+                if (age < options.MinAgeRequired.Value)
+                    throw new InvalidOperationException(
+                        $"Bạn chưa đủ {options.MinAgeRequired.Value} tuổi nên chưa thể xác minh CCCD để đặt lịch học.");
+            }
 
-                if (options.MinAgeRequired.HasValue)
-                {
-                    if (dob == null)
-                        throw new InvalidOperationException(
-                            "Không đọc được ngày sinh trên CCCD. Vui lòng chụp lại rõ nét hơn.");
-
-                    var age = AgeHelper.CalculateAge(dob.Value);
-                    if (age < options.MinAgeRequired.Value)
-                        throw new InvalidOperationException(
-                            $"Bạn chưa đủ {options.MinAgeRequired.Value} tuổi nên chưa thể xác minh CCCD để đặt lịch học.");
-                }
-
-                // 5. Số CCCD không được trùng với tài khoản khác.
-                if (!string.IsNullOrEmpty(ocrResult.Id) && ocrResult.Id != _encryption.Decrypt(user.Identitynumber))
-                {
-                    var isUnique = await _userRepository.IsIdentityNumberUniqueAsync(_encryption.Encrypt(ocrResult.Id));
-                    if (!isUnique)
-                        throw new InvalidOperationException(
-                            "CCCD này đã được xác minh bởi tài khoản khác. Vui lòng liên hệ hỗ trợ nếu đây là nhầm lẫn.");
-                }
+            // 5. Số CCCD không được trùng với tài khoản khác.
+            if (!string.IsNullOrEmpty(ocrResult.Id) && ocrResult.Id != _encryption.Decrypt(user.Identitynumber))
+            {
+                var isUnique = await _userRepository.IsIdentityNumberUniqueAsync(_encryption.Encrypt(ocrResult.Id));
+                if (!isUnique)
+                    throw new InvalidOperationException(
+                        "CCCD này đã được xác minh bởi tài khoản khác. Vui lòng liên hệ hỗ trợ nếu đây là nhầm lẫn.");
             }
 
             // 7. Lưu ảnh CCCD private (chỉ xem được qua signed URL, admin dùng để đối chiếu định danh).
@@ -207,6 +230,106 @@ namespace MV.ApplicationLayer.Services
         }
 
         // Private helpers
+
+        /// <summary>
+        /// OCR không đọc được CCCD (null/độ tin cậy thấp) khi options.RequireOcr = false. Dưới ngưỡng
+        /// <see cref="MaxOcrAttemptsBeforeManualReview"/> lần liên tiếp: ném lỗi để người dùng tự chụp
+        /// lại. ĐỦ ngưỡng: không chặn nữa — nhận và lưu luôn 2 ảnh, đánh dấu chờ Admin xem thủ công
+        /// (KHÔNG đánh dấu Isidentityverified), báo cho Admin lẫn người dùng biết. Cùng cơ chế với
+        /// <see cref="StudentIdentityService.VerifyAndApplyAsync"/>.
+        /// </summary>
+        private async Task<EkycVerificationResult> HandleOcrFailureAsync(User user, UploadCccdRequest request, string reasonMessage)
+        {
+            var attempts = await _userRepository.IncrementCccdOcrFailedAttemptsAsync(user.Userid);
+            if (attempts < MaxOcrAttemptsBeforeManualReview)
+                throw new InvalidOperationException(reasonMessage);
+
+            _logger.LogWarning(
+                "User {UserId} OCR CCCD thất bại {Attempts} lần liên tiếp — chuyển sang chờ Admin xem thủ công.",
+                user.Userid, attempts);
+
+            var previousFrontUrl = user.Idcardfronturl;
+            var previousBackUrl = user.Idcardbackurl;
+
+            user.Idcardfronturl = await _storageService.UploadPrivateFileAsync(CccdBucket, user.Userid, request.FrontImage);
+            user.Idcardbackurl = await _storageService.UploadPrivateFileAsync(CccdBucket, user.Userid, request.BackImage);
+
+            if (!string.IsNullOrEmpty(previousFrontUrl))
+                await _storageService.DeleteFileAsync(CccdBucket, user.Userid, previousFrontUrl);
+            if (!string.IsNullOrEmpty(previousBackUrl))
+                await _storageService.DeleteFileAsync(CccdBucket, user.Userid, previousBackUrl);
+
+            user.Isidentitypendingreview = true;
+            // Đã escalate xong — reset đếm để lần xác minh KẾ TIẾP (nếu Admin từ chối) không bị cộng
+            // dồn từ loạt thất bại này.
+            user.Cccdocrfailedattempts = 0;
+
+            await NotifyAdminsOfPendingReviewAsync(user);
+            await NotifyUserOfPendingReviewAsync(user);
+
+            return new EkycVerificationResult
+            {
+                Ocr = null,
+                DateOfBirth = null,
+                Verified = false,
+                PendingManualReview = true,
+                Response = new CccdUploadResponse
+                {
+                    OcrSuccess = false,
+                    PendingManualReview = true,
+                    Message = "Hệ thống chưa tự đọc được CCCD sau nhiều lần thử. Ảnh của bạn đã được " +
+                        "gửi cho quản trị viên xem xét thủ công, chúng tôi sẽ thông báo kết quả sớm nhất."
+                }
+            };
+        }
+
+        /// <summary>
+        /// Báo cho mọi Admin/Staff có quyền xem CCCD (TutorCccdView) biết có 1 hồ sơ đang chờ xem thủ
+        /// công — không có "người phụ trách" riêng nên gửi cho tất cả, giống
+        /// TutorService.NotifyAdminsOfProfileUpdateAsync. Chạy nền, không throw để không làm hỏng
+        /// luồng upload chính nếu gửi thông báo lỗi.
+        /// </summary>
+        private async Task NotifyAdminsOfPendingReviewAsync(User user)
+        {
+            try
+            {
+                var reviewerIds = await PermissionRecipients.ResolveAsync(_context, Permissions.TutorCccdView);
+                if (reviewerIds.Count == 0) return;
+
+                await _notificationService.CreateNotificationsAsync(reviewerIds.Select(reviewerId => new NotificationRequest
+                {
+                    Userid = reviewerId,
+                    Title = "CCCD cần xem thủ công",
+                    Message = $"Người dùng {user.Fullname ?? user.Userid} xác minh CCCD tự động thất bại nhiều lần, cần Admin xem thủ công.",
+                    Type = NotificationType.IdentityReviewRequested
+                }));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "NotifyAdminsOfPendingReviewAsync failed for user {UserId}", user.Userid);
+            }
+        }
+
+        /// <summary>Báo cho chính người dùng biết ảnh CCCD của họ đã được gửi cho Admin xem thủ công —
+        /// tách khỏi <see cref="CccdUploadResponse.Message"/> (chỉ hiện ngay lúc bấm nút) vì đây là
+        /// thông báo bền, người dùng vẫn thấy lại được dù rời trang trước khi đọc toast.</summary>
+        private async Task NotifyUserOfPendingReviewAsync(User user)
+        {
+            try
+            {
+                await _notificationService.CreateNotificationAsync(new NotificationRequest
+                {
+                    Userid = user.Userid,
+                    Title = "CCCD đang chờ xem xét thủ công",
+                    Message = "Hệ thống chưa tự đọc được CCCD của bạn sau nhiều lần thử. Ảnh đã được gửi cho quản trị viên xem xét thủ công, chúng tôi sẽ thông báo kết quả sớm nhất.",
+                    Type = NotificationType.IdentityPendingReview
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "NotifyUserOfPendingReviewAsync failed for user {UserId}", user.Userid);
+            }
+        }
 
         private async Task<FptAiResult?> RunFptAiOcrAsync(byte[] imageBytes, string fileName)
         {

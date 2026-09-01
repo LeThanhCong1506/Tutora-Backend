@@ -228,7 +228,27 @@ namespace MV.ApplicationLayer.Services
             if (await _studentRepository.HasActiveBookingAsync(studentId))
                 throw new StudentHasActiveBookingException();
 
+            if (await _studentRepository.HasOpenDisputeAsync(studentId))
+                throw new StudentHasOpenDisputeException();
+
             _studentRepository.SoftDelete(student);
+
+            // Giao diện hứa "tài khoản đăng nhập của con sẽ bị xoá, không thể hoàn tác" — trước đây
+            // chỉ soft-delete hồ sơ, tài khoản đăng nhập vẫn sống nguyên. Khoá thật ở đây bằng đúng
+            // cơ chế OnTokenValidated đang kiểm tra (Status == 0), giống UserService.Admin.AdminDeactivateUserAsync,
+            // nhưng không cascade CascadeSuspensionAsync vì đó là logic riêng cho lịch dạy/escrow của gia sư.
+            if (!string.IsNullOrWhiteSpace(student.Linkeduserid))
+            {
+                var linkedUser = await _userRepository.GetUserByIdAsync(student.Linkeduserid);
+                if (linkedUser != null)
+                {
+                    linkedUser.Status = 0;
+                    linkedUser.Isdeactivated = true;
+                    linkedUser.Deactivatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
+                    await _userRepository.UpdateUserAsync(linkedUser);
+                }
+            }
+
             await _dbContext.SaveChangesAsync();
         }
 

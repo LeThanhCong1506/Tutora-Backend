@@ -28,6 +28,12 @@ namespace MV.DomainLayer.Exceptions
             : base("Cannot delete student: student has active booking(s).") { }
     }
 
+    public class StudentHasOpenDisputeException : BadRequestException
+    {
+        public StudentHasOpenDisputeException()
+            : base("Cannot delete student: student has an open dispute.") { }
+    }
+
     public class InvalidBirthdateException : BadRequestException
     {
         public InvalidBirthdateException()

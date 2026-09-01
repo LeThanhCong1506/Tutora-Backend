@@ -23,6 +23,10 @@ public class StudentBookingEligibilityResponse
     /// <summary>Cần xác minh CCCD (chưa xác minh độ tuổi).</summary>
     public bool NeedAgeVerification { get; set; }
 
+    /// <summary>Đã nộp CCCD nhưng OCR tự động thất bại nhiều lần — đang chờ Admin xem thủ công, KHÔNG
+    /// cần nộp lại. Luôn đi kèm NeedAgeVerification = true (vẫn chưa xác minh xong).</summary>
+    public bool IsPendingIdentityReview { get; set; }
+
     /// <summary>Đã xác minh nhưng chưa đủ 16 tuổi.</summary>
     public bool IsUnderage { get; set; }
 

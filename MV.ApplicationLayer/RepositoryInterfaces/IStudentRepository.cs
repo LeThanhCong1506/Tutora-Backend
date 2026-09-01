@@ -13,6 +13,7 @@ namespace MV.ApplicationLayer.RepositoryInterfaces
         void Update(Studentprofile student);
         void SoftDelete(Studentprofile student);
         Task<bool> HasActiveBookingAsync(string studentId);
+        Task<bool> HasOpenDisputeAsync(string studentId);
         Task<bool> IsStudentIdUniqueAsync(string id);
         Task<bool> IsStudentCodeUniqueAsync(string code);
 

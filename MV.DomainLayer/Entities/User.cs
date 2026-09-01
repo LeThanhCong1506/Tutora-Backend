@@ -38,6 +38,15 @@ public partial class User
 
     public bool? Isidentityverified { get; set; }
 
+    /// <summary>Số lần OCR (FPT.AI) đọc CCCD thất bại LIÊN TIẾP. Reset về 0 khi OCR đọc thành công
+    /// hoặc khi đã escalate sang <see cref="Isidentitypendingreview"/>.</summary>
+    public int Cccdocrfailedattempts { get; set; }
+
+    /// <summary>true khi OCR thất bại đủ ngưỡng lần liên tiếp (xem StudentIdentityService/EkycService):
+    /// ảnh đã được nhận/lưu nhưng chờ Admin xem thủ công thay vì tự động xác minh — xem
+    /// <see cref="Isidentityverified"/>.</summary>
+    public bool Isidentitypendingreview { get; set; }
+
     public int? Status { get; set; }
 
     public bool? Isemailverified { get; set; }

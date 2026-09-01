@@ -461,7 +461,8 @@ namespace MV.ApplicationLayer.Services
                 UserFullName       = user.Fullname,
                 FrontImageUrl      = frontSigned,
                 BackImageUrl       = backSigned,
-                IsIdentityVerified = user.Isidentityverified ?? false
+                IsIdentityVerified = user.Isidentityverified ?? false,
+                IsPendingReview = user.Isidentitypendingreview
             };
         }
     }

@@ -401,7 +401,7 @@ public partial class BookingService(
             }
 
             // Buổi học thử: phụ huynh/học sinh chỉ được tự hủy (và nhận hoàn 100%) nếu còn cách giờ
-            // học đầu tiên >= 72h. Trong vòng 72h, họ phải chờ hoặc báo cáo gia sư không dạy (luồng
+            // học đầu tiên >= 2h. Trong vòng 2h, họ phải chờ hoặc báo cáo gia sư không dạy (luồng
             // no-show dispute có sẵn) — không áp dụng mốc này khi chính gia sư là người hủy.
             var isTutorCaller = !string.IsNullOrWhiteSpace(booking.Tutorid) && booking.Tutorid == userId;
             if (needsRefund && !isTutorCaller && IsWithinTrialCancelWindow(booking, now))
@@ -594,7 +594,7 @@ public partial class BookingService(
     }
 
     /// <summary>Mốc hủy tự do buổi học thử: phải hủy trước giờ học đầu tiên ít nhất chừng này.</summary>
-    private const int TrialCancelWindowHours = 72;
+    private const int TrialCancelWindowHours = 2;
 
     /// <summary>
     /// True nếu còn chưa đủ <see cref="TrialCancelWindowHours"/> giờ tới buổi học sớm nhất chưa bị

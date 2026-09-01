@@ -209,10 +209,34 @@ public class ClassSessionReminderJob : BackgroundService
                 _logger.LogError(ex, "Lỗi trong ClassSessionReminderJob.");
             }
 
+            try
+            {
+                await AutoReportMissedSessionsAsync(stoppingToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi khi tự phát hiện buổi học không ai tham gia trong ClassSessionReminderJob.");
+            }
+
             await Task.Delay(_interval, stoppingToken);
         }
 
         _logger.LogInformation("ClassSessionReminderJob dừng.");
+    }
+
+    // Buổi Scheduled mà cả 2 phía đều lặng lẽ không tham gia (không heartbeat, không ai chủ động
+    // báo cáo) sẽ kẹt vĩnh viễn nếu không quét ở đây — không job/luồng nào khác xử lý trạng thái này.
+    private async Task AutoReportMissedSessionsAsync(CancellationToken ct)
+    {
+        using var scope = _serviceProvider.CreateScope();
+        var classSessionService = scope.ServiceProvider.GetRequiredService<IClassSessionService>();
+
+        var reportedCount = await classSessionService.AutoReportMissedSessionsAsync(ct);
+
+        if (reportedCount > 0)
+        {
+            _logger.LogWarning("ClassSessionReminderJob: Đã tự phát hiện {Count} buổi học không ai tham gia.", reportedCount);
+        }
     }
 
     private async Task SendRemindersAsync(CancellationToken ct)
@@ -552,6 +576,16 @@ public class AutoEndLiveSessionJob : BackgroundService
         if (closedCount > 0)
         {
             _logger.LogInformation("AutoEndLiveSessionJob: Đã tự động đóng {Count} phòng học quá giờ.", closedCount);
+        }
+
+        // Buổi đã bị ép đóng phòng ở trên nhưng gia sư biến mất luôn, không bao giờ quay lại nộp báo
+        // cáo: không job nào khác từng đưa được buổi ra khỏi InProgress, nên phải tự nộp thay ở đây
+        // để session/Sessionsremaining/escrow không kẹt vĩnh viễn.
+        var autoSubmittedCount = await classSessionService.AutoSubmitMissingReportsAsync(ct);
+
+        if (autoSubmittedCount > 0)
+        {
+            _logger.LogWarning("AutoEndLiveSessionJob: Đã tự động nộp báo cáo thay cho {Count} buổi học bị bỏ dở.", autoSubmittedCount);
         }
     }
 }
