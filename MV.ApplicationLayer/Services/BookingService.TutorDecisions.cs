@@ -321,6 +321,26 @@ public partial class BookingService
             {
                 logger.LogError(ex, "Failed to send auto-cancel notification for booking {BookingId}", competing.Bookingid);
             }
+
+            // Gia sư cũng phải biết yêu cầu nào vừa bị huỷ thay mình. Không phải thao tác họ chủ
+            // động làm — họ bấm chấp nhận MỘT yêu cầu, hệ thống tự huỷ những yêu cầu trùng giờ —
+            // nên nếu im lặng thì phía bên kia biết chuyện mà chính gia sư thì không, và câu hỏi
+            // "sao yêu cầu kia biến mất?" không có chỗ nào trả lời.
+            try
+            {
+                await notificationService.CreateNotificationAsync(new NotificationRequest
+                {
+                    Userid = tutorId,
+                    Title = "Yêu cầu trùng giờ đã tự động hủy",
+                    Message = $"Yêu cầu đặt lịch #{competing.Bookingid} đã tự động hủy vì trùng khung giờ với yêu cầu bạn vừa xác nhận.",
+                    Type = NotificationType.BookingDeclined,
+                    Referenceid = competing.Bookingid.ToString()
+                });
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Failed to notify tutor about auto-cancelled booking {BookingId}", competing.Bookingid);
+            }
         }
     }
 
