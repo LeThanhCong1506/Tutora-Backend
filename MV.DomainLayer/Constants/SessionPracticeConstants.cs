@@ -12,6 +12,15 @@ public static class SessionPracticeSetStatus
     public const string Sent = "sent";
 }
 
+/// <summary>Hạn mức của tính năng thử nghiệm.</summary>
+public static class SessionPracticeQuota
+{
+    /// <summary>
+    /// Số câu tối đa tạo được trong MỘT buổi học.
+    /// </summary>
+    public const int MaxQuestionsPerSession = 10;
+}
+
 /// <summary>
 /// Loại câu hỏi. Phải khớp CHECK constraint `practice_questions_format_check`.
 /// </summary>
