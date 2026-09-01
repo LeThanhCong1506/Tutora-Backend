@@ -441,6 +441,7 @@ builder.Services.AddScoped<IAdminPayoutService, AdminPayoutService>();
 builder.Services.AddScoped<ISystemAlertService, SystemAlertService>();
 builder.Services.AddScoped<IAdminFinancialService, AdminFinancialService>();
 builder.Services.AddScoped<IAdminRevenueAnalyticsService, AdminRevenueAnalyticsService>();
+builder.Services.AddScoped<IAdminAiUsageService, AdminAiUsageService>();
 builder.Services.AddScoped<IAdminBookingService, AdminBookingService>();
 builder.Services.AddScoped<IAdminDashboardService, AdminDashboardService>();
 
