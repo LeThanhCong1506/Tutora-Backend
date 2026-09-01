@@ -585,6 +585,7 @@ public class DisputeService : IDisputeService
             ?? throw new ArgumentException("Không tìm thấy tranh chấp");
 
         string? createdBy;
+        string? tutorId;
         int? classSessionId;
         int? relearnSessionId = null;
         string? relearnTutorId = null;
@@ -723,6 +724,7 @@ public class DisputeService : IDisputeService
                 dispute.Refundpercentage = 0;
 
                 createdBy = dispute.Createdby;
+                tutorId = classSession?.Tutorid;
                 classSessionId = dispute.Classsessionid;
 
                 await _context.SaveChangesAsync();
@@ -747,9 +749,15 @@ public class DisputeService : IDisputeService
                 _ => "Buổi học sẽ được sắp xếp học lại.",
             };
 
+            // Trước đây chỉ gửi cho createdBy — nếu dispute do HỆ THỐNG tự tạo (Createdby=null, xem
+            // AbandonedSessionService) thì không ai nhận được thông báo gì khi đóng. Gửi thêm cho
+            // tutorId độc lập, giống hệt cách ResolveDisputeAsync đang làm, để phía gia sư luôn biết
+            // dispute liên quan tới buổi dạy của mình đã kết thúc, kể cả khi họ không phải người tạo.
+            var closeNotifications = new List<NotificationRequest>();
+
             if (!string.IsNullOrWhiteSpace(createdBy))
             {
-                await _notificationService.CreateNotificationAsync(new NotificationRequest
+                closeNotifications.Add(new NotificationRequest
                 {
                     Userid = createdBy,
                     Title = "Phản ánh đã được đóng",
@@ -758,6 +766,21 @@ public class DisputeService : IDisputeService
                     Referenceid = classSessionId?.ToString()
                 });
             }
+
+            if (!string.IsNullOrWhiteSpace(tutorId))
+            {
+                closeNotifications.Add(new NotificationRequest
+                {
+                    Userid = tutorId,
+                    Title = "Phản ánh liên quan buổi dạy đã được đóng",
+                    Type = NotificationType.DisputeResolved,
+                    Message = $"Phản ánh #{disputeId} liên quan đến buổi học của bạn đã được đóng do hai bên đã thống nhất với nhau. {outcomeText}",
+                    Referenceid = classSessionId?.ToString()
+                });
+            }
+
+            if (closeNotifications.Count > 0)
+                await _notificationService.CreateNotificationsAsync(closeNotifications);
         }
         catch (Exception ex)
         {
