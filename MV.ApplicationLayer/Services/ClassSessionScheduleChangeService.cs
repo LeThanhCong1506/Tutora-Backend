@@ -512,8 +512,16 @@ public class ClassSessionScheduleChangeService(
         var requiredLearnerName = string.Equals(requiredLearnerRole, UserRole.Parent, StringComparison.OrdinalIgnoreCase)
             ? session.ParentName ?? "Phụ huynh"
             : session.StudentName ?? "Học sinh";
+
+        // So với giờ hẹn GỐC: nếu đã có đổi lịch được duyệt, Originalscheduledstart là giờ trước
+        // khi đổi, còn session.Scheduledstart mới là giờ đang có hiệu lực — "sớm" phải đo theo
+        // giờ đang có hiệu lực, nếu không mọi buổi đã dời sẽ bị báo sớm nhầm.
+        var minutesEarly = (int)Math.Ceiling((session.Scheduledstart - TimeZoneHelper.UtcNow).TotalMinutes);
+
         return new SessionScheduleChangeResponse
         {
+            IsEarlyEntry = minutesEarly > 0,
+            MinutesEarly = minutesEarly > 0 ? minutesEarly : 0,
             ClassSessionId = session.Classsessionid,
             RequiresConfirmation = requiresConfirmation,
             CanCurrentUserConfirm = requiresConfirmation

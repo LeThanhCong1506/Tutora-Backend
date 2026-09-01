@@ -468,6 +468,15 @@ public partial class BookingService(
             booking.Cancellationreason = reason;
             booking.Cancelledby = userId;
             booking.Cancelledat = now;
+
+            // Ghi khoản hoàn lên chính booking, không chỉ tạo Wallettransaction: trang chi tiết
+            // booking đọc Refundamount để hiển thị, nên bỏ qua bước này thì cả phụ huynh lẫn gia sư
+            // thấy lớp bị hủy mà không biết bao nhiêu tiền đã trả lại.
+            if (needsRefund && refundAmount > 0)
+            {
+                booking.Refundamount = (booking.Refundamount ?? 0) + refundAmount;
+                booking.Refundstatus = RefundStatus.Refunded;
+            }
             booking.Updatedat = now;
             booking.Responsedeadline = null;
 

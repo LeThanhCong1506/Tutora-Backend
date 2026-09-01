@@ -41,5 +41,19 @@ public static class CloseDisputeOutcomes
     /// booking để dùng cho buổi học lại.</summary>
     public const string Reschedule = "reschedule";
 
-    public static readonly string[] All = { Completed, Reschedule };
+    /// <summary>
+    /// Bỏ khiếu nại, GIỮ NGUYÊN buổi học — buổi về lại "scheduled" và hai bên vào lớp như chưa có
+    /// chuyện gì. Không đụng tới tiền.
+    ///
+    /// Dành cho khiếu nại nhầm/lỡ tay, hoặc khiếu nại vào một buổi CHƯA diễn ra. Trước đây admin chỉ
+    /// có hai lựa chọn và cả hai đều sai trong ca này: "đã học xong" trả tiền cho một buổi chưa dạy,
+    /// còn "học lại" thì huỷ buổi gốc, đổi giờ hai bên đã hẹn, và đốt một suất trong
+    /// <c>MaxRelearnSessionsPerChain</c>.
+    ///
+    /// Càng cần thiết từ khi khiếu nại no_show chuyển buổi sang NoShow ngay lập tức: TryAutoCheckInAsync
+    /// chỉ nhận Scheduled, nên không có lựa chọn này thì một cú bấm nhầm khoá luôn buổi học.
+    /// </summary>
+    public const string KeepScheduled = "keep_scheduled";
+
+    public static readonly string[] All = { Completed, Reschedule, KeepScheduled };
 }

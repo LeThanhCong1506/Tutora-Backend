@@ -14,6 +14,19 @@ public class SessionScheduleChangeResponse
     /// Khi true, FE không được cho vào phòng dù <see cref="RequiresConfirmation"/> là false.
     /// </summary>
     public bool RescheduleProposalPending { get; set; }
+
+    /// <summary>
+    /// True khi hai bên đang vào lớp TRƯỚC giờ hẹn. Từ khi bỏ bước xác nhận học sớm, người dùng
+    /// không còn dấu hiệu nào cho biết mình đang vào sớm — chỉ thấy phòng mở bình thường, dễ tưởng
+    /// đã tới giờ và trách nhầm bên kia đến muộn ở buổi sau.
+    ///
+    /// Tính ở server: đồng hồ máy người dùng có thể lệch, mà đây là thứ so với giờ hẹn.
+    /// </summary>
+    public bool IsEarlyEntry { get; set; }
+
+    /// <summary>Số phút còn lại tới giờ hẹn khi <see cref="IsEarlyEntry"/> đúng; 0 nếu không.</summary>
+    public int MinutesEarly { get; set; }
+
     public string? Status { get; set; }
     public string? TutorUserId { get; set; }
     public string? LearnerApproverUserId { get; set; }
