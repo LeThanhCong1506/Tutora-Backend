@@ -274,18 +274,19 @@ public class ChatService(
                 "Không tìm thấy booking hoặc bạn không có quyền truy cập.",
                 404);
 
-        // booking.Parentid is null for a self-managed student's own booking — resolve the real
-        // counterpart (parent, or the student's own login) the same way Accept/Decline/Cancel do,
-        // instead of requiring Parentid directly.
-        var (payerId, isStudent) = BookingPayerResolver.Resolve(booking);
+        var (payerId, payerIsStudent) = BookingPayerResolver.Resolve(booking);
 
-        if (string.IsNullOrWhiteSpace(payerId) || string.IsNullOrWhiteSpace(booking.Tutorid))
+        var isCallerStudent = booking.Studentid == userId || booking.Student?.Linkeduserid == userId;
+        var ownerId = isCallerStudent ? userId : (booking.Parentid == userId ? userId : payerId);
+        var isStudent = isCallerStudent || (ownerId == payerId && payerIsStudent);
+
+        if (string.IsNullOrWhiteSpace(ownerId) || string.IsNullOrWhiteSpace(booking.Tutorid))
             throw new BookingException(
                 BookingErrorCodes.InvalidBookingStatus,
                 "Booking chưa có đủ thông tin người đặt lịch và gia sư để tạo cuộc trò chuyện.",
                 400);
 
-        return await GetOrCreateChannelAsync(payerId, booking.Tutorid, isStudent);
+        return await GetOrCreateChannelAsync(ownerId, booking.Tutorid, isStudent);
     }
 
     public Task<int> GetUnreadTotalCountAsync(string userId)

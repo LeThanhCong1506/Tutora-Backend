@@ -61,7 +61,11 @@ namespace MV.ApplicationLayer.ServiceInterfaces
         /// Trả null nếu tutora-ai lỗi hoặc không đọc được nội dung.
         /// </summary>
         Task<AiMaterialExtraction?> ExtractMaterialAsync(
-            byte[] fileBytes, string fileName, CancellationToken cancellationToken = default);
+            byte[] fileBytes,
+            string fileName,
+            string? subject = null,
+            string? grade = null,
+            CancellationToken cancellationToken = default);
 
         /// <summary>
         /// Sinh bộ câu hỏi từ toàn văn tài liệu + yêu cầu của gia sư
@@ -75,7 +79,11 @@ namespace MV.ApplicationLayer.ServiceInterfaces
     }
 
     /// <summary>Toàn văn đã trích của 1 tài liệu — có mốc "[trang N]" giữa các trang.</summary>
-    public record AiMaterialExtraction(string FullText, int? PageCount);
+    /// <summary>
+    /// Toàn văn đã trích.
+    /// </summary>
+    public record AiMaterialExtraction(
+        string FullText, int? PageCount, bool? Relevant = null, string? RejectReason = null);
 
     /// <summary>1 tài liệu nguồn đưa vào prompt sinh đề.</summary>
     public record AiMaterialSource(int MaterialId, string Title, string FullText);

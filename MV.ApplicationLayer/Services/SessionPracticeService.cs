@@ -61,6 +61,14 @@ public class SessionPracticeService(
         if (chosen.Count == 0)
             throw new MaterialNotFoundException();
 
+        // Hạn mức tính theo BUỔI HỌC: buổi phụ có hạn mức riêng.
+        if (request.ClassSessionId is int sessionId)
+        {
+            var used = await repo.CountQuestionsInSessionAsync(sessionId);
+            if (used >= SessionPracticeQuota.MaxQuestionsPerSession)
+                throw new PracticeQuotaExceededException(used, SessionPracticeQuota.MaxQuestionsPerSession);
+        }
+
         var contents = await repo.GetMaterialContentsAsync(chosen.Select(m => m.Materialid).ToList());
         var contentByMaterial = contents.ToDictionary(c => c.MaterialId);
 
@@ -102,6 +110,13 @@ public class SessionPracticeService(
         };
 
         var validMaterialIds = chosen.Select(m => m.Materialid).ToHashSet();
+
+        // AI có thể sinh nhiều hơn phần hạn mức còn lại (gia sư gõ "20 câu") -> chỉ
+        // nhận đủ phần còn dư, không từ chối cả lượt.
+        var remaining = request.ClassSessionId is int sid
+            ? SessionPracticeQuota.MaxQuestionsPerSession - await repo.CountQuestionsInSessionAsync(sid)
+            : int.MaxValue;
+
         var order = 1;
         foreach (var q in generated.Questions)
         {
@@ -130,6 +145,8 @@ public class SessionPracticeService(
 
             if (string.IsNullOrWhiteSpace(q.Content))
                 continue;
+            if (set.Questions.Count >= remaining)
+                break;
 
             set.Questions.Add(new SessionPracticeQuestion
             {

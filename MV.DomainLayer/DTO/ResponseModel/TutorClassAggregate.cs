@@ -15,9 +15,17 @@ public class TutorClassAggregate
     public bool HasNonTerminal { get; set; }
 
     /// <summary>
-    /// True khi còn buổi ở trạng thái <c>reserved</c>
+    /// Số buổi còn ở trạng thái <c>reserved</c> — đã tạo sẵn lúc đặt lịch nhưng chưa mở, chờ
+    /// phụ huynh trả nốt tiền. KHÔNG tính vào TotalSessions/NextSessionStart (buổi chưa mở thì
+    /// chưa hứa với ai được), nhưng phải biết để không báo lớp "hoàn thành" khi còn buổi giữ chỗ.
     /// </summary>
-    public bool HasReserved { get; set; }
+    public int ReservedSessions { get; set; }
+
+    /// <summary>Giờ bắt đầu của buổi giữ chỗ sớm nhất — chỉ để hiển thị lý do, không phải lịch chắc chắn.</summary>
+    public DateTime? NextReservedStart { get; set; }
+
+    /// <summary>Trạng thái booking (xem <c>BookingStatus</c>) — nguồn duy nhất quyết định "hoàn thành".</summary>
+    public string? BookingStatus { get; set; }
 
     public DateTime? NextSessionStart { get; set; }
     public DateTime LatestStart { get; set; }

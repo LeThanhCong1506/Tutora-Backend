@@ -2,8 +2,30 @@ namespace MV.DomainLayer.DTO.ResponseModel.Admin;
 
 public class AdminDashboardSummaryResponse
 {
+    /// <summary>
+    /// Tiền phụ huynh trả (GMV) của các booking tạo trong kỳ.
+    ///
+    /// Lấy thẳng từ <c>AdminRevenueAnalyticsService.GetOverviewAsync</c> nên khớp TUYỆT ĐỐI
+    /// với trang Báo cáo doanh thu. Trước đây dashboard tự tính bằng bộ lọc status riêng, vốn
+    /// loại sạch mọi booking đã huỷ — kể cả khoá phụ huynh đã trả tiền và đã học vài buổi —
+    /// nên hai trang báo hai con số khác nhau cho cùng một khoảng thời gian.
+    /// </summary>
     public MetricWithChange Gmv { get; set; } = new();
+
+    /// <summary>
+    /// Doanh thu TẠM TÍNH: phí nền tảng chốt tại thời điểm đặt lịch của các booking tạo trong
+    /// kỳ. Chưa phải tiền thật — buổi học chưa dạy thì khoản này vẫn có thể mất.
+    /// Tương ứng <c>RevenueSummaryDto.CommissionSold</c>.
+    /// </summary>
     public MetricWithChange PlatformRevenue { get; set; } = new();
+
+    /// <summary>
+    /// Doanh thu ĐÃ GHI NHẬN: phí nền tảng của các buổi đã dạy xong và đã giải ngân trong kỳ,
+    /// cộng phần chốt thêm khi đóng sổ và tiền bán gói AI. Đây mới là doanh thu thật của hệ
+    /// thống. Tương ứng <c>RevenueSummaryDto.RecognisedRevenue</c>.
+    /// </summary>
+    public MetricWithChange RecognisedRevenue { get; set; } = new();
+
     public SummaryBookings Bookings { get; set; } = new();
     public SummaryPendingActions PendingActions { get; set; } = new();
 

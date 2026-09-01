@@ -492,10 +492,13 @@ public class TutorAiClient : ITutorAiClient
 
 }
 
-    // ── Bài tập nhanh trong buổi học ─────────────────────────────────────────
-
+    // Bài tập nhanh trong buổi học
     public async Task<AiMaterialExtraction?> ExtractMaterialAsync(
-        byte[] fileBytes, string fileName, CancellationToken cancellationToken = default)
+        byte[] fileBytes,
+        string fileName,
+        string? subject = null,
+        string? grade = null,
+        CancellationToken cancellationToken = default)
     {
         try
         {
@@ -506,6 +509,10 @@ public class TutorAiClient : ITutorAiClient
             fileContent.Headers.ContentType =
                 new System.Net.Http.Headers.MediaTypeHeaderValue(ContentTypeForFile(fileName));
             form.Add(fileContent, "file", fileName);
+            if (!string.IsNullOrWhiteSpace(subject))
+                form.Add(new StringContent(subject), "subject");
+            if (!string.IsNullOrWhiteSpace(grade))
+                form.Add(new StringContent(grade), "grade");
 
             using var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/materials/extract")
             {
@@ -533,7 +540,8 @@ public class TutorAiClient : ITutorAiClient
                 return null;
             }
 
-            return new AiMaterialExtraction(result.FullText, result.PageCount);
+            return new AiMaterialExtraction(
+                result.FullText, result.PageCount, result.Relevant, result.RejectReason);
         }
         catch (Exception ex)
         {
@@ -626,6 +634,12 @@ public class TutorAiClient : ITutorAiClient
 
         [JsonPropertyName("error")]
         public string? Error { get; set; }
+
+        [JsonPropertyName("relevant")]
+        public bool? Relevant { get; set; }
+
+        [JsonPropertyName("reject_reason")]
+        public string? RejectReason { get; set; }
     }
 
     private sealed class GeneratePracticeRequestBody

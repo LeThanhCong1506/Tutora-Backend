@@ -1,5 +1,4 @@
 using Microsoft.AspNetCore.Http;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using MV.ApplicationLayer.RepositoryInterfaces;
 using MV.ApplicationLayer.ServiceInterfaces;
@@ -16,7 +15,7 @@ public class LearningMaterialService(
     IBookingRepository bookingRepository,
     IFileStorageService storageService,
     ISessionPracticeRepository practiceRepository,
-    IServiceScopeFactory scopeFactory,
+    ITutorAiClient aiClient,
     ILogger<LearningMaterialService> logger) : ILearningMaterialService
 {
     /// <summary>
@@ -58,7 +57,9 @@ public class LearningMaterialService(
     public async Task<LearningMaterialResponse> UploadAsync(
         int bookingId, string tutorUserId, IFormFile file, string title, string? description, bool isPublic)
     {
-        var booking = await bookingRepository.FindWithStudentAsync(bookingId)
+        // FindWithRelations (không phải FindWithStudent) để lấy được Subject/Gradelevel
+        // — cần đối chiếu tài liệu có đúng môn đang dạy không.
+        var booking = await bookingRepository.FindWithRelationsAsync(bookingId)
             ?? throw new BookingNotFoundException();
 
         if (booking.Tutorid != tutorUserId)
@@ -69,6 +70,23 @@ public class LearningMaterialService(
         // Đọc bytes TRƯỚC khi upload: sau upload stream đã bị đọc tới cuối, CopyToAsync
         // lúc đó trả về mảng rỗng.
         byte[]? extractBytes = ExtractableTypes.Contains(fileType) ? await ReadAllBytesAsync(file) : null;
+
+        AiMaterialExtraction? extraction = null;
+        if (extractBytes != null)
+        {
+            var subject = booking.Tutorsubjectgradeprice?.Subject?.Subjectname;
+            var grade = booking.Tutorsubjectgradeprice?.Gradelevel?.Gradename;
+
+            extraction = await aiClient.ExtractMaterialAsync(extractBytes, file.FileName, subject, grade);
+
+            if (extraction?.Relevant == false)
+            {
+                logger.LogInformation(
+                    "Từ chối tài liệu '{Title}' cho booking {BookingId}: {Reason}",
+                    title, bookingId, extraction.RejectReason);
+                throw new MaterialNotRelevantException(extraction.RejectReason, subject);
+            }
+        }
 
         await storageService.EnsureBucketExistsAsync(StorageBucket.LearningMaterials);
         var folderPath = $"booking-{bookingId}";
@@ -94,13 +112,28 @@ public class LearningMaterialService(
 
         logger.LogInformation("Tutor {TutorId} uploaded material '{Title}' for booking {BookingId}", tutorUserId, title, bookingId);
 
-        // Trích toàn văn NGẦM: gia sư bấm "Tạo câu hỏi" giữa buổi dạy thì nội dung
-        // phải sẵn sàng rồi, không thể bắt chờ parse file lúc đó. Upload KHÔNG chờ
-        // việc này — hỏng thì material vẫn dùng để xem/tải bình thường.
-        if (extractBytes != null)
-            QueueContentExtraction(material.Materialid, extractBytes, file.FileName);
+        // Đã trích ở trên rồi -> lưu luôn, không cần chạy ngầm. Nhờ vậy tài liệu dùng
+        // được NGAY sau khi tải lên, gia sư không phải chờ hay tải lại trang.
+        if (extraction != null)
+        {
+            practiceRepository.AddMaterialContent(new LearningMaterialContent
+            {
+                MaterialId = material.Materialid,
+                FullText = extraction.FullText,
+                PageCount = extraction.PageCount,
+                Status = MaterialContentStatus.Ready,
+                ExtractedAt = TimeZoneHelper.UtcNow,
+            });
+            await practiceRepository.SaveChangesAsync();
+        }
 
-        return MapToResponse(material);
+        var response = MapToResponse(material);
+        if (extraction != null)
+        {
+            response.ContentStatus = MaterialContentStatus.Ready;
+            response.PageCount = extraction.PageCount;
+        }
+        return response;
     }
 
     public async Task DeleteAsync(int bookingId, int materialId, string tutorUserId)
@@ -130,68 +163,6 @@ public class LearningMaterialService(
         using var ms = new MemoryStream();
         await stream.CopyToAsync(ms);
         return ms.ToArray();
-    }
-
-    /// <summary>
-    /// Chạy trích xuất ngoài request hiện tại. PHẢI tạo scope mới: scope của request
-    /// bị dispose ngay khi response trả về, dùng lại DbContext cũ là ObjectDisposedException.
-    /// </summary>
-    private void QueueContentExtraction(int materialId, byte[] fileBytes, string fileName)
-    {
-        _ = Task.Run(async () =>
-        {
-            using var scope = scopeFactory.CreateScope();
-            var practiceRepo = scope.ServiceProvider.GetRequiredService<ISessionPracticeRepository>();
-            var aiClient = scope.ServiceProvider.GetRequiredService<ITutorAiClient>();
-            var scopedLogger = scope.ServiceProvider.GetRequiredService<ILogger<LearningMaterialService>>();
-
-            // Ghi trạng thái 'processing' trước để FE biết đang chạy mà disable chọn.
-            var content = new LearningMaterialContent
-            {
-                MaterialId = materialId,
-                FullText = string.Empty,
-                Status = MaterialContentStatus.Processing,
-                ExtractedAt = TimeZoneHelper.UtcNow,
-            };
-
-            try
-            {
-                practiceRepo.AddMaterialContent(content);
-                await practiceRepo.SaveChangesAsync();
-
-                var extracted = await aiClient.ExtractMaterialAsync(fileBytes, fileName);
-                if (extracted == null)
-                {
-                    content.Status = MaterialContentStatus.Failed;
-                    content.ErrorMessage = "Không đọc được nội dung tài liệu.";
-                }
-                else
-                {
-                    content.FullText = extracted.FullText;
-                    content.PageCount = extracted.PageCount;
-                    content.Status = MaterialContentStatus.Ready;
-                }
-
-                content.ExtractedAt = TimeZoneHelper.UtcNow;
-                await practiceRepo.SaveChangesAsync();
-
-                scopedLogger.LogInformation("Trích nội dung tài liệu {MaterialId}: {Status}", materialId, content.Status);
-            }
-            catch (Exception ex)
-            {
-                scopedLogger.LogError(ex, "Lỗi trích nội dung tài liệu {MaterialId}", materialId);
-                try
-                {
-                    content.Status = MaterialContentStatus.Failed;
-                    content.ErrorMessage = "Lỗi hệ thống khi xử lý tài liệu.";
-                    await practiceRepo.SaveChangesAsync();
-                }
-                catch (Exception saveEx)
-                {
-                    scopedLogger.LogError(saveEx, "Không ghi được trạng thái failed cho tài liệu {MaterialId}", materialId);
-                }
-            }
-        });
     }
 
     private static bool IsPartyToBooking(Booking booking, string actorUserId) =>

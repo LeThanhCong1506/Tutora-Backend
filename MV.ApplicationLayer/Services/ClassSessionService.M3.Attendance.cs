@@ -19,6 +19,16 @@ namespace MV.ApplicationLayer.Services;
 
 public partial class ClassSessionService
 {
+    /// <summary>
+    /// Thời gian phụ huynh/học sinh có để xem báo cáo và xác nhận buổi học, tính từ lúc gia sư gửi
+    /// báo cáo. Hết hạn thì AutoConfirmClassSessionJob tự xác nhận và giải ngân cho gia sư.
+    ///
+    /// Dùng HẰNG SỐ chứ không viết số trực tiếp vào hai chỗ: trước đây mốc hạn là 12h nhưng câu
+    /// thông báo gửi cho phụ huynh lại ghi "trong vòng 24h" — phụ huynh tin theo 24h thì mất hẳn cửa
+    /// sổ xem lại, buổi học tự xác nhận và tiền đi luôn ở giờ thứ 12.
+    /// </summary>
+    private const int ConfirmWindowHours = 12;
+
     // ── M3-T2: Check-in / Check-out / Report ─────────────────────────────────
 
     /// <summary>
@@ -902,7 +912,7 @@ public partial class ClassSessionService
 
             classSession.Status = PendingConfirmation;
             classSession.Submittedat = now;
-            classSession.Confirmdeadline = now.AddHours(12);
+            classSession.Confirmdeadline = now.AddHours(ConfirmWindowHours);
 
             var report = new ClassSessionReport
             {
@@ -960,7 +970,7 @@ public partial class ClassSessionService
                 {
                     Userid = parentId,
                     Title = "Báo cáo buổi học mới",
-                    Message = $"Gia sư đã gửi báo cáo cho buổi học #{classSessionId}. Vui lòng kiểm tra và xác nhận trong vòng 24h.",
+                    Message = $"Gia sư đã gửi báo cáo cho buổi học #{classSessionId}. Vui lòng kiểm tra và xác nhận trong vòng {ConfirmWindowHours}h — quá hạn hệ thống sẽ tự xác nhận.",
                     Type = NotificationType.LessonReport,
                     Referenceid = classSessionId.ToString()
                 });

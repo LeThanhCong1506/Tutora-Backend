@@ -15,6 +15,12 @@ public interface ISessionPracticeRepository
 
     Task<SessionPracticeSet?> GetSetAsync(Guid setId);
 
+    /// <summary>
+    /// Số câu đã tạo trong MỘT buổi học. Hạn mức tính theo buổi (không phải theo khoá)
+    /// nên buổi phụ có hạn mức riêng — 3 buổi phụ = 3 x hạn mức.
+    /// </summary>
+    Task<int> CountQuestionsInSessionAsync(int classSessionId);
+
     Task<SessionPracticeQuestion?> GetQuestionAsync(Guid questionId);
 
     /// <summary>Bài làm của 1 học sinh cho các câu chỉ định — ghép vào response.</summary>
