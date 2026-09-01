@@ -337,6 +337,73 @@ public class SessionPracticeServiceTests
         Assert.Null(Assert.Single(result.Questions).SourceMaterialId);
     }
 
+    // Hạn mức theo buổi học
+    [Fact]
+    public async Task HetHanMuc_ThiKhongTaoDuocNua()
+    {
+        await using var db = CreateContext();
+        Seed(db);
+        SeedMaterialWithContent(db);
+        SeedSessionWithQuestions(db, classSessionId: 55, count: SessionPracticeQuota.MaxQuestionsPerSession);
+        await db.SaveChangesAsync();
+
+        await Assert.ThrowsAsync<PracticeQuotaExceededException>(() =>
+            CreateService(db).GenerateAsync(BookingId, TutorId,
+                new GenerateSessionPracticeRequest
+                {
+                    MaterialIds = [10], Prompt = "5 câu", ClassSessionId = 55,
+                }));
+    }
+
+    [Fact]
+    public async Task HanMucTinhTheoTungBuoi_BuoiPhuCoHanMucRieng()
+    {
+        await using var db = CreateContext();
+        Seed(db);
+        SeedMaterialWithContent(db);
+        // Buổi 55 đã dùng hết; buổi 56 (buổi phụ) PHẢI còn nguyên hạn mức.
+        SeedSessionWithQuestions(db, classSessionId: 55, count: SessionPracticeQuota.MaxQuestionsPerSession);
+        await db.SaveChangesAsync();
+
+        var ai = new StubAiClient(new AiGeneratedPractice("Ôn tập", [
+            new AiGeneratedQuestion("mc", "Câu", [new AiAnswerOption("A", "1"), new AiAnswerOption("B", "2")], "A", null, 10, 1),
+        ], null));
+
+        var result = await CreateService(db, ai).GenerateAsync(BookingId, TutorId,
+            new GenerateSessionPracticeRequest
+            {
+                MaterialIds = [10], Prompt = "1 câu", ClassSessionId = 56,
+            });
+
+        Assert.Single(result.Questions);
+    }
+
+    [Fact]
+    public async Task AiSinhVuotHanMuc_ThiCatBotChuKhongTuChoi()
+    {
+        await using var db = CreateContext();
+        Seed(db);
+        SeedMaterialWithContent(db);
+        // Còn đúng 2 slot.
+        SeedSessionWithQuestions(db, classSessionId: 57, count: SessionPracticeQuota.MaxQuestionsPerSession - 2);
+        await db.SaveChangesAsync();
+
+        // AI trả 5 câu -> chỉ nhận 2, không vứt cả lượt.
+        var generated = Enumerable.Range(1, 5)
+            .Select(i => new AiGeneratedQuestion("mc", $"Câu {i}",
+                [new AiAnswerOption("A", "1"), new AiAnswerOption("B", "2")], "A", null, 10, 1))
+            .ToList();
+
+        var result = await CreateService(db, new StubAiClient(new AiGeneratedPractice("T", generated, null)))
+            .GenerateAsync(BookingId, TutorId,
+                new GenerateSessionPracticeRequest
+                {
+                    MaterialIds = [10], Prompt = "5 câu", ClassSessionId = 57,
+                });
+
+        Assert.Equal(2, result.Questions.Count);
+    }
+
     [Fact]
     public async Task AiTuChoi_TraDungLyDoChoGiaSu()
     {
@@ -426,6 +493,38 @@ public class SessionPracticeServiceTests
         });
     }
 
+    /// <summary>Tạo sẵn N câu trong một buổi để test hạn mức.</summary>
+    private static void SeedSessionWithQuestions(AgoraDbContext db, int classSessionId, int count)
+    {
+        var now = TimeZoneHelper.UtcNow;
+        var set = new SessionPracticeSet
+        {
+            Id = Guid.NewGuid(),
+            BookingId = BookingId,
+            ClassSessionId = classSessionId,
+            TutorId = TutorId,
+            Title = "Đã có sẵn",
+            Status = SessionPracticeSetStatus.Draft,
+            CreatedAt = now,
+            UpdatedAt = now,
+        };
+        for (var i = 0; i < count; i++)
+        {
+            set.Questions.Add(new SessionPracticeQuestion
+            {
+                Id = Guid.NewGuid(),
+                DisplayOrder = i + 1,
+                QuestionFormat = SessionPracticeQuestionFormat.MultipleChoice,
+                Content = $"Câu có sẵn {i + 1}",
+                AnswerOptions = [new AnswerOption { Key = "A", Text = "1" }, new AnswerOption { Key = "B", Text = "2" }],
+                CorrectAnswer = "A",
+                CreatedAt = now,
+                UpdatedAt = now,
+            });
+        }
+        db.SessionPracticeSets.Add(set);
+    }
+
     private static void SeedMaterialWithContent(AgoraDbContext db, string status = MaterialContentStatus.Ready)
     {
         db.Learningmaterials.Add(new Learningmaterial
@@ -511,7 +610,9 @@ public class SessionPracticeServiceTests
             IReadOnlyList<AiMaterialSource> materials, string prompt, CancellationToken cancellationToken = default)
             => Task.FromResult(result);
 
-        public Task<AiMaterialExtraction?> ExtractMaterialAsync(byte[] fileBytes, string fileName, CancellationToken cancellationToken = default)
+        public Task<AiMaterialExtraction?> ExtractMaterialAsync(
+            byte[] fileBytes, string fileName, string? subject = null, string? grade = null,
+            CancellationToken cancellationToken = default)
             => Task.FromResult<AiMaterialExtraction?>(null);
 
         public Task<List<AiRankedTutor>?> RankAsync(string? query, IReadOnlyList<string> candidateIds, int topK, CancellationToken cancellationToken = default)
