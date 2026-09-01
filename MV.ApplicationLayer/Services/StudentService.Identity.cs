@@ -119,7 +119,12 @@ namespace MV.ApplicationLayer.Services
                 resp.NeedAgeVerification = true;
                 resp.CanBook = false;
                 resp.ReasonCode = BookingErrorCodes.StudentIdentityNotVerified;
-                resp.Reason = "Bạn cần xác minh độ tuổi để có thể đặt lịch học";
+                // Đã nộp CCCD nhưng OCR thất bại nhiều lần → đang chờ Admin xem thủ công, không phải
+                // "chưa nộp gì" — nói rõ để học sinh không tưởng nhầm là phải chụp lại/nộp lại.
+                resp.IsPendingIdentityReview = user?.Isidentitypendingreview == true;
+                resp.Reason = resp.IsPendingIdentityReview
+                    ? "CCCD của bạn đang được quản trị viên xem xét thủ công, vui lòng chờ thông báo kết quả."
+                    : "Bạn cần xác minh độ tuổi để có thể đặt lịch học";
                 return resp;
             }
 

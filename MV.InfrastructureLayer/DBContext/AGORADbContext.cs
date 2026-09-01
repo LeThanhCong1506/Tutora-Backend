@@ -3357,6 +3357,12 @@ entity.HasOne(d => d.Tutor).WithOne(p => p.Tutorprofile)
             entity.Property(e => e.Isidentityverified)
                 .HasDefaultValue(false)
                 .HasColumnName("is_identity_verified");
+            entity.Property(e => e.Cccdocrfailedattempts)
+                .HasDefaultValue(0)
+                .HasColumnName("cccd_ocr_failed_attempts");
+            entity.Property(e => e.Isidentitypendingreview)
+                .HasDefaultValue(false)
+                .HasColumnName("is_identity_pending_review");
             entity.Property(e => e.Isphoneverified)
                 .HasDefaultValue(false)
                 .HasColumnName("is_phone_verified");

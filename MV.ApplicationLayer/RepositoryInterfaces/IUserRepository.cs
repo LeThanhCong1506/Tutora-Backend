@@ -55,6 +55,13 @@ namespace MV.ApplicationLayer.RepositoryInterfaces
         /// </summary>
         Task<bool> UpdateFcmTokenAsync(string userId, string fcmToken);
 
+        /// <summary>
+        /// Tăng <c>Cccdocrfailedattempts</c> thêm 1 và LƯU NGAY (không qua SaveChangesAsync của caller)
+        /// — cần thiết vì caller thường ném exception ngay sau khi gọi hàm này nếu chưa đủ ngưỡng
+        /// escalate, bỏ qua luôn bước lưu bình thường ở cuối luồng. Trả về giá trị đếm MỚI.
+        /// </summary>
+        Task<int> IncrementCccdOcrFailedAttemptsAsync(string userId);
+
 
 
         // Delete (Soft Delete)

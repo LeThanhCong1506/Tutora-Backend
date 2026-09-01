@@ -120,6 +120,21 @@ public partial class SettlementService : ISettlementService
             : null;
         try
         {
+            // Lock + re-check Issettled bằng bản KHÔNG qua identity map (AsNoTracking — classSession
+            // truyền vào đây có thể đã được nạp/track từ TRƯỚC transaction này, nên một query thường
+            // sẽ trả về đúng instance cũ đang track, không phản ánh giá trị mới nhất dưới DB).
+            // FOR UPDATE khiến 2 request settle đồng thời (xác nhận thủ công vs AutoConfirmClassSessionJob)
+            // cùng lúc CHỜ NHAU thay vì cùng đọc bản cũ rồi cùng ghi đè — bên tới sau, sau khi được mở
+            // khoá, sẽ thấy Issettled=true và bị chặn sạch sẽ ở đây thay vì rơi vào lỗi 40001 (serialization
+            // failure) của Postgres ở tận lúc CommitAsync.
+            var freshCheck = await ClassSessionLockHelper.LockById(_context, classSession.Classsessionid)
+                .AsNoTracking()
+                .SingleOrDefaultAsync()
+                ?? throw new ClassSessionException(ClassSessionErrorCodes.ClassSessionNotFound, "Không tìm thấy buổi học", 404);
+
+            if (freshCheck.Issettled == true)
+                throw new ClassSessionException(ClassSessionErrorCodes.ClassSessionAlreadyConfirmed, "Buổi học này đã được xác nhận rồi", 400);
+
             var tutorId = classSession.Tutorid;
 
             // Get tutor's wallet (row lock)
