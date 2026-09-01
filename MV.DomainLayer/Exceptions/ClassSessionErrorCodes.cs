@@ -18,6 +18,7 @@ public static class ClassSessionErrorCodes
     public const string NotCheckedIn = "NOT_CHECKED_IN";
     public const string NotCheckedOut = "NOT_CHECKED_OUT";
     public const string ReportAlreadySubmitted = "REPORT_ALREADY_SUBMITTED";
+    public const string TooEarlyToReportNoShow = "TOO_EARLY_TO_REPORT_NO_SHOW";
     public const string InvalidNoShowAction = "INVALID_NO_SHOW_ACTION";
     public const string MakeupTimeRequired = "MAKEUP_TIME_REQUIRED";
     public const string ClassSessionAlreadyConfirmed = "LESSON_ALREADY_CONFIRMED";
@@ -39,4 +40,9 @@ public static class ClassSessionErrorCodes
     // Buổi phụ (Iscontinuation) của buổi gốc đang Interrupted đã tự settle độc lập (Completed) rồi —
     // không cho nộp báo cáo buổi gốc nữa, tránh double-settle cùng 1 buổi học logic.
     public const string ContinuationAlreadySettled = "CONTINUATION_ALREADY_SETTLED";
+
+    // Buổi phụ đã check-in thật (InProgress) — hai bên đã có mặt và đang dạy dở — nên không cho
+    // "lách" qua bằng cách nộp báo cáo trên buổi gốc để hưởng full giá mà bỏ qua phần đã dạy dở
+    // đó (xem SubmitReportAsync). Chỉ buổi phụ còn Scheduled (chưa ai vào) mới được tự huỷ ngầm.
+    public const string ContinuationInProgress = "CONTINUATION_IN_PROGRESS";
 }

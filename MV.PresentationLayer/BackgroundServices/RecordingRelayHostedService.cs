@@ -31,6 +31,11 @@ public class RecordingRelayHostedService : BackgroundService
             {
                 using var scope = _scopeFactory.CreateScope();
                 var relay = scope.ServiceProvider.GetRequiredService<IRecordingRelayService>();
+
+                var recoveredCount = await relay.RecoverStuckRecordingsAsync(stoppingToken);
+                if (recoveredCount > 0)
+                    _logger.LogInformation("RecordingRelayHostedService: phục hồi {Count} bản ghi bị treo do stop() thất bại lúc checkout.", recoveredCount);
+
                 await relay.RelayPendingAsync(stoppingToken);
             }
             catch (Exception ex)

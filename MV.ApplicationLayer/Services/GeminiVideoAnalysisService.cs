@@ -433,7 +433,23 @@ public class GeminiVideoAnalysisService : IGeminiVideoAnalysisService
         var parsed = JsonSerializer.Deserialize<GeminiGenerateContentResponse>(responseBody, CamelCaseOptions);
         var candidate = parsed?.Candidates?.FirstOrDefault();
         if (candidate is null)
-            throw new GeminiResponseParseException("Gemini không trả về kết quả nào.");
+        {
+            // HTTP 200 nhưng candidates rỗng — thường là Gemini chặn ngay ở tầng PROMPT (trước khi
+            // sinh candidate nào), khác với chặn ở tầng candidate (FinishReason=SAFETY, đã có nhánh
+            // riêng bên dưới). promptFeedback.blockReason mới cho biết lý do thật; trước đây field
+            // này không được parse/log nên mọi lần rơi vào nhánh này đều là hộp đen, không tra được vì
+            // sao — log nguyên response ở đây (giống nhánh lỗi HTTP ở PostGenerateContentWithRetryAsync)
+            // để lần sau có gì để tra thay vì chỉ có đúng 1 câu chung chung.
+            var blockReason = parsed?.PromptFeedback?.BlockReason;
+            _logger.LogError(
+                "Gemini generateContent trả 200 nhưng candidates rỗng, caller={Caller} fileUri={FileUri} blockReason={BlockReason}: {Body}",
+                caller, fileUri, blockReason, responseBody);
+
+            throw new GeminiResponseParseException(
+                blockReason != null
+                    ? $"Gemini không trả về kết quả nào (bị chặn: {blockReason})."
+                    : "Gemini không trả về kết quả nào.");
+        }
 
         if (string.Equals(candidate.FinishReason, "SAFETY", StringComparison.OrdinalIgnoreCase))
             throw new GeminiResponseParseException("Nội dung video bị chặn bởi bộ lọc an toàn của Gemini, không thể tóm tắt.");
@@ -553,6 +569,14 @@ public class GeminiVideoAnalysisService : IGeminiVideoAnalysisService
     {
         public List<GeminiCandidate>? Candidates { get; set; }
         public GeminiUsageMetadata? UsageMetadata { get; set; }
+        public GeminiPromptFeedback? PromptFeedback { get; set; }
+    }
+
+    /// <summary>Chỉ có mặt khi Gemini chặn request ngay ở tầng prompt (candidates rỗng) — lý do thật
+    /// nằm ở BlockReason (vd "SAFETY", "BLOCKLIST", "PROHIBITED_CONTENT"...).</summary>
+    private class GeminiPromptFeedback
+    {
+        public string? BlockReason { get; set; }
     }
 
     private class GeminiUsageMetadata

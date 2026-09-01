@@ -1,7 +1,9 @@
+using Hangfire;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using MV.ApplicationLayer.Helpers;
+using MV.ApplicationLayer.ServiceInterfaces;
 using MV.ApplicationLayer.Services.Agora;
 using MV.DomainLayer.Constants;
 using MV.DomainLayer.DTO;
@@ -269,27 +271,44 @@ public partial class ClassSessionService
 
     public async Task<ClassSessionDetailResponse> CheckOutAsync(int classSessionId, string tutorId, CheckOutRequest request)
     {
-        var classSession = await _context.ClassSessions
-            .Include(l => l.Booking)
-            .FirstOrDefaultAsync(l => l.Classsessionid == classSessionId && l.Tutorid == tutorId)
-            ?? throw new ClassSessionException(ClassSessionErrorCodes.ClassSessionNotFound, "Không tìm thấy buổi học", 404);
+        await using var tx = await _context.Database.BeginTransactionAsync();
+        try
+        {
+            // Lock trước khi đọc Status: SubmitReportAsync và RequestInterruptionAsync đều có thể
+            // đang chuyển Status của CÙNG session này cùng lúc (ClassSession không có concurrency
+            // token) — không lock sẽ để bên ghi sau âm thầm đè lên claim của bên trước (VD: gia sư
+            // vừa checkout xong nhưng bị RequestInterruptionAsync lật ngược lại thành Interrupted).
+            var classSession = await ClassSessionLockHelper.LockById(_context, classSessionId)
+                .Include(l => l.Booking)
+                .SingleOrDefaultAsync()
+                ?? throw new ClassSessionException(ClassSessionErrorCodes.ClassSessionNotFound, "Không tìm thấy buổi học", 404);
 
-        if (classSession.Status != InProgress)
-            throw new ClassSessionException(ClassSessionErrorCodes.InvalidClassSessionStatus, "Buổi học không ở trạng thái đang diễn ra", 400);
+            if (classSession.Tutorid != tutorId)
+                throw new ClassSessionException(ClassSessionErrorCodes.ClassSessionNotFound, "Không tìm thấy buổi học", 404);
 
-        if (!classSession.Checkintime.HasValue)
-            throw new ClassSessionException(ClassSessionErrorCodes.NotCheckedIn, "Vui lòng điểm danh vào trước", 400);
+            if (classSession.Status != InProgress)
+                throw new ClassSessionException(ClassSessionErrorCodes.InvalidClassSessionStatus, "Buổi học không ở trạng thái đang diễn ra", 400);
 
-        classSession.Checkouttime = TimeZoneHelper.UtcNow;
-        classSession.Realend = TimeZoneHelper.UtcNow;
+            if (!classSession.Checkintime.HasValue)
+                throw new ClassSessionException(ClassSessionErrorCodes.NotCheckedIn, "Vui lòng điểm danh vào trước", 400);
 
-        await _context.SaveChangesAsync();
-        _logger.LogInformation("Tutor {TutorId} checked out from classSession {ClassSessionId}", tutorId, classSessionId);
+            classSession.Checkouttime = TimeZoneHelper.UtcNow;
+            classSession.Realend = TimeZoneHelper.UtcNow;
 
-        // ── Tự động dừng Cloud Recording (nếu đang record) ──
-        await TryStopRecordingAsync(classSession);
+            // ── Tự động dừng Cloud Recording (nếu đang record) ──
+            await TryStopRecordingAsync(classSession);
 
-        return (await GetTutorClassSessionDetailAsync(classSessionId, tutorId))!;
+            await _context.SaveChangesAsync();
+            await tx.CommitAsync();
+            _logger.LogInformation("Tutor {TutorId} checked out from classSession {ClassSessionId}", tutorId, classSessionId);
+
+            return (await GetTutorClassSessionDetailAsync(classSessionId, tutorId))!;
+        }
+        catch
+        {
+            await tx.RollbackAsync();
+            throw;
+        }
     }
 
     /// <summary>
@@ -344,21 +363,140 @@ public partial class ClassSessionService
     }
 
     /// <summary>
+    /// Số giờ chờ thêm SAU KHI phòng đã bị <see cref="AutoCloseExpiredLiveSessionsAsync"/> ép đóng
+    /// (Checkouttime đã có giá trị) mà gia sư vẫn không nộp báo cáo. Qua mốc này, hệ thống tự nộp 1
+    /// báo cáo rỗng thay gia sư — không có bất kỳ job/luồng nào khác từng đưa được buổi ra khỏi
+    /// InProgress nếu SubmitReportAsync/RequestInterruptionAsync không được chính người dùng gọi
+    /// (kể cả Dispute cũng không nhận session đang InProgress, xem DisputeSettlementPolicy), nên nếu
+    /// gia sư đóng trình duyệt luôn sau khi bị ép đóng phòng, session/Booking.Sessionsremaining/escrow
+    /// sẽ kẹt vĩnh viễn nếu không có bước này. Phụ huynh vẫn có đủ 12h xác nhận bình thường
+    /// (Confirmdeadline, giống mọi báo cáo khác) để tranh chấp nếu thấy buổi không hợp lý.
+    /// </summary>
+    public const int AutoSubmitMissingReportAfterHours = 6;
+
+    /// <summary>
+    /// Tự nộp 1 báo cáo hệ thống cho các buổi <c>in_progress</c> đã bị ép đóng phòng quá
+    /// <see cref="AutoSubmitMissingReportAfterHours"/> giờ mà gia sư chưa từng nộp báo cáo thật —
+    /// dùng bởi background job (chạy cùng nhịp với AutoCloseExpiredLiveSessionsAsync). Chuyển
+    /// InProgress → PendingConfirmation với Confirmdeadline = giờ chạy job + 12h, đi đúng pipeline
+    /// xác nhận/tự-động-thanh-toán sẵn có (AutoConfirmClassSessionJob) như mọi báo cáo bình thường.
+    /// Thông báo cho cả gia sư lẫn phụ huynh (giống báo cáo thật, xem SubmitReportAsync) — phụ huynh
+    /// cần biết để vào xác nhận/tranh chấp trong 12h, không thì không ai hay có báo cáo mới đang chờ.
+    /// Trả về số buổi đã tự nộp thay.
+    /// </summary>
+    public async Task<int> AutoSubmitMissingReportsAsync(CancellationToken ct = default)
+    {
+        var now = TimeZoneHelper.UtcNow;
+        var cutoff = now.AddHours(-AutoSubmitMissingReportAfterHours);
+
+        var stuckSessions = await _context.ClassSessions
+            .Include(l => l.Booking)
+                .ThenInclude(b => b!.Student)
+            .Where(l => l.Status == InProgress
+                && l.Checkouttime != null
+                && l.Checkouttime <= cutoff
+                && !_context.ClassSessionReports.Any(r => r.Classsessionid == l.Classsessionid))
+            .ToListAsync(ct);
+
+        if (stuckSessions.Count == 0) return 0;
+
+        var autoSubmittedCount = 0;
+        foreach (var classSession in stuckSessions)
+        {
+            try
+            {
+                classSession.Status = PendingConfirmation;
+                classSession.Submittedat = now;
+                classSession.Confirmdeadline = now.AddHours(12);
+
+                _context.ClassSessionReports.Add(new ClassSessionReport
+                {
+                    Classsessionid = classSession.Classsessionid,
+                    Createdbytutorid = classSession.Tutorid,
+                    Contentcovered = "[Hệ thống tự nộp] Không nhận được báo cáo từ gia sư sau khi phòng đã tự đóng.",
+                    Createdat = now
+                });
+
+                await _context.SaveChangesAsync(ct);
+                autoSubmittedCount++;
+
+                _logger.LogWarning(
+                    "Tự động nộp báo cáo thay cho buổi học {ClassSessionId}: gia sư không nộp báo cáo sau {Hours}h kể từ khi phòng tự đóng.",
+                    classSession.Classsessionid, AutoSubmitMissingReportAfterHours);
+
+                if (!string.IsNullOrEmpty(classSession.Tutorid))
+                {
+                    try
+                    {
+                        await _notificationService.CreateNotificationAsync(new NotificationRequest
+                        {
+                            Userid = classSession.Tutorid,
+                            Title = "Buổi học đã tự động được chốt",
+                            Message = $"Buổi học #{classSession.Classsessionid} đã bị hệ thống tự động chốt do bạn không nộp báo cáo. Vui lòng liên hệ hỗ trợ nếu có sai sót.",
+                            Type = NotificationType.LessonReport,
+                            Referenceid = classSession.Classsessionid.ToString()
+                        });
+                    }
+                    catch (Exception notifyEx)
+                    {
+                        _logger.LogWarning(notifyEx, "Không thể gửi thông báo tự nộp báo cáo cho buổi học {ClassSessionId}", classSession.Classsessionid);
+                    }
+                }
+
+                // Báo cáo hệ thống tự nộp vẫn đi vào đúng pipeline Confirmdeadline=12h như báo cáo
+                // thật (xem SubmitReportAsync) — phụ huynh phải được biết để vào xác nhận/tranh chấp,
+                // nếu không sẽ không ai hay có báo cáo mới đang chờ.
+                var parentId = classSession.Booking?.Student?.Parentid;
+                if (!string.IsNullOrEmpty(parentId))
+                {
+                    try
+                    {
+                        await _notificationService.CreateNotificationAsync(new NotificationRequest
+                        {
+                            Userid = parentId,
+                            Title = "Buổi học đã tự động được chốt",
+                            Message = $"Buổi học #{classSession.Classsessionid} đã bị hệ thống tự động chốt do gia sư không nộp báo cáo. Vui lòng kiểm tra và xác nhận trong vòng 12h.",
+                            Type = NotificationType.LessonReport,
+                            Referenceid = classSession.Classsessionid.ToString()
+                        });
+                    }
+                    catch (Exception notifyEx)
+                    {
+                        _logger.LogWarning(notifyEx, "Không thể gửi thông báo tự nộp báo cáo cho phụ huynh của buổi học {ClassSessionId}", classSession.Classsessionid);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Không thể tự nộp báo cáo thay cho buổi học {ClassSessionId}.", classSession.Classsessionid);
+            }
+        }
+
+        return autoSubmittedCount;
+    }
+
+    /// <summary>
     /// Buổi học bị ngắt giữa chừng chỉ được phép có buổi phụ trong đúng ngày bị ngắt (xem
     /// <see cref="RequestInterruptionAsync"/> và guard tương ứng trong
     /// ClassSessionRescheduleProposalService.ProposeAsync). Nếu qua nửa đêm của ngày đó
     /// (Interruptedat.Date + 1 ngày, UTC thuần) mà vẫn chưa xử lý xong, tự đóng buổi gốc theo 1
-    /// trong 2 nhánh, tuỳ buổi phụ đã CÓ BÁO CÁO/settle chưa (buổi phụ có thể đi hết vòng đời bình
-    /// thường của riêng nó — check-in → report → confirm/auto-confirm → settle — nếu được học thật
-    /// mà không skip):
-    /// - Buổi phụ CHƯA có báo cáo nào (null, còn Scheduled = chưa vào, hoặc InProgress = đã vào
-    ///   nhưng chưa nộp báo cáo): buổi gốc được settle qua đường bỏ-qua-status-guard mà dispute đang
-    ///   dùng (SettleDisputedClassSessionAsync) nên chuyển thẳng sang Completed và trừ
-    ///   Sessionsremaining đúng 1 lần dù đang ở Interrupted (trạng thái mà SettleClassSessionAsync
-    ///   bình thường sẽ từ chối); buổi phụ Scheduled/InProgress chuyển sang Cancelled luôn (nếu đang
-    ///   InProgress thì đóng phòng + dừng ghi hình trước) để không còn nằm "lơ lửng" trên dashboard —
-    ///   qua mốc nửa đêm này thì chắc chắn không còn cơ hội nộp báo cáo cho nó nữa nên huỷ luôn là an
-    ///   toàn, không mất dữ liệu gì (2 trạng thái này chưa từng gắn báo cáo/tiền nào).
+    /// trong 3 nhánh, tuỳ buổi phụ đã đi tới đâu (buổi phụ có thể đi hết vòng đời bình thường của
+    /// riêng nó — check-in → report → confirm/auto-confirm → settle — nếu được học thật mà không skip):
+    /// - Buổi phụ CHƯA từng có ai vào (null hoặc Scheduled): buổi gốc được settle qua đường bỏ-qua-
+    ///   status-guard mà dispute đang dùng (SettleDisputedClassSessionAsync) nên chuyển thẳng sang
+    ///   Completed và trừ Sessionsremaining đúng 1 lần dù đang ở Interrupted (trạng thái mà
+    ///   SettleClassSessionAsync bình thường sẽ từ chối); buổi phụ Scheduled chuyển sang Cancelled
+    ///   luôn — qua mốc nửa đêm này thì chắc chắn không còn cơ hội nộp báo cáo cho nó nữa nên huỷ
+    ///   luôn là an toàn, không mất dữ liệu gì (chưa ai từng thực học nên không có gì để mất).
+    /// - Buổi phụ đã check-in thật (InProgress — 2 bên đã vào phòng, có nỗ lực học thật) nhưng không
+    ///   ai nộp báo cáo trước hạn: KHÔNG được coi như nhánh trên, vì tự settle buổi gốc "đã dạy đủ
+    ///   100%" trong khi phần đã dạy dở ở buổi phụ bị âm thầm huỷ trắng là bất công — cùng gốc bug đã
+    ///   xảy ra ở booking #313 (dev) qua cửa SubmitReportAsync (xem
+    ///   <see cref="MV.DomainLayer.Exceptions.ClassSessionErrorCodes.ContinuationInProgress"/>). Đóng
+    ///   phòng + huỷ buổi phụ cho gọn, nhưng buổi gốc chuyển sang Disputed và hệ thống tự tạo 1
+    ///   Dispute (Other, Pending) để admin xem lại và tự chọn mức hoàn/giải ngân qua đúng luồng
+    ///   ResolveDisputeAsync sẵn có — hệ thống không tự phán quyết tiền ở bước này, giống hệt cách
+    ///   <see cref="AutoReportMissedSessionsAsync"/> xử lý no-show 2 phía.
     /// - Buổi phụ ĐÃ có báo cáo (PendingConfirmation = đang chờ xác nhận, hoặc
     ///   Completed/Issettled = đã tự trừ Sessionsremaining và tự tính vào deliveredCount của
     ///   ReleaseEscrowIfBookingCompleteAsync rồi): buổi gốc KHÔNG được settle lại và buổi phụ KHÔNG bị
@@ -391,6 +529,9 @@ public partial class ClassSessionService
                 // không settle lại buổi gốc, và không đụng vào buổi phụ.
                 var continuationAlreadySettled = continuation != null
                     && (continuation.Status == PendingConfirmation || continuation.Status == Completed || continuation.Issettled == true);
+                var continuationWasInProgress = continuation is { Status: InProgress };
+
+                int? autoDisputeId = null;
 
                 if (continuationAlreadySettled)
                 {
@@ -399,23 +540,51 @@ public partial class ClassSessionService
                     original.Status = Cancelled;
                     await _context.SaveChangesAsync(ct);
                 }
+                else if (continuationWasInProgress)
+                {
+                    // Đã có nỗ lực học thật ở buổi phụ nhưng không ai nộp báo cáo trước hạn — đóng
+                    // phòng cho gọn rồi để admin quyết định qua Dispute, không tự cấp full giá.
+                    continuation!.Checkouttime ??= now;
+                    continuation.Realend ??= now;
+                    await TryStopRecordingAsync(continuation);
+                    continuation.Status = Cancelled;
+
+                    original.Status = Disputed;
+                    var dispute = new Dispute
+                    {
+                        Classsessionid = original.Classsessionid,
+                        Bookingid = original.Bookingid,
+                        Createdby = SystemActors.System,
+                        Disputetype = DisputeTypes.Other,
+                        Reason = $"[Hệ thống tự phát hiện] Buổi học #{original.Classsessionid} bị ngắt giữa chừng, buổi phụ #{continuation.Classsessionid} đã có người vào phòng nhưng không bên nào nộp báo cáo trước khi hết hạn xử lý trong ngày. Cần admin xem lại và quyết định mức hoàn/giải ngân.",
+                        Status = DisputeStatus.Pending,
+                        Createdat = now
+                    };
+                    _context.Disputes.Add(dispute);
+                    await _context.SaveChangesAsync(ct);
+                    autoDisputeId = dispute.Disputeid;
+
+                    try
+                    {
+                        _backgroundJobClient.Enqueue<IDisputeService>(
+                            s => s.ClassifyDisputePriorityAsync(dispute.Disputeid, SystemActors.System, true));
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Failed to enqueue priority classification job for auto-detected interruption dispute {DisputeId}", dispute.Disputeid);
+                    }
+                }
                 else
                 {
                     // SettleDisputedClassSessionAsync tự mở transaction Serializable riêng của nó —
                     // không bọc thêm transaction ở đây để tránh nested-transaction.
                     await _settlementService.SettleDisputedClassSessionAsync(original.Classsessionid);
 
-                    // Buổi phụ chưa từng có báo cáo (Scheduled = chưa vào, InProgress = đã vào nhưng
-                    // chưa nộp báo cáo) — qua mốc nửa đêm này chắc chắn không còn cơ hội nộp báo cáo
-                    // cho nó nữa, huỷ luôn để không treo lơ lửng vĩnh viễn trên dashboard.
-                    if (continuation is { Status: Scheduled or InProgress })
+                    // Buổi phụ chưa từng có ai vào (null hoặc Scheduled) — qua mốc nửa đêm này chắc
+                    // chắn không còn cơ hội nộp báo cáo cho nó nữa, huỷ luôn để không treo lơ lửng
+                    // vĩnh viễn trên dashboard.
+                    if (continuation is { Status: Scheduled })
                     {
-                        if (continuation.Status == InProgress)
-                        {
-                            continuation.Checkouttime ??= now;
-                            continuation.Realend ??= now;
-                            await TryStopRecordingAsync(continuation);
-                        }
                         continuation.Status = Cancelled;
                         await _context.SaveChangesAsync(ct);
                     }
@@ -429,36 +598,43 @@ public partial class ClassSessionService
                     var parentId = original.Booking?.Student?.Parentid ?? original.Booking?.Parentid;
                     var tutorAndStudentMessage = continuationAlreadySettled
                         ? $"Buổi học #{original.Classsessionid} bị ngắt giữa chừng đã được hoàn tất thông qua buổi học bù. Hệ thống đã tự động đóng buổi học gốc."
-                        : $"Buổi học #{original.Classsessionid} bị ngắt giữa chừng và đã quá thời hạn học tiếp trong ngày. Hệ thống đã tự động ghi nhận hoàn tất buổi học.";
+                        : continuationWasInProgress
+                            ? $"Buổi học #{original.Classsessionid} bị ngắt giữa chừng và buổi phụ đã quá hạn nộp báo cáo. Hệ thống đã tạo tranh chấp #{autoDisputeId} để admin xem lại — không có gì được tự động chốt."
+                            : $"Buổi học #{original.Classsessionid} bị ngắt giữa chừng và đã quá thời hạn học tiếp trong ngày. Hệ thống đã tự động ghi nhận hoàn tất buổi học.";
                     var parentMessage = continuationAlreadySettled
                         ? $"Buổi học #{original.Classsessionid} của con bạn bị ngắt giữa chừng đã được hoàn tất thông qua buổi học bù. Hệ thống đã tự động đóng buổi học gốc."
-                        : $"Buổi học #{original.Classsessionid} của con bạn bị ngắt giữa chừng và đã quá thời hạn học tiếp trong ngày. Hệ thống đã tự động ghi nhận hoàn tất buổi học.";
+                        : continuationWasInProgress
+                            ? $"Buổi học #{original.Classsessionid} của con bạn bị ngắt giữa chừng và buổi phụ đã quá hạn nộp báo cáo. Hệ thống đã tạo tranh chấp #{autoDisputeId} để admin xem lại — không có gì được tự động chốt."
+                            : $"Buổi học #{original.Classsessionid} của con bạn bị ngắt giữa chừng và đã quá thời hạn học tiếp trong ngày. Hệ thống đã tự động ghi nhận hoàn tất buổi học.";
+                    var notificationType = continuationWasInProgress
+                        ? NotificationType.DisputeResolved
+                        : NotificationType.LessonInterruptionAutoClosed;
                     var notifications = new List<NotificationRequest>();
                     if (!string.IsNullOrWhiteSpace(original.Tutorid))
                         notifications.Add(new NotificationRequest
                         {
                             Userid = original.Tutorid,
-                            Title = "Buổi học bị ngắt đã tự động hoàn tất",
+                            Title = continuationWasInProgress ? "Buổi học bị ngắt đang chờ admin xem lại" : "Buổi học bị ngắt đã tự động hoàn tất",
                             Message = tutorAndStudentMessage,
-                            Type = NotificationType.LessonInterruptionAutoClosed,
+                            Type = notificationType,
                             Referenceid = original.Classsessionid.ToString()
                         });
                     if (!string.IsNullOrWhiteSpace(studentUserId))
                         notifications.Add(new NotificationRequest
                         {
                             Userid = studentUserId,
-                            Title = "Buổi học bị ngắt đã tự động hoàn tất",
+                            Title = continuationWasInProgress ? "Buổi học bị ngắt đang chờ admin xem lại" : "Buổi học bị ngắt đã tự động hoàn tất",
                             Message = tutorAndStudentMessage,
-                            Type = NotificationType.LessonInterruptionAutoClosed,
+                            Type = notificationType,
                             Referenceid = original.Classsessionid.ToString()
                         });
                     if (!string.IsNullOrWhiteSpace(parentId))
                         notifications.Add(new NotificationRequest
                         {
                             Userid = parentId,
-                            Title = "Buổi học bị ngắt đã tự động hoàn tất",
+                            Title = continuationWasInProgress ? "Buổi học bị ngắt đang chờ admin xem lại" : "Buổi học bị ngắt đã tự động hoàn tất",
                             Message = parentMessage,
-                            Type = NotificationType.LessonInterruptionAutoClosed,
+                            Type = notificationType,
                             Referenceid = original.Classsessionid.ToString()
                         });
 
@@ -477,6 +653,27 @@ public partial class ClassSessionService
         }
 
         return closedCount;
+    }
+
+    /// <summary>
+    /// True nếu gia sư <paramref name="tutorId"/> đã có 1 buổi học khác (không tính
+    /// <paramref name="excludeSessionId"/>, không tính buổi đã Cancelled/CancelledNoshow) chồng giờ
+    /// với khung [<paramref name="start"/>, <paramref name="end"/>) — dùng chung cho buổi bù no-show
+    /// (<see cref="CreateMakeupClassSessionAsync"/>) và buổi phụ do ngắt kết nối
+    /// (<see cref="RequestInterruptionAsync"/>), cả 2 đều tự sinh giờ học mới mà không hỏi lại gia
+    /// sư trước, nên phải tự chống double-book thay vì để người dùng tự phát hiện sau.
+    /// </summary>
+    private async Task<bool> HasTutorSchedulingConflictAsync(string? tutorId, int excludeSessionId, DateTime start, DateTime end)
+    {
+        if (string.IsNullOrEmpty(tutorId)) return false;
+
+        return await _context.ClassSessions.AnyAsync(l =>
+            l.Tutorid == tutorId
+            && l.Classsessionid != excludeSessionId
+            && l.Status != Cancelled
+            && l.Status != CancelledNoshow
+            && l.Scheduledstart < end
+            && l.Scheduledend > start);
     }
 
     /// <summary>
@@ -629,9 +826,12 @@ public partial class ClassSessionService
 
             // Ngoại lệ 2: buổi bị báo ngắt (status=interrupted) không bao giờ tự quay lại in_progress
             // được nữa (xem RequestInterruptionAsync). Quyết định sản phẩm: cho gửi báo cáo NGAY khi
-            // đang interrupted, không cần chờ 2 bên đồng ý bỏ buổi phụ nữa — nộp báo cáo xong coi
-            // như buổi đã chốt, bất kể buổi phụ có được học hay không. Nếu có buổi phụ đang Scheduled
-            // chưa dùng, tự huỷ luôn trong cùng transaction để không treo lơ lửng (xem bên dưới).
+            // đang interrupted, không cần chờ 2 bên đồng ý bỏ buổi phụ nữa — NHƯNG chỉ khi buổi phụ
+            // chưa từng có ai vào (Scheduled); nếu buổi phụ đã check-in thật (InProgress) thì KHÔNG
+            // cho chốt buổi gốc kiểu này nữa (xem throw ContinuationInProgress bên dưới) — tránh gia
+            // sư "lách" ngắt sớm rồi bỏ qua phần đã dạy dở ở buổi phụ để hưởng full giá buổi gốc. Nếu
+            // buổi phụ đang Scheduled chưa dùng, tự huỷ luôn trong cùng transaction để không treo lơ
+            // lửng (xem bên dưới).
             //
             // Nhưng nếu buổi phụ đã CÓ báo cáo/tiền thật gắn vào rồi — đang chờ xác nhận
             // (PendingConfirmation) hoặc đã xong (Completed/Issettled, đã tự trừ Sessionsremaining +
@@ -652,10 +852,18 @@ public partial class ClassSessionService
                         $"Buổi phụ #{continuation.Classsessionid} đã có báo cáo/được xử lý rồi — buổi học này đã được coi là xong, không cần nộp báo cáo nữa.",
                         400);
 
-                // Buổi phụ chưa từng có báo cáo (Scheduled = chưa vào, InProgress = đã vào nhưng chưa
-                // nộp báo cáo) — huỷ luôn cùng lúc với việc chốt buổi gốc để không treo lơ lửng vĩnh
-                // viễn; không mất dữ liệu gì vì chưa có báo cáo/settle nào gắn vào nó ở 2 trạng thái này.
-                if (continuation is { Status: Scheduled or InProgress })
+                // Buổi phụ đã check-in thật (InProgress, 2 bên đã vào phòng và đang dạy dở) — không
+                // cho nộp báo cáo buổi gốc để "lách" qua phần đã dạy dở đó và hưởng full giá buổi
+                // gốc trong khi buổi phụ chưa hề được ghi nhận. Bắt nộp báo cáo trên chính buổi phụ.
+                if (continuation is { Status: InProgress })
+                    throw new ClassSessionException(
+                        ClassSessionErrorCodes.ContinuationInProgress,
+                        $"Buổi phụ #{continuation.Classsessionid} đang diễn ra (đã điểm danh vào) — vui lòng nộp báo cáo trên buổi phụ đó, không nộp trên buổi gốc.",
+                        400);
+
+                // Buổi phụ chưa từng có ai vào (Scheduled) — huỷ luôn cùng lúc với việc chốt buổi
+                // gốc để không treo lơ lửng vĩnh viễn; không mất dữ liệu gì vì chưa ai thực học.
+                if (continuation is { Status: Scheduled })
                     continuationToCancel = continuation;
             }
 
@@ -678,6 +886,20 @@ public partial class ClassSessionService
             classSession.Attendancenote = isSoloTutorNoShow
                 ? $"[Học viên không vào lớp] {request.AttendanceNote}".Trim()
                 : request.AttendanceNote;
+
+            // Buổi đã check-in thật (Checkintime có giá trị) nhưng gia sư nộp báo cáo TRƯỚC khi
+            // bấm "Kết thúc buổi học" (CheckOutAsync chưa từng được gọi): phải tự đóng phòng +
+            // dừng ghi hình ngay tại đây. Nếu không, Status chuyển PendingConfirmation ngay bên
+            // dưới khiến CheckOutAsync (yêu cầu Status==InProgress) vĩnh viễn không gọi được nữa,
+            // và Cloud Recording sẽ không còn bất kỳ đường nào để dừng (AutoCloseExpiredLiveSessionsAsync
+            // cũng chỉ quét Status==InProgress, không còn khớp session này nữa).
+            if (classSession.Checkintime.HasValue && !classSession.Checkouttime.HasValue)
+            {
+                classSession.Checkouttime = now;
+                classSession.Realend = now;
+                await TryStopRecordingAsync(classSession);
+            }
+
             classSession.Status = PendingConfirmation;
             classSession.Submittedat = now;
             classSession.Confirmdeadline = now.AddHours(12);
@@ -721,19 +943,10 @@ public partial class ClassSessionService
                 classSession.Booking.Paymentdueat = RemainingPaymentDeadlinePolicy.ComputeDeadline(now, earliestReservedStart);
             }
 
+            // Luôn còn Scheduled (chưa ai vào phòng) — nhánh InProgress đã bị chặn bằng throw ở trên,
+            // nên không cần đóng phòng/dừng ghi hình ở đây.
             if (continuationToCancel != null)
-            {
-                if (continuationToCancel.Status == InProgress)
-                {
-                    // Buổi phụ đang được dạy dở (hoặc còn mở phòng) đúng lúc buổi gốc bị chốt — đóng
-                    // phòng + dừng ghi hình của nó trước khi huỷ, tránh treo 1 kết nối/recorder không ai
-                    // dọn.
-                    continuationToCancel.Checkouttime ??= now;
-                    continuationToCancel.Realend ??= now;
-                    await TryStopRecordingAsync(continuationToCancel);
-                }
                 continuationToCancel.Status = Cancelled;
-            }
 
             await _context.SaveChangesAsync();
             await tx.CommitAsync();
@@ -790,10 +1003,14 @@ public partial class ClassSessionService
         await using var tx = await _context.Database.BeginTransactionAsync();
         try
         {
-            var classSession = await _context.ClassSessions
+            // Lock trước khi đọc Status: CheckOutAsync/SubmitReportAsync có thể đang chuyển Status
+            // của CÙNG session này cùng lúc (ClassSession không có concurrency token) — không lock
+            // sẽ để bên ghi sau âm thầm đè lên claim của bên trước (VD: gia sư vừa checkout xong
+            // nhưng bị request này lật ngược lại thành Interrupted, sinh buổi phụ thừa).
+            var classSession = await ClassSessionLockHelper.LockById(_context, classSessionId)
                 .Include(l => l.Booking)
                     .ThenInclude(b => b!.Student)
-                .FirstOrDefaultAsync(l => l.Classsessionid == classSessionId)
+                .SingleOrDefaultAsync()
                 ?? throw new ClassSessionException(ClassSessionErrorCodes.ClassSessionNotFound, "Không tìm thấy buổi học", 404);
 
             var studentUserId = classSession.Booking?.Student?.Linkeduserid;
@@ -848,6 +1065,38 @@ public partial class ClassSessionService
             await TryStopRecordingAsync(classSession);
 
             var continuation = ClassSessionInterruptionPolicy.BuildContinuationSession(classSession, now);
+
+            // Giờ mặc định (now+1h) do HỆ THỐNG tự tính, không phải gia sư chọn — nếu trùng lịch dạy
+            // khác của chính gia sư này, tự dời từng 30 phút (tối đa 3 tiếng, tính từ giờ mặc định
+            // now+1h — tổng cộng thử trong khung 4h kể từ bây giờ) thay vì chặn cứng request ngắt
+            // buổi (người dùng không hề nhập giờ này để mà sửa lại). Nếu vẫn không tìm được khe
+            // trống, giữ nguyên giờ mặc định cuối cùng, chỉ log cảnh báo, VÀ báo rõ cho gia sư biết
+            // (xem notification LessonContinuationScheduleConflict bên dưới) — 2 bên vẫn có thể tự
+            // dùng luồng "Đề xuất đổi lịch" sẵn có để thương lượng lại (Status vẫn Scheduled nên
+            // tương thích), chỉ là hệ thống không tự đoán được khe trống nào hợp lý hơn nữa.
+            const int maxShiftAttempts = 6;
+            var shift = TimeSpan.FromMinutes(30);
+            var scheduleConflictRemains = false;
+            for (var attempt = 0; attempt < maxShiftAttempts; attempt++)
+            {
+                var hasConflict = await HasTutorSchedulingConflictAsync(
+                    classSession.Tutorid, classSessionId, continuation.Scheduledstart, continuation.Scheduledend);
+                if (!hasConflict)
+                {
+                    scheduleConflictRemains = false;
+                    break;
+                }
+
+                scheduleConflictRemains = true;
+                continuation.Scheduledstart = continuation.Scheduledstart.Add(shift);
+                continuation.Scheduledend = continuation.Scheduledend.Add(shift);
+
+                if (attempt == maxShiftAttempts - 1)
+                    _logger.LogWarning(
+                        "Buổi phụ cho classSession {ClassSessionId} vẫn trùng lịch gia sư sau {Attempts} lần tự dời giờ — giữ nguyên giờ {Start:o}, cần 2 bên tự đề xuất đổi lịch.",
+                        classSessionId, maxShiftAttempts, continuation.Scheduledstart);
+            }
+
             _context.ClassSessions.Add(continuation);
 
             await _context.SaveChangesAsync();
@@ -902,6 +1151,28 @@ public partial class ClassSessionService
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Không thể gửi thông báo tạo buổi phụ cho classSession {ClassSessionId}", classSessionId);
+            }
+
+            // Hệ thống đã thử tự tìm giờ trong 1h mặc định + 3h tự dời mà vẫn không ra khe trống —
+            // phải báo rõ với gia sư lý do (đang có lịch dạy trùng), không thì gia sư không biết
+            // buổi phụ đang được tạo ở giờ nào để mà tự đề xuất đổi lịch.
+            if (scheduleConflictRemains && !string.IsNullOrWhiteSpace(classSession.Tutorid))
+            {
+                try
+                {
+                    await _notificationService.CreateNotificationAsync(new NotificationRequest
+                    {
+                        Userid = classSession.Tutorid,
+                        Title = "Chưa thể sắp xếp buổi học phụ",
+                        Message = $"Hệ thống chưa thể tự sắp xếp giờ học phù hợp cho buổi học phụ #{continuation.Classsessionid} (của buổi #{classSessionId} bị ngắt giữa chừng) vì bạn đã có lịch dạy khác trùng khung giờ đó. Vui lòng chủ động đề xuất đổi lịch cho buổi học phụ này.",
+                        Type = NotificationType.LessonContinuationScheduleConflict,
+                        Referenceid = continuation.Classsessionid.ToString()
+                    });
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Không thể gửi thông báo xung đột lịch buổi phụ cho classSession {ClassSessionId}", classSessionId);
+                }
             }
 
             return (await GetTutorClassSessionDetailAsync(classSessionId, classSession.Tutorid!))!;

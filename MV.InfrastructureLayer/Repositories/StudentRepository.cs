@@ -9,7 +9,17 @@ namespace MV.InfrastructureLayer.Repositories
     public class StudentRepository : IStudentRepository
     {
         private readonly AgoraDbContext _context;
-        private static readonly string[] ActiveBookingStatuses = [BookingStatus.PendingTutor, BookingStatus.PendingPayment, BookingStatus.Paid, BookingStatus.Ongoing];
+        // Bao gồm cả DepositPaid/PendingRemainingPayment — trước đây thiếu 2 trạng thái này nên
+        // học sinh đã đóng cọc/đang chờ thanh toán phần còn lại vẫn có thể bị xoá nhầm.
+        private static readonly string[] ActiveBookingStatuses =
+        [
+            BookingStatus.PendingTutor,
+            BookingStatus.PendingPayment,
+            BookingStatus.Paid,
+            BookingStatus.DepositPaid,
+            BookingStatus.PendingRemainingPayment,
+            BookingStatus.Ongoing
+        ];
 
         public StudentRepository(AgoraDbContext context)
             => _context = context ?? throw new ArgumentNullException(nameof(context));
@@ -60,6 +70,12 @@ namespace MV.InfrastructureLayer.Repositories
         public Task<bool> HasActiveBookingAsync(string studentId)
             => _context.Bookings
                 .AnyAsync(b => b.Studentid == studentId && ActiveBookingStatuses.Contains(b.Status!));
+
+        public Task<bool> HasOpenDisputeAsync(string studentId)
+            => _context.Disputes
+                .AnyAsync(d => d.Booking!.Studentid == studentId
+                    && d.Status != DisputeStatus.Resolved
+                    && d.Status != DisputeStatus.Closed);
 
         public async Task<bool> IsStudentCodeUniqueAsync(string code)
         {
