@@ -124,8 +124,14 @@ public class ClassSessionRepository(AgoraDbContext context) : IClassSessionRepos
                 BookingId = b.Bookingid,
                 SubjectName = b.Tutorsubjectgradeprice!.Subject!.Subjectname,
                 StudentName = b.Student!.Fullname,
-                TotalSessions = b.ClassSessions.Count(l => l.Status != ClassSessionStatus.Cancelled && l.Status != ClassSessionStatus.CancelledNoshow && l.Status != ClassSessionStatus.Reserved),
-                CompletedSessions = b.ClassSessions.Count(l => l.Status == ClassSessionStatus.Completed),
+                TotalSessions = b.Totalsessions ?? b.ClassSessions.Count(l => l.Status != ClassSessionStatus.Cancelled && l.Status != ClassSessionStatus.CancelledNoshow && l.Status != ClassSessionStatus.Reserved),
+                CompletedSessions =
+                    b.ClassSessions.Count(l => l.Status == ClassSessionStatus.Completed && !l.Iscontinuation && !l.Isdisputerelearn)
+                    + b.ClassSessions.Count(l => !l.Iscontinuation && !l.Isdisputerelearn
+                        && (l.Status == ClassSessionStatus.Cancelled || l.Status == ClassSessionStatus.CancelledNoshow)
+                        && b.ClassSessions.Any(r => r.Originalsessionid == l.Classsessionid
+                            && (r.Iscontinuation || r.Isdisputerelearn)
+                            && r.Status == ClassSessionStatus.Completed)),
                 ActiveSessions = b.ClassSessions.Count(l => l.Status != ClassSessionStatus.Cancelled && l.Status != ClassSessionStatus.CancelledNoshow && l.Status != ClassSessionStatus.Reserved),
                 HasInProgress = b.ClassSessions.Any(l => l.Status == ClassSessionStatus.InProgress),
                 HasPending = b.ClassSessions.Any(l => l.Status == ClassSessionStatus.PendingConfirmation),

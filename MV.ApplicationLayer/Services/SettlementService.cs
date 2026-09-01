@@ -120,6 +120,21 @@ public partial class SettlementService : ISettlementService
             : null;
         try
         {
+            // Lock + re-check Issettled bằng bản KHÔNG qua identity map (AsNoTracking — classSession
+            // truyền vào đây có thể đã được nạp/track từ TRƯỚC transaction này, nên một query thường
+            // sẽ trả về đúng instance cũ đang track, không phản ánh giá trị mới nhất dưới DB).
+            // FOR UPDATE khiến 2 request settle đồng thời (xác nhận thủ công vs AutoConfirmClassSessionJob)
+            // cùng lúc CHỜ NHAU thay vì cùng đọc bản cũ rồi cùng ghi đè — bên tới sau, sau khi được mở
+            // khoá, sẽ thấy Issettled=true và bị chặn sạch sẽ ở đây thay vì rơi vào lỗi 40001 (serialization
+            // failure) của Postgres ở tận lúc CommitAsync.
+            var freshCheck = await ClassSessionLockHelper.LockById(_context, classSession.Classsessionid)
+                .AsNoTracking()
+                .SingleOrDefaultAsync()
+                ?? throw new ClassSessionException(ClassSessionErrorCodes.ClassSessionNotFound, "Không tìm thấy buổi học", 404);
+
+            if (freshCheck.Issettled == true)
+                throw new ClassSessionException(ClassSessionErrorCodes.ClassSessionAlreadyConfirmed, "Buổi học này đã được xác nhận rồi", 400);
+
             var tutorId = classSession.Tutorid;
 
             // Get tutor's wallet (row lock)
@@ -747,6 +762,18 @@ public partial class SettlementService : ISettlementService
         booking.Cancelledat = now;
         booking.Updatedat = now;
 
+        // Ghi lại số tiền đã hoàn lên chính booking. Trước đây khoản này chỉ tồn tại dưới dạng một
+        // Wallettransaction, nên trang chi tiết booking không có gì để hiển thị: cả hai bên thấy
+        // lớp bị hủy mà không biết bao nhiêu tiền đã được trả lại, phải mở ví ra tự dò.
+        //
+        // Cộng dồn chứ không gán đè: một booking có thể đã được hoàn từng phần trước đó qua đường
+        // khác (PaymentService, SuspensionRefundService đều cộng dồn theo cùng quy ước này).
+        if (parentTotalRefund > 0)
+        {
+            booking.Refundamount = (booking.Refundamount ?? 0) + parentTotalRefund;
+            booking.Refundstatus = RefundStatus.Refunded;
+        }
+
         await _context.SaveChangesAsync(ct);
 
         _logger.LogInformation(
@@ -831,11 +858,21 @@ public partial class SettlementService : ISettlementService
             .CountAsync(s => s.Bookingid == bookingId && (s.Status == Completed || s.Issettled == true), ct);
         if (disputedSessionId.HasValue)
         {
-            var disputedAlreadyCounted = await _context.ClassSessions
+            var disputed = await _context.ClassSessions
                 .AsNoTracking()
-                .AnyAsync(s => s.Classsessionid == disputedSessionId.Value
-                    && (s.Status == Completed || s.Issettled == true), ct);
-            if (!disputedAlreadyCounted)
+                .Where(s => s.Classsessionid == disputedSessionId.Value)
+                .Select(s => new { s.Status, s.Istutorpresent, s.Issettled })
+                .FirstOrDefaultAsync(ct);
+
+            // Buổi tranh chấp chỉ được tính là đã dạy khi ResolveDisputeAsync sắp settle nó cho gia
+            // sư — tức gia sư có mặt. Vắng mặt thì nó được hoàn cho phụ huynh, nên cộng vào đây sẽ
+            // báo thiếu tiền hoàn: đúng lỗi "hoàn 0đ" khi phụ huynh mới đóng cọc một buổi.
+            var disputedCountsAsDelivered = disputed != null
+                && !DisputeSettlementPolicy.TutorWasAbsent(disputed.Status, disputed.Istutorpresent);
+            var disputedAlreadyCounted = disputed != null
+                && (disputed.Status == Completed || disputed.Issettled == true);
+
+            if (disputedCountsAsDelivered && !disputedAlreadyCounted)
                 deliveredCount += 1;
         }
 

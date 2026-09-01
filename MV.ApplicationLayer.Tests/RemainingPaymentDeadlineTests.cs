@@ -225,7 +225,7 @@ public class SubmitReportAsyncRemainingPaymentDeadlineTests
             zaloOAService: null!,
             storageService: null!,
             presence: null!,
-            cloudRecording: null!,
+            cloudRecording: new DisabledCloudRecordingService(),
             settlementService: null!,
             warningService: null!,
             recordingAccessTokenService: null!,
@@ -255,6 +255,22 @@ public class SubmitReportAsyncRemainingPaymentDeadlineTests
             modelBuilder.Entity<QuestionBank>().Ignore(x => x.Embedding);
             modelBuilder.Entity<TutoraKbChunk>().Ignore(x => x.Embedding);
         }
+    }
+
+    private sealed class DisabledCloudRecordingService : ICloudRecordingService
+    {
+        public bool Enabled => false;
+        public bool AudioOnlyEnabled => false;
+        public Task<CloudRecordingHandle> StartAsync(int classSessionId, string channel, CancellationToken ct = default) =>
+            throw new NotSupportedException();
+        public Task<CloudRecordingResult> StopAsync(int classSessionId, string channel, string resourceId, string sid, CancellationToken ct = default) =>
+            throw new NotSupportedException();
+        public Task<CloudRecordingHandle> StartAudioAsync(int classSessionId, string channel, CancellationToken ct = default) =>
+            throw new NotSupportedException();
+        public Task<CloudRecordingResult> StopAudioAsync(int classSessionId, string channel, string resourceId, string sid, CancellationToken ct = default) =>
+            throw new NotSupportedException();
+        public Task<CloudRecordingQueryResult> QueryAsync(string resourceId, string sid, CancellationToken ct = default) =>
+            throw new NotSupportedException();
     }
 
     private sealed class NoOpNotificationService : INotificationService

@@ -139,6 +139,8 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
 
     public virtual DbSet<AiUsageMonthly> AiUsageMonthly { get; set; }
 
+    public virtual DbSet<AiUsageEvent> AiUsageEvents { get; set; }
+
     public virtual DbSet<AiCreditPackage> AiCreditPackages { get; set; }
 
     public virtual DbSet<Profilesuspension> Profilesuspensions { get; set; }
@@ -3355,6 +3357,12 @@ entity.HasOne(d => d.Tutor).WithOne(p => p.Tutorprofile)
             entity.Property(e => e.Isidentityverified)
                 .HasDefaultValue(false)
                 .HasColumnName("is_identity_verified");
+            entity.Property(e => e.Cccdocrfailedattempts)
+                .HasDefaultValue(0)
+                .HasColumnName("cccd_ocr_failed_attempts");
+            entity.Property(e => e.Isidentitypendingreview)
+                .HasDefaultValue(false)
+                .HasColumnName("is_identity_pending_review");
             entity.Property(e => e.Isphoneverified)
                 .HasDefaultValue(false)
                 .HasColumnName("is_phone_verified");
@@ -3469,6 +3477,38 @@ entity.HasOne(d => d.Tutor).WithOne(p => p.Tutorprofile)
                 .HasForeignKey(d => d.Userid)
                 .OnDelete(DeleteBehavior.Cascade)
                 .HasConstraintName("fk_ai_usage_monthly_user");
+        });
+
+        // Token/chi phí từng lời gọi Gemini — tutora-ai đẩy về, admin đọc thống kê.
+        modelBuilder.Entity<AiUsageEvent>(entity =>
+        {
+            entity.HasKey(e => e.Id).HasName("ai_usage_events_pkey");
+
+            entity.ToTable("ai_usage_events");
+
+            entity.HasIndex(e => e.Createdat, "idx_ai_usage_events_created");
+            entity.HasIndex(e => new { e.Feature, e.Createdat }, "idx_ai_usage_events_feature_created");
+            entity.HasIndex(e => new { e.Model, e.Createdat }, "idx_ai_usage_events_model_created");
+
+            entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.Feature).HasColumnName("feature");
+            entity.Property(e => e.Model).HasColumnName("model");
+            entity.Property(e => e.Prompttokens).HasDefaultValue(0).HasColumnName("prompt_tokens");
+            entity.Property(e => e.Outputtokens).HasDefaultValue(0).HasColumnName("output_tokens");
+            entity.Property(e => e.Thoughtstokens).HasDefaultValue(0).HasColumnName("thoughts_tokens");
+            entity.Property(e => e.Cachedtokens).HasDefaultValue(0).HasColumnName("cached_tokens");
+            entity.Property(e => e.Totaltokens).HasDefaultValue(0).HasColumnName("total_tokens");
+            entity.Property(e => e.Costusd)
+                .HasDefaultValue(0m)
+                .HasColumnType("numeric(12,6)")
+                .HasColumnName("cost_usd");
+            entity.Property(e => e.Latencyms).HasColumnName("latency_ms");
+            entity.Property(e => e.Success).HasDefaultValue(true).HasColumnName("success");
+            entity.Property(e => e.Error).HasColumnName("error");
+            entity.Property(e => e.Createdat)
+                .HasDefaultValueSql("now()")
+                .HasColumnType("timestamp with time zone")
+                .HasColumnName("created_at");
         });
 
         modelBuilder.Entity<AiCreditPackage>(entity =>

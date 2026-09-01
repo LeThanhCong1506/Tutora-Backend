@@ -8,6 +8,9 @@ public static class Permissions
     public const string CertificateView = "certificate.view";
     public const string CertificateVerify = "certificate.verify";
     public const string TutorCccdView = "tutor_cccd.view";
+    /// <summary>Duyệt/từ chối CCCD của Tutor HOẶC Student khi OCR tự động thất bại (cùng cột DB,
+    /// xem TutorCccdView) — không tách riêng theo role vì cùng 1 quy trình xem thủ công.</summary>
+    public const string TutorCccdDecide = "tutor_cccd.decide";
     public const string TutorProfileUpdateView = "tutor_profile_update.view";
     public const string TutorProfileUpdateDecide = "tutor_profile_update.decide";
 
@@ -88,7 +91,7 @@ public static class Permissions
 
     public static readonly IReadOnlySet<string> All = new HashSet<string>(StringComparer.Ordinal)
     {
-        TutorApprovalView, TutorApprovalDecide, CertificateView, CertificateVerify, TutorCccdView,
+        TutorApprovalView, TutorApprovalDecide, CertificateView, CertificateVerify, TutorCccdView, TutorCccdDecide,
         TutorProfileUpdateView, TutorProfileUpdateDecide,
         UserView, UserUpdate, UserDeactivate,
         DashboardView, FinancialView, BookingView, BookingCancel, PaymentConfirm, PromotionManage,
@@ -118,6 +121,7 @@ public static class Permissions
         new(CertificateView, "Xem chứng chỉ chờ duyệt", "Chuyên môn", "Chứng chỉ", "Xem"),
         new(CertificateVerify, "Xác minh chứng chỉ gia sư", "Chuyên môn", "Chứng chỉ", "Duyệt", CertificateView),
         new(TutorCccdView, "Xem ảnh CCCD người dùng", "Chuyên môn", "Định danh gia sư", "Xem"),
+        new(TutorCccdDecide, "Duyệt hoặc từ chối CCCD chờ xem thủ công", "Chuyên môn", "Định danh gia sư", "Duyệt", TutorCccdView),
         new(TutorProfileUpdateView, "Xem yêu cầu cập nhật hồ sơ gia sư", "Chuyên môn", "Cập nhật hồ sơ gia sư", "Xem"),
         new(TutorProfileUpdateDecide, "Duyệt hoặc từ chối cập nhật hồ sơ gia sư", "Chuyên môn", "Cập nhật hồ sơ gia sư", "Duyệt", TutorProfileUpdateView),
 
