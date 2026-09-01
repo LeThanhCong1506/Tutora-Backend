@@ -231,7 +231,16 @@ namespace MV.DomainLayer.Exceptions
             : base("Bạn không có quyền truy cập tài liệu của booking này.") { }
     }
 
-    // ── Bài tập nhanh trong buổi học ─────────────────────────────────────────
+    /// <summary>Tài liệu không thuộc môn đang dạy (vd tải nhầm CV lên lớp Toán).</summary>
+    public class MaterialNotRelevantException : BadRequestException
+    {
+        public MaterialNotRelevantException(string? reason, string? subject)
+            : base(string.IsNullOrWhiteSpace(reason)
+                ? $"Tài liệu này không thuộc môn {subject ?? "đang dạy"}. Vui lòng chọn đúng học liệu."
+                : reason) { }
+    }
+
+    // Bài tập nhanh trong buổi họcz
 
     public class PracticeSetNotFoundException : NotFoundException
     {
@@ -287,6 +296,14 @@ namespace MV.DomainLayer.Exceptions
     public class PracticeGenerationRefusedException : BadRequestException
     {
         public PracticeGenerationRefusedException(string reason) : base(reason) { }
+    }
+
+    /// <summary>Đã dùng hết hạn mức câu hỏi của buổi học (tính năng thử nghiệm).</summary>
+    public class PracticeQuotaExceededException : BadRequestException
+    {
+        public PracticeQuotaExceededException(int used, int max)
+            : base($"Buổi học này đã tạo {used}/{max} câu hỏi — hết hạn mức của tính năng "
+                   + "thử nghiệm. Xoá bớt câu chưa dùng hoặc để dành cho buổi sau nhé.") { }
     }
 
     public class PracticeGenerationFailedException : BadRequestException
