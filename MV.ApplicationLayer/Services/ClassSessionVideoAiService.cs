@@ -258,6 +258,16 @@ public class ClassSessionVideoAiService(
             await db.SaveChangesAsync();
 
             var file = await EnsureUploadedFileAsync(job, CancellationToken.None);
+
+            // Bắn job chép lời NGAY khi file đã upload xong (cache Geminifileuri đã lưu ở
+            // EnsureUploadedFileAsync) — thay vì đợi tóm tắt viết xong mới enqueue như trước. 2 job giờ
+            // chạy THẬT SỰ song song (interactive vs bulk, 2 worker khác nhau): job chép lời tự đọc lại
+            // đúng file đã cache, không tải/tách/upload lại — không có chuyện 2 job cùng upload trùng
+            // audio. Tóm tắt (nhanh hơn) vẫn luôn trả cho học sinh trước vì Gemini sinh chữ tuần tự và
+            // tóm tắt ngắn hơn transcript 10-15 lần; transcript trả sau, ai đợi nó cũng không cản đường
+            // tóm tắt nữa.
+            backgroundJobClient.Enqueue<IClassSessionVideoAiService>(s => s.RunStudentTranscriptJobAsync(job.JobId, true));
+
             // Bỏ lượt xem lại video lần 2 để tự soát (VerifyStudentAnalysisAsync) — tốn gần gấp đôi
             // thời gian chờ cho một bước cải thiện nhỏ, đổi lấy UX nhanh hơn rõ rệt.
             var summary = await geminiService.SummarizeVideoForStudentAsync(file.Uri, AudioMimeType, CancellationToken.None);
@@ -270,12 +280,6 @@ public class ClassSessionVideoAiService(
             job.Completedat = TimeZoneHelper.UtcNow;
             await db.SaveChangesAsync();
 
-            // Chép lời tách sang job riêng: nó dài gấp 10-15 lần tóm tắt nên tốn gần hết thời gian chờ,
-            // mà LLM sinh token tuần tự và response chỉ về khi viết xong hết — gộp chung 1 lượt gọi thì
-            // học sinh phải đợi chép lời viết xong mới thấy được tóm tắt. File audio đã upload sẵn được
-            // EnsureUploadedFileAsync cache lại (47h) nên job sau không phải tải/tách/upload lại.
-            backgroundJobClient.Enqueue<IClassSessionVideoAiService>(s => s.RunStudentTranscriptJobAsync(job.JobId, true));
-
             // Tách try/catch riêng: lỗi ở bước này (tạo phiên chat) không được làm job quay lại
             // Failed — tóm tắt đã lưu xong là thành công rồi, chat hỏi tiếp chỉ là phần thêm.
             try
@@ -283,10 +287,18 @@ public class ClassSessionVideoAiService(
                 logger.LogInformation(
                     "[VideoSummaryChat] Bắt đầu tạo phiên chat cho classSession {ClassSessionId}, user {UserId}",
                     job.Classsessionid, job.Requestedbyuserid);
-                // Seed bằng tóm tắt để học sinh hỏi được ngay, không phải đợi chép lời. Khi job chép lời
-                // xong sẽ chèn thêm 1 message system nữa chứa transcript — LoadChatContextAsync lấy
-                // message system CUỐI CÙNG nên các câu hỏi sau đó tự động dùng ngữ cảnh chi tiết hơn.
-                await EnsureVideoSummaryChatSessionAsync(job.Classsessionid, job.Requestedbyuserid, summary);
+                // Tóm tắt và chép lời giờ chạy SONG SONG (2 job riêng, enqueue gần như cùng lúc) nên
+                // không còn chắc job nào xong trước — đọc lại Transcripttext mới nhất từ DB (biến `job`
+                // trong bộ nhớ được nạp từ đầu hàm, không tự cập nhật nếu job chép lời chạy ở 1
+                // DbContext khác đã ghi xong) rồi dùng BuildChatContext như bên chép lời. Nếu chỉ seed
+                // bằng `summary` trơn ở đây, lỡ chép lời đã xong trước và chèn message system chứa cả
+                // transcript thì bước này sẽ ghi đè mất, làm chat "tụt hạng" về lại bản tóm tắt ngắn.
+                var transcriptSoFar = await db.ClassSessionAiJobs.AsNoTracking()
+                    .Where(j => j.JobId == job.JobId)
+                    .Select(j => j.Transcripttext)
+                    .FirstOrDefaultAsync();
+                await EnsureVideoSummaryChatSessionAsync(
+                    job.Classsessionid, job.Requestedbyuserid, BuildChatContext(summary, transcriptSoFar));
                 logger.LogInformation(
                     "[VideoSummaryChat] Đã tạo xong phiên chat cho classSession {ClassSessionId}",
                     job.Classsessionid);
