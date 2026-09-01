@@ -351,8 +351,18 @@ public class ClassSessionVideoAiService(
             // (2) refresh đúng 1 lần nếu nội dung thật sự khác bản đã lưu, không chèn trùng lặp.
             try
             {
+                // `job.Resulttext` là bản NẠP LÚC ĐẦU hàm (dòng 331) — từ khi tóm tắt và chép lời chạy
+                // song song, tóm tắt (nhanh hơn) rất có thể vừa lưu xong TRONG lúc job này còn đang chờ
+                // Gemini chép lời, mà biến `job` trong bộ nhớ không tự cập nhật theo. Đọc lại Resulttext
+                // mới nhất từ DB ở đây, không thì hay rơi vào đúng case "tóm tắt xong trước, chép lời
+                // xong sau" lại bị coi như tóm tắt chưa có, kết quả chỉ còn mỗi transcript làm ngữ cảnh
+                // thay vì gộp cả 2 như đáng lẽ phải vậy.
+                var summarySoFar = await db.ClassSessionAiJobs.AsNoTracking()
+                    .Where(j => j.JobId == job.JobId)
+                    .Select(j => j.Resulttext)
+                    .FirstOrDefaultAsync();
                 await EnsureVideoSummaryChatSessionAsync(
-                    job.Classsessionid, job.Requestedbyuserid, BuildChatContext(job.Resulttext, transcript));
+                    job.Classsessionid, job.Requestedbyuserid, BuildChatContext(summarySoFar, transcript));
             }
             catch (Exception chatEx)
             {
