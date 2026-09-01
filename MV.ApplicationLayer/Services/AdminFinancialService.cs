@@ -99,7 +99,9 @@ public class AdminFinancialService(
                 b.Tutorsubjectgradeprice != null ? b.Tutorsubjectgradeprice.Subjectid : null,
                 b.Platformfee,
                 b.Finalprice,
-                b.Createdat))
+                b.Createdat,
+                b.Depositpaidat,
+                b.Remainingpaidat))
             .ToListAsync(ct);
 
         var allClassSessions = await context.ClassSessions
@@ -154,8 +156,14 @@ public class AdminFinancialService(
             .ToList();
 
         // ─── Revenue Overview ────────────────────────────────────────────────
+        // Cohort tính tiền: booking đang chạy, HOẶC đã đóng sổ mà phụ huynh thực sự đã trả
+        // tiền. Giống hệt AdminRevenueAnalyticsService.CohortBookings và
+        // AdminDashboardService.IsInRevenueCohort — ba trang hiển thị tiền không được phép dùng
+        // ba tập booking khác nhau. Chỉ lọc theo status như trước sẽ bỏ sót khoá bị huỷ giữa
+        // chừng mà Tutora vẫn giữ lại phí dịch vụ không hoàn của những buổi đã bán.
         var revenueBookings = allBookings
-            .Where(b => RevenueBookingStatuses.Contains(b.Status ?? ""))
+            .Where(b => RevenueBookingStatuses.Contains(b.Status ?? "")
+                        || b.Depositpaidat != null || b.Remainingpaidat != null)
             .ToList();
 
         var bookingPlatformRevenue = revenueBookings.Sum(b => b.Platformfee ?? 0);
@@ -780,7 +788,9 @@ public class AdminFinancialService(
         int? SubjectId,
         decimal? Platformfee,
         decimal? Finalprice,
-        DateTime? Createdat);
+        DateTime? Createdat,
+        DateTime? Depositpaidat,
+        DateTime? Remainingpaidat);
 
     private sealed record ClassSessionRaw(
         string? Status,

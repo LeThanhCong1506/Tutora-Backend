@@ -13,13 +13,20 @@ public partial class AdminRevenueAnalyticsService
 
         var bookings = await LoadBookingsAsync(ct);
         var sessions = await LoadSessionsAsync(ct);
+        var ledger = await LoadBookingLedgerAsync(ct);
         var bookingById = bookings.ToDictionary(b => b.BookingId);
+        var closed = BuildClosedBookings(bookings, sessions, ledger);
+        var keptByBooking = closed.ToDictionary(c => c.BookingId, c => c.PlatformKept);
+        // Phần phí sàn của khoá đã chốt thuộc về vế PHÍ DỊCH VỤ — xem ClosedBooking.ParentFeeKept.
+        var parentFeeKeptByBooking = closed.ToDictionary(c => c.BookingId, c => c.ParentFeeKept);
 
         // Học sinh tự đặt lịch có Parentid = null (BookingService.cs:127) — lọc
         // ParentId != null sẽ làm rơi cả nhóm này khỏi báo cáo.
-        var revenueBookings = bookings
-            .Where(b => RevenueBookingStatuses.Contains(b.Status ?? "")
-                        && (b.ParentId != null || b.StudentId != null))
+        //
+        // Khách có khoá bị huỷ giữa chừng vẫn là khách đã trả tiền: giữ họ trong tập này để
+        // LTV, tỷ lệ tái mua và cohort giữ chân không âm thầm bỏ sót cả nhóm đó.
+        var revenueBookings = CohortBookings(bookings, closed)
+            .Where(b => b.ParentId != null || b.StudentId != null)
             .ToList();
 
         var userNames = await context.Users.AsNoTracking()
@@ -37,10 +44,8 @@ public partial class AdminRevenueAnalyticsService
             })
             .ToListAsync(ct);
 
-        var settledCount = sessions
-            .Where(s => s.Settled)
-            .GroupBy(s => s.BookingId)
-            .ToDictionary(g => g.Key, g => g.Count());
+        var deliveries = BuildDeliveries(sessions, toUtc);
+        var settledCount = deliveries.ToDictionary(kv => kv.Key, kv => kv.Value.Count);
 
         var studentNames = await context.Studentprofiles.AsNoTracking()
             .Select(s => new { s.Studentid, s.Fullname })
@@ -62,7 +67,37 @@ public partial class AdminRevenueAnalyticsService
             return id;
         }
 
+        // Bảng "Khách hàng giá trị cao" LỌC THEO KỲ. Trước đây nó gom trên toàn bộ lịch sử,
+        // nên trang ghi "30 ngày qua" mà bảng vẫn liệt kê khách của mọi thời điểm và cột
+        // "Tổng chi tiêu" là số luỹ kế cả đời — không cột nào trong bảng nhúc nhích khi đổi
+        // mốc thời gian.
+        //
+        // `allParents`, `firstBookingByParent`, cohort giữ chân và `repeatRate` thì CỐ Ý vẫn
+        // tính trên toàn lịch sử: đó là các chỉ số vòng đời, cắt theo kỳ sẽ mất nghĩa (tooltip
+        // trên thẻ đã nói rõ điều này).
+        // ─── Tab này báo vế PHÍ DỊCH VỤ (5% phụ huynh trả thêm), không phải trọn 10% ──
+        //
+        // Nửa còn lại của phí sàn là 5% cắt từ tiền gia sư — nó thuộc câu chuyện gia sư và đã
+        // được báo ở tab Gia sư. Trộn cả hai vào trang khách hàng là nói khách trả cho sàn
+        // nhiều hơn thực tế họ trả.
+        //
+        // Chia tiếp làm hai trạng thái, vì đó chính là câu hỏi của trang này:
+        //   • ĐÃ GHI NHẬN — buổi đầu đã dạy xong nên khoản phí hết đường hoàn, tiền thật;
+        //   • ĐỢI GHI NHẬN — chưa trả, hoặc đã trả mà chưa qua buổi đầu (còn hoàn 100%).
+        // Cộng hai vế đúng bằng `Parentfee` của khoá, nên bảng luôn tự khớp.
+        decimal ServiceFeeOf(BookingFlat b) =>
+            keptByBooking.ContainsKey(b.BookingId)
+                ? parentFeeKeptByBooking[b.BookingId]
+                : ParentFeeEarned(b, toUtc, DeliveryOf(deliveries, b.BookingId));
+
+        // Khoá đã chốt sổ không còn gì để chờ: buổi chưa dạy đã bị huỷ và hoàn tiền xong.
+        decimal ServiceFeePendingOf(BookingFlat b) =>
+            keptByBooking.ContainsKey(b.BookingId)
+                ? 0
+                : ParentFeePending(b, toUtc, DeliveryOf(deliveries, b.BookingId));
+
         var parents = revenueBookings
+            .Where(b => b.CreatedAt >= fromUtc && b.CreatedAt < toUtc)
             .GroupBy(CustomerKey)
             .Select(g => new ParentRevenueDto
             {
@@ -75,11 +110,9 @@ public partial class AdminRevenueAnalyticsService
                 BookingCount = g.Count(),
                 SessionsPurchased = g.Sum(b => b.TotalSessions),
                 SessionsCompleted = g.Sum(b => settledCount.TryGetValue(b.BookingId, out var c) ? c : 0),
-                // Hoa hồng của buổi đã mua chưa học — cùng cơ sở với ComputeDeferred.
-                DeferredRevenue = g.Sum(b =>
-                    FeePerSession(b) * Math.Max(
-                        b.TotalSessions - (settledCount.TryGetValue(b.BookingId, out var c2) ? c2 : 0),
-                        0)),
+                // Hai vế của PHÍ DỊCH VỤ khách này trả — xem ServiceFeeOf/ServiceFeePendingOf.
+                ServiceFeeRecognised = g.Sum(ServiceFeeOf),
+                ServiceFeePending = g.Sum(ServiceFeePendingOf),
                 FirstBookingAt = g.Min(b => b.CreatedAt),
                 LastBookingAt = g.Max(b => b.CreatedAt),
             })
@@ -108,7 +141,8 @@ public partial class AdminRevenueAnalyticsService
         var arpu = new List<ArpuPointDto>();
         foreach (var (ms, me, label) in TimeBuckets(fromUtc, toUtc))
         {
-            var monthRevenue = RecognisedIn(sessions, bookingById, ms, me);
+            var monthRevenue = RecognisedIn(sessions, bookingById, ms, me)
+                               + ClosingAdjustmentIn(closed, ms, me);
             var monthParents = revenueBookings
                 .Where(b => b.CreatedAt >= ms && b.CreatedAt < me)
                 .Select(CustomerKey)
@@ -224,8 +258,9 @@ public partial class AdminRevenueAnalyticsService
                     Customers = segInPeriod.Select(CustomerKey).Distinct().Count(),
                     Bookings = segInPeriod.Count,
                     TotalSpent = segInPeriod.Sum(b => b.FinalPrice),
-                    PlatformRevenue = segInPeriod.Sum(b =>
-                        FeePerSession(b) * (settledCount.TryGetValue(b.BookingId, out var c) ? c : 0)),
+                    // Cùng hai vế với bảng khách hàng — khoá đóng sổ lấy theo sổ ví.
+                    ServiceFeeRecognised = segInPeriod.Sum(ServiceFeeOf),
+                    ServiceFeePending = segInPeriod.Sum(ServiceFeePendingOf),
                     Ltv = segAll.Count == 0
                         ? 0
                         : Math.Round(segAll.Sum(g => g.Sum(b => b.FinalPrice)) / segAll.Count, 0),
@@ -251,6 +286,10 @@ public partial class AdminRevenueAnalyticsService
                 Ltv = allParents.Count == 0
                     ? 0
                     : Math.Round(revenueBookings.Sum(b => b.FinalPrice) / allParents.Count, 0),
+                // Hai thẻ phí dịch vụ: tính trên các lịch ĐẶT trong kỳ, cùng tập với bảng
+                // phân khúc ngay dưới nên hai chỗ cộng khớp nhau.
+                ServiceFeeRecognised = inPeriod.Sum(ServiceFeeOf),
+                ServiceFeePending = inPeriod.Sum(ServiceFeePendingOf),
             },
             Segments = segments,
             Parents = parents,

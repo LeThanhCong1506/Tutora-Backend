@@ -360,6 +360,11 @@ public partial class ClassSessionService
                     booking.Status = BookingStatus.CancelledNoshow;
                     booking.Sessionsremaining = 0;
                     booking.Escrowstatus = EscrowStatus.Refunded;
+                    // Đây là nhánh huỷ DUY NHẤT trước đây không ghi Cancelledat. Thiếu mốc này
+                    // thì dòng thời gian booking bên CMS để trống ô "Booking cancelled", và báo
+                    // cáo doanh thu không quy được khoản Tutora giữ lại về đúng kỳ — nó phải
+                    // lùi về ngày tạo booking, có thể rơi sang kỳ khác.
+                    booking.Cancelledat = now;
 
                     // Return the promotion usage consumed at booking creation (booking is being cancelled)
                     await MV.ApplicationLayer.Helpers.PromotionUsageHelper.ReturnUsageAsync(_context, booking.Promotionid);
