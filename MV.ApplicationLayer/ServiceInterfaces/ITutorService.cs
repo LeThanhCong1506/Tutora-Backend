@@ -88,9 +88,11 @@ namespace MV.ApplicationLayer.ServiceInterfaces
         Task<TutorPricingResponse?> GetTutorPricingAsync(string tutorId);
 
         /// <summary>
-        /// Update tutor pricing fields.
-        /// Returns <see cref="ProfileUpdateOutcome.PendingApproval"/> instead of applying the change
-        /// directly when the profile is already Active (needs Admin re-approval — see RequiresApprovalForEdits).
+        /// Update tutor pricing fields. ALWAYS applied straight to the DB — never staged for Admin
+        /// re-approval, even when the profile is already Active: pricing belongs to the teaching
+        /// setup page (/tutor-portal/onboarding), which the tutor owns outright. Only the profile
+        /// page sections (basic info / introduction / video) go through RequiresApprovalForEdits.
+        /// Never returns <see cref="ProfileUpdateOutcome.PendingApproval"/>.
         /// </summary>
         Task<ProfileUpdateOutcome> UpdateTutorPricingAsync(string tutorId, UpdateTutorPricingRequest request);
 

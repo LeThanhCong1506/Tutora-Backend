@@ -271,6 +271,17 @@ namespace MV.ApplicationLayer.Services
             };
         }
 
+        /// <summary>
+        /// Thay toàn bộ bảng giá theo môn × khối lớp. LUÔN ghi thẳng vào DB, KHÔNG qua staging
+        /// chờ Admin duyệt — kể cả khi hồ sơ đã Active.
+        ///
+        /// Đây là mục thuộc trang "Thiết lập giảng dạy" (/tutor-portal/onboarding), nơi gia sư
+        /// tự chủ động vận hành công việc dạy (lịch rảnh, môn & giá, gói lịch). Chỉ các mục
+        /// thông tin hồ sơ ở trang "Hồ sơ gia sư" (/tutor-portal/profile — Thông tin cơ bản,
+        /// Giới thiệu, Video) mới cần Admin duyệt lại khi hồ sơ đã Active; xem
+        /// RequiresApprovalForEdits và các hàm UpdateTutorBasicInfoAsync /
+        /// UpdateTutorIntroductionAsync / UpdateTutorVideoAsync.
+        /// </summary>
         public async Task<ProfileUpdateOutcome> UpdateTutorPricingAsync(string tutorId, UpdateTutorPricingRequest request)
         {
             var profile = await _tutorRepository.GetTutorProfileByIdAsync(tutorId);
@@ -282,16 +293,6 @@ namespace MV.ApplicationLayer.Services
             }
 
             await ValidateSubjectGradePricesAsync(tutorId, request.SubjectGradePrices);
-
-            if (RequiresApprovalForEdits(profile))
-            {
-                await _updateStaging.UpsertPendingUpdateAsync(tutorId, pending =>
-                {
-                    pending.SubjectGradePrices = request.SubjectGradePrices;
-                });
-                await NotifyAdminsOfProfileUpdateAsync(tutorId, "Môn học & Bảng giá");
-                return ProfileUpdateOutcome.PendingApproval;
-            }
 
             profile.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 
