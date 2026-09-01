@@ -53,6 +53,8 @@ public interface IAppDbContext
     /// <summary>Lô credit có hạn dùng — xem ai_credit_batches.</summary>
     DbSet<AiCreditBatch> AiCreditBatches { get; }
     DbSet<AiUsageMonthly> AiUsageMonthly { get; }
+
+    DbSet<AiUsageEvent> AiUsageEvents { get; }
     DbSet<Profilesuspension> Profilesuspensions { get; }
     DbSet<Promotion> Promotions { get; }
     DbSet<Gradelevel> Gradelevels { get; }
