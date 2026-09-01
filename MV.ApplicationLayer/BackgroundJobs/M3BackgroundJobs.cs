@@ -99,7 +99,7 @@ public class AutoConfirmClassSessionJob : BackgroundService
                 {
                     Userid = parentId,
                     Title = "Sắp hết hạn xác nhận buổi học",
-                    Message = $"Con 2 giờ để xác nhận buổi học #{classSession.Classsessionid}, nếu không hệ thống sẽ tự xác nhận.",
+                    Message = $"Còn 2 giờ để xác nhận buổi học #{classSession.Classsessionid}, nếu không hệ thống sẽ tự xác nhận.",
                     Type = NotificationType.LessonConfirmDeadline,
                     Referenceid = classSession.Classsessionid.ToString()
                 });
@@ -368,7 +368,7 @@ public class RemainingPaymentTriggerJob : BackgroundService
 
         foreach (var booking in bookingsToTrigger)
         {
-            // Check if any classSession has passed its 24h confirmation deadline
+            // Buổi nào đã quá hạn xác nhận (xem ClassSessionService.ConfirmWindowHours — 12h, không phải 24h)
             var confirmedClassSession = booking.ClassSessions.FirstOrDefault(
                 l => l.Status == PendingConfirmation
                     && l.Confirmdeadline.HasValue
