@@ -630,6 +630,10 @@ public class ParentController : ControllerBase
         {
             return Conflict(APIResponse<object>.Fail("Không thể xóa học sinh đang có lịch học."));
         }
+        catch (StudentHasOpenDisputeException)
+        {
+            return Conflict(APIResponse<object>.Fail("Không thể xóa học sinh đang có khiếu nại chưa xử lý xong."));
+        }
     }
 
 
