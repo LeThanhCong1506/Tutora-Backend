@@ -166,6 +166,9 @@ public partial class ClassSessionService : IClassSessionService
                 CompletedSessions = a.CompletedSessions,
                 Schedule = a.Schedule,
                 NextSessionStart = a.NextSessionStart,
+                ReservedSessions = a.ReservedSessions,
+                NextReservedStart = a.NextReservedStart,
+                BookingStatus = a.BookingStatus,
                 Status = DeriveClassStatus(a),
             }).ToList(),
             TotalCount = total,
@@ -175,16 +178,29 @@ public partial class ClassSessionService : IClassSessionService
     }
 
     /// <summary>
-    /// Derived class status shown on the tutor list. Mirrors the flags computed at the DB in
-    /// <c>GetTutorClassesPagedAsync</c>: all sessions terminal → completed; otherwise
-    /// in_progress > pending_confirmation > scheduled.
+    /// Trạng thái lớp hiển thị trên danh sách của gia sư. Dựa trên các cờ đã tính ở DB trong
+    /// <c>GetTutorClassesPagedAsync</c>: còn buổi chưa kết thúc → in_progress > pending_confirmation
+    /// > scheduled; hết buổi đã mở → reserved (nếu còn buổi giữ chỗ) hoặc completed.
+    ///
+    /// <para>
+    /// TRƯỚC ĐÂY hàm này trả thẳng <c>completed</c> ngay khi <c>HasNonTerminal == false</c>. Nhưng
+    /// <c>HasNonTerminal</c> cố tình BỎ QUA buổi <c>reserved</c>, nên một khoá học mới dạy hết buổi
+    /// đầu (phụ huynh đóng cọc, còn 9 buổi giữ chỗ chờ trả nốt) bị báo là "Hoàn thành" — vừa sai với
+    /// gia sư, vừa làm mất luôn tín hiệu "cần nhắc phụ huynh trả nốt tiền để mở buổi tiếp".
+    /// FE đã có sẵn nhãn cho trạng thái <c>reserved</c> ("Đang giữ chỗ") nhưng không bao giờ nhận
+    /// được giá trị đó vì aggregate chưa có cờ tương ứng.
+    /// </para>
     /// </summary>
     private static string DeriveClassStatus(TutorClassAggregate a)
     {
-        if (!a.HasNonTerminal) return ClassSessionStatus.Completed;
         if (a.HasInProgress) return ClassSessionStatus.InProgress;
         if (a.HasPending) return ClassSessionStatus.PendingConfirmation;
-        return ClassSessionStatus.Scheduled;
+        if (a.HasNonTerminal) return ClassSessionStatus.Scheduled;
+
+        // Mọi buổi ĐÃ MỞ đều đã kết thúc. Chỉ gọi là hoàn thành khi không còn buổi nào giữ chỗ;
+        // còn giữ chỗ nghĩa là khoá học vẫn đang chạy, chỉ đang chờ phụ huynh trả nốt tiền.
+        if (a.ReservedSessions > 0) return ClassSessionStatus.Reserved;
+        return ClassSessionStatus.Completed;
     }
 
     public async Task<PagedList<ClassSessionResponse>> GetParentClassSessionsAsync(string parentId, int page, int pageSize, DateTime? fromDate, string? status)
@@ -359,6 +375,7 @@ public partial class ClassSessionService : IClassSessionService
             MeetingLink = classSession.Meetinglink,
             ClassSessionPrice = classSession.Lessonprice,
             Status = classSession.Status ?? "",
+            BookingStatus = booking?.Status,
             CheckInTime = classSession.Checkintime,
             CheckOutTime = classSession.Checkouttime,
             IsTutorPresent = classSession.Istutorpresent,
