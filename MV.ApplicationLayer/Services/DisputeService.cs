@@ -1224,6 +1224,7 @@ public class DisputeService : IDisputeService
             {
                 l.Bookingid,
                 l.Status,
+                l.Scheduledstart,
                 BookingStatus = l.Booking != null ? l.Booking.Status : null
             })
             .FirstOrDefaultAsync()
@@ -1233,8 +1234,10 @@ public class DisputeService : IDisputeService
             throw new InvalidOperationException("Buổi học không có booking hợp lệ");
         if (DisputeSettlementPolicy.IsTerminalBooking(snapshot.BookingStatus))
             throw new InvalidOperationException("Booking đã kết thúc, không thể tạo tranh chấp mới");
-        if (!DisputeSettlementPolicy.IsEligibleClassSession(snapshot.Status))
-            throw new InvalidOperationException("Chỉ buổi học đã diễn ra mới có thể tạo tranh chấp");
+        // Đối xứng với ParentService.CreateDisputeAsync: gia sư cũng được khiếu nại buổi còn
+        // Scheduled (báo học sinh/phụ huynh vắng mặt), không chỉ chờ tới pending_confirmation/completed.
+        if (!DisputeSettlementPolicy.IsEligibleClassSession(snapshot.Status, snapshot.Scheduledstart, TimeZoneHelper.UtcNow))
+            throw new InvalidOperationException("Chỉ buổi học đã tới giờ bắt đầu mới có thể tạo tranh chấp");
 
         var uploadedEvidence = new List<string>();
         var evidenceFolder = $"dispute-evidence-{classSessionId}";
@@ -1276,8 +1279,8 @@ public class DisputeService : IDisputeService
                     throw new ArgumentException("Bạn không có quyền truy cập buổi học này");
                 if (DisputeSettlementPolicy.IsTerminalBooking(booking.Status))
                     throw new InvalidOperationException("Booking đã kết thúc, không thể tạo tranh chấp mới");
-                if (!DisputeSettlementPolicy.IsEligibleClassSession(classSession.Status))
-                    throw new InvalidOperationException("Chỉ buổi học đã diễn ra mới có thể tạo tranh chấp");
+                if (!DisputeSettlementPolicy.IsEligibleClassSession(classSession.Status, classSession.Scheduledstart, TimeZoneHelper.UtcNow))
+                    throw new InvalidOperationException("Chỉ buổi học đã tới giờ bắt đầu mới có thể tạo tranh chấp");
                 // Khiếu nại đã CLOSED (hoà giải) không chặn khiếu nại mới — xem ghi chú ở ParentService.CreateDisputeAsync.
                 if (await _context.Disputes.AnyAsync(d => d.Classsessionid == classSessionId && d.Status != DisputeStatus.Closed))
                     throw new InvalidOperationException("Buổi học này đã có tranh chấp rồi");
@@ -1308,7 +1311,24 @@ public class DisputeService : IDisputeService
                 };
 
                 _context.Disputes.Add(dispute);
-                classSession.Status = Disputed;
+
+                // Đối xứng với ParentService.CreateDisputeAsync: khiếu nại "học sinh/phụ huynh vắng
+                // mặt" trên buổi CHƯA diễn ra khẳng định buổi đã không xảy ra, nên buổi phải mang
+                // đúng trạng thái NoShow thay vì Disputed — khác ở chỗ đây là gia sư báo, nên đánh
+                // dấu Isstudentpresent=false thay vì Istutorpresent=false.
+                var isNoShowOnUnstartedSession =
+                    request.DisputeType == DisputeTypes.NoShow && classSession.Status == Scheduled;
+
+                if (isNoShowOnUnstartedSession)
+                {
+                    classSession.Status = NoShow;
+                    classSession.Isstudentpresent = false;
+                }
+                else
+                {
+                    classSession.Status = Disputed;
+                }
+
                 await _context.SaveChangesAsync();
                 await tx.CommitAsync();
             }
