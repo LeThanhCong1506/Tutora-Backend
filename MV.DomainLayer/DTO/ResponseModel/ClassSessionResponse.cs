@@ -17,6 +17,13 @@ public class ClassSessionResponse
     public string? MeetingLink { get; set; }
     public decimal? ClassSessionPrice { get; set; }
     public string Status { get; set; }
+    /// <summary>
+    /// Trạng thái của BOOKING chứa buổi này (xem <c>BookingStatus</c>) — khác <see cref="Status"/>
+    /// là trạng thái của riêng buổi. FE cần cả hai: một khoá học chỉ thực sự "hoàn thành" khi
+    /// booking ở trạng thái completed, không phải khi tình cờ hết buổi đã mở (buổi 2..N có thể
+    /// đang ở `reserved` chờ trả nốt tiền — xem ActivateRemainingSessionsAsync).
+    /// </summary>
+    public string? BookingStatus { get; set; }
     public DateTime? CheckInTime { get; set; }
     public DateTime? CheckOutTime { get; set; }
     public bool? IsTutorPresent { get; set; }

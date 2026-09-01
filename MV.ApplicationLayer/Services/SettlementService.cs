@@ -96,6 +96,8 @@ public partial class SettlementService : ISettlementService
     /// Settle a classSession as part of admin dispute resolution (Release / side-with-tutor).
     /// Unlike <see cref="SettleClassSessionAsync"/> this does NOT require PendingConfirmation/Completed status —
     /// a Disputed or NoShow classSession is allowed (admin override). Still refuses an already-settled classSession.
+    /// checkNoOpenDispute=false: this call IS the resolution of the currently-open dispute, so the
+    /// generic "no open dispute" guard inside SettleClassSessionInternalAsync must not fire here.
     /// </summary>
     public async Task<SettlementResultResponse> SettleDisputedClassSessionAsync(int classSessionId, string? confirmedBy = null)
     {
@@ -107,10 +109,20 @@ public partial class SettlementService : ISettlementService
         if (classSession.Issettled == true)
             throw new ClassSessionException(ClassSessionErrorCodes.ClassSessionAlreadyConfirmed, "Buổi học này đã được xử lý rồi", 400);
 
-        return await SettleClassSessionInternalAsync(classSession, confirmedBy, SettlementType.Manual);
+        return await SettleClassSessionInternalAsync(classSession, confirmedBy, SettlementType.Manual, checkNoOpenDispute: false);
     }
 
-    private async Task<SettlementResultResponse> SettleClassSessionInternalAsync(ClassSession classSession, string? confirmedBy, string settlementType)
+    /// <param name="checkNoOpenDispute">
+    /// Re-verify (dưới khoá) rằng buổi vẫn KHÔNG có dispute nào đang mở trước khi giải ngân.
+    /// Bắt buộc cho auto-confirm và xác nhận thủ công: pre-check "không có dispute" của
+    /// ProcessAutoConfirmAsync chạy TRƯỚC khi khoá dòng này, nên một dispute tạo ra đúng lúc job
+    /// đang xử lý (giữa lúc quét và lúc khoá) sẽ lọt qua nếu không re-check ở đây — tiền đã giải
+    /// ngân nhưng dispute vẫn "Pending", ResolveDisputeAsync sau đó sẽ không settle lại được (báo
+    /// "đã xác nhận rồi"), để lại dispute mồ côi. Luôn để `false` khi gọi từ
+    /// SettleDisputedClassSessionAsync — cuộc gọi đó CHÍNH LÀ đang xử lý dispute đang mở đó.
+    /// </param>
+    private async Task<SettlementResultResponse> SettleClassSessionInternalAsync(
+        ClassSession classSession, string? confirmedBy, string settlementType, bool checkNoOpenDispute = true)
     {
         // Reuse an ambient transaction if the caller already opened one (e.g. dispute resolution),
         // otherwise own a fresh Serializable transaction. Prevents nested-BeginTransaction failures.
@@ -134,6 +146,19 @@ public partial class SettlementService : ISettlementService
 
             if (freshCheck.Issettled == true)
                 throw new ClassSessionException(ClassSessionErrorCodes.ClassSessionAlreadyConfirmed, "Buổi học này đã được xác nhận rồi", 400);
+
+            if (checkNoOpenDispute)
+            {
+                var hasOpenDispute = await _context.Disputes.AnyAsync(d =>
+                    d.Classsessionid == classSession.Classsessionid
+                    && d.Status != DisputeStatus.Resolved
+                    && d.Status != DisputeStatus.Closed);
+                if (hasOpenDispute)
+                    throw new ClassSessionException(
+                        ClassSessionErrorCodes.DisputeAlreadyExists,
+                        "Buổi học đang có tranh chấp mở, không thể tự động xác nhận",
+                        409);
+            }
 
             var tutorId = classSession.Tutorid;
 
@@ -762,6 +787,18 @@ public partial class SettlementService : ISettlementService
         booking.Cancelledat = now;
         booking.Updatedat = now;
 
+        // Ghi lại số tiền đã hoàn lên chính booking. Trước đây khoản này chỉ tồn tại dưới dạng một
+        // Wallettransaction, nên trang chi tiết booking không có gì để hiển thị: cả hai bên thấy
+        // lớp bị hủy mà không biết bao nhiêu tiền đã được trả lại, phải mở ví ra tự dò.
+        //
+        // Cộng dồn chứ không gán đè: một booking có thể đã được hoàn từng phần trước đó qua đường
+        // khác (PaymentService, SuspensionRefundService đều cộng dồn theo cùng quy ước này).
+        if (parentTotalRefund > 0)
+        {
+            booking.Refundamount = (booking.Refundamount ?? 0) + parentTotalRefund;
+            booking.Refundstatus = RefundStatus.Refunded;
+        }
+
         await _context.SaveChangesAsync(ct);
 
         _logger.LogInformation(
@@ -846,11 +883,21 @@ public partial class SettlementService : ISettlementService
             .CountAsync(s => s.Bookingid == bookingId && (s.Status == Completed || s.Issettled == true), ct);
         if (disputedSessionId.HasValue)
         {
-            var disputedAlreadyCounted = await _context.ClassSessions
+            var disputed = await _context.ClassSessions
                 .AsNoTracking()
-                .AnyAsync(s => s.Classsessionid == disputedSessionId.Value
-                    && (s.Status == Completed || s.Issettled == true), ct);
-            if (!disputedAlreadyCounted)
+                .Where(s => s.Classsessionid == disputedSessionId.Value)
+                .Select(s => new { s.Status, s.Istutorpresent, s.Issettled })
+                .FirstOrDefaultAsync(ct);
+
+            // Buổi tranh chấp chỉ được tính là đã dạy khi ResolveDisputeAsync sắp settle nó cho gia
+            // sư — tức gia sư có mặt. Vắng mặt thì nó được hoàn cho phụ huynh, nên cộng vào đây sẽ
+            // báo thiếu tiền hoàn: đúng lỗi "hoàn 0đ" khi phụ huynh mới đóng cọc một buổi.
+            var disputedCountsAsDelivered = disputed != null
+                && !DisputeSettlementPolicy.TutorWasAbsent(disputed.Status, disputed.Istutorpresent);
+            var disputedAlreadyCounted = disputed != null
+                && (disputed.Status == Completed || disputed.Issettled == true);
+
+            if (disputedCountsAsDelivered && !disputedAlreadyCounted)
                 deliveredCount += 1;
         }
 

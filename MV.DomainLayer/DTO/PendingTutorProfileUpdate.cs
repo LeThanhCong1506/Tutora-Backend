@@ -1,5 +1,3 @@
-using MV.DomainLayer.DTO.RequestModel;
-
 namespace MV.DomainLayer.DTO
 {
     /// <summary>
@@ -35,7 +33,10 @@ namespace MV.DomainLayer.DTO
 
         public string? VideoIntroUrl { get; set; }
 
-        public List<TutorSubjectGradePriceRequest>? SubjectGradePrices { get; set; }
+        // Không còn field SubjectGradePrices: "Môn học & Bảng giá" đã ra khỏi luồng chờ duyệt —
+        // gia sư sửa ở trang "Thiết lập giảng dạy" (/tutor-portal/onboarding) là ghi thẳng vào DB
+        // (xem UpdateTutorPricingAsync). JSON cũ trong Redis còn key này vẫn deserialize được:
+        // System.Text.Json bỏ qua property lạ.
 
         public DateTime SubmittedAt { get; set; }
     }

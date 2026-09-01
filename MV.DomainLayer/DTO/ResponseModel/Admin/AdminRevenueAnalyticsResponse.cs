@@ -5,13 +5,20 @@ public class AdminRevenueOverviewResponse
 {
     public RevenueSummaryDto Summary { get; set; } = new();
     public List<RevenueTrendPointDto> Trend { get; set; } = [];
-    public List<NamedValueDto> RevenueMix { get; set; } = [];
-    public List<FunnelStepDto> BookingFunnel { get; set; } = [];
+
+    // RevenueMix và BookingFunnel đã bỏ 31/08/2026 — không màn hình nào đọc, mà endpoint này
+    // giờ chạy ở cả trang chủ admin. Lý do đầy đủ trong GetOverviewAsync.
 }
 
 public class RevenueSummaryDto
 {
-    /// <summary>Phí của buổi đã dạy xong trong kỳ + doanh thu AI trong kỳ.</summary>
+    /// <summary>
+    /// Doanh thu thật của kỳ: hoa hồng của mọi buổi đã dạy xong trong kỳ (neo theo ngày dạy),
+    /// cộng phần chênh chốt tại ngày đóng sổ của các khoá đóng trong kỳ, cộng doanh thu AI.
+    ///
+    /// Phần chênh có thể ÂM — đó là ca hoàn tiền một phần theo khiếu nại, nơi Tutora giữ ít hơn
+    /// hoa hồng của những buổi đã ghi nhận trước đó.
+    /// </summary>
     public decimal RecognisedRevenue { get; set; }
     public decimal RecognisedPrevious { get; set; }
 
@@ -32,16 +39,17 @@ public class RevenueSummaryDto
     public decimal CashPrevious { get; set; }
 
     // ── Bộ số dùng cho khối chia tiền ở tab Tổng quan ──────────────────────────────
-    // Bốn số dưới đây CÙNG một phạm vi: booking phát sinh doanh thu, tạo trong kỳ.
-    // Cùng phạm vi là điều kiện để chúng cộng khớp — đây chính là thứ ba thẻ rời
-    // trước đây không làm được, khiến người đọc tự cộng rồi thấy lệch.
+    // Năm số dưới đây CÙNG một phạm vi: booking trong cohort (đang chạy, hoặc đã đóng
+    // sổ mà phụ huynh đã thực trả tiền), tạo trong kỳ. Cùng phạm vi là điều kiện để
+    // chúng cộng khớp — đây chính là thứ ba thẻ rời trước đây không làm được, khiến
+    // người đọc tự cộng rồi thấy lệch.
     //
     //   Gmv = TutorReceivable + CommissionSold          (theo BookingFeeCalculator)
-    //   CommissionSold = CommissionEarned + phần còn chờ
+    //   CommissionSold = CommissionEarned + CommissionLost + phần còn chờ
     //
-    // CommissionFromCancelled đứng NGOÀI hai đẳng thức trên: nó là hoa hồng của buổi
-    // đã dạy và đã giải ngân thuộc booking về sau bị hủy, nên không nằm trong
-    // CommissionSold nhưng vẫn là tiền Tutora đã kiếm được.
+    // CommissionFromCancelled đứng NGOÀI hai đẳng thức trên: nó neo theo NGÀY HUỶ chứ
+    // không phải ngày tạo booking, nên là số hạng của RecognisedRevenue, không phải
+    // của khối chia tiền.
 
     /// <summary>
     /// Học phí gốc của booking tạo trong kỳ — MẪU SỐ của mọi tỉ lệ phí.
@@ -55,13 +63,56 @@ public class RevenueSummaryDto
     /// <summary>Tiền gia sư nhận từ booking tạo trong kỳ (học phí gốc trừ 5% phí gia sư).</summary>
     public decimal TutorReceivable { get; set; }
 
-    /// <summary>Hoa hồng 10% của booking tạo trong kỳ. Không gồm doanh thu bán gói AI.</summary>
+    /// <summary>
+    /// DOANH THU TẠM TÍNH: phí nền tảng 10% của booking tạo trong kỳ, chốt tại thời điểm đặt
+    /// lịch. Không gồm doanh thu bán gói AI (khoản đó có tab riêng).
+    ///
+    /// Chưa phải tiền thật — buổi chưa dạy thì khoản này vẫn có thể mất. Phần đã thành tiền
+    /// nằm ở <see cref="CommissionEarned"/>.
+    /// </summary>
     public decimal CommissionSold { get; set; }
 
-    /// <summary>Phần hoa hồng trên đã ứng với buổi dạy xong và giải ngân tính tới cuối kỳ.</summary>
+    /// <summary>
+    /// Cùng định nghĩa với <see cref="CommissionSold"/> nhưng của kỳ liền trước cùng độ dài.
+    ///
+    /// Có mặt để dashboard tính được % thay đổi trên ĐÚNG con số nó đang hiển thị. Dùng
+    /// <see cref="ContractedPrevious"/> thay thế sẽ lệch, vì con số đó đã cộng thêm tiền bán
+    /// gói AI của kỳ trước.
+    /// </summary>
+    public decimal CommissionSoldPrevious { get; set; }
+
+    /// <summary>
+    /// Phần hoa hồng trên đã thành tiền thật tính tới cuối kỳ.
+    ///
+    /// Booking chưa chốt sổ: hoa hồng của buổi đã dạy xong và đã giải ngân. Booking đã chốt sổ:
+    /// số tiền Tutora THỰC GIỮ theo sổ ví (tiền phụ huynh trả − hoàn lại phụ huynh − giải ngân
+    /// cho gia sư), vì khoá dừng giữa chừng thì khoản giữ lại còn gồm cả phí dịch vụ không hoàn
+    /// của những buổi bị huỷ, không suy được bằng công thức "đơn giá × số buổi".
+    ///
+    /// Với khoá hoàn tất bình thường, hai cách cho ra CÙNG một số.
+    /// </summary>
     public decimal CommissionEarned { get; set; }
 
-    /// <summary>Hoa hồng của buổi đã giải ngân thuộc booking về sau bị hủy.</summary>
+    /// <summary>
+    /// Hoa hồng đã ký nhưng VĨNH VIỄN không thu được: khoá bị huỷ, hoặc khách bỏ dở sau đợt 1
+    /// rồi hệ thống đóng khoá.
+    ///
+    /// Tách hẳn khỏi phần "chờ ghi nhận" (<c>CommissionSold − CommissionEarned − CommissionLost</c>):
+    /// chờ thì buổi học còn ở phía trước và vẫn có cơ hội thành tiền, còn khoản này thì hết cơ
+    /// hội. Gộp chung sẽ làm nợ dịch vụ trông như vẫn còn thu được.
+    /// </summary>
+    public decimal CommissionLost { get; set; }
+
+    /// <summary>
+    /// Đối soát sổ ví: tổng tiền Tutora giữ được từ các khoá bị HUỶ đóng sổ trong kỳ.
+    ///
+    /// KHÔNG phải số hạng của <see cref="RecognisedRevenue"/>, và KHÔNG cộng được vào
+    /// <see cref="CommissionEarned"/>. Lý do: hoa hồng của những buổi đã dạy trong khoá đó có
+    /// thể đã được ghi nhận từ kỳ TRƯỚC (theo ngày dạy); trường này là số luỹ kế cả đời khoá,
+    /// gộp vào bất kỳ tổng nào cũng là tính hai lần.
+    ///
+    /// Dùng để trả lời đúng một câu hỏi: "kỳ này huỷ nhiều thế, rốt cuộc giữ lại được bao nhiêu".
+    /// </summary>
     public decimal CommissionFromCancelled { get; set; }
 }
 
@@ -74,17 +125,11 @@ public class RevenueTrendPointDto
     public decimal Gmv { get; set; }
 }
 
+/// <summary>Cặp tên–giá trị cho biểu đồ tròn. Chỉ còn dùng ở <c>Concentration</c> của tab Gia sư.</summary>
 public class NamedValueDto
 {
     public string Name { get; set; } = "";
     public decimal Value { get; set; }
-}
-
-public class FunnelStepDto
-{
-    public string Stage { get; set; } = "";
-    public string Label { get; set; } = "";
-    public int Count { get; set; }
 }
 
 /// <summary>Hoàn tiền trong kỳ. Nguồn: wallet_transactions type=Refund.</summary>
@@ -164,12 +209,49 @@ public class BookingProgressDto
     public int TotalSessions { get; set; }
     public int DeliveredSessions { get; set; }
 
-    /// <summary>Tổng doanh thu nền tảng của booking (phí phụ huynh + phí sàn gia sư). Muốn xem
-    /// tách 2 nguồn thì mở trang chi tiết booking (CMS: /admin-portal/bookings/:id).</summary>
+    /// <summary>
+    /// DOANH THU TẠM TÍNH của booking: toàn bộ phí nền tảng chốt lúc đặt lịch, gồm phí phụ
+    /// huynh cộng phí sàn gia sư. Muốn xem tách 2 nguồn thì mở trang chi tiết booking
+    /// (CMS: /admin-portal/bookings/:id).
+    ///
+    /// Bằng 0 với những lịch chết mà chưa có đồng nào chạy qua — chúng nằm ngoài cohort nên
+    /// không được góp vào bất kỳ tổng tiền nào.
+    ///
+    /// Trước 31/08/2026 trường này trả về số THỰC GIỮ với khoá đã đóng sổ, khiến tổng cột hụt
+    /// đúng phần "Không thu được" so với thẻ đầu trang. Đừng đưa nhánh đó quay lại.
+    /// </summary>
     public decimal ContractedFee { get; set; }
 
-    /// <summary>Phần doanh thu đã thực hiện: phí/buổi × số buổi đã quyết toán.</summary>
+    /// <summary>
+    /// Phần đã THU ĐƯỢC của số tạm tính trên. Khoá đang chạy: phí/buổi × số buổi đã quyết
+    /// toán. Khoá đã đóng sổ: số Tutora thực giữ theo sổ ví.
+    ///
+    /// Hiệu <c>ContractedFee − RecognisedFee</c> là phần còn chờ dạy (khoá đang chạy) hoặc
+    /// mất hẳn (khoá đã đóng sổ) — phân biệt bằng cờ <see cref="Closed"/>.
+    /// </summary>
     public decimal RecognisedFee { get; set; }
+
+    /// <summary>
+    /// Tiền phụ huynh đã thực trả vào booking này (đợt 1, hoặc cả hai đợt).
+    ///
+    /// Khác <c>FinalPrice</c>: khoá mới trả đợt 1 thì đây chỉ là tiền đợt 1. Có cột này thì
+    /// dòng của một khoá đã huỷ mới đọc được — "khách trả bao nhiêu, hoàn lại bao nhiêu, Tutora
+    /// giữ bao nhiêu" nằm trọn trên một dòng, không phải mở sang trang chi tiết.
+    /// </summary>
+    public decimal CashCollected { get; set; }
+
+    /// <summary>Đã hoàn lại cho phụ huynh, lấy từ sổ ví (<c>wallet_transactions</c>).</summary>
+    public decimal RefundedAmount { get; set; }
+
+    /// <summary>
+    /// Khoá đã chốt sổ — không còn đồng nào chảy vào hay ra nữa.
+    ///
+    /// Giao diện cần cờ này chứ không suy từ <see cref="Status"/> được: hai luồng đóng khoá
+    /// giữa chừng (gia sư bị đình chỉ, khách bỏ dở sau đợt 1) vẫn để status <c>completed</c>,
+    /// mà escrow thì đã chốt. Không có cờ thì bộ lọc "đã đóng" sẽ bỏ sót đúng nhóm đó.
+    /// </summary>
+    public bool Closed { get; set; }
+
     public DateTime? CreatedAt { get; set; }
     public string Status { get; set; } = "";
 }
@@ -186,7 +268,9 @@ public class AdminTutorRevenueResponse
     public int ActiveTutors { get; set; }
 
     public List<NamedValueDto> Concentration { get; set; } = [];
-    public decimal TotalPlatformRevenue { get; set; }
+    /// <summary>Tổng doanh thu đến từ phí gia sư trong kỳ — KHÔNG gồm phí dịch vụ phụ huynh
+    /// (xem <see cref="TutorRevenueDto.TutorFeeRevenue"/>).</summary>
+    public decimal TotalTutorFeeRevenue { get; set; }
 
     /// <summary>Escrow toàn sàn hiện tại — nợ phải trả, KHÔNG lọc theo kỳ.</summary>
     public decimal TotalEscrowHeld { get; set; }
@@ -198,7 +282,13 @@ public class TutorRevenueDto
     public string TutorName { get; set; } = "";
     public string Subject { get; set; } = "";
     public decimal Gmv { get; set; }
-    public decimal PlatformRevenue { get; set; }
+
+    /// <summary>
+    /// Doanh thu nền tảng đến TỪ GIA SƯ này: 5% cắt từ <c>Tutorfee</c> của các buổi họ đã dạy
+    /// trong kỳ. KHÔNG gồm 5% phí dịch vụ phụ huynh trả — nửa đó thuộc tab Khách hàng, nên
+    /// tổng tab Gia sư cố ý nhỏ hơn "Doanh thu đã ghi nhận" của tab Doanh thu.
+    /// </summary>
+    public decimal TutorFeeRevenue { get; set; }
 
     /// <summary>% giữ lại trên GMV. Chỉ so sánh tương đối — hai vế khác mốc thời gian.</summary>
     public decimal TakeRate { get; set; }
@@ -239,8 +329,12 @@ public class CustomerSegmentDto
     /// <summary>Tiền khách trả (GMV), không phải hoa hồng.</summary>
     public decimal TotalSpent { get; set; }
 
-    /// <summary>Hoa hồng nền tảng thực nhận từ nhóm này — buổi đã dạy.</summary>
-    public decimal PlatformRevenue { get; set; }
+    /// <summary>Phí dịch vụ 5% ĐÃ ghi nhận từ nhóm này — khoá đã qua buổi đầu.</summary>
+    public decimal ServiceFeeRecognised { get; set; }
+
+    /// <summary>Phí dịch vụ 5% còn ĐỢI ghi nhận: chưa trả, hoặc đã trả mà chưa qua buổi đầu
+    /// nên vẫn hoàn lại được 100%.</summary>
+    public decimal ServiceFeePending { get; set; }
 
     /// <summary>Chi tiêu bình quân mỗi khách, toàn lịch sử.</summary>
     public decimal Ltv { get; set; }
@@ -253,6 +347,12 @@ public class CustomerSegmentDto
 
 public class CustomerSummaryDto
 {
+    /// <summary>Phí dịch vụ 5% ĐÃ ghi nhận từ các lịch đặt trong kỳ — tiền thật.</summary>
+    public decimal ServiceFeeRecognised { get; set; }
+
+    /// <summary>Phí dịch vụ 5% còn ĐỢI ghi nhận từ các lịch đặt trong kỳ.</summary>
+    public decimal ServiceFeePending { get; set; }
+
     public int ActiveParents { get; set; }
     public decimal RepeatRate { get; set; }
     public decimal RepeatRatePrevious { get; set; }
@@ -276,8 +376,12 @@ public class ParentRevenueDto
     public int SessionsPurchased { get; set; }
     public int SessionsCompleted { get; set; }
 
-    /// <summary>Hoa hồng buổi chưa học. KHÔNG suy ra từ TotalSpent (gồm phần gia sư).</summary>
-    public decimal DeferredRevenue { get; set; }
+    /// <summary>Phí dịch vụ 5% khách này đã trả và ĐÃ ghi nhận (khoá đã qua buổi đầu).</summary>
+    public decimal ServiceFeeRecognised { get; set; }
+
+    /// <summary>Phí dịch vụ 5% còn ĐỢI ghi nhận. Cộng với trường trên đúng bằng tổng
+    /// `Parentfee` các khoá của khách. KHÔNG suy ra từ TotalSpent (số đó gồm phần gia sư).</summary>
+    public decimal ServiceFeePending { get; set; }
     public DateTime? FirstBookingAt { get; set; }
     public DateTime? LastBookingAt { get; set; }
 }

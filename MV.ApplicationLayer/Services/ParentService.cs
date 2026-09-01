@@ -295,6 +295,7 @@ public class ParentService : IParentService
             {
                 l.Bookingid,
                 l.Status,
+                l.Scheduledstart,
                 BookingStatus = l.Booking != null ? l.Booking.Status : null
             })
             .FirstOrDefaultAsync()
@@ -307,8 +308,8 @@ public class ParentService : IParentService
             throw new ClassSessionException(ClassSessionErrorCodes.ClassSessionNotFound, "Buổi học không có booking hợp lệ", 400);
         if (DisputeSettlementPolicy.IsTerminalBooking(snapshot.BookingStatus))
             throw new ClassSessionException(ClassSessionErrorCodes.InvalidClassSessionStatus, "Booking đã kết thúc, không thể tạo tranh chấp mới", 400);
-        if (!DisputeSettlementPolicy.IsEligibleClassSession(snapshot.Status))
-            throw new ClassSessionException(ClassSessionErrorCodes.InvalidClassSessionStatus, "Chỉ buổi học đã diễn ra mới có thể tạo tranh chấp", 400);
+        if (!DisputeSettlementPolicy.IsEligibleClassSession(snapshot.Status, snapshot.Scheduledstart, TimeZoneHelper.UtcNow))
+            throw new ClassSessionException(ClassSessionErrorCodes.InvalidClassSessionStatus, "Chỉ buổi học đã tới giờ bắt đầu mới có thể tạo tranh chấp", 400);
 
         var uploadedEvidence = new List<string>();
         var newlyUploadedEvidence = new List<string>();
@@ -355,9 +356,13 @@ public class ParentService : IParentService
                         throw new ClassSessionException(ClassSessionErrorCodes.ClassSessionNotFound, "Bạn không có quyền truy cập buổi học này", 404);
                     if (DisputeSettlementPolicy.IsTerminalBooking(booking.Status))
                         throw new ClassSessionException(ClassSessionErrorCodes.InvalidClassSessionStatus, "Booking đã kết thúc, không thể tạo tranh chấp mới", 400);
-                    if (!DisputeSettlementPolicy.IsEligibleClassSession(classSession.Status))
-                        throw new ClassSessionException(ClassSessionErrorCodes.InvalidClassSessionStatus, "Chỉ buổi học đã diễn ra mới có thể tạo tranh chấp", 400);
-                    if (await _context.Disputes.AnyAsync(d => d.Classsessionid == classSessionId))
+                    if (!DisputeSettlementPolicy.IsEligibleClassSession(classSession.Status, classSession.Scheduledstart, TimeZoneHelper.UtcNow))
+                        throw new ClassSessionException(ClassSessionErrorCodes.InvalidClassSessionStatus, "Chỉ buổi học đã tới giờ bắt đầu mới có thể tạo tranh chấp", 400);
+                    // Bỏ qua khiếu nại đã CLOSED: đó là admin đóng do hai bên hoà giải — không phán quyết,
+                    // và với phương án "giữ nguyên buổi học" thì buổi quay về scheduled để học bình thường.
+                    // Nếu sau đó phát sinh vấn đề thật, người học phải khiếu nại lại được; chặn ở đây là bịt
+                    // luôn đường duy nhất họ có. RESOLVED thì vẫn chặn — phán quyết đã ra, tiền đã chuyển.
+                    if (await _context.Disputes.AnyAsync(d => d.Classsessionid == classSessionId && d.Status != DisputeStatus.Closed))
                         throw new ClassSessionException(ClassSessionErrorCodes.DisputeAlreadyExists, "Buổi học này đã có tranh chấp rồi", 400);
 
                     if (classSession.Issettled == true)
@@ -386,7 +391,27 @@ public class ParentService : IParentService
                     };
 
                     _context.Disputes.Add(dispute);
-                    classSession.Status = Disputed;
+
+                    // Khiếu nại "gia sư vắng mặt" trên buổi CHƯA diễn ra mang nghĩa khác hẳn một
+                    // khiếu nại thường: nó khẳng định buổi đã không xảy ra, nên buổi phải mang đúng
+                    // trạng thái đó thay vì Disputed. Đây chính là hành vi của nút "Báo gia sư vắng
+                    // mặt" cũ (ReportTutorNoShowAsync), nay gộp vào form khiếu nại chung.
+                    //
+                    // Hệ quả cần biết: NoShow khoá luôn đường vào lớp (TryAutoCheckInAsync chỉ nhận
+                    // Scheduled), nên gia sư vào muộn sau thời điểm này sẽ không dạy được nữa.
+                    var isNoShowOnUnstartedSession =
+                        request.DisputeType == DisputeTypes.NoShow && classSession.Status == Scheduled;
+
+                    if (isNoShowOnUnstartedSession)
+                    {
+                        classSession.Status = NoShow;
+                        classSession.Istutorpresent = false;
+                    }
+                    else
+                    {
+                        classSession.Status = Disputed;
+                    }
+
                     await _context.SaveChangesAsync();
                     await tx.CommitAsync();
                     disputeCommitted = true;

@@ -139,14 +139,19 @@ public class ClassSessionRepository(AgoraDbContext context) : IClassSessionRepos
                                             && l.Status != ClassSessionStatus.Cancelled
                                             && l.Status != ClassSessionStatus.CancelledNoshow
                                             && l.Status != ClassSessionStatus.Reserved),
-                // Còn buổi giữ chỗ → lớp chưa kết thúc, chỉ đang chờ trả nốt tiền.
-                HasReserved = b.ClassSessions.Any(l => l.Status == ClassSessionStatus.Reserved),
                 NextSessionStart = b.ClassSessions
                     .Where(l => l.Scheduledstart > nowUtc
                                 && l.Status != ClassSessionStatus.Cancelled
                                 && l.Status != ClassSessionStatus.CancelledNoshow
                                 && l.Status != ClassSessionStatus.Reserved)
                     .Min(l => (DateTime?)l.Scheduledstart),
+                // Buổi giữ chỗ đếm riêng: KHÔNG vào TotalSessions/NextSessionStart (chưa mở thì
+                // chưa hứa được), nhưng phải biết để không báo lớp "hoàn thành" khi còn buổi chờ mở.
+                ReservedSessions = b.ClassSessions.Count(l => l.Status == ClassSessionStatus.Reserved),
+                NextReservedStart = b.ClassSessions
+                    .Where(l => l.Status == ClassSessionStatus.Reserved)
+                    .Min(l => (DateTime?)l.Scheduledstart),
+                BookingStatus = b.Status,
                 LatestStart = b.ClassSessions
                     .Where(l => l.Status != ClassSessionStatus.Reserved)
                     .Max(l => (DateTime?)l.Scheduledstart) ?? DateTime.MinValue,
@@ -167,13 +172,16 @@ public class ClassSessionRepository(AgoraDbContext context) : IClassSessionRepos
         // completed → all non-cancelled sessions completed; else in_progress / pending / scheduled.
         if (!string.IsNullOrWhiteSpace(status))
         {
+            // Phải khớp 1-1 với DeriveClassStatus ở ClassSessionService, kể cả nhánh Reserved:
+            // FE có sẵn tab "Đang giữ chỗ" gửi status=reserved, trước đây rơi vào `_ => grouped`
+            // nên tab đó lặng lẽ trả về TOÀN BỘ lớp thay vì lọc.
             grouped = status switch
             {
+                ClassSessionStatus.Completed => grouped.Where(x => !x.HasNonTerminal && x.ReservedSessions == 0),
+                ClassSessionStatus.Reserved => grouped.Where(x => !x.HasNonTerminal && x.ReservedSessions > 0),
                 ClassSessionStatus.InProgress => grouped.Where(x => x.HasInProgress),
                 ClassSessionStatus.PendingConfirmation => grouped.Where(x => !x.HasInProgress && x.HasPending),
-                ClassSessionStatus.Reserved => grouped.Where(x => !x.HasInProgress && !x.HasPending && !x.HasNonTerminal && x.HasReserved),
-                ClassSessionStatus.Completed => grouped.Where(x => !x.HasInProgress && !x.HasPending && !x.HasNonTerminal && !x.HasReserved),
-                ClassSessionStatus.Scheduled => grouped.Where(x => !x.HasInProgress && !x.HasPending && x.HasNonTerminal),
+                ClassSessionStatus.Scheduled => grouped.Where(x => x.HasNonTerminal && !x.HasInProgress && !x.HasPending),
                 _ => grouped,
             };
         }
