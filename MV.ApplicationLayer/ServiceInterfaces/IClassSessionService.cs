@@ -124,6 +124,16 @@ public interface IClassSessionService
     Task<int> AutoCloseExpiredLiveSessionsAsync(CancellationToken ct = default);
 
     /// <summary>
+    /// Tự nộp 1 báo cáo hệ thống cho các buổi <c>in_progress</c> đã bị
+    /// <see cref="AutoCloseExpiredLiveSessionsAsync"/> ép đóng phòng quá
+    /// <see cref="ClassSessionService.AutoSubmitMissingReportAfterHours"/> giờ mà gia sư chưa từng
+    /// nộp báo cáo — dùng bởi background job, tránh session/escrow kẹt vĩnh viễn ở InProgress khi
+    /// gia sư biến mất hoàn toàn. Chuyển sang <c>pending_confirmation</c>, đi đúng pipeline xác
+    /// nhận/tự-động-thanh-toán 12h sẵn có. Trả về số buổi đã tự nộp thay.
+    /// </summary>
+    Task<int> AutoSubmitMissingReportsAsync(CancellationToken ct = default);
+
+    /// <summary>
     /// Tự động đóng các buổi học bị ngắt giữa chừng (<c>interrupted</c>) đã qua nửa đêm của ngày bị
     /// ngắt (UTC thuần) mà chưa được xử lý — dùng bởi background job. Buổi gốc → <c>completed</c>
     /// qua settle-bỏ-qua-status-guard (giống dispute), trừ Sessionsremaining đúng 1 lần; buổi phụ
@@ -189,6 +199,15 @@ public interface IClassSessionService
     /// Parent (or self-managed student) reports that the tutor did not show up for a scheduled classSession.
     /// </summary>
     Task<ClassSessionDetailResponse> ReportTutorNoShowAsync(int classSessionId, string userId, string role, ReportNoShowRequest? request = null);
+
+    /// <summary>
+    /// Tự phát hiện các buổi <c>scheduled</c> quá giờ mà KHÔNG AI (gia sư lẫn học viên) từng vào
+    /// phòng và cũng chưa được ai chủ động báo cáo — dùng bởi background job để buổi không bị kẹt
+    /// vĩnh viễn ở <c>scheduled</c>. Tái dùng nguyên vẹn luồng dispute no-show đã có (giống hệt
+    /// <see cref="ReportTutorNoShowAsync"/>), không tự phán quyết lỗi thuộc bên nào. Trả về số buổi
+    /// đã tự phát hiện.
+    /// </summary>
+    Task<int> AutoReportMissedSessionsAsync(CancellationToken ct = default);
 
     /// <summary>
     /// Parent (or self-managed student) selects a resolution action after a tutor no-show
