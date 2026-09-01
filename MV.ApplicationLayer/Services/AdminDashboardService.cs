@@ -12,6 +12,7 @@ namespace MV.ApplicationLayer.Services;
 
 public class AdminDashboardService(
     IAppDbContext context,
+    IAdminRevenueAnalyticsService revenueAnalytics,
     ILogger<AdminDashboardService> logger) : IAdminDashboardService
 {
     private static readonly string[] ActiveBookingStatuses =
@@ -29,18 +30,73 @@ public class AdminDashboardService(
         BookingStatus.PaymentTimeout
     ];
 
-    // Booking statuses that have actually collected (or are collecting) payment —
-    // mirrors AdminFinancialService.RevenueBookingStatuses. Excludes pending_tutor,
-    // accepted, pending_payment (never paid) and cancelled/cancelled_noshow/payment_timeout
-    // (paid amount, if any, was reversed).
-    private static readonly string[] RevenueBookingStatuses =
+    /// <summary>
+    /// Booking còn ĐANG chạy — phải khớp
+    /// <c>AdminRevenueAnalyticsService.RevenueBookingStatuses</c>, gồm cả <c>pending_tutor</c>
+    /// (vừa trả cọc, chờ gia sư nhận).
+    ///
+    /// Tự nó KHÔNG phải tập tính tiền: một booking bị huỷ giữa chừng đã rơi khỏi danh sách này
+    /// nhưng phụ huynh vẫn mất tiền thật và Tutora vẫn giữ phí dịch vụ không hoàn của các buổi
+    /// bị huỷ. Tập tính tiền là COHORT — xem <see cref="IsInRevenueCohort"/>.
+    /// </summary>
+    private static readonly string[] LiveBookingStatuses =
     [
+        BookingStatus.PendingTutor,
         BookingStatus.Paid,
         BookingStatus.DepositPaid,
         BookingStatus.PendingRemainingPayment,
         BookingStatus.Ongoing,
         BookingStatus.Completed
     ];
+
+    /// <summary>
+    /// Booking được tính vào tiền: đang chạy, HOẶC đã đóng sổ mà phụ huynh thực sự đã trả tiền.
+    ///
+    /// Bản sao của <c>AdminRevenueAnalyticsService.CohortBookings</c>: đang chạy, HOẶC đã đóng
+    /// sổ mà phụ huynh THỰC SỰ còn mất tiền (<c>CashIn − Refunded &gt; 0</c>). Trả rồi được hoàn
+    /// 100% thì bị loại, giống hệt khoá chưa ai trả đồng nào — nếu không, một khoá đã đảo sạch
+    /// vẫn thổi GMV lên theo giá hợp đồng.
+    ///
+    /// Chỉ dùng cho dữ liệu ĐÃ tải lên bộ nhớ (cần tra sổ ví, không dịch được xuống SQL). Truy
+    /// vấn EF phải lọc bằng tập id dựng sẵn — xem <c>GetTrendsAsync</c>. Con số tổng ở
+    /// <c>GetSummaryAsync</c> thì lấy thẳng từ <see cref="IAdminRevenueAnalyticsService"/> nên
+    /// không phụ thuộc bản sao này.
+    /// </summary>
+    private static bool IsInRevenueCohort(
+        string? status,
+        DateTime? depositPaidAt,
+        DateTime? remainingPaidAt,
+        decimal finalPrice,
+        decimal depositAmount,
+        decimal refunded)
+    {
+        if (LiveBookingStatuses.Contains(status ?? "")) return true;
+
+        // Khoá đã đóng sổ: chỉ tính khi phụ huynh THỰC SỰ còn mất tiền. Trả rồi được hoàn 100%
+        // (huỷ trước buổi đầu, gia sư không phản hồi, no-show) thì về mặt kinh tế giống hệt
+        // chưa từng trả — xem `CohortBookings` bên AdminRevenueAnalyticsService.
+        var cashIn = remainingPaidAt != null ? finalPrice
+            : depositPaidAt != null ? depositAmount
+            : 0m;
+        return cashIn - refunded > 0;
+    }
+
+    /// <summary>
+    /// Tổng đã hoàn theo booking, lấy từ SỔ VÍ — <c>Booking.Refundamount</c> chỉ được ghi ở hai
+    /// luồng huỷ nên không dùng được để đánh giá "đã hoàn hết chưa".
+    /// </summary>
+    private async Task<Dictionary<int, decimal>> LoadRefundsByBookingAsync(CancellationToken ct)
+    {
+        var rows = await context.Wallettransactions.AsNoTracking()
+            .Where(t => t.Transactiontype == TransactionType.Refund
+                        && t.Referencetable == ReferenceTable.Booking
+                        && t.Referenceid != null)
+            .Select(t => new { BookingId = t.Referenceid!.Value, Amount = t.Amount ?? 0 })
+            .ToListAsync(ct);
+
+        return rows.GroupBy(r => r.BookingId)
+            .ToDictionary(g => g.Key, g => g.Sum(r => r.Amount));
+    }
 
     private static readonly string[] PendingWithdrawalStatuses =
     [
@@ -75,9 +131,15 @@ public class AdminDashboardService(
             .Select(t => new { t.Profilestatus, t.Ispublic })
             .ToListAsync(ct);
 
+        var refundsByBooking = await LoadRefundsByBookingAsync(ct);
+
         var bookings = await context.Bookings
             .AsNoTracking()
-            .Select(b => new { b.Status, b.Finalprice, b.Platformfee, b.Createdat })
+            .Select(b => new
+            {
+                b.Bookingid, b.Status, b.Finalprice, b.Platformfee, b.Createdat,
+                b.Depositpaidat, b.Remainingpaidat, b.Depositamount
+            })
             .ToListAsync(ct);
 
         var classSessions = await context.ClassSessions
@@ -121,7 +183,10 @@ public class AdminDashboardService(
 
         var revenueBookingsThisMonth = bookings
             .Where(b => b.Createdat >= monthStartUtc && b.Createdat < monthStartUtc.AddMonths(1)
-                        && RevenueBookingStatuses.Contains(b.Status ?? ""));
+                        && IsInRevenueCohort(
+                            b.Status, b.Depositpaidat, b.Remainingpaidat,
+                            b.Finalprice ?? 0, b.Depositamount ?? 0,
+                            refundsByBooking.TryGetValue(b.Bookingid, out var rf) ? rf : 0));
         var gmvThisMonth = revenueBookingsThisMonth.Sum(b => b.Finalprice ?? 0);
         var revenueThisMonth = revenueBookingsThisMonth.Sum(b => b.Platformfee ?? 0);
 
@@ -414,10 +479,8 @@ public class AdminDashboardService(
         var toUtc   = to?.UtcDateTime   ?? nowUtc;
         var fromUtc = from?.UtcDateTime ?? toUtc.AddDays(-30);
 
-        // Previous period: same length, immediately preceding the current period
-        var periodLength = toUtc - fromUtc;
-        var prevFromUtc  = fromUtc - periodLength;
-        var prevToUtc    = fromUtc.AddTicks(-1);
+        // Kỳ liền trước (dùng cho % thay đổi) không còn tính ở đây: AdminRevenueAnalyticsService
+        // đã trả sẵn cả cặp hiện tại/kỳ trước theo đúng quy ước "cùng độ dài, liền kề".
 
         logger.LogInformation(
             "AdminDashboardService.GetSummaryAsync from={From} to={To} tz={Tz}",
@@ -452,27 +515,36 @@ public class AdminDashboardService(
             .AsNoTracking()
             .CountAsync(a => !a.Resolved, ct);
 
-        // ── GMV & Revenue ─────────────────────────────────────────────────────
+        // ── Tiền ─────────────────────────────────────────────────────────────
+        //
+        // KHÔNG tự tính ở đây nữa. Ba con số tiền của dashboard lấy nguyên từ
+        // AdminRevenueAnalyticsService — đúng service đứng sau trang Báo cáo doanh thu.
+        //
+        // Trước đây dashboard có công thức riêng: lọc booking theo status rồi cộng
+        // Finalprice / Platformfee. Công thức đó loại sạch mọi booking đã huỷ, kể cả khoá
+        // phụ huynh đã trả tiền và đã học vài buổi — trong khi báo cáo tính cả nhóm đó theo
+        // sổ ví. Hệ quả: cùng một khoảng 30 ngày, dashboard báo GMV 12.075.000 còn báo cáo
+        // báo 17.902.500, và không có gì trong giao diện giải thích được vì sao.
+        //
+        // Gọi lại service kia thì tốn thêm một lượt tải bảng booking + class_sessions, đổi
+        // lấy điều kiện quan trọng hơn nhiều: hai trang KHÔNG THỂ lệch nhau, vì chỉ còn đúng
+        // một chỗ định nghĩa "tiền" trong hệ thống.
+        var revenue = await revenueAnalytics.GetOverviewAsync(fromUtc, toUtc, ct);
+        var s = revenue.Summary;
+
+        // Kỳ trước dùng để tính % thay đổi: service kia đã tự tính sẵn với đúng quy ước
+        // "kỳ liền trước cùng độ dài", nên ở đây không lặp lại phép chia khoảng nữa.
+        static decimal? Change(decimal current, decimal previous) =>
+            previous == 0 ? null : Math.Round((current - previous) / previous * 100, 1);
+
+        var gmvChange        = Change(s.Gmv, s.GmvPrevious);
+        var contractedChange = Change(s.CommissionSold, s.CommissionSoldPrevious);
+        var recognisedChange = Change(s.RecognisedRevenue, s.RecognisedPrevious);
+
+        // ── Booking counts ────────────────────────────────────────────────────
         var currentPeriodBookings = bookings
             .Where(b => b.Createdat >= fromUtc && b.Createdat <= toUtc)
             .ToList();
-        var currentPeriodRevenueBookings = currentPeriodBookings
-            .Where(b => RevenueBookingStatuses.Contains(b.Status ?? ""));
-        var gmvCurrent     = currentPeriodRevenueBookings.Sum(b => b.Finalprice  ?? 0);
-        var revenueCurrent = currentPeriodRevenueBookings.Sum(b => b.Platformfee ?? 0);
-
-        var prevPeriodBookings = bookings
-            .Where(b => b.Createdat >= prevFromUtc && b.Createdat <= prevToUtc)
-            .ToList();
-        var prevPeriodRevenueBookings = prevPeriodBookings
-            .Where(b => RevenueBookingStatuses.Contains(b.Status ?? ""));
-        var gmvPrev     = prevPeriodRevenueBookings.Sum(b => b.Finalprice  ?? 0);
-        var revenuePrev = prevPeriodRevenueBookings.Sum(b => b.Platformfee ?? 0);
-
-        decimal? gmvChange     = gmvPrev     == 0 ? null : Math.Round((gmvCurrent     - gmvPrev)     / gmvPrev     * 100, 1);
-        decimal? revenueChange = revenuePrev == 0 ? null : Math.Round((revenueCurrent - revenuePrev) / revenuePrev * 100, 1);
-
-        // ── Booking counts ────────────────────────────────────────────────────
         var activeBookings    = bookings.Count(b => ActiveBookingStatuses.Contains(b.Status ?? ""));
         var newInPeriod       = currentPeriodBookings.Count;
         var completedInPeriod = currentPeriodBookings.Count(b => b.Status == BookingStatus.Completed);
@@ -493,13 +565,22 @@ public class AdminDashboardService(
             FilterTo   = toUtc,
             Gmv = new MetricWithChange
             {
-                Value         = gmvCurrent,
+                Value         = s.Gmv,
                 ChangePercent = gmvChange
             },
+            // Doanh thu tạm tính: cố ý lấy CommissionSold (chỉ booking) chứ không lấy
+            // ContractedRevenue (đã cộng thêm tiền bán gói AI). Lý do là để con số này TRÙNG
+            // KHÍT với dòng "Doanh thu Tutora" trên thanh phân bổ của trang Báo cáo doanh thu —
+            // doanh thu AI có tab riêng ở đó và không nằm trong thanh phân bổ.
             PlatformRevenue = new MetricWithChange
             {
-                Value         = revenueCurrent,
-                ChangePercent = revenueChange
+                Value         = s.CommissionSold,
+                ChangePercent = contractedChange
+            },
+            RecognisedRevenue = new MetricWithChange
+            {
+                Value         = s.RecognisedRevenue,
+                ChangePercent = recognisedChange
             },
             Bookings = new SummaryBookings
             {
@@ -659,14 +740,27 @@ public class AdminDashboardService(
         };
 
         // ── Fetch data ────────────────────────────────────────────────────
-        var bookings = await context.Bookings
-            .AsNoTracking()
-            .Where(b => b.Createdat >= fromUtc && b.Createdat <= toUtc
-                        && (b.Status == BookingStatus.Completed || b.Status == BookingStatus.Ongoing
-                            || b.Status == BookingStatus.Paid    || b.Status == BookingStatus.DepositPaid
-                            || b.Status == BookingStatus.PendingRemainingPayment))
+        // Cùng COHORT với <see cref="IsInRevenueCohort"/> và với trang Báo cáo doanh thu: booking
+        // đang chạy, HOẶC đã đóng sổ mà phụ huynh còn mất tiền thật. Điều kiện thứ hai phải tra
+        // sổ ví nên không dịch được xuống SQL — lọc trong bộ nhớ sau khi nạp, thay vì viết lại
+        // biểu thức. Hai trang mô tả cùng một khoản tiền nên KHÔNG được dùng hai bộ lọc khác nhau.
+        var refundsByBooking = await LoadRefundsByBookingAsync(ct);
+
+        var bookings = (await context.Bookings
+                .AsNoTracking()
+                .Where(b => b.Createdat >= fromUtc && b.Createdat <= toUtc)
+                .Select(b => new
+                {
+                    b.Bookingid, b.Status, b.Createdat, b.Finalprice, b.Platformfee,
+                    b.Depositpaidat, b.Remainingpaidat, b.Depositamount
+                })
+                .ToListAsync(ct))
+            .Where(b => IsInRevenueCohort(
+                b.Status, b.Depositpaidat, b.Remainingpaidat,
+                b.Finalprice ?? 0, b.Depositamount ?? 0,
+                refundsByBooking.TryGetValue(b.Bookingid, out var rf) ? rf : 0))
             .Select(b => new { b.Createdat, b.Finalprice, b.Platformfee })
-            .ToListAsync(ct);
+            .ToList();
 
         var classSessions = await context.ClassSessions
             .AsNoTracking()

@@ -166,54 +166,18 @@ namespace MV.ApplicationLayer.Services
                 ProposedExperience = pending.Experience,
                 CurrentVideoIntroUrl = profile.Videointrourl,
                 ProposedVideoIntroUrl = pending.VideoIntroUrl,
-                HasProposedSubjectGradePrices = pending.SubjectGradePrices != null,
+                // "Môn học & Bảng giá" KHÔNG còn đi qua hàng chờ duyệt: gia sư sửa ở trang
+                // "Thiết lập giảng dạy" (/tutor-portal/onboarding) là ghi thẳng vào DB
+                // (xem UpdateTutorPricingAsync). Giữ 3 field này trong response để CMS không
+                // phải đổi type — chúng luôn rỗng nên khối diff giá tự ẩn.
+                // `CurrentSubjectGradePrices` vẫn trả bảng giá thật đang chạy: Admin xem yêu cầu
+                // cập nhật (Bio/Tiêu đề/...) vẫn cần bối cảnh gia sư đang dạy môn nào, giá bao nhiêu.
+                HasProposedSubjectGradePrices = false,
                 CurrentSubjectGradePrices = profile.Tutorsubjectgradeprices
                     .Select(MapSubjectGradePriceResponse)
                     .ToList(),
-                ProposedSubjectGradePrices = await MapPendingSubjectGradePricesAsync(pending.SubjectGradePrices)
+                ProposedSubjectGradePrices = new List<TutorSubjectGradePriceResponse>()
             };
-        }
-
-        /// <summary>
-        /// Bảng giá ĐỀ XUẤT chỉ có Id trần (SubjectId/GradeLevelId, xem <see cref="PendingTutorProfileUpdate"/>
-        /// — JSON lưu Redis, không phải EF entity nên không có navigation Subject/Gradelevel như bản
-        /// sống). Tra tên môn/khối lớp riêng ở đây để FE hiển thị được, không phải đoán qua ID.
-        /// </summary>
-        private async Task<List<TutorSubjectGradePriceResponse>> MapPendingSubjectGradePricesAsync(
-            List<TutorSubjectGradePriceRequest>? prices)
-        {
-            if (prices == null || prices.Count == 0)
-                return new List<TutorSubjectGradePriceResponse>();
-
-            var subjectIds = prices.Select(p => p.SubjectId).Distinct().ToList();
-            var gradeLevelIds = prices.Select(p => p.GradeLevelId).Distinct().ToList();
-
-            var subjects = await _context.Subjects
-                .Where(s => subjectIds.Contains(s.Subjectid))
-                .ToDictionaryAsync(s => s.Subjectid);
-            var gradeLevels = await _context.Gradelevels
-                .Where(g => gradeLevelIds.Contains(g.Gradelevelid))
-                .ToDictionaryAsync(g => g.Gradelevelid);
-
-            return prices.Select(p =>
-            {
-                subjects.TryGetValue(p.SubjectId, out var subject);
-                gradeLevels.TryGetValue(p.GradeLevelId, out var gradeLevel);
-                return new TutorSubjectGradePriceResponse
-                {
-                    SubjectId = p.SubjectId,
-                    SubjectName = subject?.Subjectname,
-                    GradeLevelId = p.GradeLevelId,
-                    GradeLevelName = gradeLevel?.Gradename,
-                    PricePerHour = p.PricePerHour,
-                    DurationMinutesPerSession = p.DurationMinutesPerSession,
-                    SessionsPerWeek = p.SessionsPerWeek,
-                    Currency = string.IsNullOrWhiteSpace(p.Currency) ? "VND" : p.Currency!,
-                    IsActive = p.IsActive,
-                    SubjectIsActive = subject?.IsActive ?? true,
-                    GradeLevelIsActive = gradeLevel?.IsActive ?? true
-                };
-            }).ToList();
         }
 
         public async Task<ReviewProfileUpdateResponse> ReviewProfileUpdateRequestAsync(
@@ -249,12 +213,10 @@ namespace MV.ApplicationLayer.Services
                 if (pending.VideoIntroUrl != null) profile.Videointrourl = pending.VideoIntroUrl;
                 profile.Updatedat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
 
-                if (pending.SubjectGradePrices != null)
-                {
-                    await ValidateSubjectGradePricesAsync(tutorId, pending.SubjectGradePrices);
-                    await _tutorRepository.ReplaceTutorSubjectGradePricesAsync(
-                        tutorId, MapSubjectGradePriceRequests(tutorId, pending.SubjectGradePrices));
-                }
+                // Không áp bảng giá từ hàng chờ nữa: "Môn học & Bảng giá" đã ra khỏi luồng duyệt
+                // (gia sư sửa ở /tutor-portal/onboarding là ghi thẳng vào DB). Bản pending cũ còn
+                // sót trong Redis từ trước thay đổi này nếu áp lúc này sẽ GHI ĐÈ bảng giá gia sư
+                // vừa tự lưu bằng một snapshot cũ hơn → cố tình bỏ qua.
 
                 await _context.SaveChangesAsync();
 

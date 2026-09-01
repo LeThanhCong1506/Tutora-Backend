@@ -14,7 +14,22 @@ public partial class AdminRevenueAnalyticsService
 
         var bookings = await LoadBookingsAsync(ct);
         var sessions = await LoadSessionsAsync(ct);
+        var ledger = await LoadBookingLedgerAsync(ct);
         var bookingById = bookings.ToDictionary(b => b.BookingId);
+        var closed = BuildClosedBookings(bookings, sessions, ledger);
+        var cohort = CohortBookings(bookings, closed);
+
+        // Phần chênh chốt tại ngày đóng sổ, gom theo gia sư. Hoa hồng và thu nhập của từng buổi
+        // đã dạy được đếm thẳng từ `sessions` bên dưới (kể cả buổi thuộc khoá về sau bị huỷ),
+        // nên ở đây CHỈ cộng phần chênh — cộng cả PlatformKept là tính hai lần.
+        var closedInPeriod = closed
+            .Where(c => c.When >= fromUtc && c.When < toUtc && c.TutorId != null)
+            .GroupBy(c => c.TutorId!)
+            .ToDictionary(g => g.Key, g => new
+            {
+                TutorCutAdjustment = g.Sum(c => c.TutorCutAdjustment),
+                TutorAdjustment = g.Sum(c => c.TutorAdjustment),
+            });
 
         var profiles = await context.Tutorprofiles.AsNoTracking()
             .Select(t => new
@@ -38,8 +53,12 @@ public partial class AdminRevenueAnalyticsService
             .Select(w => new { w.Userid, Frozen = w.Frozenbalance ?? 0 })
             .ToDictionaryAsync(w => w.Userid!, w => w.Frozen, ct);
 
+        // Lọc theo kỳ như mọi cột khác của bảng. Trước đây đếm khiếu nại của MỌI thời điểm,
+        // nên cột "Khiếu nại" là con số duy nhất trong bảng không đổi khi người dùng đổi mốc
+        // thời gian — một gia sư bị khiếu nại từ nửa năm trước vẫn hiện số đỏ ở báo cáo tuần này.
         var disputes = await context.Disputes.AsNoTracking()
-            .Where(d => d.Classsessionid != null)
+            .Where(d => d.Classsessionid != null
+                        && d.Createdat >= fromUtc && d.Createdat < toUtc)
             .Select(d => d.Classsessionid)
             .ToListAsync(ct);
         var disputeSessionIds = disputes.Where(d => d.HasValue).Select(d => d!.Value).ToHashSet();
@@ -57,15 +76,28 @@ public partial class AdminRevenueAnalyticsService
             .ToDictionaryAsync(s => s.Subjectid, s => s.Subjectname, ct);
 
         // Buổi trong kỳ, gom theo gia sư
-        var periodSessions = sessions
+        var sessionsByTutor = sessions
             .Where(s => s.When >= fromUtc && s.When < toUtc && s.TutorId != null)
-            .ToList();
+            .GroupBy(s => s.TutorId!)
+            .ToDictionary(g => g.Key, g => g.ToList());
+
+        // Gia sư có mặt trong kỳ = có buổi trong kỳ, HOẶC có khoá đóng sổ trong kỳ. Thiếu vế
+        // thứ hai thì gia sư dạy từ kỳ trước mà khoá bị huỷ ở kỳ này sẽ không có dòng nào, dù
+        // tiền của buổi đã dạy vừa được giải ngân cho họ trong chính kỳ này.
+        //
+        // Từ 01/09/2026 tab này CHỈ báo vế phí gia sư (xem `revenue` bên dưới), mà vế đó chỉ
+        // sinh ra từ buổi đã dạy hoặc từ lúc chốt sổ — đúng hai vế trên, không cần gom thêm.
+        var activeTutorIds = sessionsByTutor.Keys.Union(closedInPeriod.Keys).ToList();
 
         var rows = new List<TutorRevenueDto>();
-        foreach (var g in periodSessions.GroupBy(s => s.TutorId!))
+        foreach (var tutorId in activeTutorIds)
         {
-            // Cùng bộ lọc với doanh thu bên dưới: nếu đếm buổi gồm cả lịch đã hủy mà hoa hồng
-            // thì không, con số "hoa hồng mỗi buổi" sẽ bị chia sai mẫu số.
+            var g = sessionsByTutor.TryGetValue(tutorId, out var ts) ? ts : [];
+            var fromClosed = closedInPeriod.TryGetValue(tutorId, out var cl) ? cl : null;
+
+            // Buổi đã dạy của MỌI khoá đều tính, kể cả khoá về sau bị huỷ: công đã làm là công
+            // đã làm. Cùng bộ lọc với doanh thu bên dưới để "hoa hồng mỗi buổi" không bị chia
+            // sai mẫu số.
             var delivered = g.Count(s => s.Settled && IsRevenueSession(s, bookingById));
             var cancelled = g.Count(s =>
                 s.Status is ClassSessionStatus.Cancelled
@@ -73,16 +105,27 @@ public partial class AdminRevenueAnalyticsService
                     or ClassSessionStatus.NoShow);
             var denom = delivered + cancelled;
 
+            // ─── Tab này chỉ báo vế PHÍ GIA SƯ, không phải trọn 10% ─────────────────
+            //
+            // Phí sàn 10% đến từ HAI nguồn khác nhau: 5% cắt từ tiền gia sư, và 5% phụ huynh
+            // trả thêm. Gộp cả hai rồi treo dưới tên một gia sư là nói rằng người đó mang về
+            // cho sàn cả khoản mà PHỤ HUYNH trả — trong khi phần ấy thuộc về câu chuyện khách
+            // hàng, và đã được báo ở tab Khách hàng.
+            //
+            // Nên ở đây chỉ lấy 5% cắt từ gia sư, của những buổi họ ĐÃ DẠY trong kỳ, cộng lát
+            // phí gia sư trong phần chênh khi chốt sổ. Hệ quả có chủ ý: tổng tab này KHÔNG còn
+            // bằng "Doanh thu đã ghi nhận" ở tab Doanh thu — nó là một nửa của con số đó, nửa
+            // kia nằm ở tab Khách hàng.
             var revenue = g.Where(s => s.Settled && IsRevenueSession(s, bookingById))
-                .Sum(s => FeePerSession(bookingById[s.BookingId]));
+                .Sum(s => TutorCutPerSession(bookingById[s.BookingId]))
+                + (fromClosed?.TutorCutAdjustment ?? 0);
 
-            var tutorBookings = bookings
-                .Where(b => b.TutorId == g.Key
-                            && RevenueBookingStatuses.Contains(b.Status ?? "")
+            var tutorBookings = cohort
+                .Where(b => b.TutorId == tutorId
                             && b.CreatedAt >= fromUtc && b.CreatedAt < toUtc)
                 .ToList();
 
-            var profile = profileById.TryGetValue(g.Key, out var pf) ? pf : null;
+            var profile = profileById.TryGetValue(tutorId, out var pf) ? pf : null;
             var mainSubject = tutorBookings
                 .Where(b => b.SubjectId.HasValue)
                 .GroupBy(b => b.SubjectId!.Value)
@@ -94,36 +137,41 @@ public partial class AdminRevenueAnalyticsService
 
             rows.Add(new TutorRevenueDto
             {
-                TutorId = g.Key,
+                TutorId = tutorId,
                 // Hồ sơ → tài khoản → UUID. Gia sư xoá mềm rơi vào nhánh giữa.
                 TutorName = profile?.Name
-                            ?? (userFullNames.TryGetValue(g.Key, out var un) ? un : null)
-                            ?? g.Key,
+                            ?? (userFullNames.TryGetValue(tutorId, out var un) ? un : null)
+                            ?? tutorId,
                 Subject = mainSubject,
                 Gmv = gmv,
-                PlatformRevenue = revenue,
+                TutorFeeRevenue = revenue,
                 // Chỉ so sánh tương đối: GMV theo booking tạo trong kỳ, doanh thu theo
-                // buổi đã dạy — hai mốc khác nhau.
+                // buổi đã dạy — hai mốc khác nhau. Không còn màn hình nào đọc (cột "Tỷ lệ giữ
+                // lại" đã bỏ 01/09/2026 vì lý do đó).
                 TakeRate = gmv == 0 ? 0 : Math.Round(revenue / gmv * 100, 1),
+                // Đơn giá × buổi đã dạy, cộng phần chênh so với số THỰC giải ngân trong ví khi
+                // khoá đóng sổ. Phần chênh thường bằng 0; nó khác 0 ở ca hoàn tiền một phần theo
+                // khiếu nại, nơi gia sư chỉ nhận một phần buổi đó.
                 TutorEarnings = g.Where(s => s.Settled && IsRevenueSession(s, bookingById))
                     .Sum(s => bookingById[s.BookingId].TotalSessions > 0
                         ? Math.Round(bookingById[s.BookingId].TutorFee
                                      / bookingById[s.BookingId].TotalSessions, 2)
-                        : 0),
-                EscrowHeld = escrow.TryGetValue(g.Key, out var fz) ? fz : 0,
+                        : 0)
+                    + (fromClosed?.TutorAdjustment ?? 0),
+                EscrowHeld = escrow.TryGetValue(tutorId, out var fz) ? fz : 0,
                 SessionsDelivered = delivered,
                 RevenuePerSession = delivered == 0 ? 0 : Math.Round(revenue / delivered, 0),
                 CancelRate = denom == 0 ? 0 : Math.Round((decimal)cancelled / denom * 100, 1),
-                DisputeCount = disputeByTutor.TryGetValue(g.Key, out var dc) ? dc : 0,
+                DisputeCount = disputeByTutor.TryGetValue(tutorId, out var dc) ? dc : 0,
                 Rating = profile?.Averagerating is { } r ? Math.Round((decimal)r, 2) : 0,
             });
         }
 
-        rows = rows.OrderByDescending(r => r.PlatformRevenue).ToList();
+        rows = rows.OrderByDescending(r => r.TutorFeeRevenue).ToList();
 
-        var totalRevenue = rows.Sum(r => r.PlatformRevenue);
-        var top10 = rows.Take(10).Sum(r => r.PlatformRevenue);
-        var next40 = rows.Skip(10).Take(40).Sum(r => r.PlatformRevenue);
+        var totalRevenue = rows.Sum(r => r.TutorFeeRevenue);
+        var top10 = rows.Take(10).Sum(r => r.TutorFeeRevenue);
+        var next40 = rows.Skip(10).Take(40).Sum(r => r.TutorFeeRevenue);
         var rest = totalRevenue - top10 - next40;
 
         // Escrow là số dư hiện tại, không thuộc kỳ nào — cộng toàn bộ ví gia sư để con
@@ -162,7 +210,7 @@ public partial class AdminRevenueAnalyticsService
                 new() { Name = "Gia sư 11-50", Value = next40 },
                 new() { Name = "Còn lại", Value = Math.Max(rest, 0) },
             ],
-            TotalPlatformRevenue = totalRevenue,
+            TotalTutorFeeRevenue = totalRevenue,
             TotalEscrowHeld = totalEscrow,
         };
     }

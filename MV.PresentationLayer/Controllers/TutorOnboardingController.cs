@@ -298,9 +298,12 @@ namespace MV.PresentationLayer.Controllers
 
         /// <summary>
         /// Chuẩn hoá response cho các mục hồ sơ có thể bị "chờ Admin duyệt" thay vì lưu thẳng
-        /// (Thông tin cơ bản / Giới thiệu / Môn học & giá — xem RequiresApprovalForEdits ở TutorService).
-        /// Luôn kèm cờ <c>pendingApproval</c> để FE phân biệt, tránh báo "đã lưu" khi thực ra
-        /// thay đổi mới chỉ nằm trong hàng chờ duyệt, chưa áp dụng.
+        /// (Thông tin cơ bản / Giới thiệu — trang "Hồ sơ gia sư", xem RequiresApprovalForEdits ở
+        /// TutorService). Luôn kèm cờ <c>pendingApproval</c> để FE phân biệt, tránh báo "đã lưu"
+        /// khi thực ra thay đổi mới chỉ nằm trong hàng chờ duyệt, chưa áp dụng.
+        ///
+        /// Môn học &amp; giá dùng chung helper này nhưng LUÔN trả pendingApproval=false: đó là mục
+        /// của trang "Thiết lập giảng dạy" (/tutor-portal/onboarding), gia sư sửa là áp dụng ngay.
         /// </summary>
         private IActionResult BuildProfileUpdateResponse(ProfileUpdateOutcome outcome, string appliedMessage)
         {

@@ -134,7 +134,12 @@ public partial class AdminRevenueAnalyticsService
         }
 
         // Top người MUA gói AI — sắp theo số tiền đã trả, không theo lượt tiêu thụ.
-        var topUsers = purchases
+        //
+        // Lấy từ `inPeriod`, không phải toàn bộ `purchases`. Trước đây bảng này gom mọi lần
+        // mua từ trước tới nay, nên nó có thể liệt kê người không mua gì trong kỳ, ngay bên
+        // dưới thẻ "Doanh thu AI kỳ này" vốn chỉ tính trong kỳ — hai khối cạnh nhau nói về
+        // hai khoảng thời gian khác nhau mà không có gì báo.
+        var topUsers = inPeriod
             .Where(p => !string.IsNullOrEmpty(p.AiCreditUserid))
             .GroupBy(p => p.AiCreditUserid!)
             .Select(g =>

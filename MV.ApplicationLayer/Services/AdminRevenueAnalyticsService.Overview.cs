@@ -17,28 +17,39 @@ public partial class AdminRevenueAnalyticsService
         var bookings = await LoadBookingsAsync(ct);
         var sessions = await LoadSessionsAsync(ct);
         var aiPayments = await LoadAiPaymentsAsync(ct);
+        var ledger = await LoadBookingLedgerAsync(ct);
 
         var bookingById = bookings.ToDictionary(b => b.BookingId);
-        var revenueBookings = bookings
-            .Where(b => RevenueBookingStatuses.Contains(b.Status ?? ""))
-            .ToList();
+        // Booking chưa chốt sổ — dùng cho nợ dịch vụ, vì chỉ nhóm này mới còn buổi phải dạy.
+        var openBookings = bookings.Where(IsOpen).ToList();
+        // Booking đã chốt sổ: tiền của chúng lấy từ sổ ví, không suy từ công thức.
+        var closed = BuildClosedBookings(bookings, sessions, ledger);
+        var cohort = CohortBookings(bookings, closed);
 
         var aiIn = (DateTime f, DateTime t) =>
             aiPayments.Where(p => p.When >= f && p.When < t).Sum(p => p.Amount);
 
-        var recognised = RecognisedIn(sessions, bookingById, fromUtc, toUtc) + aiIn(fromUtc, toUtc);
-        var recognisedPrev = RecognisedIn(sessions, bookingById, prevFrom, prevTo) + aiIn(prevFrom, prevTo);
-        var contracted = ContractedIn(bookings, fromUtc, toUtc) + aiIn(fromUtc, toUtc);
-        var contractedPrev = ContractedIn(bookings, prevFrom, prevTo) + aiIn(prevFrom, prevTo);
+        // Doanh thu ghi nhận = hoa hồng của mọi buổi đã dạy trong kỳ (neo theo ngày dạy)
+        //                    + phần chênh chốt tại ngày đóng sổ của booking đóng trong kỳ
+        //                    + bán gói AI.
+        var recognised = RecognisedIn(sessions, bookingById, fromUtc, toUtc)
+                         + ClosingAdjustmentIn(closed, fromUtc, toUtc) + aiIn(fromUtc, toUtc);
+        var recognisedPrev = RecognisedIn(sessions, bookingById, prevFrom, prevTo)
+                             + ClosingAdjustmentIn(closed, prevFrom, prevTo) + aiIn(prevFrom, prevTo);
+        var contracted = ContractedIn(cohort, fromUtc, toUtc) + aiIn(fromUtc, toUtc);
+        var contractedPrev = ContractedIn(cohort, prevFrom, prevTo) + aiIn(prevFrom, prevTo);
 
-        // Deferred = phí của booking đang chạy nhưng buổi CHƯA settle.
-        var deferred = ComputeDeferred(revenueBookings, sessions, toUtc);
-        var deferredPrev = ComputeDeferred(revenueBookings, sessions, prevTo);
+        // Deferred = phí của booking chưa chốt sổ mà buổi CHƯA settle. Booking đã chốt KHÔNG vào
+        // đây: buổi chưa dạy của chúng đã bị huỷ, không còn là nghĩa vụ nào cả. Trước đây mọi
+        // booking `completed` đều lọt vào, nên khoá kết thúc sớm (dạy 1/10 buổi) vẫn báo 9 buổi
+        // nợ dịch vụ suốt đời — số đó không bao giờ thành tiền được nữa.
+        var deferred = ComputeDeferred(openBookings, sessions, toUtc);
+        var deferredPrev = ComputeDeferred(openBookings, sessions, prevTo);
 
-        var gmv = revenueBookings
+        var gmv = cohort
             .Where(b => b.CreatedAt >= fromUtc && b.CreatedAt < toUtc)
             .Sum(b => b.FinalPrice);
-        var gmvPrev = revenueBookings
+        var gmvPrev = cohort
             .Where(b => b.CreatedAt >= prevFrom && b.CreatedAt < prevTo)
             .Sum(b => b.FinalPrice);
 
@@ -55,41 +66,55 @@ public partial class AdminRevenueAnalyticsService
         // Bộ số cho khối chia tiền. Tất cả bám đúng MỘT tập: booking phát sinh doanh thu
         // được tạo trong kỳ. Cùng tập thì mới cộng khớp, và đó là toàn bộ mục đích của khối
         // này — người đọc cộng nhẩm ra đúng số thì không phải đi tìm lời giải thích nữa.
-        var soldInPeriod = revenueBookings
+        var soldInPeriod = cohort
             .Where(b => b.CreatedAt >= fromUtc && b.CreatedAt < toUtc)
             .ToList();
-        var soldIds = soldInPeriod.Select(b => b.BookingId).ToHashSet();
 
-        var settledByBooking = sessions
-            .Where(x => x.Settled && x.When < toUtc)
-            .GroupBy(x => x.BookingId)
-            .ToDictionary(g => g.Key, g => g.Count());
+        var deliveries = BuildDeliveries(sessions, toUtc);
+
+        // Tiền Tutora thực giữ của booking đã đóng sổ, tra theo id — dùng ở cả CommissionEarned
+        // lẫn CommissionLost bên dưới.
+        var keptByBooking = closed.ToDictionary(c => c.BookingId, c => c.PlatformKept);
 
         var commissionSold = soldInPeriod.Sum(b => b.PlatformFee);
+        // Cùng phép tính cho kỳ trước — ContractedIn chính là "phí của cohort tạo trong kỳ",
+        // đúng định nghĩa của commissionSold, chỉ khác khoảng thời gian.
+        var commissionSoldPrev = ContractedIn(cohort, prevFrom, prevTo);
         var baseAmount = soldInPeriod.Sum(b => b.FinalPrice - b.ParentFee);
         var tutorReceivable = soldInPeriod.Sum(b => b.TutorFee);
-        var commissionEarned = soldInPeriod.Sum(b =>
-            FeePerSession(b) * Math.Min(
-                settledByBooking.TryGetValue(b.BookingId, out var c) ? c : 0,
-                b.TotalSessions));
 
-        // Buổi đã giải ngân của booking KHÔNG còn trạng thái doanh thu (đã hủy, hủy do khiếu
-        // nại, staff hủy…). Hoa hồng này đã kiếm được thật — buổi đã dạy, tiền đã chuyển cho
-        // gia sư — nên không xoá đi được, nhưng nó nằm ngoài CommissionSold.
-        var commissionFromCancelled = sessions
-            .Where(x => x.Settled && x.When >= fromUtc && x.When < toUtc
-                        && !soldIds.Contains(x.BookingId))
-            .Sum(x => bookingById.TryGetValue(x.BookingId, out var b)
-                      && !RevenueBookingStatuses.Contains(b.Status ?? "")
-                ? FeePerSession(b)
-                : 0);
+        // Booking chưa chốt sổ: phí phụ huynh đã trả + phí gia sư của buổi đã dạy (xem
+        // EarnedSoFar — hai vế chín ở hai thời điểm khác nhau vì tiền nằm trong escrow).
+        // Booking đã chốt: KHÔNG dùng công thức nữa — khoá dừng giữa chừng thì phần Tutora giữ
+        // lại còn gồm cả phí dịch vụ không hoàn của những buổi bị huỷ. Lấy thẳng số đã chốt
+        // trong ví. Với khoá hoàn tất bình thường hai cách cho ra CÙNG một số, nên nhánh này
+        // không làm đổi nhóm đa số.
+        var commissionEarned = soldInPeriod.Sum(b => keptByBooking.TryGetValue(b.BookingId, out var kept)
+            ? kept
+            : EarnedSoFar(b, toUtc, DeliveryOf(deliveries, b.BookingId)));
+
+        // Hoa hồng đã ký nhưng vĩnh viễn không thu được: khoá bị huỷ, hoặc khách bỏ dở sau đợt 1
+        // rồi hệ thống đóng khoá. Tách khỏi "chờ ghi nhận" vì chờ thì còn cơ hội thành tiền,
+        // khoản này thì hết.
+        var commissionLost = soldInPeriod
+            .Where(b => keptByBooking.ContainsKey(b.BookingId))
+            .Sum(b => Math.Max(0, b.PlatformFee - keptByBooking[b.BookingId]));
+
+        // Đối soát với sổ ví: tổng Tutora giữ được từ các khoá bị HUỶ đóng sổ trong kỳ.
+        // KHÔNG phải số hạng của RecognisedRevenue — một phần khoản này có thể đã được ghi nhận
+        // ở kỳ trước dưới dạng hoa hồng của buổi đã dạy. Xem doc trên DTO.
+        var commissionFromCancelled = closed
+            .Where(c => c.Cancelled && c.When >= fromUtc && c.When < toUtc)
+            .Sum(c => c.PlatformKept);
 
         var summary = new RevenueSummaryDto
         {
             BaseAmount = baseAmount,
             TutorReceivable = tutorReceivable,
             CommissionSold = commissionSold,
+            CommissionSoldPrevious = commissionSoldPrev,
             CommissionEarned = commissionEarned,
+            CommissionLost = commissionLost,
             CommissionFromCancelled = commissionFromCancelled,
             RecognisedRevenue = recognised,
             RecognisedPrevious = recognisedPrev,
@@ -110,34 +135,28 @@ public partial class AdminRevenueAnalyticsService
             trend.Add(new RevenueTrendPointDto
             {
                 Month = label,
-                Recognised = RecognisedIn(sessions, bookingById, monthStart, monthEnd),
-                Contracted = ContractedIn(bookings, monthStart, monthEnd),
+                Recognised = RecognisedIn(sessions, bookingById, monthStart, monthEnd)
+                             + ClosingAdjustmentIn(closed, monthStart, monthEnd),
+                Contracted = ContractedIn(cohort, monthStart, monthEnd),
                 AiRevenue = aiIn(monthStart, monthEnd),
-                Gmv = revenueBookings
+                Gmv = cohort
                     .Where(b => b.CreatedAt >= monthStart && b.CreatedAt < monthEnd)
                     .Sum(b => b.FinalPrice),
             });
         }
 
-        var bookingRevenueInPeriod = RecognisedIn(sessions, bookingById, fromUtc, toUtc);
-        var mix = new List<NamedValueDto>
-        {
-            new() { Name = "Hoa hồng booking", Value = bookingRevenueInPeriod },
-            new() { Name = "Gói AI credit", Value = aiIn(fromUtc, toUtc) },
-        };
-
-        var inPeriod = bookings
-            .Where(b => b.CreatedAt >= fromUtc && b.CreatedAt < toUtc)
-            .ToList();
-        var funnel = new List<FunnelStepDto>
-        {
-            Step(BookingStatus.PendingTutor, "Chờ gia sư nhận", inPeriod),
-            Step(BookingStatus.Accepted, "Gia sư đã nhận", inPeriod),
-            Step(BookingStatus.DepositPaid, "Đã trả đợt 1", inPeriod),
-            Step(BookingStatus.Paid, "Đã trả đủ", inPeriod),
-            Step(BookingStatus.Ongoing, "Đang học", inPeriod),
-            Step(BookingStatus.Completed, "Hoàn tất", inPeriod),
-        };
+        // ─── RevenueMix và BookingFunnel đã BỎ khỏi response (31/08/2026) ────────────
+        //
+        // Cả hai được tính ở mỗi lần gọi nhưng không có màn hình nào đọc: giao diện từng vẽ
+        // chúng ở hai khối "Cơ cấu doanh thu kỳ này" và "Phễu chuyển đổi booking", cả hai đã
+        // bị gỡ khi gộp hai tab cũ thành tab Doanh thu (xem đầu file RevenueTab.tsx). Phần
+        // tính toán thì bị bỏ quên lại.
+        //
+        // Đáng bỏ hơn bình thường vì từ 31/08 endpoint này còn được AdminDashboardService gọi
+        // ở mỗi lần mở trang chủ admin, nên phần chết chạy gấp đôi số lần trước đây.
+        //
+        // Muốn dựng lại phễu thì đó là câu hỏi về BÁN HÀNG, không phải doanh thu — nên thuộc
+        // về dashboard chứ không phải endpoint này.
 
         logger.LogInformation(
             "RevenueOverview {From:d}→{To:d}: recognised={Rec} contracted={Con} deferred={Def}",
@@ -147,53 +166,29 @@ public partial class AdminRevenueAnalyticsService
         {
             Summary = summary,
             Trend = trend,
-            RevenueMix = mix,
-            BookingFunnel = funnel,
         };
     }
 
-    /// <summary>Phễu tích luỹ: đếm booking đã ĐẠT bậc đó trở lên, nên luôn giảm dần.</summary>
-    private static FunnelStepDto Step(string stage, string label, List<BookingFlat> pool)
-    {
-        var rank = StageRank(stage);
-        return new FunnelStepDto
-        {
-            Stage = stage,
-            Label = label,
-            Count = pool.Count(b => StageRank(b.Status ?? "") >= rank),
-        };
-    }
-
-    private static int StageRank(string status) => status switch
-    {
-        BookingStatus.PendingTutor => 1,
-        BookingStatus.Accepted or BookingStatus.PendingPayment => 2,
-        BookingStatus.DepositPaid or BookingStatus.PendingRemainingPayment => 3,
-        BookingStatus.Paid => 4,
-        BookingStatus.Ongoing => 5,
-        BookingStatus.Completed => 6,
-        _ => 0,   // cancelled / payment_timeout: rơi khỏi phễu
-    };
-
-    /// <summary>Phí của buổi chưa settle, LUỸ KẾ tới asOf (không giới hạn kỳ) nên
-    /// Deferred ≠ Contracted − Recognised — ba chỉ tiêu ba tập booking khác nhau.</summary>
+    /// <summary>
+    /// Phần phí sàn CHƯA chín, LUỸ KẾ tới asOf (không giới hạn kỳ) nên
+    /// Deferred ≠ Contracted − Recognised — ba chỉ tiêu ba tập booking khác nhau.
+    ///
+    /// Đúng phần bù của <see cref="EarnedSoFar"/>: phí phụ huynh chưa chín (chưa trả, HOẶC đã
+    /// trả nhưng chưa qua buổi đầu nên vẫn hoàn lại được 100%), cộng phí gia sư của các buổi
+    /// CHƯA dạy.
+    /// </summary>
     private static decimal ComputeDeferred(
         List<BookingFlat> revenueBookings,
         List<SessionFlat> sessions,
         DateTime asOf)
     {
-        var settledByBooking = sessions
-            .Where(s => s.Settled && s.When < asOf)
-            .GroupBy(s => s.BookingId)
-            .ToDictionary(g => g.Key, g => g.Count());
+        var deliveries = BuildDeliveries(sessions, asOf);
 
         decimal total = 0;
         foreach (var b in revenueBookings)
         {
             if (b.CreatedAt >= asOf) continue;
-            var settled = settledByBooking.TryGetValue(b.BookingId, out var c) ? c : 0;
-            var pending = Math.Max(b.TotalSessions - settled, 0);
-            total += FeePerSession(b) * pending;
+            total += UnearnedSoFar(b, asOf, DeliveryOf(deliveries, b.BookingId));
         }
         return total;
     }
