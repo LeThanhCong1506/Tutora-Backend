@@ -221,11 +221,12 @@ public class ClassSessionController(
 
     /// <summary>
     /// POST /api/class-sessions/{id}/request-interruption
-    /// Gia sư/học sinh/phụ huynh báo buổi đang in_progress bị ngắt giữa chừng vì sự cố đột xuất.
+    /// Chỉ gia sư được báo buổi đang in_progress bị ngắt giữa chừng vì sự cố đột xuất
+    /// (trước đây học sinh/phụ huynh cũng gọi được — thu hẹp lại theo yêu cầu sản phẩm).
     /// Tạo buổi phụ (Iscontinuation=true) để học nốt trong ngày; buổi gốc chuyển "interrupted".
     /// </summary>
     [HttpPost("class-sessions/{id:int}/request-interruption")]
-    [Authorize(Roles = UserRole.ParentOrStudentOrTutor)]
+    [Authorize(Roles = UserRole.Tutor)]
     public async Task<IActionResult> RequestInterruption([FromRoute] int id, [FromBody] RequestInterruptionRequest? request)
     {
         var userId = UserId ?? throw new UnauthorizedAccessException();
@@ -248,9 +249,10 @@ public class ClassSessionController(
     /// GET /api/class-sessions/{id}/interruption-eligibility
     /// Cho FE biết ngay trong lúc học buổi đang in_progress đã đủ % tối thiểu để báo ngắt giữa
     /// chừng chưa — tránh phải bấm "Báo buổi học bị ngắt" mới biết bị từ chối.
+    /// Chỉ gia sư gọi (đi cùng RequestInterruption ở trên).
     /// </summary>
     [HttpGet("class-sessions/{id:int}/interruption-eligibility")]
-    [Authorize(Roles = UserRole.ParentOrStudentOrTutor)]
+    [Authorize(Roles = UserRole.Tutor)]
     public async Task<IActionResult> GetInterruptionEligibility([FromRoute] int id)
     {
         var userId = UserId ?? throw new UnauthorizedAccessException();
