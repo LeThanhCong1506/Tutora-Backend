@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Hangfire;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -25,6 +26,7 @@ public class AbandonedSessionService : IAbandonedSessionService
     private readonly INotificationService _notificationService;
     private readonly INotificationRepository _notificationRepo;
     private readonly AbandonedSessionSettings _settings;
+    private readonly IBackgroundJobClient _backgroundJobClient;
     private readonly ILogger<AbandonedSessionService> _logger;
 
     public AbandonedSessionService(
@@ -32,12 +34,14 @@ public class AbandonedSessionService : IAbandonedSessionService
         INotificationService notificationService,
         INotificationRepository notificationRepo,
         IOptions<AbandonedSessionSettings> settings,
+        IBackgroundJobClient backgroundJobClient,
         ILogger<AbandonedSessionService> logger)
     {
         _context = context;
         _notificationService = notificationService;
         _notificationRepo = notificationRepo;
         _settings = settings.Value;
+        _backgroundJobClient = backgroundJobClient;
         _logger = logger;
     }
 
@@ -183,6 +187,19 @@ public class AbandonedSessionService : IAbandonedSessionService
 
         _context.Disputes.Add(dispute);
         await _context.SaveChangesAsync(ct);
+
+        try
+        {
+            var jobId = _backgroundJobClient.Enqueue<IDisputeService>(
+                s => s.ClassifyDisputePriorityAsync(dispute.Disputeid, SystemActors.System, true));
+            _logger.LogInformation(
+                "Enqueued Hangfire job {JobId} to classify priority for dispute {DisputeId}",
+                jobId, dispute.Disputeid);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to enqueue priority classification job for dispute {DisputeId}", dispute.Disputeid);
+        }
 
         _logger.LogInformation(
             "Buổi {ClassSessionId} chỉ có một bên đến (tutor={TutorAttended}) — đã tạo dispute hệ thống, "
