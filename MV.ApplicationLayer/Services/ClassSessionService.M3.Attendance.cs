@@ -506,7 +506,7 @@ public partial class ClassSessionService
     ///   phòng + huỷ buổi phụ cho gọn, nhưng buổi gốc chuyển sang Disputed và hệ thống tự tạo 1
     ///   Dispute (Other, Pending) để admin xem lại và tự chọn mức hoàn/giải ngân qua đúng luồng
     ///   ResolveDisputeAsync sẵn có — hệ thống không tự phán quyết tiền ở bước này, giống hệt cách
-    ///   <see cref="AutoReportMissedSessionsAsync"/> xử lý no-show 2 phía.
+    ///   <see cref="AbandonedSessionService.FlagForAdminAsync"/> xử lý ca "1 bên có mặt, 1 bên vắng".
     /// - Buổi phụ ĐÃ có báo cáo (PendingConfirmation = đang chờ xác nhận, hoặc
     ///   Completed/Issettled = đã tự trừ Sessionsremaining và tự tính vào deliveredCount của
     ///   ReleaseEscrowIfBookingCompleteAsync rồi): buổi gốc KHÔNG được settle lại và buổi phụ KHÔNG bị
