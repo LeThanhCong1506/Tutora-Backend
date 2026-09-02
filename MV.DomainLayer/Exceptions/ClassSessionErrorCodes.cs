@@ -29,6 +29,8 @@ public static class ClassSessionErrorCodes
     // Buổi học bị ngắt giữa chừng / buổi phụ
     public const string AlreadyContinuationSession = "ALREADY_CONTINUATION_SESSION";
     public const string InterruptionThresholdNotMet = "INTERRUPTION_THRESHOLD_NOT_MET";
+    // Đã dạy thật bằng/vượt thời lượng đăng ký của buổi — không còn phần "thiếu" để tạo buổi phụ.
+    public const string InterruptionNoRemainingTime = "INTERRUPTION_NO_REMAINING_TIME";
     // Buổi học lại do admin hoà giải tranh chấp — cùng lý do chặn với buổi phụ (tránh 1 buổi đã
     // được admin can thiệp 1 lần lại tiếp tục sinh thêm buổi phụ qua chính cơ chế Báo ngắt).
     public const string AlreadyRelearnSession = "ALREADY_RELEARN_SESSION";
