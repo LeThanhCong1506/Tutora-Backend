@@ -1,7 +1,9 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.StaticFiles;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using MV.ApplicationLayer.Interfaces;
 using MV.DomainLayer.Configuration;
 using MV.DomainLayer.Constants;
 using MV.InfrastructureLayer.Services;
@@ -24,20 +26,48 @@ namespace MV.PresentationLayer.Controllers;
 [ApiController]
 [Route("api/files")]
 [Authorize]
-public class PrivateFileController(IOptions<LocalStorageSettings> settings, ILogger<PrivateFileController> logger) : ControllerBase
+public class PrivateFileController(
+    IOptions<LocalStorageSettings> settings,
+    IAppDbContext context,
+    ILogger<PrivateFileController> logger) : ControllerBase
 {
     private static readonly FileExtensionContentTypeProvider ContentTypeProvider = new();
 
     /// <summary>Đường dẫn luôn có dạng "{bucket}/{userId}/{tên file}" (xem LocalFileStorageService.BuildRelativePath),
-    /// nên đoạn thứ hai chính là chủ sở hữu file. Với ảnh proof payout, đoạn này là "withdrawal-{id}" —
-    /// không trùng userId của ai cả, nên chỉ Admin/Staff có quyền mới xem được, đúng như mong muốn.</summary>
+    /// nên đoạn thứ hai chính là chủ sở hữu file. Riêng ảnh proof payout, đoạn này là "withdrawal-{id}"
+    /// chứ không phải userId — trường hợp đó xử lý riêng ở <see cref="CanAccessPayoutProofAsync"/>.</summary>
     private static string? ExtractOwnerId(string relativePath)
     {
         var segments = relativePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
         return segments.Length >= 2 ? segments[1] : null;
     }
 
-    private bool CanAccess(string relativePath)
+    /// <summary>Rút "{id}" ra từ đoạn "withdrawal-{id}"; null nếu không phải ảnh proof payout.</summary>
+    private static int? ExtractWithdrawalId(string relativePath)
+    {
+        var segments = relativePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        if (segments.Length < 2 || segments[0] != StorageBucket.PayoutProofs) return null;
+
+        const string prefix = "withdrawal-";
+        var owner = segments[1];
+        if (!owner.StartsWith(prefix, StringComparison.Ordinal)) return null;
+
+        return int.TryParse(owner[prefix.Length..], out var id) ? id : null;
+    }
+
+    private async Task<bool> CanAccessPayoutProofAsync(int withdrawalId, string callerId)
+    {
+        var ownerId = await context.Withdrawalrequests
+            .AsNoTracking()
+            .Where(w => w.Withdrawalid == withdrawalId)
+            .Select(w => w.Userid)
+            .FirstOrDefaultAsync();
+
+        return !string.IsNullOrEmpty(ownerId)
+            && string.Equals(ownerId, callerId, StringComparison.Ordinal);
+    }
+
+    private async Task<bool> CanAccessAsync(string relativePath)
     {
         if (User.IsInRole(UserRole.Admin)) return true;
 
@@ -45,12 +75,17 @@ public class PrivateFileController(IOptions<LocalStorageSettings> settings, ILog
             && User.HasClaim(Permissions.ClaimType, Permissions.TutorCccdView)) return true;
 
         var callerId = User.FindFirstValue(ClaimTypes.NameIdentifier);
-        return !string.IsNullOrEmpty(callerId)
-            && string.Equals(ExtractOwnerId(relativePath), callerId, StringComparison.Ordinal);
+        if (string.IsNullOrEmpty(callerId)) return false;
+
+        var withdrawalId = ExtractWithdrawalId(relativePath);
+        if (withdrawalId.HasValue)
+            return await CanAccessPayoutProofAsync(withdrawalId.Value, callerId);
+
+        return string.Equals(ExtractOwnerId(relativePath), callerId, StringComparison.Ordinal);
     }
 
     [HttpGet("private")]
-    public IActionResult GetPrivateFile([FromQuery] string path, [FromQuery] long expires, [FromQuery] string sig)
+    public async Task<IActionResult> GetPrivateFile([FromQuery] string path, [FromQuery] long expires, [FromQuery] string sig)
     {
         if (string.IsNullOrWhiteSpace(path) || string.IsNullOrWhiteSpace(sig))
             return BadRequest();
@@ -74,7 +109,7 @@ public class PrivateFileController(IOptions<LocalStorageSettings> settings, ILog
 
         // Chữ ký hợp lệ vẫn chưa đủ: link có thể bị chuyển cho người khác. Bắt buộc đúng chủ sở hữu
         // hoặc Admin/Staff có quyền — đây là lớp chặn "người lạ cầm được link".
-        if (!CanAccess(path))
+        if (!await CanAccessAsync(path))
         {
             logger.LogWarning("Từ chối truy cập file private không thuộc quyền: {Path}", path);
             return Forbid();
