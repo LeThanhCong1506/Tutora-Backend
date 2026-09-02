@@ -55,11 +55,71 @@ public partial class AdminRevenueAnalyticsService(
     /// Escrow chỉ mở khi cả khoá kết thúc, nên booking đang chạy không bao giờ lọt vào đây kể cả
     /// khi đã có buổi settle — đó là điều kiện để tin được số liệu ví.
     /// </summary>
-    private static bool IsBooksClosed(BookingFlat b) =>
-        !IsLive(b) || b.EscrowStatus is EscrowStatus.Released or EscrowStatus.Refunded;
+    private static bool IsBooksClosed(BookingFlat b, IReadOnlySet<int> nothingLeftToTeach) =>
+        !IsLive(b)
+        || b.EscrowStatus is EscrowStatus.Released or EscrowStatus.Refunded
+        // Dấu hiệu thứ BA, thêm 02/09/2026 — xem NothingLeftToTeach.
+        || (b.Status == BookingStatus.Completed
+            && b.EscrowStatus == EscrowStatus.Holding
+            && nothingLeftToTeach.Contains(b.BookingId));
 
     /// <summary>Booking đang chạy và escrow chưa chốt — nhóm duy nhất còn sinh nợ dịch vụ.</summary>
-    private static bool IsOpen(BookingFlat b) => !IsBooksClosed(b);
+    private static bool IsOpen(BookingFlat b, IReadOnlySet<int> nothingLeftToTeach) =>
+        !IsBooksClosed(b, nothingLeftToTeach);
+
+    /// <summary>
+    /// Trạng thái buổi học mà buổi đó CÒN CÓ THỂ được dạy. Mọi trạng thái khác — huỷ, no-show,
+    /// tranh chấp — sẽ không bao giờ thành một buổi đã giao nữa.
+    ///
+    /// <c>disputed</c> CỐ Ý nằm ngoài danh sách: khi tranh chấp được xử bằng cách dạy lại, buổi
+    /// dạy lại là một dòng MỚI mang <c>is_dispute_relearn = true</c>, mà
+    /// <see cref="LoadSessionsAsync"/> đã lọc dòng đó ra khỏi báo cáo. Nên với con mắt của báo
+    /// cáo này, một buổi <c>disputed</c> không bao giờ chuyển thành đã dạy được nữa.
+    /// </summary>
+    private static readonly string[] DeliverableSessionStatuses =
+    [
+        ClassSessionStatus.Scheduled,
+        ClassSessionStatus.Reserved,
+        ClassSessionStatus.InProgress,
+        ClassSessionStatus.PendingConfirmation
+    ];
+
+    /// <summary>
+    /// Booking không còn buổi nào có thể dạy nữa: mọi buổi đều đã settle, hoặc đã huỷ/no-show/
+    /// tranh chấp. Dùng làm dấu hiệu thứ ba của <see cref="IsBooksClosed"/>.
+    ///
+    /// ─── Vì sao cần dấu hiệu này ──────────────────────────────────────────────────
+    ///
+    /// Có một nhóm booking mang <c>status = completed</c> nhưng <c>escrow_status</c> vẫn
+    /// <c>holding</c>: khoá bị huỷ sạch buổi còn lại nên <c>Sessionsremaining</c> về 0 và hệ
+    /// thống đánh dấu hoàn tất, nhưng không luồng nào chốt escrow. Hai dấu hiệu cũ bỏ lọt chúng
+    /// — <c>completed</c> nằm trong <see cref="RevenueBookingStatuses"/>, còn escrow thì chưa
+    /// released/refunded — nên báo cáo xếp chúng vào nhóm ĐANG CHẠY.
+    ///
+    /// Hậu quả đo được trên dev 02/09/2026: phí sàn của chúng nằm trong "đợi ghi nhận" và không
+    /// bao giờ chuyển đi đâu — 281.250 mỗi vế, tức 54% của cả thẻ. Báo một khoản đã chết như thể
+    /// vẫn đang chờ, đúng loại lỗi mà lát "Không thu được" sinh ra để tránh.
+    ///
+    /// Luật CỐ Ý hẹp: phải vừa <c>completed</c> vừa <c>holding</c> mới xét tới. Booking đang chạy
+    /// bình thường (escrow holding nhưng status khác) và booking đã released/refunded đều không
+    /// thể lọt vào. Đây thuần là sửa ở tầng BÁO CÁO — không ghi gì xuống DB, không đụng
+    /// SettlementService hay luồng tiền.
+    /// </summary>
+    private static HashSet<int> NothingLeftToTeach(IEnumerable<SessionFlat> sessions)
+    {
+        var hasAny = new HashSet<int>();
+        var hasDeliverable = new HashSet<int>();
+        foreach (var s in sessions)
+        {
+            hasAny.Add(s.BookingId);
+            if (!s.Settled && DeliverableSessionStatuses.Contains(s.Status ?? ""))
+                hasDeliverable.Add(s.BookingId);
+        }
+        // Booking KHÔNG có dòng buổi nào không được tính: đó là bất thường khác (khoá hoàn tất mà
+        // chưa từng xếp lịch), gộp vào đây sẽ giấu nó đi thay vì để lộ ra.
+        hasAny.ExceptWith(hasDeliverable);
+        return hasAny;
+    }
 
     // Bản ghi trung gian
     /// <summary>Booking đã phẳng hoá, kèm số buổi đã giao — dùng lại cho mọi báo cáo.</summary>
@@ -157,6 +217,45 @@ public partial class AdminRevenueAnalyticsService(
         int Delivered);
 
     private static string MonthKey(DateTime d) => $"{d.Month:00}/{d.Year}";
+
+    /// <summary>
+    /// Email giả do <see cref="SocialRegistrationService"/> sinh cho tài khoản đăng ký bằng
+    /// mạng xã hội không phải Google (Zalo): <c>social_{32 ký tự hex}@tutora.invalid</c>.
+    /// Không phải địa chỉ liên lạc, và in ra màn hình thì chỉ là 40 ký tự vô nghĩa.
+    /// </summary>
+    private const string PlaceholderEmailDomain = "@tutora.invalid";
+
+    /// <summary>
+    /// Chuỗi để phân biệt hai người TRÙNG TÊN trong báo cáo.
+    ///
+    /// Ưu tiên SỐ ĐIỆN THOẠI, không phải email, vì hai lý do đo được trên dữ liệu thật:
+    /// nhóm tài khoản đăng ký qua Zalo — đúng nhóm đang trùng tên nhiều nhất — mang email
+    /// giả <c>@tutora.invalid</c>, và ngay ở những nhóm trùng tên khác thì độ phủ của số
+    /// điện thoại cũng cao hơn email.
+    ///
+    /// Trả <c>null</c> khi không có gì để phân biệt; nơi hiển thị tự quyết định làm gì —
+    /// đừng bịa ra một mẩu id ở đây, chuỗi đó không giúp người đọc nhận ra ai với ai.
+    /// </summary>
+    private static string? PickContact(string? phone, string? email)
+    {
+        if (!string.IsNullOrWhiteSpace(phone)) return phone.Trim();
+        if (string.IsNullOrWhiteSpace(email)) return null;
+        return email.EndsWith(PlaceholderEmailDomain, StringComparison.OrdinalIgnoreCase)
+            ? null
+            : email.Trim();
+    }
+
+    /// <summary>
+    /// Bảng tra <c>userId → chuỗi phân biệt</c>, nạp một lần cho mỗi endpoint báo cáo.
+    ///
+    /// Nạp TOÀN BỘ người dùng thay vì lọc theo tập đang báo cáo: các tab đều đã nạp sẵn một
+    /// từ điển tên theo kiểu này (gia sư xoá mềm mất hồ sơ nhưng buổi dạy vẫn còn), nên thêm
+    /// hai cột vào cùng một lượt quét rẻ hơn là quét lần nữa với danh sách id.
+    /// </summary>
+    private async Task<Dictionary<string, string?>> LoadContactsAsync(CancellationToken ct) =>
+        await context.Users.AsNoTracking()
+            .Select(u => new { u.Userid, u.Phone, u.Email })
+            .ToDictionaryAsync(u => u.Userid, u => PickContact(u.Phone, u.Email), ct);
 
     /// <summary>Khách hàng: phụ huynh, hoặc học sinh nếu tự đặt lịch.</summary>
     private static string CustomerKey(BookingFlat b) => b.ParentId ?? b.StudentId!;
@@ -405,18 +504,30 @@ public partial class AdminRevenueAnalyticsService(
     /// <c>PlatformKept = 0</c>, nên nếu dữ liệu có buổi settle lạc vào một booking như thế thì
     /// <c>Adjustment</c> âm sẽ khử đúng phần hoa hồng ảo đó. Chỗ loại chúng ra là
     /// <see cref="CohortBookings"/> (lọc <c>CashIn > 0</c>), vì đưa vào GMV mới là thổi phồng.
+    ///
+    /// KHÔNG còn <c>static</c>: cần <c>logger</c> để kêu khi phép chặn dưới đây phải cắt số
+    /// (xem chỗ tính <c>kept</c>). Mọi thứ khác giữ nguyên — đây thuần là thêm quan sát.
     /// </summary>
-    private static List<ClosedBooking> BuildClosedBookings(
+    private List<ClosedBooking> BuildClosedBookings(
         IEnumerable<BookingFlat> bookings,
         IEnumerable<SessionFlat> sessions,
         IReadOnlyDictionary<int, (decimal Refunded, decimal Released)> ledger)
     {
         var deliveries = BuildDeliveries(sessions);
+        var nothingLeft = NothingLeftToTeach(sessions);
+
+        // Gom các khoá bị phép chặn cắt số, để cuối vòng lặp báo MỘT dòng thay vì mỗi khoá một
+        // dòng: hàm này được gọi từ cả 5 endpoint báo cáo (Overview/Recognition/Tutors/
+        // Customers/Subjects), mà Recognition còn gọi lại Overview — mỗi lần mở trang là hàm
+        // chạy ~6 lượt. Log theo từng khoá sẽ ra hàng chục dòng giống hệt nhau mỗi lần bấm F5,
+        // và cảnh báo nào lặp tới mức đó thì người ta thôi đọc.
+        var overCap = new List<(int BookingId, decimal Excess)>();
+        var negative = new List<(int BookingId, decimal Deficit)>();
 
         var closed = new List<ClosedBooking>();
         foreach (var b in bookings)
         {
-            if (!IsBooksClosed(b)) continue;
+            if (!IsBooksClosed(b, nothingLeft)) continue;
 
             var cashIn = CashPaidIn(b);
             var (refunded, released) = ledger.TryGetValue(b.BookingId, out var l) ? l : (0m, 0m);
@@ -426,7 +537,48 @@ public partial class AdminRevenueAnalyticsService(
             // dòng (dữ liệu dev sửa tay), doanh thu báo ra vẫn KHÔNG BAO GIỜ vượt quá hoa hồng
             // đã ký — đúng bằng trần mà công thức cũ có thể cho ra. Sai sót chỉ có thể theo
             // hướng thiếu, không thể theo hướng thừa.
-            var kept = Math.Clamp(cashIn - refunded - released, 0, Math.Max(b.PlatformFee, 0));
+            var rawKept = cashIn - refunded - released;
+
+            // ─── Sổ ví chỉ đáng tin khi nó ĐÃ ĐƯỢC ĐỘNG TỚI ──────────────────────────────
+            //
+            // Hai dấu hiệu chốt sổ đầu tiên đều hàm ý escrow đã xử lý xong: status ngoài
+            // RevenueBookingStatuses (đã huỷ, có luồng hoàn/đảo chạy) hoặc escrow đã
+            // released/refunded. Với chúng, đọc ví là đúng.
+            //
+            // Dấu hiệu thứ BA (NothingLeftToTeach) thì NGƯỢC LẠI: nó bắt đúng nhóm mà escrow
+            // KHÔNG BAO GIỜ được chốt. Nếu khoá đó chưa có một dòng Refund hay EscrowRelease
+            // nào thì ví chưa nói gì cả — mà công thức `cashIn − 0 − 0` lại đọc thành "Tutora
+            // giữ trọn", biến tiền đang KẸT trong frozen_balance của gia sư thành doanh thu.
+            //
+            // Đo được khi thêm dấu hiệu thứ ba (02/09/2026): doanh thu ghi nhận vọt từ 513.500
+            // lên 833.500, trong đó #276 một mình đóng góp 250.000 ảo — khoá đó phụ huynh trả
+            // 525.000, KHÔNG buổi nào được dạy, không hoàn ai và cũng không giải ngân ai.
+            //
+            // Nên: chưa có dòng ví nào thì dùng CÔNG THỨC (Adjustment = 0), đừng đoán qua ví.
+            // Khoá có dòng ví thật — kể cả khi escrow vẫn holding, như #277 đã hoàn trọn cho
+            // phụ huynh — vẫn đọc ví như cũ, vì lúc đó ví có thông tin thật để nói.
+            var ledgerTouched = refunded != 0 || released != 0;
+            var kept = ledgerTouched
+                ? Math.Clamp(rawKept, 0, Math.Max(b.PlatformFee, 0))
+                : ParentFeeEarned(b, DateTime.MaxValue, DeliveryOf(deliveries, b.BookingId))
+                  + TutorCutPerSession(b)
+                    * Math.Min(Math.Max(DeliveryOf(deliveries, b.BookingId).Count, 0), b.TotalSessions);
+
+            // ─── Chặn phải KÊU, không được cắt trong im lặng ─────────────────────────────
+            //
+            // Cái chặn trên giữ cho báo cáo không bao giờ thổi phồng, nhưng nó cũng che mất
+            // đúng loại lỗi cần thấy nhất: khi sổ ví nói Tutora đang giữ NHIỀU HƠN phí sàn đã
+            // ký, tức có tiền của phụ huynh không hoàn cho ai và cũng không giải ngân cho gia
+            // sư. Nguyên nhân đã gặp thật: escrow là một túi chung theo VÍ gia sư, nên luồng
+            // huỷ đảo escrow theo số buổi của HỢP ĐỒNG có thể rút vượt phần khoá đó thực nạp
+            // và ăn sang escrow của khoá khác — khoá bị ăn sau đó giải ngân hụt, nhưng vẫn bị
+            // đóng dấu Completed/Released nên không còn dấu vết nào trên UI.
+            //
+            // Ghi nhận ở đây KHÔNG đổi con số nào: `kept` vẫn đúng như trước. Chỉ là cái chuông.
+            // Đối chiếu tiếp bằng wallet_transactions của booking (EscrowCredit ghi
+            // reference_table='payment', EscrowReversal ghi 'booking').
+            if (ledgerTouched && rawKept > b.PlatformFee) overCap.Add((b.BookingId, rawKept - b.PlatformFee));
+            else if (ledgerTouched && rawKept < 0) negative.Add((b.BookingId, -rawKept));
 
             // Phần doanh thu đã chín TRƯỚC lúc chốt sổ, theo đúng hai mốc của RecognisedIn —
             // phải cùng công thức, nếu không hai nửa sẽ không cộng ra PlatformKept.
@@ -479,6 +631,31 @@ public partial class AdminRevenueAnalyticsService(
                 TutorAdjustment: released - tutorPerSession * delivered.Count,
                 Delivered: delivered.Count));
         }
+
+        // Một dòng cho cả lượt chạy, kèm danh sách booking để soi tiếp ngay — chứ không phải
+        // "có gì đó sai" rồi bắt người đọc tự đi tìm.
+        if (overCap.Count > 0)
+            logger.LogWarning(
+                "Doanh thu — sổ ví lệch ở {Count} khoá đã chốt sổ: tiền phụ huynh đã nộp mà KHÔNG "
+                + "hoàn cho ai và cũng KHÔNG giải ngân cho gia sư, tổng {Total} vượt quá phí sàn đã "
+                + "ký. Báo cáo đang cắt xuống trần phí sàn nên con số hiển thị vẫn an toàn, nhưng "
+                + "phần thừa là dấu hiệu gia sư bị giải ngân hụt — kiểm tra luồng đảo escrow "
+                + "(SettlementService), escrow là túi chung theo ví gia sư nên một khoá huỷ có thể "
+                + "rút vượt phần mình nạp và ăn sang khoá khác. Booking: {Bookings}",
+                overCap.Count,
+                overCap.Sum(x => x.Excess),
+                string.Join(", ", overCap.OrderByDescending(x => x.Excess)
+                    .Select(x => $"#{x.BookingId} (+{x.Excess:N0})")));
+
+        if (negative.Count > 0)
+            logger.LogWarning(
+                "Doanh thu — {Count} khoá đã chốt sổ chi ra nhiều hơn thu vào (hoàn + giải ngân > "
+                + "tiền phụ huynh nộp), tổng âm {Total}. Báo cáo đang nâng lên 0. Booking: {Bookings}",
+                negative.Count,
+                negative.Sum(x => x.Deficit),
+                string.Join(", ", negative.OrderByDescending(x => x.Deficit)
+                    .Select(x => $"#{x.BookingId} (−{x.Deficit:N0})")));
+
         return closed;
     }
 
@@ -613,6 +790,20 @@ public partial class AdminRevenueAnalyticsService(
     /// </summary>
     private static decimal TutorCutEarned(BookingFlat b, Delivery d) =>
         TutorCutPerSession(b) * Math.Min(Math.Max(d.Count, 0), b.TotalSessions);
+
+    /// <summary>
+    /// Vế PHÍ GIA SƯ còn CHỜ chín — số "đợi ghi nhận" của tab Gia sư, đối xứng với
+    /// <see cref="ParentFeePending"/> của tab Khách hàng.
+    ///
+    /// Thêm 02/09/2026: trước đó tab Gia sư chỉ báo vế ĐÃ chín (<c>TutorFeeRevenue</c>) trong khi
+    /// tab Khách hàng báo đủ cả hai vế, nên hai trang cùng nói về một nửa phí sàn mà lại không
+    /// đọc được như một cặp.
+    ///
+    /// Mẫu số là phần phí sàn thuộc về gia sư — <c>PlatformFee − ParentFee</c>, KHÔNG phải cả
+    /// <c>PlatformFee</c>: một nửa kia là phí phụ huynh, đã có tab Khách hàng lo.
+    /// </summary>
+    private static decimal TutorCutPending(BookingFlat b, Delivery d) =>
+        Math.Max(0, (b.PlatformFee - b.ParentFee) - TutorCutEarned(b, d));
 
     /// <summary>
     /// Vế PHÍ PHỤ HUYNH còn CHỜ chín — số "doanh thu đợi ghi nhận" của tab Khách hàng. Gồm cả

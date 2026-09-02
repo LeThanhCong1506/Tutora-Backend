@@ -57,6 +57,8 @@ public partial class AdminRevenueAnalyticsService
             x => x.ProfileName
                  ?? (userNames.TryGetValue(x.Studentid!, out var un) ? un : "—"));
 
+        var contacts = await LoadContactsAsync(ct);
+
         // Tra users trước, student_profiles sau: học sinh tự đăng ký không có hồ sơ
         // (hồ sơ chỉ sinh khi phụ huynh tạo cho con), tra ngược sẽ ra UUID.
         string CustomerName(BookingFlat b)
@@ -103,6 +105,7 @@ public partial class AdminRevenueAnalyticsService
             {
                 ParentId = g.Key,
                 ParentName = CustomerName(g.First()),
+                Contact = contacts.GetValueOrDefault(g.Key),
                 // Học sinh tự đặt thì người học chính là khách hàng.
                 CustomerType = IsSelfBooking(g.First()) ? "Học sinh" : "Phụ huynh",
                 StudentName = studentNameByBooking.TryGetValue(g.First().BookingId, out var sn2) ? sn2 : "—",

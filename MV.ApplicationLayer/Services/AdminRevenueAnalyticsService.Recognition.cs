@@ -23,7 +23,9 @@ public partial class AdminRevenueAnalyticsService
         var refundedByBooking = ledger.ToDictionary(kv => kv.Key, kv => kv.Value.Refunded);
         // Nợ dịch vụ và tuổi nợ chỉ tính trên booking CHƯA CHỐT SỔ: buổi chưa dạy của booking đã
         // đóng sổ đã bị huỷ và hoàn tiền, không còn là nghĩa vụ phải giao.
-        var openBookings = bookings.Where(IsOpen).ToList();
+        // Cùng tập với BuildClosedBookings — hai bên phải nhất trí booking nào đã chốt sổ.
+        var nothingLeft = NothingLeftToTeach(sessions);
+        var openBookings = bookings.Where(x => IsOpen(x, nothingLeft)).ToList();
         var cohortBookings = CohortBookings(bookings, closed);
 
         var overview = await GetOverviewAsync(from, to, ct);
@@ -176,6 +178,10 @@ public partial class AdminRevenueAnalyticsService
             if (studentProfileNames.TryGetValue(id, out var sn)) return sn;
             return id;
         }
+        var contacts = await LoadContactsAsync(ct);
+        string? PayerContact(BookingFlat b) =>
+            (b.ParentId ?? b.StudentId) is { } id ? contacts.GetValueOrDefault(id) : null;
+
         var subjectNames = await context.Subjects.AsNoTracking()
             .ToDictionaryAsync(s => s.Subjectid, s => s.Subjectname, ct);
 
@@ -237,6 +243,8 @@ public partial class AdminRevenueAnalyticsService
                 {
                     BookingId = b.BookingId,
                     ParentName = PayerName(b),
+                    ParentContact = PayerContact(b),
+                    TutorContact = b.TutorId == null ? null : contacts.GetValueOrDefault(b.TutorId),
                     TutorName = b.TutorId == null
                         ? "—"
                         : tutorNames.TryGetValue(b.TutorId, out var tn) ? tn
