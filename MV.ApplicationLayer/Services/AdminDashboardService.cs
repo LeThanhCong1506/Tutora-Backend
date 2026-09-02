@@ -563,6 +563,7 @@ public class AdminDashboardService(
         {
             FilterFrom = fromUtc,
             FilterTo   = toUtc,
+            BaseAmount = s.BaseAmount,
             Gmv = new MetricWithChange
             {
                 Value         = s.Gmv,

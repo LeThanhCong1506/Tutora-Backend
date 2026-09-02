@@ -13,6 +13,19 @@ public class AdminDashboardSummaryResponse
     public MetricWithChange Gmv { get; set; } = new();
 
     /// <summary>
+    /// Học phí gốc — giá gia sư niêm yết, tức <see cref="Gmv"/> TRỪ phần phí phụ huynh cộng thêm.
+    ///
+    /// Cần lộ ra vì phí sàn 10% tính trên số NÀY, không phải trên Gmv. Thiếu nó thì người đọc
+    /// lấy doanh thu tạm tính chia Gmv ra 9,5% và tưởng hệ thống tính sai — đúng câu hỏi đã
+    /// phát sinh thật 02/09/2026. Trang Báo cáo doanh thu vốn đã hiện dòng này; dashboard thì
+    /// chưa, nên trên dashboard không có cách nào tự nối hai con số lại.
+    ///
+    /// Không kèm % thay đổi: đây là mẫu số để đọc con số khác, không phải chỉ tiêu tự thân.
+    /// Tương ứng <c>RevenueSummaryDto.BaseAmount</c>.
+    /// </summary>
+    public decimal BaseAmount { get; set; }
+
+    /// <summary>
     /// Doanh thu TẠM TÍNH: phí nền tảng chốt tại thời điểm đặt lịch của các booking tạo trong
     /// kỳ. Chưa phải tiền thật — buổi học chưa dạy thì khoản này vẫn có thể mất.
     /// Tương ứng <c>RevenueSummaryDto.CommissionSold</c>.

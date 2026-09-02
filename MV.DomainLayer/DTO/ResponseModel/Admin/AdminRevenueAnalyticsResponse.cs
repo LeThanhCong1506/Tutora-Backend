@@ -111,7 +111,7 @@ public class RevenueSummaryDto
     ///
     /// Với khoá hoàn tất bình thường, hai cách cho ra CÙNG một số.
     ///
-    /// TẠM KHÔNG HIỂN THỊ (01/09/2026) — xem ghi chú ở <see cref="CommissionLost"/>.
+    /// Từ 02/09/2026 con số này LẠI ĐƯỢC HIỂN THỊ, dưới tên <see cref="CommissionMatured"/>.
     /// </summary>
     public decimal CommissionEarned { get; set; }
 
@@ -146,21 +146,63 @@ public class RevenueSummaryDto
     //
     //   CommissionSold = CommissionMatured + CommissionPending + CommissionUnrecoverable
     //
-    // Cả ba CỐ Ý tính bằng CÔNG THỨC (`ParentFeeEarned` + `TutorCutEarned`), KHÔNG đọc sổ ví.
-    // Đây là khác biệt then chốt với cặp CommissionEarned/CommissionLost ở trên: cặp đó dựa vào
-    // `PlatformKept` nên đang sai vì lỗi đảo escrow, còn bộ ba này chỉ đọc cột booking và số buổi
-    // đã settle — miễn nhiễm với lỗi đó.
+    // Khít theo construction ở MỌI kỳ: mỗi khoá đóng góp đúng `PlatformFee` của nó, tách làm hai
+    // nhánh rời nhau — đã chốt sổ thì `kept + (PlatformFee − kept)`, chưa chốt thì
+    // `earned + (PlatformFee − earned)`. Không khoá nào rơi vào cả hai nhánh.
     //
-    // Đã kiểm bộ ba tái lập ĐÚNG ví dụ chuẩn của tài liệu (§2.1): khoá 100k/10 buổi, phụ huynh
-    // trả đủ, học 1 buổi rồi huỷ → matured = 5.500, đúng bằng "Tutora giữ 5.500 = 1.000 hoa hồng
-    // buổi đã dạy + 4.500 phí dịch vụ không hoàn". Công thức ngây thơ "hoa hồng × buổi đã dạy"
-    // chỉ ra 1.000 — nó bỏ sót phần phí dịch vụ không hoàn, bộ ba này thì không.
+    // ─── Sửa 02/09/2026 (trong ngày): bộ ba GIỜ ĐỌC SỔ VÍ ────────────────────────
     //
-    // Cả ba neo theo NGÀY ĐẶT LỊCH (booking tạo trong kỳ), khác mốc với RecognisedRevenue vốn
-    // neo theo ngày dạy. Đừng cộng chéo hai bộ.
+    // Bản đầu của bộ ba cố ý KHÔNG chạm sổ ví, chỉ dùng công thức, để miễn nhiễm với lỗi đảo
+    // escrow. Đã đảo lại quyết định đó ngay trong ngày, vì nó không đạt mục tiêu:
+    //
+    //   `RecognisedRevenue` — con số kế toán lớn nhất trên màn hình — VẪN cộng
+    //   `ClosingAdjustmentIn`, mà khoản đó suy thẳng từ `PlatformKept`, tức từ sổ ví. Nên trang
+    //   chạy hai chính sách tin cậy khác nhau và in ra hai con số cho cùng một ý niệm:
+    //   461.000 ở thẻ doanh thu, 458.500 ở bộ ba (dev, 02/09/2026). Không đọc ví ở đây KHÔNG làm
+    //   trang an toàn hơn — số rủi ro vẫn nằm nguyên trên màn hình — chỉ làm hai chỗ mâu thuẫn.
+    //
+    // `CommissionMatured` và `CommissionUnrecoverable` do đó bằng ĐÚNG `CommissionEarned` và
+    // `CommissionLost`. Giữ cả hai bộ tên vì mỗi bộ nói một câu khác nhau ở tài liệu và giao
+    // diện; đừng "dọn" bằng cách xoá một bộ.
+    //
+    // Phần bảo vệ thật thì không mất, nó nằm ở `BuildClosedBookings`: chặn `ledgerTouched` (khoá
+    // chưa có dòng ví nào thì dùng công thức, đừng đoán qua ví — chặn này một mình đã khử 320.000
+    // doanh thu ảo khi thêm dấu hiệu chốt sổ thứ ba) và chặn trên ở `PlatformFee`.
+    //
+    // Bộ ba vẫn tái lập ĐÚNG ví dụ chuẩn của tài liệu (§2.1): khoá 100k/10 buổi, phụ huynh trả
+    // đủ, học 1 buổi rồi huỷ → matured = 5.500, đúng bằng "Tutora giữ 5.500 = 1.000 hoa hồng buổi
+    // đã dạy + 4.500 phí dịch vụ không hoàn". Công thức ngây thơ "hoa hồng × buổi đã dạy" chỉ ra
+    // 1.000 — nó bỏ sót phần phí dịch vụ không hoàn.
+    //
+    // Cả ba neo theo NGÀY ĐẶT LỊCH (booking tạo trong kỳ), khác mốc với RecognisedRevenue vốn neo
+    // theo ngày dạy. Sau khi sửa, `CommissionMatured` trùng đúng phần "dạy học" của
+    // RecognisedRevenue ở mọi kỳ ≥ 21 ngày trên dữ liệu dev; kỳ ngắn hơn vẫn lệch, và lệch ĐÚNG —
+    // buổi dạy trong kỳ có thể thuộc khoá đặt từ trước kỳ. Vẫn KHÔNG cộng chéo hai bộ.
 
-    /// <summary>Phí sàn đã thu được tính tới cuối kỳ, của các lịch đặt trong kỳ.
-    /// Nhãn trên giao diện: "Đã thu được" (quy ước thuật ngữ chốt 31/08/2026).</summary>
+    /// <summary>
+    /// Tiền bán gói AI trong kỳ, neo theo ngày thanh toán. ĐÃ nằm sẵn trong
+    /// <see cref="RecognisedRevenue"/> — lộ riêng ra để giao diện tách được doanh thu theo NGUỒN:
+    ///
+    ///   RecognisedRevenue = (phí gia sư + phí phụ huynh từ buổi dạy) + AiRevenue
+    ///
+    /// Hai vế cộng KHÍT TUYỆT ĐỐI vì cùng neo ngày ghi nhận, nên vế trái suy ngược ra bằng
+    /// hiệu chứ không cần thêm trường. Hai nguồn khác hẳn bản chất — một khoản chỉ chín khi có
+    /// buổi dạy xong và đi qua escrow, một khoản thu đứt ngay lúc mua — nên gộp làm một con số
+    /// mà không ghi rõ là để người đọc tự đoán sai tỉ lệ.
+    ///
+    /// KHÔNG cộng nó với <see cref="CommissionMatured"/>: số kia neo NGÀY ĐẶT LỊCH, khác mốc,
+    /// nên phép cộng luôn thừa ra một phần dư phải bịa tên. Giao diện đã thử một bản như vậy
+    /// ("dòng nối") và đã gỡ ngay trong ngày 02/09/2026 vì rối.
+    /// </summary>
+    public decimal AiRevenue { get; set; }
+
+    /// <summary>
+    /// Phí sàn đã thu được tính tới cuối kỳ, của các lịch đặt trong kỳ. Nhãn trên giao diện:
+    /// "Đã thu được" (quy ước thuật ngữ chốt 31/08/2026).
+    ///
+    /// Bằng ĐÚNG <see cref="CommissionEarned"/> từ 02/09/2026 — xem ghi chú của cụm ba số phận
+    /// ở trên về việc vì sao bỏ bản tính bằng công thức thuần.
+    /// </summary>
     public decimal CommissionMatured { get; set; }
 
     /// <summary>Phí sàn còn CƠ HỘI chín: khoá vẫn đang chạy, buổi còn ở phía trước.</summary>
@@ -173,6 +215,8 @@ public class RevenueSummaryDto
     /// Tách hẳn khỏi <see cref="CommissionPending"/>: chờ nghĩa là tiền còn cơ hội về, khoản này
     /// thì hết. Gộp chung là báo một khoản đã chết như thể vẫn đang chờ — và con số đó sẽ không
     /// bao giờ giảm qua các kỳ, thứ ai đối chiếu hai kỳ liên tiếp cũng phát hiện ra.
+    ///
+    /// Bằng ĐÚNG <see cref="CommissionLost"/> từ 02/09/2026 — xem ghi chú của cụm ba số phận.
     /// </summary>
     public decimal CommissionUnrecoverable { get; set; }
 
