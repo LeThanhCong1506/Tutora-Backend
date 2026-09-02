@@ -21,7 +21,9 @@ public partial class AdminRevenueAnalyticsService
 
         var bookingById = bookings.ToDictionary(b => b.BookingId);
         // Booking chưa chốt sổ — dùng cho nợ dịch vụ, vì chỉ nhóm này mới còn buổi phải dạy.
-        var openBookings = bookings.Where(IsOpen).ToList();
+        // Cùng tập với BuildClosedBookings — hai bên phải nhất trí booking nào đã chốt sổ.
+        var nothingLeft = NothingLeftToTeach(sessions);
+        var openBookings = bookings.Where(x => IsOpen(x, nothingLeft)).ToList();
         // Booking đã chốt sổ: tiền của chúng lấy từ sổ ví, không suy từ công thức.
         var closed = BuildClosedBookings(bookings, sessions, ledger);
         var cohort = CohortBookings(bookings, closed);
@@ -80,6 +82,9 @@ public partial class AdminRevenueAnalyticsService
         // Cùng phép tính cho kỳ trước — ContractedIn chính là "phí của cohort tạo trong kỳ",
         // đúng định nghĩa của commissionSold, chỉ khác khoảng thời gian.
         var commissionSoldPrev = ContractedIn(cohort, prevFrom, prevTo);
+        // Tiền khách ĐÃ THỰC trả trên đúng tập booking đã tính `gmv` — hai số phải cùng phạm vi
+        // thì đặt cạnh nhau mới có nghĩa. Xem RevenueSummaryDto.GmvPaid.
+        var gmvPaid = soldInPeriod.Sum(CashPaidIn);
         var baseAmount = soldInPeriod.Sum(b => b.FinalPrice - b.ParentFee);
         var tutorReceivable = soldInPeriod.Sum(b => b.TutorFee);
 
@@ -100,6 +105,23 @@ public partial class AdminRevenueAnalyticsService
             .Where(b => keptByBooking.ContainsKey(b.BookingId))
             .Sum(b => Math.Max(0, b.PlatformFee - keptByBooking[b.BookingId]));
 
+        // ── Ba số phận của doanh thu tạm tính, tính bằng CÔNG THỨC ─────────────────────
+        //
+        // Khác hẳn cặp commissionEarned/commissionLost ngay trên: bộ ba này KHÔNG đọc sổ ví một
+        // dòng nào, chỉ dùng `EarnedSoFar` (phí phụ huynh đã chín + phí gia sư của buổi đã dạy).
+        // Nhờ vậy nó miễn nhiễm với lỗi đảo escrow đang làm `PlatformKept` sai.
+        //
+        // Ba số cộng đúng bằng `commissionSold` theo construction: matured + (sold − matured)
+        // tách làm hai nhánh tuỳ khoá đã chốt sổ hay chưa. Không có đường nào để chúng lệch.
+        var maturedOf = (BookingFlat b) => EarnedSoFar(b, toUtc, DeliveryOf(deliveries, b.BookingId));
+        var commissionMatured = soldInPeriod.Sum(maturedOf);
+        var commissionPending = soldInPeriod
+            .Where(b => !keptByBooking.ContainsKey(b.BookingId))
+            .Sum(b => Math.Max(0, b.PlatformFee - maturedOf(b)));
+        var commissionUnrecoverable = soldInPeriod
+            .Where(b => keptByBooking.ContainsKey(b.BookingId))
+            .Sum(b => Math.Max(0, b.PlatformFee - maturedOf(b)));
+
         // Đối soát với sổ ví: tổng Tutora giữ được từ các khoá bị HUỶ đóng sổ trong kỳ.
         // KHÔNG phải số hạng của RecognisedRevenue — một phần khoản này có thể đã được ghi nhận
         // ở kỳ trước dưới dạng hoa hồng của buổi đã dạy. Xem doc trên DTO.
@@ -115,6 +137,9 @@ public partial class AdminRevenueAnalyticsService
             CommissionSoldPrevious = commissionSoldPrev,
             CommissionEarned = commissionEarned,
             CommissionLost = commissionLost,
+            CommissionMatured = commissionMatured,
+            CommissionPending = commissionPending,
+            CommissionUnrecoverable = commissionUnrecoverable,
             CommissionFromCancelled = commissionFromCancelled,
             RecognisedRevenue = recognised,
             RecognisedPrevious = recognisedPrev,
@@ -123,6 +148,7 @@ public partial class AdminRevenueAnalyticsService
             DeferredRevenue = deferred,
             DeferredPrevious = deferredPrev,
             Gmv = gmv,
+            GmvPaid = gmvPaid,
             GmvPrevious = gmvPrev,
             CashCollected = cash.Where(c => c.When >= fromUtc && c.When < toUtc).Sum(c => c.Amount),
             CashPrevious = cash.Where(c => c.When >= prevFrom && c.When < prevTo).Sum(c => c.Amount),

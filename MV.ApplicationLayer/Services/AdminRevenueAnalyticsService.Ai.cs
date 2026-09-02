@@ -52,6 +52,7 @@ public partial class AdminRevenueAnalyticsService
             })
             .ToListAsync(ct);
         var userNames = users.ToDictionary(u => u.Userid, u => new { u.Name, u.Primaryrole });
+        var contacts = await LoadContactsAsync(ct);
 
         var inPeriod = purchases.Where(p => p.When >= fromUtc && p.When < toUtc).ToList();
         var inPrev = purchases.Where(p => p.When >= prevFrom && p.When < prevTo).ToList();
@@ -149,6 +150,7 @@ public partial class AdminRevenueAnalyticsService
                 {
                     UserId = g.Key,
                     UserName = info?.Name ?? g.Key,
+                    Contact = contacts.GetValueOrDefault(g.Key),
                     Role = info?.Primaryrole ?? "—",
                     CreditsConsumed = usage.Where(x => x.Userid == g.Key).Sum(x => x.Usedcount),
                     CreditsPurchased = creditTx
