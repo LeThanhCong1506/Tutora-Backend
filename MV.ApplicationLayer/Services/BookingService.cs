@@ -933,15 +933,18 @@ public partial class BookingService(
                 .ThenByDescending(r => r.Paymentrequestid)
                 .Select(r => r.Paymentlinkid)
                 .FirstOrDefault(),
-            Schedule = classSessions?.Select(l => 
+            Schedule = classSessions?.Select(l =>
             {
+                // ScheduledStart/End là UTC
+                var localStart = TimeZoneHelper.ToVietnamTime(l.ScheduledStart);
+                var localEnd = TimeZoneHelper.ToVietnamTime(l.ScheduledEnd);
                 // Convert C# DayOfWeek (0=Sunday, 1=Monday...) to ISO format (1=Monday, 7=Sunday)
-                var isoDayOfWeek = l.ScheduledStart.DayOfWeek == DayOfWeek.Sunday ? 7 : (int)l.ScheduledStart.DayOfWeek;
+                var isoDayOfWeek = localStart.DayOfWeek == DayOfWeek.Sunday ? 7 : (int)localStart.DayOfWeek;
                 return new ScheduleItemResponse
                 {
                     DayOfWeek = isoDayOfWeek,
-                    StartTime = l.ScheduledStart.ToString("HH:mm"),
-                    EndTime = l.ScheduledEnd.ToString("HH:mm")
+                    StartTime = localStart.ToString("HH:mm"),
+                    EndTime = localEnd.ToString("HH:mm")
                 };
             }).ToList(),
             ClassSessions = classSessions,
