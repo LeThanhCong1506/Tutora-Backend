@@ -29,6 +29,10 @@ public class SessionPracticeRepository(AgoraDbContext context) : ISessionPractic
             .Include(s => s.Materials)
             .FirstOrDefaultAsync(s => s.Id == setId);
 
+    public Task<int> CountQuestionsInSessionAsync(int classSessionId)
+        => context.SessionPracticeQuestions
+            .CountAsync(q => q.Set!.ClassSessionId == classSessionId);
+
     public Task<SessionPracticeQuestion?> GetQuestionAsync(Guid questionId)
         => context.SessionPracticeQuestions
             .Include(q => q.Set)
