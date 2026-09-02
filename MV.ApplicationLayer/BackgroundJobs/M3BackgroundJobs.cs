@@ -73,7 +73,18 @@ public class AutoConfirmClassSessionJob : BackgroundService
         foreach (var classSession in classSessionsToRemind)
         {
             var parentId = classSession.Booking?.Student?.Parentid ?? classSession.Booking?.Parentid;
-            if (string.IsNullOrWhiteSpace(parentId))
+            var studentUserId = classSession.Booking?.Student?.Linkeduserid;
+
+            // Học sinh tự đặt (Booking/Student.Parentid đều null, không có phụ huynh quản lý) trước
+            // đây bị bỏ sót hoàn toàn ở đây — job chỉ gửi cho parentId nên booking dạng này im lặng
+            // suốt 12h cho tới lúc tự xác nhận, dù thông báo mở cửa sổ ban đầu (AbandonedSessionService)
+            // vẫn có gửi cho chính học sinh. Gửi cho cả 2 nếu có, để không recipient nào bị bỏ sót.
+            var recipients = new[] { parentId, studentUserId }
+                .Where(id => !string.IsNullOrWhiteSpace(id))
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
+
+            if (recipients.Count == 0)
                 continue;
 
             var hasOpenDispute = await context.Disputes.AnyAsync(
@@ -85,28 +96,31 @@ public class AutoConfirmClassSessionJob : BackgroundService
             if (hasOpenDispute)
                 continue;
 
-            var alreadySent = await notificationRepo.ExistsByUserAndTypeAndReferenceAsync(
-                parentId,
-                NotificationType.LessonConfirmDeadline,
-                classSession.Classsessionid.ToString());
-
-            if (alreadySent)
-                continue;
-
-            try
+            foreach (var userId in recipients)
             {
-                await notificationService.CreateNotificationAsync(new NotificationRequest
+                var alreadySent = await notificationRepo.ExistsByUserAndTypeAndReferenceAsync(
+                    userId!,
+                    NotificationType.LessonConfirmDeadline,
+                    classSession.Classsessionid.ToString());
+
+                if (alreadySent)
+                    continue;
+
+                try
                 {
-                    Userid = parentId,
-                    Title = "Sắp hết hạn xác nhận buổi học",
-                    Message = $"Còn 2 giờ để xác nhận buổi học #{classSession.Classsessionid}, nếu không hệ thống sẽ tự xác nhận.",
-                    Type = NotificationType.LessonConfirmDeadline,
-                    Referenceid = classSession.Classsessionid.ToString()
-                });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Không thể gửi nhắc hạn xác nhận cho classSession {ClassSessionId}.", classSession.Classsessionid);
+                    await notificationService.CreateNotificationAsync(new NotificationRequest
+                    {
+                        Userid = userId!,
+                        Title = "Sắp hết hạn xác nhận buổi học",
+                        Message = $"Còn 2 giờ để xác nhận buổi học #{classSession.Classsessionid}, nếu không hệ thống sẽ tự xác nhận.",
+                        Type = NotificationType.LessonConfirmDeadline,
+                        Referenceid = classSession.Classsessionid.ToString()
+                    });
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Không thể gửi nhắc hạn xác nhận cho classSession {ClassSessionId}, user {UserId}.", classSession.Classsessionid, userId);
+                }
             }
         }
     }
