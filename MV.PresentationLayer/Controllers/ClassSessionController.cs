@@ -198,28 +198,6 @@ public class ClassSessionController(
     }
 
     /// <summary>
-    /// POST /api/class-sessions/{id}/no-show-action
-    /// Parent (hoặc học sinh tự quản) chọn hướng xử lý sau khi gia sư bị xác nhận vắng mặt.
-    /// ActionType: free_session | makeup | change_tutor
-    /// </summary>
-    [HttpPost("class-sessions/{id:int}/no-show-action")]
-    [Authorize(Roles = UserRole.ParentOrStudent)]
-    public async Task<IActionResult> ProcessNoShowAction([FromRoute] int id, [FromBody] NoShowActionRequest request)
-    {
-        var userId = UserId ?? throw new UnauthorizedAccessException();
-        var role = User.FindFirstValue(ClaimTypes.Role) ?? "";
-        try
-        {
-            var result = await classSessionService.ProcessNoShowActionAsync(id, userId, role, request);
-            return Ok(MV.DomainLayer.DTO.APIResponse<NoShowActionResultResponse>.Success(result, "Xử lý no-show thành công."));
-        }
-        catch (ClassSessionException ex)
-        {
-            return StatusCode(ex.HttpStatus, MV.DomainLayer.DTO.APIResponse<object>.Fail(ex.Message, ex.HttpStatus));
-        }
-    }
-
-    /// <summary>
     /// POST /api/class-sessions/{id}/request-interruption
     /// Chỉ gia sư được báo buổi đang in_progress bị ngắt giữa chừng vì sự cố đột xuất
     /// (trước đây học sinh/phụ huynh cũng gọi được — thu hẹp lại theo yêu cầu sản phẩm).

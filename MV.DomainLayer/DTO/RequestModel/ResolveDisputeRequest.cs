@@ -41,6 +41,16 @@ public class ResolveDisputeRequest
     public bool? CreateTutorWarning { get; set; }
 
     /// <summary>
+    /// Phân bổ từng buổi cho phương án <see cref="ResolutionTypes.CancelCourse"/>: Admin/Staff tick
+    /// mỗi buổi cho gia sư hoặc cho phụ huynh, thay vì để hệ thống suy ra từ trạng thái buổi học.
+    ///
+    /// Bỏ trống = giữ nguyên cách tính tự động cũ (dựa trên status). Có giá trị thì danh sách phải
+    /// phủ ĐỦ mọi buổi chưa settle của booking — thiếu buổi nào thì tiền buổi đó kẹt trong escrow
+    /// sau khi booking đóng.
+    /// </summary>
+    public List<SessionAllocationInput>? SessionAllocations { get; set; }
+
+    /// <summary>
     /// Warning level if creating warning (1 or 2)
     /// </summary>
     [Range(1, 2, ErrorMessage = "Mức cảnh báo phải là 1 hoặc 2")]

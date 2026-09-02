@@ -201,17 +201,6 @@ public interface IClassSessionService
     Task<ClassSessionDetailResponse> ReportTutorNoShowAsync(int classSessionId, string userId, string role, ReportNoShowRequest? request = null);
 
     /// <summary>
-    /// Parent (or self-managed student) selects a resolution action after a tutor no-show
-    /// (free session, makeup classSession, or change tutor).
-    /// </summary>
-    Task<NoShowActionResultResponse> ProcessNoShowActionAsync(int classSessionId, string userId, string role, NoShowActionRequest request);
-
-    /// <summary>
-    /// Tutor creates a makeup classSession to compensate for a previously missed session.
-    /// </summary>
-    Task<ClassSessionDetailResponse> CreateMakeupClassSessionAsync(int originalClassSessionId, DateTime newScheduledStart, string tutorId);
-
-    /// <summary>
     /// Always rejects: single-classSession cancel is unsupported because escrow release
     /// requires cancelling the full booking. Kept so the ownership check runs before the 400.
     /// </summary>

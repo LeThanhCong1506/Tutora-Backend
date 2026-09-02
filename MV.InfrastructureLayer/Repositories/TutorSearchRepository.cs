@@ -178,7 +178,31 @@ namespace MV.InfrastructureLayer.Repositories
             var wantDays = parameters.AvailableDaysOfWeek;
             var hasTimeRange = parameters.AvailableFrom.HasValue && parameters.AvailableTo.HasValue;
 
-            if (wantDays is { Count: > 0 } && hasTimeRange)
+            if (wantDays is { Count: > 0 } && parameters.AvailableDaysMatchAll)
+            {
+                // "Rảnh CẢ T7 và CN" — mỗi ngày một điều kiện RIÊNG, cộng dồn bằng AND.
+                // Không gộp được vào một Any(Contains(...)): Any chỉ cần khớp MỘT dòng lịch,
+                // nên gia sư rảnh mỗi T7 vẫn lọt khi hỏi T7 + CN (bug 2026-09-02).
+                foreach (var wantDay in wantDays)
+                {
+                    var day = wantDay;   // biến cục bộ: tránh closure bắt biến vòng lặp
+                    if (hasTimeRange)
+                    {
+                        var from = parameters.AvailableFrom!.Value;
+                        var to = parameters.AvailableTo!.Value;
+                        query = query.Where(u => u.Tutorprofile!.Tutoravailabilities.Any(a =>
+                            a.Dayofweek == day &&
+                            a.Starttime.HasValue && a.Endtime.HasValue &&
+                            a.Starttime.Value <= from && a.Endtime.Value >= to));
+                    }
+                    else
+                    {
+                        query = query.Where(u => u.Tutorprofile!.Tutoravailabilities.Any(a =>
+                            a.Dayofweek == day));
+                    }
+                }
+            }
+            else if (wantDays is { Count: > 0 } && hasTimeRange)
             {
                 var from = parameters.AvailableFrom!.Value;
                 var to = parameters.AvailableTo!.Value;

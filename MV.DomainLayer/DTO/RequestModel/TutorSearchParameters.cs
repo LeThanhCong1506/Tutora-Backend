@@ -114,6 +114,16 @@ namespace MV.DomainLayer.DTO.RequestModel
         public List<int>? AvailableDaysOfWeek { get; set; }
 
         /// <summary>
+        /// true = gia sư phải rảnh ĐỦ TẤT CẢ ngày trong <see cref="AvailableDaysOfWeek"/>
+        /// ("rảnh cả T7 và CN"). false (mặc định) = rảnh MỘT TRONG số đó ("cuối tuần").
+        ///
+        /// Trước đây chỉ có kiểu "một trong", nên "rảnh cả T7 và CN" trả về gia sư chỉ rảnh
+        /// T7 — sai kết quả mà không có dấu hiệu nào, vì trợ lý AI lại diễn đạt theo đúng
+        /// lời user ("có gia sư rảnh cả Thứ 7 và Chủ Nhật ạ").
+        /// </summary>
+        public bool AvailableDaysMatchAll { get; set; }
+
+        /// <summary>
         /// Khung giờ rảnh cần khớp (vd "tối" → 18:00-21:00). Chỉ lọc khi có ĐỦ cả hai đầu.
         /// Điều kiện: khoảng rảnh của gia sư phải PHỦ khung giờ này (start &lt;= from, end &gt;= to).
         /// </summary>

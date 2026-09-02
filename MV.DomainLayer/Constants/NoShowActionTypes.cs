@@ -2,18 +2,13 @@ namespace MV.DomainLayer.Constants;
 
 /// <summary>
 /// No-show action type constants. Values match the `noshowaction` column in the `classSessions` table.
+///
+/// Luồng để phụ huynh tự chọn cách xử lý sau khi gia sư vắng (free_session / makeup / change_tutor)
+/// đã được gỡ bỏ: mọi ca vắng mặt nay đi qua khiếu nại để Admin/Staff phân xử. Ba giá trị đó vẫn
+/// tồn tại trong DB ở các bản ghi cũ nên KHÔNG khai báo lại ở đây, tránh code mới sinh thêm.
 /// </summary>
 public static class NoShowActionTypes
 {
-    /// <summary>Full refund, session not counted.</summary>
-    public const string FreeSession = "free_session";
-
-    /// <summary>Schedule a makeup classSession.</summary>
-    public const string Makeup = "makeup";
-
-    /// <summary>Cancel booking and refund remaining sessions.</summary>
-    public const string ChangeTutor = "change_tutor";
-
     /// <summary>
     /// Buổi không ghi nhận ai vào lớp, đã báo cả hai bên và hết hạn phản hồi mà không ai có ý
     /// kiến — hệ thống tự đưa về luồng xác nhận bình thường. Đánh dấu riêng để thống kê và đánh
@@ -22,5 +17,5 @@ public static class NoShowActionTypes
     /// </summary>
     public const string AutoNoAttendance = "auto_no_attendance";
 
-    public static readonly string[] All = { FreeSession, Makeup, ChangeTutor, AutoNoAttendance };
+    public static readonly string[] All = { AutoNoAttendance };
 }
