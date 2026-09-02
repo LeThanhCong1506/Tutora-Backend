@@ -1,3 +1,4 @@
+using MV.DomainLayer.DTO.RequestModel;
 using MV.DomainLayer.DTO.ResponseModel;
 
 namespace MV.ApplicationLayer.ServiceInterfaces;
@@ -77,8 +78,13 @@ public interface ISettlementService
     /// với booking đã được lock (FOR UPDATE) bởi caller. Trả về tổng tiền đã hoàn cho phụ huynh
     /// (0 nếu booking đã terminal hoặc có buổi khác đang mid-flight — no-op, không exception).
     /// </summary>
+    /// <param name="sessionAllocations">
+    /// Phân bổ từng buổi do Admin/Staff tick trong bảng "Hủy khóa học &amp; hoàn tiền". Bỏ trống thì
+    /// tiền được suy ra từ trạng thái buổi học như trước.
+    /// </param>
     Task<decimal> CancelRemainingSessionsAsync(
-        int bookingId, string processedBy, string bookingStatus, string? reason, CancellationToken ct = default);
+        int bookingId, string processedBy, string bookingStatus, string? reason,
+        IReadOnlyList<SessionAllocationInput>? sessionAllocations = null, CancellationToken ct = default);
 
     /// <summary>
     /// Dry-run của <see cref="CancelRemainingSessionsAsync"/> — cùng công thức, không side effect.

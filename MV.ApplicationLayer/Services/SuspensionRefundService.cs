@@ -450,7 +450,7 @@ public class SuspensionRefundService : ISuspensionRefundService
         SuspensionRefundImpactResponse impact,
         CancellationToken ct)
     {
-        var deliveredCount = sessions.Count(s => s.Status == Completed || s.Issettled == true);
+        var deliveredCount = sessions.Count(s => s.Status == Completed || (s.Issettled == true && s.Status != Cancelled && s.Status != CancelledNoshow));
 
         if (deliveredCount > 0 && tutorWallet != null)
         {
@@ -623,7 +623,7 @@ public class SuspensionRefundService : ISuspensionRefundService
                 EscrowReversed = escrowReversal,
                 Closed = closed,
                 BookingStatus = closed
-                    ? (booking.ClassSessions.Any(s => s.Status == Completed || s.Issettled == true)
+                    ? (booking.ClassSessions.Any(s => s.Status == Completed || (s.Issettled == true && s.Status != Cancelled && s.Status != CancelledNoshow))
                         ? BookingStatus.Completed
                         : BookingStatus.Cancelled)
                     : booking.Status

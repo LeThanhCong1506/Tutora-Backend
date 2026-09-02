@@ -119,6 +119,7 @@ public class DisputeRecordingContinuationTests
             classificationService: null!,
             recordingAccessTokenService: new FakeRecordingAccessTokenService(),
             backgroundJobClient: null!,
+            sessionLogService: null!,
             logger: NullLogger<DisputeService>.Instance);
 
     private static AgoraDbContext CreateContext()
