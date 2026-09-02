@@ -105,22 +105,41 @@ public partial class AdminRevenueAnalyticsService
             .Where(b => keptByBooking.ContainsKey(b.BookingId))
             .Sum(b => Math.Max(0, b.PlatformFee - keptByBooking[b.BookingId]));
 
-        // ── Ba số phận của doanh thu tạm tính, tính bằng CÔNG THỨC ─────────────────────
+        // ── Ba số phận của doanh thu tạm tính ──────────────────────────────────────────
         //
-        // Khác hẳn cặp commissionEarned/commissionLost ngay trên: bộ ba này KHÔNG đọc sổ ví một
-        // dòng nào, chỉ dùng `EarnedSoFar` (phí phụ huynh đã chín + phí gia sư của buổi đã dạy).
-        // Nhờ vậy nó miễn nhiễm với lỗi đảo escrow đang làm `PlatformKept` sai.
+        // Đổi 02/09/2026: bộ ba này giờ dùng ĐÚNG cặp commissionEarned/commissionLost ngay trên,
+        // tức khoá đã chốt sổ thì ĐỌC SỔ VÍ. Trước đó nó cố ý không chạm sổ ví, chỉ dùng
+        // `EarnedSoFar`. Vì sao đảo lại quyết định đó:
         //
-        // Ba số cộng đúng bằng `commissionSold` theo construction: matured + (sold − matured)
-        // tách làm hai nhánh tuỳ khoá đã chốt sổ hay chưa. Không có đường nào để chúng lệch.
+        //   Lý do cũ là "sổ ví đang sai vì lỗi đảo escrow, đừng đọc nó". Đúng, nhưng nó không cứu
+        //   được trang: `RecognisedRevenue` — con số kế toán to nhất trên màn hình — VẪN cộng
+        //   `ClosingAdjustmentIn`, mà khoản đó suy thẳng từ `PlatformKept`, tức từ chính sổ ví.
+        //   Nên trang chạy HAI chính sách tin cậy khác nhau cạnh nhau và in ra hai con số cho
+        //   cùng một ý niệm: 461.000 ở thẻ doanh thu, 458.500 ở đây (đo dev 02/09/2026). Bỏ sổ
+        //   ví ở đây không làm trang an toàn hơn — số rủi ro vẫn nằm nguyên trên màn hình — chỉ
+        //   làm hai chỗ mâu thuẫn nhau, và người đọc không có cách nào tự giải thích khoảng lệch.
+        //
+        //   Chọn một chính sách, và phải chọn chính sách mà con số kế toán đang dùng.
+        //
+        // Phần bảo vệ thật sự thì KHÔNG mất: nó nằm ở `BuildClosedBookings` — chặn `ledgerTouched`
+        // (khoá chưa có dòng ví nào thì dùng công thức, đừng đoán qua ví) và chặn trên ở
+        // `PlatformFee`. Đó mới là chỗ chặn doanh thu ảo, không phải ở đây.
+        //
+        // Đo sau khi đổi (dev, 02/09/2026): "đã thu được" khớp ĐÚNG phần dạy học của doanh thu đã
+        // ghi nhận ở mọi kỳ ≥ 21 ngày. Kỳ ngắn hơn vẫn lệch, và lệch ĐÚNG: buổi dạy trong kỳ có
+        // thể thuộc khoá đặt từ trước kỳ, mà cohort ở đây neo theo ngày ĐẶT. Hai câu hỏi khác
+        // nhau thì không có nghĩa vụ trùng nhau — chỉ là giờ chúng không còn lệch vì lý do giả.
+        //
+        // Ba số vẫn cộng đúng bằng `commissionSold` theo construction, ở MỌI kỳ: mỗi khoá đóng
+        // góp `kept + (PlatformFee − kept)` nếu đã chốt sổ, `earned + (PlatformFee − earned)` nếu
+        // chưa — hai nhánh rời nhau, không khoá nào rơi vào cả hai. Đo lại trên dev: 461.000 +
+        // 555.000 + 916.500 = 1.932.500, khít với doanh thu tạm tính ở mọi kỳ đã thử.
         var maturedOf = (BookingFlat b) => EarnedSoFar(b, toUtc, DeliveryOf(deliveries, b.BookingId));
-        var commissionMatured = soldInPeriod.Sum(maturedOf);
+        var commissionMatured = commissionEarned;
         var commissionPending = soldInPeriod
             .Where(b => !keptByBooking.ContainsKey(b.BookingId))
             .Sum(b => Math.Max(0, b.PlatformFee - maturedOf(b)));
-        var commissionUnrecoverable = soldInPeriod
-            .Where(b => keptByBooking.ContainsKey(b.BookingId))
-            .Sum(b => Math.Max(0, b.PlatformFee - maturedOf(b)));
+        var commissionUnrecoverable = commissionLost;
 
         // Đối soát với sổ ví: tổng Tutora giữ được từ các khoá bị HUỶ đóng sổ trong kỳ.
         // KHÔNG phải số hạng của RecognisedRevenue — một phần khoản này có thể đã được ghi nhận
@@ -137,6 +156,7 @@ public partial class AdminRevenueAnalyticsService
             CommissionSoldPrevious = commissionSoldPrev,
             CommissionEarned = commissionEarned,
             CommissionLost = commissionLost,
+            AiRevenue = aiIn(fromUtc, toUtc),
             CommissionMatured = commissionMatured,
             CommissionPending = commissionPending,
             CommissionUnrecoverable = commissionUnrecoverable,
