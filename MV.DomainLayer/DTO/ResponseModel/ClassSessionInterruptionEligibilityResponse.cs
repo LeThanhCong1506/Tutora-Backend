@@ -19,4 +19,9 @@ public class ClassSessionInterruptionEligibilityResponse
     /// nút khoá vĩnh viễn. False khác Eligible=false: Eligible có thể đổi thành true khi đạt đủ %,
     /// còn CanEverBeInterrupted=false thì vĩnh viễn không đổi trong suốt buổi.</summary>
     public bool CanEverBeInterrupted { get; set; } = true;
+    /// <summary>False nếu đã dạy thật bằng/vượt thời lượng đăng ký của buổi (phần "còn thiếu" đã về
+    /// 0) — RequestInterruptionAsync sẽ từ chối báo ngắt dù đã đạt ngưỡng %, vì tạo buổi phụ lúc này
+    /// vô nghĩa. Khác CanEverBeInterrupted: cờ này chỉ đúng cho buổi HIỆN TẠI dựa trên thời gian đã
+    /// trôi qua (không phải loại buổi), và không tự đổi lại thành true khi thời gian tiếp tục trôi.</summary>
+    public bool HasRemainingTime { get; set; } = true;
 }

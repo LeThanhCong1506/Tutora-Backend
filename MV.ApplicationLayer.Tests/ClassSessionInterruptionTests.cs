@@ -79,8 +79,25 @@ public class ClassSessionInterruptionPolicyTests
         var duration = ClassSessionInterruptionPolicy.ComputeContinuationDuration(
             scheduledStart, scheduledEnd, checkInTime: scheduledStart, interruptedAt);
 
-        // Còn lại âm -> kẹp về 0, chỉ còn đúng 30 phút gia hạn.
+        // Còn lại âm -> kẹp về 0, chỉ còn đúng 30 phút gia hạn. (RequestInterruptionAsync không còn
+        // gọi tới nhánh này nữa — xem HasRemainingScheduledTime_* bên dưới — nhưng hàm thuần này vẫn
+        // giữ nguyên hành vi tính toán cũ.)
         Assert.Equal(TimeSpan.FromMinutes(30), duration);
+    }
+
+    [Theory]
+    [InlineData(10, true)]  // còn thiếu 50 phút -> còn hạn
+    [InlineData(59, true)]  // còn thiếu 1 phút -> còn hạn
+    [InlineData(60, false)] // đã dạy đúng bằng thời lượng đăng ký -> hết hạn
+    [InlineData(90, false)] // đã dạy vượt thời lượng đăng ký -> hết hạn
+    public void HasRemainingScheduledTime_FalseOnceDeliveredReachesScheduledDuration(int deliveredMinutes, bool expected)
+    {
+        var scheduledStart = new DateTime(2026, 8, 20, 8, 0, 0, DateTimeKind.Utc);
+        var scheduledEnd = scheduledStart.AddMinutes(60);
+        var interruptedAt = scheduledStart.AddMinutes(deliveredMinutes);
+
+        Assert.Equal(expected, ClassSessionInterruptionPolicy.HasRemainingScheduledTime(
+            scheduledStart, scheduledEnd, checkInTime: scheduledStart, interruptedAt));
     }
 
     [Fact]
@@ -203,7 +220,9 @@ public class ClassSessionServiceRequestInterruptionTests
         await using var db = CreateContext();
         // Không phải buổi đầu tiên của booking — nhưng ngưỡng đã bỏ hẳn (DefaultThreshold=0), nên
         // overlapRatio thấp (kể cả gần 0%) vẫn báo ngắt được bình thường, không còn bị chặn.
-        SeedInProgressSession(db, scheduledMinutesAgo: 60, scheduledDurationMinutes: 60, addEarlierSiblingSession: true);
+        // scheduledMinutesAgo < scheduledDurationMinutes để buổi còn dư thời lượng thật (nếu bằng
+        // nhau, HasRemainingScheduledTime sẽ chặn ngay khi "now" trôi tiếp trong lúc test chạy).
+        SeedInProgressSession(db, scheduledMinutesAgo: 20, scheduledDurationMinutes: 60, addEarlierSiblingSession: true);
         await db.SaveChangesAsync();
         var service = CreateService(db, overlapRatio: 0.05);
 
@@ -221,8 +240,9 @@ public class ClassSessionServiceRequestInterruptionTests
     {
         await using var db = CreateContext();
         // Không phải buổi đầu tiên của booking — không còn ngưỡng nào để áp, chỉ kiểm tra hành vi
-        // báo ngắt bình thường ở overlapRatio cao.
-        SeedInProgressSession(db, scheduledMinutesAgo: 60, scheduledDurationMinutes: 60, addEarlierSiblingSession: true);
+        // báo ngắt bình thường ở overlapRatio cao. Còn dư ~40 phút thời lượng thật (20/60) để không
+        // chạm ngưỡng HasRemainingScheduledTime.
+        SeedInProgressSession(db, scheduledMinutesAgo: 20, scheduledDurationMinutes: 60, addEarlierSiblingSession: true);
         await db.SaveChangesAsync();
         var service = CreateService(db, overlapRatio: 0.60);
 
@@ -240,16 +260,39 @@ public class ClassSessionServiceRequestInterruptionTests
         Assert.Equal(BookingId, continuation.Bookingid);
         Assert.Equal(TutorId, continuation.Tutorid);
         Assert.Equal(ClassSessionStatus.Scheduled, continuation.Status);
-        // Check-in đúng lúc Scheduledstart, ngắt đúng lúc Scheduledend (~60 phút sau) -> đã dạy
-        // gần hết thời lượng gốc -> còn lại kẹp về 0, buổi phụ chỉ còn đúng 30 phút gia hạn cố định.
-        Assert.Equal(TimeSpan.FromMinutes(30), continuation.Scheduledend - continuation.Scheduledstart);
+        // Còn dư thời lượng thật -> buổi phụ dài hơn hẳn mức sàn 30 phút (không assert giá trị chính
+        // xác vì phụ thuộc đồng hồ tường lúc test chạy).
+        Assert.True(continuation.Scheduledend - continuation.Scheduledstart > TimeSpan.FromMinutes(30));
+    }
+
+    [Fact]
+    public async Task NoRemainingScheduledTime_Throws_AndDoesNotCreateContinuation()
+    {
+        await using var db = CreateContext();
+        // Đã dạy thật bằng/vượt thời lượng đăng ký (60 phút đã trôi qua kể từ check-in, cho đúng
+        // 60 phút thời lượng buổi) -> không còn phần "thiếu" để tạo buổi phụ, phải từ chối hẳn thay
+        // vì tạo 1 buổi phụ 30 phút vô nghĩa.
+        SeedInProgressSession(db, scheduledMinutesAgo: 60, scheduledDurationMinutes: 60);
+        await db.SaveChangesAsync();
+        var service = CreateService(db, overlapRatio: 1.0);
+
+        var ex = await Assert.ThrowsAsync<ClassSessionException>(
+            () => service.RequestInterruptionAsync(SessionId, TutorId, "kẹt xe"));
+        Assert.Equal(ClassSessionErrorCodes.InterruptionNoRemainingTime, ex.ErrorCode);
+
+        var original = await db.ClassSessions.SingleAsync(x => x.Classsessionid == SessionId);
+        Assert.Equal(ClassSessionStatus.InProgress, original.Status);
+        Assert.Null(original.Interruptedat);
+        Assert.False(await db.ClassSessions.AnyAsync(x => x.Originalsessionid == SessionId));
     }
 
     [Fact]
     public async Task FirstSessionOfBooking_HasNoMinimumThreshold_CanInterruptImmediately()
     {
         await using var db = CreateContext();
-        SeedInProgressSession(db, scheduledMinutesAgo: 60, scheduledDurationMinutes: 60);
+        // scheduledMinutesAgo < scheduledDurationMinutes để còn dư thời lượng thật (xem
+        // NoRemainingScheduledTime_Throws_AndDoesNotCreateContinuation cho cạnh biên đã dạy đủ giờ).
+        SeedInProgressSession(db, scheduledMinutesAgo: 20, scheduledDurationMinutes: 60);
         await db.SaveChangesAsync();
         // Buổi đầu tiên: không giới hạn -> 0% (vừa check-in xong thoát ngay) vẫn báo ngắt được.
         var service = CreateService(db, overlapRatio: 0.0);
@@ -258,17 +301,15 @@ public class ClassSessionServiceRequestInterruptionTests
 
         Assert.NotNull(result);
         var continuation = await db.ClassSessions.SingleAsync(x => x.Originalsessionid == SessionId);
-        // Check-in đúng lúc Scheduledstart, ngắt đúng lúc Scheduledend (~60 phút sau) -> đã dạy gần
-        // hết thời lượng gốc theo đồng hồ thật -> còn lại kẹp về 0, chỉ còn 30 phút gia hạn cố định
-        // (KHÔNG còn nhận trọn 60 phút như công thức cũ theo ngưỡng — nay tính theo thời gian thật).
-        Assert.Equal(TimeSpan.FromMinutes(30), continuation.Scheduledend - continuation.Scheduledstart);
+        // Còn dư thời lượng thật -> buổi phụ dài hơn hẳn mức sàn 30 phút.
+        Assert.True(continuation.Scheduledend - continuation.Scheduledstart > TimeSpan.FromMinutes(30));
     }
 
     [Fact]
     public async Task AtOrAboveThreshold_NotifiesTutorStudentAndParent_AboutTheContinuationSession()
     {
         await using var db = CreateContext();
-        SeedInProgressSession(db, scheduledMinutesAgo: 60, scheduledDurationMinutes: 60);
+        SeedInProgressSession(db, scheduledMinutesAgo: 20, scheduledDurationMinutes: 60);
         await db.SaveChangesAsync();
         var notifications = new RecordingNotificationService();
         var service = CreateService(db, overlapRatio: 0.90, notificationService: notifications);
@@ -289,7 +330,7 @@ public class ClassSessionServiceRequestInterruptionTests
     public async Task LowOverlapRatio_StillSendsNotifications_NoMinimumThreshold()
     {
         await using var db = CreateContext();
-        SeedInProgressSession(db, scheduledMinutesAgo: 60, scheduledDurationMinutes: 60, addEarlierSiblingSession: true);
+        SeedInProgressSession(db, scheduledMinutesAgo: 20, scheduledDurationMinutes: 60, addEarlierSiblingSession: true);
         await db.SaveChangesAsync();
         var notifications = new RecordingNotificationService();
         var service = CreateService(db, overlapRatio: 0.10, notificationService: notifications);
@@ -343,7 +384,7 @@ public class ClassSessionServiceRequestInterruptionTests
     public async Task StudentOrParentCanAlsoTriggerInterruption(string requestingUserId)
     {
         await using var db = CreateContext();
-        SeedInProgressSession(db, scheduledMinutesAgo: 60, scheduledDurationMinutes: 60);
+        SeedInProgressSession(db, scheduledMinutesAgo: 20, scheduledDurationMinutes: 60);
         await db.SaveChangesAsync();
         var service = CreateService(db, overlapRatio: 1.0);
 
@@ -756,6 +797,55 @@ public class ClassSessionAutoCloseInterruptedSessionsTests
         Assert.Equal(ClassSessionStatus.Cancelled, reloadedOriginal.Status);
         var reloadedContinuation = await db.ClassSessions.SingleAsync(x => x.Classsessionid == continuation.Classsessionid);
         Assert.Equal(ClassSessionStatus.PendingConfirmation, reloadedContinuation.Status);
+    }
+
+    /// <summary>
+    /// Regression cho khoảng trống Disputed: buổi phụ đang bị khiếu nại (chưa được admin đóng) đúng
+    /// lúc job chạy — Disputed chỉ đạt được từ PendingConfirmation/Completed nên buổi phụ ĐÃ có báo
+    /// cáo thật, phải xử lý giống hệt PendingConfirmation/Completed (buổi gốc → Cancelled, không
+    /// settle lại, không đụng vào buổi phụ để admin tự đóng khiếu nại độc lập) — KHÔNG được rơi vào
+    /// nhánh mặc định (force-settle buổi gốc thành Completed) như trước khi vá.
+    /// </summary>
+    [Fact]
+    public async Task ExpiredInterruption_WithDisputedContinuation_DoesNotDoubleSettleOriginal_AndLeavesContinuationUntouched()
+    {
+        await using var db = CreateContext();
+        var original = SeedInterruptedSession(db, interruptedAt: DateTime.UtcNow.AddDays(-1));
+        var continuation = new ClassSession
+        {
+            Classsessionid = original.Classsessionid + 1000,
+            Bookingid = BookingId,
+            Tutorid = TutorId,
+            Studentid = original.Studentid,
+            Iscontinuation = true,
+            Originalsessionid = original.Classsessionid,
+            Status = ClassSessionStatus.Disputed,
+            Scheduledstart = DateTime.UtcNow.AddMinutes(-30),
+            Scheduledend = DateTime.UtcNow.AddMinutes(30),
+        };
+        db.ClassSessions.Add(continuation);
+        await db.SaveChangesAsync();
+        var settlement = new RecordingSettlementService();
+        var notifications = new RecordingNotificationService();
+        var service = CreateService(db, settlement, notifications);
+
+        var closedCount = await service.AutoCloseExpiredInterruptedSessionsAsync();
+
+        Assert.Equal(1, closedCount);
+        Assert.DoesNotContain(original.Classsessionid, settlement.SettledClassSessionIds);
+        db.ChangeTracker.Clear();
+        var reloadedOriginal = await db.ClassSessions.SingleAsync(x => x.Classsessionid == original.Classsessionid);
+        Assert.Equal(ClassSessionStatus.Cancelled, reloadedOriginal.Status);
+        var reloadedContinuation = await db.ClassSessions.SingleAsync(x => x.Classsessionid == continuation.Classsessionid);
+        Assert.Equal(ClassSessionStatus.Disputed, reloadedContinuation.Status);
+
+        // Thông báo phải phản ánh đúng "đang chờ xử lý khiếu nại", không phải "đã tự động hoàn tất".
+        Assert.NotEmpty(notifications.SentRequests);
+        Assert.All(notifications.SentRequests, r => Assert.Equal(NotificationType.DisputeResolved, r.Type));
+        // Referenceid phải trỏ đúng buổi PHỤ (nơi khiếu nại thật sự nằm) — FE route
+        // "/disputes/:classSessionId" tra dispute theo id này; trỏ nhầm về buổi gốc sẽ ra trang trống
+        // vì buổi gốc không có dispute nào.
+        Assert.All(notifications.SentRequests, r => Assert.Equal(continuation.Classsessionid.ToString(), r.Referenceid));
     }
 
     [Fact]
