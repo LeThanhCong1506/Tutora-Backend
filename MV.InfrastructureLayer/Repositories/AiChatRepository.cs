@@ -69,6 +69,21 @@ public class AiChatRepository(AgoraDbContext context) : IAiChatRepository
         return (items, total);
     }
 
+    public async Task<IReadOnlyList<ChatHistory>> GetRecentMessagesAsync(Guid sessionId, int limit)
+    {
+        // Lấy từ CUỐI lên (descending + Take) rồi đảo lại thành thứ tự hội thoại. Không thể
+        // dùng Skip: tổng số tin đổi sau mỗi lượt nên trang cuối là mục tiêu di động.
+        var newestFirst = await context.ChatHistories
+            .Where(m => m.SessionId == sessionId)
+            .OrderByDescending(m => m.CreatedAt)
+            .Take(limit)
+            .AsNoTracking()
+            .ToListAsync();
+
+        newestFirst.Reverse();
+        return newestFirst;
+    }
+
     public void AddMessage(ChatHistory message)
         => context.ChatHistories.Add(message);
 

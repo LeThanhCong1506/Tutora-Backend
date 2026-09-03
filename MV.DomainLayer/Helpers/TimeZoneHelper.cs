@@ -1,4 +1,4 @@
-namespace MV.DomainLayer.Helpers;
+﻿namespace MV.DomainLayer.Helpers;
 
 /// <summary>
 /// Helper class for UTC-based datetime operations.
@@ -38,6 +38,17 @@ public static class TimeZoneHelper
             return TimeZoneInfo.Utc;
         }
     }
+
+    /// <summary>
+    /// Múi giờ VN
+    /// </summary>
+    public static readonly TimeZoneInfo VietnamTimeZone = GetTimeZoneInfo("Asia/Ho_Chi_Minh");
+
+    /// <summary>
+    /// Đổi một mốc UTC lấy từ DB sang giờ VN để hiển thị.
+    /// </summary>
+    public static DateTime ToVietnamTime(DateTime utcDt)
+        => TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(utcDt, DateTimeKind.Utc), VietnamTimeZone);
 
     /// <summary>
     /// Converts a local DateTime from a specific timezone to UTC.

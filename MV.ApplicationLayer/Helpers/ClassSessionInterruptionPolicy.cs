@@ -43,6 +43,20 @@ public static class ClassSessionInterruptionPolicy
     public static bool MeetsThreshold(bool isFirstSessionOfBooking, double overlapRatio)
         => overlapRatio >= ThresholdFor(isFirstSessionOfBooking);
 
+    /// <summary>Phần thời lượng buổi gốc CHƯA dạy tới, tính tới <paramref name="asOf"/> — âm (đã dạy
+    /// bằng/vượt thời lượng đăng ký) bị chặn về 0. Dùng chung cho <see cref="ComputeContinuationDuration"/>
+    /// và <see cref="HasRemainingScheduledTime"/> để không lệch định nghĩa "còn thiếu" giữa 2 nơi.</summary>
+    private static TimeSpan ComputeRemaining(
+        DateTime scheduledStart, DateTime scheduledEnd, DateTime checkInTime, DateTime asOf)
+    {
+        var totalScheduled = scheduledEnd - scheduledStart;
+        var actualDelivered = asOf - checkInTime;
+        if (actualDelivered < TimeSpan.Zero) actualDelivered = TimeSpan.Zero;
+
+        var remaining = totalScheduled - actualDelivered;
+        return remaining < TimeSpan.Zero ? TimeSpan.Zero : remaining;
+    }
+
     /// <summary>
     /// Thời lượng buổi phụ = (thời lượng dự kiến buổi gốc - thời gian THẬT đã dạy trước khi ngắt)
     /// + ngân sách gia hạn cố định (<see cref="ContinuationExtensionMinutes"/>). VD buổi gốc 60
@@ -50,16 +64,19 @@ public static class ClassSessionInterruptionPolicy
     /// </summary>
     public static TimeSpan ComputeContinuationDuration(
         DateTime scheduledStart, DateTime scheduledEnd, DateTime checkInTime, DateTime interruptedAt)
-    {
-        var totalScheduled = scheduledEnd - scheduledStart;
-        var actualDelivered = interruptedAt - checkInTime;
-        if (actualDelivered < TimeSpan.Zero) actualDelivered = TimeSpan.Zero;
+        => ComputeRemaining(scheduledStart, scheduledEnd, checkInTime, interruptedAt)
+            + TimeSpan.FromMinutes(ContinuationExtensionMinutes);
 
-        var remaining = totalScheduled - actualDelivered;
-        if (remaining < TimeSpan.Zero) remaining = TimeSpan.Zero;
-
-        return remaining + TimeSpan.FromMinutes(ContinuationExtensionMinutes);
-    }
+    /// <summary>
+    /// False nếu đã dạy thật bằng/vượt thời lượng đăng ký của buổi gốc (phần "còn thiếu" đã về 0) —
+    /// khi đó tạo buổi phụ vô nghĩa (buổi phụ sẽ chỉ còn đúng <see cref="ContinuationExtensionMinutes"/>
+    /// phút "gia hạn", không phản ánh sự cố thật nào), nên <c>RequestInterruptionAsync</c> phải từ
+    /// chối báo ngắt hẳn thay vì vẫn tạo 1 buổi phụ 30 phút. Quyết định sản phẩm: học đủ giờ rồi thì
+    /// không còn lý do gì để "báo ngắt" nữa — hai bên dùng đường "Kết thúc bình thường".
+    /// </summary>
+    public static bool HasRemainingScheduledTime(
+        DateTime scheduledStart, DateTime scheduledEnd, DateTime checkInTime, DateTime asOf)
+        => ComputeRemaining(scheduledStart, scheduledEnd, checkInTime, asOf) > TimeSpan.Zero;
 
     /// <summary>
     /// Dựng row ClassSession mới cho buổi phụ (link 2) — thuần tính toán, không đụng DB. Giờ mặc

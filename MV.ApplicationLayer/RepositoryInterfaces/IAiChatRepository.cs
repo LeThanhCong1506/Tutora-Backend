@@ -17,6 +17,17 @@ public interface IAiChatRepository
     // Messages (chat_histories)
     Task<(IReadOnlyList<ChatHistory> Items, int Total)> GetMessagesPagedAsync(
         Guid sessionId, int page, int pageSize);
+
+    /// <summary>
+    /// N tin nhắn MỚI NHẤT của phiên, trả về theo thứ tự thời gian tăng dần (cũ → mới) để
+    /// đưa thẳng cho AI làm history.
+    ///
+    /// Tách riêng khỏi GetMessagesPagedAsync vì hai nhu cầu ngược nhau: phân trang cho FE
+    /// đọc từ đầu hội thoại, còn AI cần phần ĐUÔI. Dùng nhầm GetMessagesPagedAsync(.., 1, 20)
+    /// cho AI nghĩa là lấy 20 tin CŨ NHẤT — phiên dài hơn 20 tin thì AI không bao giờ thấy
+    /// những gì vừa nói.
+    /// </summary>
+    Task<IReadOnlyList<ChatHistory>> GetRecentMessagesAsync(Guid sessionId, int limit);
     void AddMessage(ChatHistory message);
 
     void AddTopicSignal(StudentTopicSignal signal);

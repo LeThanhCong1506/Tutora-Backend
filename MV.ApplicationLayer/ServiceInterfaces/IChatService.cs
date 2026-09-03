@@ -44,6 +44,11 @@ public interface IChatService
     Task MarkMessagesAsReadAsync(string userId, int channelId);
 
     /// <summary>
+    /// Ẩn kênh khỏi danh sách của riêng người gọi.
+    /// </summary>
+    Task HideChannelAsync(string userId, int channelId);
+
+    /// <summary>
     /// Total count of unread messages across all channels the calling user participates in.
     /// Lightweight — used for badge display only.
     /// </summary>
