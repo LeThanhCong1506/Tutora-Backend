@@ -381,6 +381,7 @@ public class ParentService : IParentService
                         Classsessionid = classSessionId,
                         Bookingid = classSession.Bookingid,
                         Createdby = userId,
+
                         Disputetype = request.DisputeType,
                         Reason = request.Reason,
                         Status = DisputeStatus.Pending,

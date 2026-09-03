@@ -164,6 +164,27 @@ public class ChatController : ControllerBase
     }
 
     /// <summary>
+    /// DELETE /api/chat/channels/{id}
+    /// Xoá cuộc trò chuyện khỏi danh sách của NGƯỜI GỌI.
+    /// </summary>
+    [HttpDelete("channels/{id}")]
+    public async Task<IActionResult> HideChannel(int id)
+    {
+        if (string.IsNullOrEmpty(UserId))
+            return Unauthorized(APIResponse.Fail(ApiMessages.Unauthorized, 401));
+
+        try
+        {
+            await _chatService.HideChannelAsync(UserId, id);
+            return Ok(APIResponse.Success("Đã xoá cuộc trò chuyện."));
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(403, APIResponse.Fail(ex.Message, 403));
+        }
+    }
+
+    /// <summary>
     /// GET /api/chat/presence/{targetUserId}
     /// Trạng thái hoạt động của một người dùng (online / offline + last-seen).
     /// FE gọi khi mở cuộc trò chuyện để hiển thị trạng thái ban đầu; cập nhật realtime

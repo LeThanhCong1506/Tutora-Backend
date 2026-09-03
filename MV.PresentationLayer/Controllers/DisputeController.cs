@@ -130,20 +130,6 @@ public class DisputeController : ControllerBase
 
         return Ok(APIResponse<DisputeDetailResponse>.Success(result, "Đã phân loại tranh chấp."));
     }
-
-    /// <summary>
-    /// Confirm a tutor no-show after admin review. The parent/self-managed student can choose the
-    /// financial remedy only after this gate succeeds.
-    /// </summary>
-    [RequirePermission(Permissions.DisputeResolve)]
-    [HttpPut("{id}/confirm-no-show")]
-    public async Task<ActionResult<APIResponse<DisputeDetailResponse>>> ConfirmNoShow(int id)
-    {
-        var adminId = UserHelper.GetUserId(User);
-        var result = await _disputeService.ConfirmTutorNoShowAsync(id, adminId);
-        return Ok(APIResponse<DisputeDetailResponse>.Success(result, "Đã xác nhận gia sư vắng mặt."));
-    }
-
     /// <summary>
     /// Preview parent refund / tutor payout amounts for a candidate percentage before resolving.
     /// </summary>

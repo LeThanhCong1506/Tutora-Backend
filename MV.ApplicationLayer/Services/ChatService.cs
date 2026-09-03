@@ -292,6 +292,15 @@ public class ChatService(
     public Task<int> GetUnreadTotalCountAsync(string userId)
         => chatRepo.GetUnreadTotalCountAsync(userId);
 
+    public async Task HideChannelAsync(string userId, int channelId)
+    {
+        // Chỉ người trong kênh mới được ẩn kênh đó.
+        if (!await chatRepo.IsChannelParticipantAsync(channelId, userId))
+            throw new UnauthorizedAccessException("Bạn không có quyền với cuộc trò chuyện này.");
+
+        await chatRepo.HideChannelForUserAsync(channelId, userId);
+    }
+
     public async Task MarkMessagesAsReadAsync(string userId, int channelId)
     {
         var unread = await chatRepo.GetUnreadMessagesAsync(channelId, userId);

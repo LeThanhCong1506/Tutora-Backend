@@ -227,7 +227,10 @@ public class ClassSessionRepository(AgoraDbContext context) : IClassSessionRepos
     private static readonly string[] Weekdays = ["CN", "T2", "T3", "T4", "T5", "T6", "T7"];
 
     private static string FormatSlot(DateTime start)
-        => $"{Weekdays[(int)start.DayOfWeek]} {start:HH:mm}";
+    {
+        var local = TimeZoneHelper.ToVietnamTime(start);
+        return $"{Weekdays[(int)local.DayOfWeek]} {local:HH:mm}";
+    }
 
     public async Task<(IReadOnlyList<StudentClassSessionSummaryResponse> Items, int Total)> GetStudentClassSessionsPagedAsync(
         string studentId, int page, int pageSize, string? status)

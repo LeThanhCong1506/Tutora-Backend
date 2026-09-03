@@ -1,3 +1,5 @@
+using System.Text.Json;
+
 namespace MV.DomainLayer.DTO.RequestModel;
 
 /// <summary>
@@ -19,8 +21,19 @@ public class AssistantRespondRequest
     /// <summary>Ngữ cảnh tìm gia sư (môn/lớp/khu vực...) FE tích luỹ — forward nguyên sang AI.</summary>
     public AssistantContextDto? Context { get; set; }
 
-    /// <summary>Filter đã tích luỹ qua các lượt (giá/giới tính/môn...) — FE giữ, forward sang AI.</summary>
-    public AssistantFiltersDto? CurrentFilters { get; set; }
+    /// <summary>
+    /// Filter đã tích luỹ qua các lượt (môn/lớp/giá/giới tính/lịch rảnh...) — FE giữ hộ giữa
+    /// các lượt, .NET CHUYỂN NGUYÊN KHỐI sang tutora-ai.
+    ///
+    /// Cố tình để JsonElement thay vì DTO có field: đây là STATE HỘI THOẠI do tutora-ai sở
+    /// hữu, .NET không đọc field nào để làm nghiệp vụ — chỉ chuyển qua chuyển lại. Bản cũ
+    /// khai 5 field cụ thể nên khi tutora-ai thêm grade_level_id + lịch rảnh
+    /// (available_days/from/to) thì 4 field đó bị vứt lặng lẽ khi deserialize: lượt sau bot
+    /// mất tiêu chí lớp và lịch, vẫn trả lời trôi chảy nhưng lọc sai. Chuyển nguyên khối để
+    /// tutora-ai thêm filter mới không phải sửa .NET, và không thể rơi lần nữa.
+    /// Schema thật: WebChatRequest.current_filters (tutora-ai/app/models/schemas.py).
+    /// </summary>
+    public JsonElement? CurrentFilters { get; set; }
 
     /// <summary>
     /// Chỉ dùng khi AUTHED: phiên chat để lưu lịch sử.
@@ -56,11 +69,3 @@ public class AssistantContextDto
     public string? TutorGender { get; set; }
 }
 
-public class AssistantFiltersDto
-{
-    public double? MinRate { get; set; }
-    public double? MaxRate { get; set; }
-    public string? TutorGender { get; set; }
-    public int? SubjectId { get; set; }
-    public int? DesiredCount { get; set; }
-}

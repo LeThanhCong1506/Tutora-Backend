@@ -57,7 +57,7 @@ public partial class SettlementService
             }
 
             var sessions = booking.ClassSessions;
-            var hasDeliveredSession = sessions.Any(s => s.Status == Completed || s.Issettled == true);
+            var hasDeliveredSession = sessions.Any(s => s.Status == Completed || (s.Issettled == true && s.Status != Cancelled && s.Status != CancelledNoshow));
             var hasBlockingSession = sessions.Any(s =>
                 s.Status is InProgress or PendingConfirmation or Disputed or NoShow or CancelledNoshow or Interrupted);
 
@@ -82,7 +82,7 @@ public partial class SettlementService
 
             // Deterministic target computed from immutable booking pricing, never from the wallet's
             // current balance: NET-per-session (Tutorfee/Totalsessions) × sessions actually delivered.
-            var deliveredCount = sessions.Count(s => s.Status == Completed || s.Issettled == true);
+            var deliveredCount = sessions.Count(s => s.Status == Completed || (s.Issettled == true && s.Status != Cancelled && s.Status != CancelledNoshow));
             var perSession = LessonRefundCalculator.TutorEscrowPerSession(booking);
             var target = Math.Round(perSession * deliveredCount, 2);
 
@@ -235,7 +235,7 @@ public partial class SettlementService
             }
 
             var refundedToParent = await CancelRemainingSessionsAsync(
-                bookingId, adminId, BookingStatus.CancelledByStaff, reason, ct);
+                bookingId, adminId, BookingStatus.CancelledByStaff, reason, sessionAllocations: null, ct);
 
             await tx.CommitAsync(ct);
 
