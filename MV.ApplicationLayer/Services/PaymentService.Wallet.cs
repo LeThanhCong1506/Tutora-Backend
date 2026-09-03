@@ -246,6 +246,9 @@ public partial class PaymentService
             "Booking phase was paid with wallet balance.",
             ct);
 
+        if (isDepositPhase)
+            await GrantBookingCreditAsync(booking, bookingId, ct);
+
         await SendPaymentPhaseNotificationsAsync(booking, isDepositPhase);
 
         logger.LogInformation("Parent {ParentId} paid {Phase} for booking {BookingId} with wallet",
