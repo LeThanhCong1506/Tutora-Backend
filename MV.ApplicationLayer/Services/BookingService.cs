@@ -840,6 +840,12 @@ public partial class BookingService(
             .ToList();
     }
 
+    /// <summary>
+    /// Buổi sinh thêm để bù cho một buổi gốc (học nốt phần bị ngắt, hoặc học lại sau tranh chấp).
+    /// </summary>
+    private static bool IsExtraSession(ClassSession l)
+        => l.Iscontinuation || l.Isdisputerelearn;
+
     private static BookingResponse MapToResponse(Booking b,
         Studentprofile? student, Tutorprofile? tutor, Subject? subject,
         decimal parentFeePercent, decimal tutorFeePercent)
@@ -847,20 +853,21 @@ public partial class BookingService(
         var grade = b.Tutorsubjectgradeprice?.Gradelevel ?? student?.GradelevelNavigation;
         var orderedClassSessions = b.ClassSessions?.OrderBy(l => l.Scheduledstart).ToList() ?? [];
 
-        // Buổi phụ (Iscontinuation) KHÔNG chiếm số thứ tự của khóa: nó có học phí 0đ, sinh tự động
-        // khi buổi gốc bị ngắt giữa chừng. Đánh số theo vị trí trong danh sách sẽ để buổi phụ ăn mất
-        // số đầu (nó luôn sớm hơn buổi gốc), khiến khóa 10 buổi hiển thị #3…#12 — gia sư đọc thành
-        // "mất buổi 1 và 2". Buổi phụ mượn luôn số của buổi cha để vẫn tra ngược được.
+        // Buổi phụ (Iscontinuation) và buổi học lại sau tranh chấp (Isdisputerelearn) KHÔNG chiếm
+        // số thứ tự của khóa: cả hai đều là buổi BÙ cho một buổi gốc, học phí 0đ, sinh tự động.
+        // Đánh số theo vị trí trong danh sách sẽ để buổi bù ăn mất số đầu (nó thường sớm hơn buổi
+        // gốc còn lại), khiến khóa 10 buổi hiển thị #2…#11 — phụ huynh đọc thành "mất buổi 1".
+        // Buổi bù mượn luôn số của buổi cha để vẫn tra ngược được.
         var sessionNumberById = new Dictionary<int, int>();
         var sessionNumber = 0;
-        foreach (var l in orderedClassSessions.Where(l => !l.Iscontinuation))
+        foreach (var l in orderedClassSessions.Where(l => !IsExtraSession(l)))
             sessionNumberById[l.Classsessionid] = ++sessionNumber;
 
         var classSessions = orderedClassSessions
             .Select(l => new BookingClassSessionSlotResponse
             {
                 ClassSessionId = l.Classsessionid,
-                SessionIndex = l.Iscontinuation
+                SessionIndex = IsExtraSession(l)
                     ? (l.Originalsessionid.HasValue
                         && sessionNumberById.TryGetValue(l.Originalsessionid.Value, out var parentNumber)
                             ? parentNumber
@@ -948,15 +955,18 @@ public partial class BookingService(
                 .ThenByDescending(r => r.Paymentrequestid)
                 .Select(r => r.Paymentlinkid)
                 .FirstOrDefault(),
-            Schedule = classSessions?.Select(l => 
+            Schedule = classSessions?.Select(l =>
             {
+                // ScheduledStart/End là UTC
+                var localStart = TimeZoneHelper.ToVietnamTime(l.ScheduledStart);
+                var localEnd = TimeZoneHelper.ToVietnamTime(l.ScheduledEnd);
                 // Convert C# DayOfWeek (0=Sunday, 1=Monday...) to ISO format (1=Monday, 7=Sunday)
-                var isoDayOfWeek = l.ScheduledStart.DayOfWeek == DayOfWeek.Sunday ? 7 : (int)l.ScheduledStart.DayOfWeek;
+                var isoDayOfWeek = localStart.DayOfWeek == DayOfWeek.Sunday ? 7 : (int)localStart.DayOfWeek;
                 return new ScheduleItemResponse
                 {
                     DayOfWeek = isoDayOfWeek,
-                    StartTime = l.ScheduledStart.ToString("HH:mm"),
-                    EndTime = l.ScheduledEnd.ToString("HH:mm")
+                    StartTime = localStart.ToString("HH:mm"),
+                    EndTime = localEnd.ToString("HH:mm")
                 };
             }).ToList(),
             ClassSessions = classSessions,

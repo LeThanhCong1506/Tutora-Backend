@@ -23,4 +23,9 @@ public static class TransactionType
     /// <summary>Admin/staff chủ động cộng tiền vào ví một user, không gắn với booking hay
     /// yêu cầu rút tiền nào — xem <see cref="Entities.AdminWalletTransfer"/> để biết ai làm và vì sao.</summary>
     public const string AdminCredit = "AdminCredit";
+
+    /// <summary>
+    /// Staff/admin đã chuyển tiền thật về tài khoản ngân hàng sau một yêu cầu rút tiền.
+    /// </summary>
+    public const string BankTransfer = "BankTransfer";
 }
