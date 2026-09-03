@@ -19,6 +19,13 @@ public partial class AdminRevenueAnalyticsService
         var closed = BuildClosedBookings(bookings, sessions, ledger);
         var cohort = CohortBookings(bookings, closed);
 
+        // Hai thứ chỉ dùng cho vế "phí gia sư ĐỢI ghi nhận" (thêm 02/09/2026). Dựng giống hệt
+        // Customers.cs để hai tab tính vế chờ của mình bằng cùng một cách: `keptByBooking` nhận
+        // biết khoá đã chốt sổ (ra 0 vì không còn buổi nào để chờ), `deliveries` cắt tới cuối kỳ
+        // để đếm số buổi đã dạy tính tới thời điểm đó.
+        var keptByBooking = closed.ToDictionary(c => c.BookingId, c => c.PlatformKept);
+        var deliveries = BuildDeliveries(sessions, toUtc);
+
         // Phần chênh chốt tại ngày đóng sổ, gom theo gia sư. Hoa hồng và thu nhập của từng buổi
         // đã dạy được đếm thẳng từ `sessions` bên dưới (kể cả buổi thuộc khoá về sau bị huỷ),
         // nên ở đây CHỈ cộng phần chênh — cộng cả PlatformKept là tính hai lần.
@@ -47,6 +54,8 @@ public partial class AdminRevenueAnalyticsService
         var userFullNames = await context.Users.AsNoTracking()
             .Select(u => new { u.Userid, u.Fullname })
             .ToDictionaryAsync(u => u.Userid, u => u.Fullname, ct);
+
+        var contacts = await LoadContactsAsync(ct);
 
         var escrow = await context.Wallets.AsNoTracking()
             .Where(w => w.Userid != null)
@@ -135,6 +144,15 @@ public partial class AdminRevenueAnalyticsService
 
             var gmv = tutorBookings.Sum(b => b.FinalPrice);
 
+            // Vế ĐỢI ghi nhận, đối xứng với "Phí DV đợi ghi nhận" của tab Khách hàng: 5% của
+            // những buổi đã bán mà chưa dạy. Khoá đã CHỐT SỔ ra 0 — buổi chưa dạy của chúng đã
+            // bị huỷ nên không còn gì để chờ; cùng quy ước với `ServiceFeePendingOf` bên
+            // Customers.cs. Tính trên `tutorBookings`, tức cùng tập booking với `gmv` ngay trên,
+            // nên hai con số trên một hàng luôn nói về cùng một nhóm lịch.
+            var pending = tutorBookings
+                .Where(b => !keptByBooking.ContainsKey(b.BookingId))
+                .Sum(b => TutorCutPending(b, DeliveryOf(deliveries, b.BookingId)));
+
             rows.Add(new TutorRevenueDto
             {
                 TutorId = tutorId,
@@ -142,9 +160,11 @@ public partial class AdminRevenueAnalyticsService
                 TutorName = profile?.Name
                             ?? (userFullNames.TryGetValue(tutorId, out var un) ? un : null)
                             ?? tutorId,
+                Contact = contacts.GetValueOrDefault(tutorId),
                 Subject = mainSubject,
                 Gmv = gmv,
                 TutorFeeRevenue = revenue,
+                TutorFeePending = pending,
                 // Chỉ so sánh tương đối: GMV theo booking tạo trong kỳ, doanh thu theo
                 // buổi đã dạy — hai mốc khác nhau. Không còn màn hình nào đọc (cột "Tỷ lệ giữ
                 // lại" đã bỏ 01/09/2026 vì lý do đó).
@@ -211,6 +231,7 @@ public partial class AdminRevenueAnalyticsService
                 new() { Name = "Còn lại", Value = Math.Max(rest, 0) },
             ],
             TotalTutorFeeRevenue = totalRevenue,
+            TotalTutorFeePending = rows.Sum(r => r.TutorFeePending),
             TotalEscrowHeld = totalEscrow,
         };
     }

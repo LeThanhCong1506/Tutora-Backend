@@ -41,29 +41,3 @@ public class SettlementResultResponse
     /// </summary>
     public int? SessionsRemaining { get; set; }
 }
-
-/// <summary>
-/// No-show action result
-/// </summary>
-public class NoShowActionResultResponse
-{
-    public int ClassSessionId { get; set; }
-    public string ActionType { get; set; } = null!;
-    public bool Success { get; set; }
-    public string? Message { get; set; }
-
-    /// <summary>
-    /// Amount refunded (for free_session or change_tutor)
-    /// </summary>
-    public decimal? AmountRefunded { get; set; }
-
-    /// <summary>
-    /// New makeup classSession ID (for makeup action)
-    /// </summary>
-    public int? MakeupClassSessionId { get; set; }
-
-    /// <summary>
-    /// Was tutor warning created
-    /// </summary>
-    public bool WarningCreated { get; set; }
-}

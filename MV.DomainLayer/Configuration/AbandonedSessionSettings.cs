@@ -17,13 +17,15 @@ public class AbandonedSessionSettings
     /// thường (gia sư nộp báo cáo muộn, phụ huynh tự báo cáo vắng mặt) kịp chạy trước, đủ ngắn để
     /// hai bên còn nhớ chuyện gì đã xảy ra khi nhận thông báo.
     /// </summary>
-    public double NoticeDelayHours { get; set; } = 12;
+    public double NoticeDelayHours { get; set; } = 6;
 
     /// <summary>
-    /// Cửa sổ để hai bên phản hồi trước khi buổi tự về luồng xác nhận. Mặc định trùng
-    /// <c>DisputeService.TutorResponseGraceHours</c> để người dùng chỉ phải học một luật.
+    /// Cửa sổ để hai bên phản hồi trước khi buổi tự về luồng xác nhận. Cố tình lệch khỏi
+    /// <c>DisputeService.TutorResponseGraceHours</c> (48h, cho luồng dispute cần gia sư phản hồi) —
+    /// ở đây trùng <c>ConfirmWindowHours</c>/<c>ClassSessionService.M3.NoShow.ConfirmWindowHours</c>
+    /// (12h) vì đây cũng là 1 cửa sổ xác nhận buổi học, không phải cửa sổ tranh chấp.
     /// </summary>
-    public double ResponseWindowHours { get; set; } = 48;
+    public double ResponseWindowHours { get; set; } = 12;
 
     /// <summary>
     /// Thời gian tối thiểu ở phòng chờ để tính là "đã đến". Sự tồn tại của một lượt lobby KHÔNG

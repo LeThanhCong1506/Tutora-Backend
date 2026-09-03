@@ -1,3 +1,5 @@
+using System.Text.Json;
+
 namespace MV.DomainLayer.DTO.ResponseModel;
 
 public class AssistantRespondResponse
@@ -9,7 +11,12 @@ public class AssistantRespondResponse
 
     public List<AssistantCardDto> Cards { get; set; } = new();
 
-    public AssistantFiltersOut Filters { get; set; } = new();
+    /// <summary>
+    /// Filter tutora-ai trả về sau khi merge — FE giữ hộ rồi gửi lại ở CurrentFilters lượt sau.
+    /// JsonElement (không phải DTO có field) vì .NET chỉ chuyển tiếp, không đọc: xem chú thích
+    /// ở AssistantRespondRequest.CurrentFilters.
+    /// </summary>
+    public JsonElement? Filters { get; set; }
 
     public bool AiRanked { get; set; }
 
@@ -41,11 +48,3 @@ public class AssistantCardDto
     public string CtaLabel { get; set; } = "Xem chi tiết";
 }
 
-public class AssistantFiltersOut
-{
-    public double? MinRate { get; set; }
-    public double? MaxRate { get; set; }
-    public string? TutorGender { get; set; }
-    public int? SubjectId { get; set; }
-    public int? DesiredCount { get; set; }
-}

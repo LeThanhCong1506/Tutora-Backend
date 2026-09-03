@@ -506,13 +506,17 @@ public partial class ClassSessionService
     ///   phòng + huỷ buổi phụ cho gọn, nhưng buổi gốc chuyển sang Disputed và hệ thống tự tạo 1
     ///   Dispute (Other, Pending) để admin xem lại và tự chọn mức hoàn/giải ngân qua đúng luồng
     ///   ResolveDisputeAsync sẵn có — hệ thống không tự phán quyết tiền ở bước này, giống hệt cách
-    ///   <see cref="AutoReportMissedSessionsAsync"/> xử lý no-show 2 phía.
-    /// - Buổi phụ ĐÃ có báo cáo (PendingConfirmation = đang chờ xác nhận, hoặc
+    ///   <see cref="AbandonedSessionService.FlagForAdminAsync"/> xử lý ca "1 bên có mặt, 1 bên vắng".
+    /// - Buổi phụ ĐÃ có báo cáo/tiền thật gắn vào (PendingConfirmation = đang chờ xác nhận,
     ///   Completed/Issettled = đã tự trừ Sessionsremaining và tự tính vào deliveredCount của
-    ///   ReleaseEscrowIfBookingCompleteAsync rồi): buổi gốc KHÔNG được settle lại và buổi phụ KHÔNG bị
-    ///   đụng vào — nếu không cùng 1 buổi học logic sẽ bị tính "đã dạy" 2 lần, hoặc report/settle đang
-    ///   dở dang của buổi phụ bị phá. Buổi gốc chỉ chuyển sang Cancelled — buổi phụ mới là bản ghi
-    ///   được settle cho buổi học này.
+    ///   ReleaseEscrowIfBookingCompleteAsync rồi, HOẶC Disputed = đã có khiếu nại đang chờ admin xử lý
+    ///   — muốn khiếu nại được thì bản thân buổi phụ phải từng qua PendingConfirmation/Completed rồi,
+    ///   nên đây CŨNG là "đã có báo cáo thật" chứ không phải "chưa dùng"): buổi gốc KHÔNG được settle
+    ///   lại và buổi phụ KHÔNG bị đụng vào (khiếu nại nếu có sẽ do admin tự xử lý độc lập qua
+    ///   CloseDisputeAsync/ResolveDisputeAsync) — nếu không cùng 1 buổi học logic sẽ bị tính "đã dạy"
+    ///   2 lần (gốc bị force-settle Completed trong khi buổi phụ mới là bản ghi thật), hoặc
+    ///   report/settle/khiếu nại đang dở dang của buổi phụ bị phá. Buổi gốc chỉ chuyển sang Cancelled
+    ///   — buổi phụ mới là bản ghi được settle cho buổi học này, bất kể nó đang ở giai đoạn nào.
     /// </summary>
     public async Task<int> AutoCloseExpiredInterruptedSessionsAsync(CancellationToken ct = default)
     {
@@ -535,18 +539,24 @@ public partial class ClassSessionService
                 var continuation = await _context.ClassSessions.FirstOrDefaultAsync(c =>
                     c.Originalsessionid == original.Classsessionid && c.Iscontinuation, ct);
 
-                // Buổi phụ đã có báo cáo/tiền thật gắn vào rồi (đang chờ xác nhận hoặc đã xong) —
-                // không settle lại buổi gốc, và không đụng vào buổi phụ.
-                var continuationAlreadySettled = continuation != null
-                    && (continuation.Status == PendingConfirmation || continuation.Status == Completed || continuation.Issettled == true);
+                // Buổi phụ đã có báo cáo/tiền thật gắn vào rồi (đang chờ xác nhận, đã xong, HOẶC đang
+                // bị khiếu nại — Disputed chỉ đạt được từ PendingConfirmation/Completed nên cũng tính
+                // là "đã có báo cáo thật", xem docstring ở trên) — không settle lại buổi gốc, và
+                // không đụng vào buổi phụ (để admin tự xử lý khiếu nại độc lập nếu có).
+                var continuationHasRealRecord = continuation != null
+                    && (continuation.Status == PendingConfirmation
+                        || continuation.Status == Completed
+                        || continuation.Status == Disputed
+                        || continuation.Issettled == true);
+                var continuationIsDisputed = continuation is { Status: Disputed };
                 var continuationWasInProgress = continuation is { Status: InProgress };
 
                 int? autoDisputeId = null;
 
-                if (continuationAlreadySettled)
+                if (continuationHasRealRecord)
                 {
-                    // Buổi phụ đã là bản ghi được settle (hoặc đang chờ settle) cho buổi học này —
-                    // không settle lại buổi gốc, chỉ đóng cho gọn.
+                    // Buổi phụ đã là bản ghi (được settle, đang chờ settle, hoặc đang chờ admin xử lý
+                    // khiếu nại) cho buổi học này — không settle lại buổi gốc, chỉ đóng cho gọn.
                     original.Status = Cancelled;
                     await _context.SaveChangesAsync(ct);
                 }
@@ -606,46 +616,63 @@ public partial class ClassSessionService
                 {
                     var studentUserId = original.Booking?.Student?.Linkeduserid;
                     var parentId = original.Booking?.Student?.Parentid ?? original.Booking?.Parentid;
-                    var tutorAndStudentMessage = continuationAlreadySettled
-                        ? $"Buổi học #{original.Classsessionid} bị ngắt giữa chừng đã được hoàn tất thông qua buổi học bù. Hệ thống đã tự động đóng buổi học gốc."
-                        : continuationWasInProgress
-                            ? $"Buổi học #{original.Classsessionid} bị ngắt giữa chừng và buổi phụ đã quá hạn nộp báo cáo. Hệ thống đã tạo tranh chấp #{autoDisputeId} để admin xem lại — không có gì được tự động chốt."
-                            : $"Buổi học #{original.Classsessionid} bị ngắt giữa chừng và đã quá thời hạn học tiếp trong ngày. Hệ thống đã tự động ghi nhận hoàn tất buổi học.";
-                    var parentMessage = continuationAlreadySettled
-                        ? $"Buổi học #{original.Classsessionid} của con bạn bị ngắt giữa chừng đã được hoàn tất thông qua buổi học bù. Hệ thống đã tự động đóng buổi học gốc."
-                        : continuationWasInProgress
-                            ? $"Buổi học #{original.Classsessionid} của con bạn bị ngắt giữa chừng và buổi phụ đã quá hạn nộp báo cáo. Hệ thống đã tạo tranh chấp #{autoDisputeId} để admin xem lại — không có gì được tự động chốt."
-                            : $"Buổi học #{original.Classsessionid} của con bạn bị ngắt giữa chừng và đã quá thời hạn học tiếp trong ngày. Hệ thống đã tự động ghi nhận hoàn tất buổi học.";
-                    var notificationType = continuationWasInProgress
+                    var tutorAndStudentMessage = continuationIsDisputed
+                        ? $"Buổi học #{original.Classsessionid} bị ngắt giữa chừng — buổi phụ #{continuation!.Classsessionid} đang có khiếu nại chờ admin xử lý. Hệ thống đã tự động đóng buổi học gốc, kết quả cuối cùng sẽ theo buổi phụ."
+                        : continuationHasRealRecord
+                            ? $"Buổi học #{original.Classsessionid} bị ngắt giữa chừng đã được hoàn tất thông qua buổi học bù. Hệ thống đã tự động đóng buổi học gốc."
+                            : continuationWasInProgress
+                                ? $"Buổi học #{original.Classsessionid} bị ngắt giữa chừng và buổi phụ đã quá hạn nộp báo cáo. Hệ thống đã tạo tranh chấp #{autoDisputeId} để admin xem lại — không có gì được tự động chốt."
+                                : $"Buổi học #{original.Classsessionid} bị ngắt giữa chừng và đã quá thời hạn học tiếp trong ngày. Hệ thống đã tự động ghi nhận hoàn tất buổi học.";
+                    var parentMessage = continuationIsDisputed
+                        ? $"Buổi học #{original.Classsessionid} của con bạn bị ngắt giữa chừng — buổi phụ #{continuation!.Classsessionid} đang có khiếu nại chờ admin xử lý. Hệ thống đã tự động đóng buổi học gốc, kết quả cuối cùng sẽ theo buổi phụ."
+                        : continuationHasRealRecord
+                            ? $"Buổi học #{original.Classsessionid} của con bạn bị ngắt giữa chừng đã được hoàn tất thông qua buổi học bù. Hệ thống đã tự động đóng buổi học gốc."
+                            : continuationWasInProgress
+                                ? $"Buổi học #{original.Classsessionid} của con bạn bị ngắt giữa chừng và buổi phụ đã quá hạn nộp báo cáo. Hệ thống đã tạo tranh chấp #{autoDisputeId} để admin xem lại — không có gì được tự động chốt."
+                                : $"Buổi học #{original.Classsessionid} của con bạn bị ngắt giữa chừng và đã quá thời hạn học tiếp trong ngày. Hệ thống đã tự động ghi nhận hoàn tất buổi học.";
+                    var notificationType = continuationWasInProgress || continuationIsDisputed
                         ? NotificationType.DisputeResolved
                         : NotificationType.LessonInterruptionAutoClosed;
+                    var notificationTitle = continuationIsDisputed
+                        ? "Buổi học bị ngắt đang có khiếu nại chờ xử lý"
+                        : continuationWasInProgress
+                            ? "Buổi học bị ngắt đang chờ admin xem lại"
+                            : "Buổi học bị ngắt đã tự động hoàn tất";
+                    // FE route "/disputes/:classSessionId" tra khiếu nại theo ĐÚNG id của session bị
+                    // khiếu nại (Dispute.Classsessionid) — case continuationIsDisputed thì khiếu nại
+                    // nằm trên buổi PHỤ (continuation), không phải buổi gốc, nên referenceid phải trỏ
+                    // đúng continuation.Classsessionid, không thì bấm vào thông báo sẽ ra trang trống
+                    // (tra nhầm dispute của buổi gốc, vốn không tồn tại).
+                    var notificationReferenceId = continuationIsDisputed
+                        ? continuation!.Classsessionid.ToString()
+                        : original.Classsessionid.ToString();
                     var notifications = new List<NotificationRequest>();
                     if (!string.IsNullOrWhiteSpace(original.Tutorid))
                         notifications.Add(new NotificationRequest
                         {
                             Userid = original.Tutorid,
-                            Title = continuationWasInProgress ? "Buổi học bị ngắt đang chờ admin xem lại" : "Buổi học bị ngắt đã tự động hoàn tất",
+                            Title = notificationTitle,
                             Message = tutorAndStudentMessage,
                             Type = notificationType,
-                            Referenceid = original.Classsessionid.ToString()
+                            Referenceid = notificationReferenceId
                         });
                     if (!string.IsNullOrWhiteSpace(studentUserId))
                         notifications.Add(new NotificationRequest
                         {
                             Userid = studentUserId,
-                            Title = continuationWasInProgress ? "Buổi học bị ngắt đang chờ admin xem lại" : "Buổi học bị ngắt đã tự động hoàn tất",
+                            Title = notificationTitle,
                             Message = tutorAndStudentMessage,
                             Type = notificationType,
-                            Referenceid = original.Classsessionid.ToString()
+                            Referenceid = notificationReferenceId
                         });
                     if (!string.IsNullOrWhiteSpace(parentId))
                         notifications.Add(new NotificationRequest
                         {
                             Userid = parentId,
-                            Title = continuationWasInProgress ? "Buổi học bị ngắt đang chờ admin xem lại" : "Buổi học bị ngắt đã tự động hoàn tất",
+                            Title = notificationTitle,
                             Message = parentMessage,
                             Type = notificationType,
-                            Referenceid = original.Classsessionid.ToString()
+                            Referenceid = notificationReferenceId
                         });
 
                     if (notifications.Count > 0)
@@ -1065,6 +1092,18 @@ public partial class ClassSessionService
             }
 
             var now = TimeZoneHelper.UtcNow;
+
+            // Đã dạy thật bằng/vượt thời lượng đăng ký (phần "còn thiếu" đã về 0) — báo ngắt lúc này
+            // chỉ tạo ra 1 buổi phụ 30 phút không phản ánh sự cố thật nào (xem HasRemainingScheduledTime).
+            // Buổi đã học đủ giờ thì dùng đường "Kết thúc bình thường", không còn lý do báo ngắt nữa.
+            var checkInTimeForRemaining = classSession.Checkintime ?? classSession.Scheduledstart;
+            if (!ClassSessionInterruptionPolicy.HasRemainingScheduledTime(
+                    classSession.Scheduledstart, classSession.Scheduledend, checkInTimeForRemaining, now))
+                throw new ClassSessionException(
+                    ClassSessionErrorCodes.InterruptionNoRemainingTime,
+                    "Buổi học đã học đủ hoặc vượt thời lượng đăng ký, không còn phần thiếu để tạo buổi phụ — không thể báo ngắt giữa chừng nữa.",
+                    400);
+
             classSession.Status = Interrupted;
             classSession.Interruptedat = now;
             classSession.Interruptreason = reason;
@@ -1224,7 +1263,8 @@ public partial class ClassSessionService
                 Eligible = false,
                 CurrentRatio = 0.0,
                 RequiredRatio = ClassSessionInterruptionPolicy.ThresholdFor(false),
-                CanEverBeInterrupted = canEverBeInterrupted
+                CanEverBeInterrupted = canEverBeInterrupted,
+                HasRemainingTime = true
             };
         }
 
@@ -1232,12 +1272,16 @@ public partial class ClassSessionService
         var sessionLog = await _sessionLogService.GetSessionLogAsync(classSessionId);
         var overlapRatio = sessionLog?.Summary.OverlapRatio ?? 0.0;
         var requiredRatio = ClassSessionInterruptionPolicy.ThresholdFor(isFirstSessionOfBooking);
+        var checkInTimeForRemaining = classSession.Checkintime ?? classSession.Scheduledstart;
+        var hasRemainingTime = ClassSessionInterruptionPolicy.HasRemainingScheduledTime(
+            classSession.Scheduledstart, classSession.Scheduledend, checkInTimeForRemaining, TimeZoneHelper.UtcNow);
 
         return new ClassSessionInterruptionEligibilityResponse
         {
-            Eligible = ClassSessionInterruptionPolicy.MeetsThreshold(isFirstSessionOfBooking, overlapRatio),
+            Eligible = ClassSessionInterruptionPolicy.MeetsThreshold(isFirstSessionOfBooking, overlapRatio) && hasRemainingTime,
             CurrentRatio = overlapRatio,
-            RequiredRatio = requiredRatio
+            RequiredRatio = requiredRatio,
+            HasRemainingTime = hasRemainingTime
         };
     }
 

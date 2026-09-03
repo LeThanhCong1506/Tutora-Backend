@@ -19,6 +19,8 @@ namespace MV.DomainLayer.DTO.RequestModel
 
         // Lịch rảnh — dữ liệu có cấu trúc, lọc CỨNG ở SQL 
         public List<int>? AvailableDaysOfWeek { get; set; }
+        /// <summary>true = phải rảnh ĐỦ mọi ngày trong AvailableDaysOfWeek; false = một trong.</summary>
+        public bool AvailableDaysMatchAll { get; set; }
         public TimeOnly? AvailableFrom { get; set; }
         public TimeOnly? AvailableTo { get; set; }
     }

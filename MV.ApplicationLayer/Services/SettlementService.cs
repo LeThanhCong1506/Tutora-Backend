@@ -281,6 +281,10 @@ public partial class SettlementService : ISettlementService
         // Flush pending classSession status changes so the Completed count below reflects them.
         await _context.SaveChangesAsync();
 
+        // Issettled=true KHÔNG đủ để coi là đã dạy: luồng no-show cũ (free_session/makeup/
+        // change_tutor, nay đã gỡ) đánh dấu settled cho cả buổi bị HỦY và hoàn 100% cho phụ
+        // huynh. Đếm những buổi đó là "đã dạy" sẽ vừa cộng tiền cho gia sư vừa trừ pool hoàn
+        // của phụ huynh lần thứ hai. DB còn bản ghi cũ dạng này (vd class_session #783).
         var deliveredCount = await _context.ClassSessions
             .CountAsync(l => l.Bookingid == booking.Bookingid && l.Status == Completed);
         var totalSessions = booking.Totalsessions ?? deliveredCount;
@@ -614,8 +618,18 @@ public partial class SettlementService : ISettlementService
     /// caller — hàm này không tự mở transaction hay tự lock booking.
     /// </summary>
     public async Task<decimal> CancelRemainingSessionsAsync(
-        int bookingId, string processedBy, string bookingStatus, string? reason, CancellationToken ct = default)
+        int bookingId, string processedBy, string bookingStatus, string? reason,
+        IReadOnlyList<SessionAllocationInput>? sessionAllocations = null, CancellationToken ct = default)
     {
+        // Bảng tick thủ công: Admin/Staff đã chỉ định từng buổi thuộc về bên nào, nên KHÔNG suy ra
+        // từ status nữa. Bỏ trống thì mọi thứ dưới đây chạy y như cũ (đường staff hủy do phụ huynh
+        // nghỉ ngang vẫn dùng cách tự động).
+        var allocationMap = sessionAllocations?
+            .GroupBy(a => a.ClassSessionId)
+            .ToDictionary(g => g.Key, g => g.Last().Allocation)
+            ?? new Dictionary<int, string>();
+        var isManual = allocationMap.Count > 0;
+
         var booking = await _context.Bookings
             .Include(b => b.Student)
             .FirstOrDefaultAsync(b => b.Bookingid == bookingId, ct)
@@ -627,21 +641,48 @@ public partial class SettlementService : ISettlementService
 
         var now = TimeZoneHelper.UtcNow;
 
-        var remainingSessions = await _context.ClassSessions
-            .Where(s => s.Bookingid == bookingId && (s.Status == Scheduled || s.Status == Reserved))
+        var allBookingSessions = await _context.ClassSessions
+            .Where(s => s.Bookingid == bookingId)
             .ToListAsync(ct);
+
+        // Buổi phụ (Iscontinuation) có Lessonprice = 0: nó là phần thời gian học nốt gắn vào buổi
+        // cha khi buổi cha bị ngắt, KHÔNG phải một buổi tính tiền riêng. Đếm nó vào remainingCount
+        // sẽ hoàn cho phụ huynh nguyên một suất học phí cho buổi chưa từng thu tiền — và làm tổng
+        // số buổi vượt Totalsessions, khiến đơn giá (Totalamount / Totalsessions) nhân sai số lần.
+        // Vẫn phải HỦY chúng cùng khóa, chỉ là không tính tiền.
+        var continuationSessions = allBookingSessions.Where(s => s.Iscontinuation).ToList();
+        var billableSessions = allBookingSessions.Where(s => !s.Iscontinuation).ToList();
+
+        // remainingSessions = những buổi sẽ được HOÀN cho phụ huynh và đánh dấu Cancelled.
+        var remainingSessions = isManual
+            ? billableSessions
+                .Where(s => allocationMap.TryGetValue(s.Classsessionid, out var a) && a == SessionAllocations.Parent)
+                .ToList()
+            : billableSessions.Where(s => s.Status == Scheduled || s.Status == Reserved).ToList();
         var remainingCount = remainingSessions.Count;
+
+        // tutorAllocatedSessions = những buổi Admin/Staff tick cho gia sư. Chúng được đánh dấu
+        // Completed để trạng thái buổi học khớp với dòng tiền — nếu để nguyên Scheduled thì lịch
+        // vẫn hiện buổi chưa học trong khi gia sư đã được trả tiền cho nó.
+        var tutorAllocatedSessions = isManual
+            ? billableSessions
+                .Where(s => allocationMap.TryGetValue(s.Classsessionid, out var a) && a == SessionAllocations.Tutor)
+                .ToList()
+            : new List<ClassSession>();
 
         // Có buổi khác đang mid-flight (không phải buổi caller vừa tự settle riêng, nếu có) — phải
         // được xử lý xong qua đúng luồng của nó trước, không hủy đè lên để tránh strand/mispricing.
         // Interrupted phải nằm trong danh sách này giống Disputed/NoShow: đây cũng là 1 trạng thái
         // cụt (không tự về Scheduled/Reserved lẫn Completed), nên trước đây lọt qua cả 2 vế
         // remainingSessions/deliveredCount phía trên — escrow của đúng buổi đó bị bỏ quên vĩnh viễn.
-        var hasBlockingSession = await _context.ClassSessions
-            .AnyAsync(s => s.Bookingid == bookingId
-                && (s.Status == InProgress || s.Status == PendingConfirmation || s.Status == Disputed
-                    || s.Status == NoShow || s.Status == Interrupted),
-                ct);
+        // Ở chế độ thủ công, buổi nào Admin/Staff đã tick thì chính quyết định này là cách xử lý
+        // của nó — không còn "đang chờ luồng khác". Buổi InProgress vẫn chặn tuyệt đối: nó đang
+        // diễn ra, số liệu có mặt chưa chốt nên chưa ai được quyết.
+        var hasBlockingSession = allBookingSessions.Any(s =>
+            s.Status == InProgress
+            || (!allocationMap.ContainsKey(s.Classsessionid)
+                && (s.Status == PendingConfirmation || s.Status == Disputed
+                    || s.Status == NoShow || s.Status == Interrupted)));
         if (hasBlockingSession)
             return 0m;
 
@@ -671,8 +712,26 @@ public partial class SettlementService : ISettlementService
         // FinalizeBookingEarlyByUserAsync: target = đơn giá × số buổi đã dạy, trừ đi phần đã release
         // trước đó (vd 1 buổi đã được release riêng qua giải quyết tranh chấp từng buổi) để không
         // giải ngân trùng.
-        var deliveredCount = await _context.ClassSessions
-            .CountAsync(s => s.Bookingid == bookingId && (s.Status == Completed || s.Issettled == true), ct);
+        // Buổi đã CHỐT trước đó (Issettled = true) vẫn phải được tính cho gia sư ngay cả ở chế độ
+        // thủ công: nó không nằm trong bảng tick (Admin/Staff không đổi được kết quả đã định đoạt),
+        // nên nếu chỉ đếm những ô đã tick thì gia sư mất trắng tiền của một buổi đã dạy xong và đã
+        // được phụ huynh xác nhận. Phần đã giải phóng escrow trước đó được trừ ra bằng
+        // `alreadyReleased` bên dưới nên không có chuyện trả hai lần.
+        // KHÔNG được đếm buổi đã có trong bảng tick: ResolveDisputeAsync gọi
+        // SettleDisputedClassSessionAsync cho buổi đang khiếu nại NGAY TRƯỚC khi gọi hàm này, nên
+        // đến đây buổi đó vừa mang Issettled = true VỪA nằm trong allocationMap. Đếm cả hai vế là
+        // trả gia sư hai lần cho cùng một buổi — đúng lỗi ở booking #331: Admin/Staff tick 1 buổi
+        // cho gia sư nhưng ví nhận 95.000đ (2 buổi).
+        var previouslySettledCount = billableSessions.Count(s =>
+            s.Issettled == true
+            && s.Status != Cancelled
+            && s.Status != CancelledNoshow
+            && !allocationMap.ContainsKey(s.Classsessionid));
+
+        var deliveredCount = isManual
+            ? tutorAllocatedSessions.Count + previouslySettledCount
+            : billableSessions.Count(s => s.Status == Completed
+                || (s.Issettled == true && s.Status != Cancelled && s.Status != CancelledNoshow));
 
         var totalPaidByParent = booking.Remainingpaidat.HasValue
             ? (booking.Finalprice ?? 0)
@@ -689,8 +748,15 @@ public partial class SettlementService : ISettlementService
         // vào escrow — bug thật đã phát hiện qua test booking #287: escrow chỉ giữ 47.500đ nhưng hệ
         // thống trả ra 52.500đ hoàn + 47.500đ giải ngân = 100.000đ). Xem
         // LessonRefundCalculator.SplitCancelRemainingSessions.
+        // Phí dịch vụ 5% chỉ được hoàn khi khóa CHƯA qua đợt thanh toán thứ hai — đã đóng đủ rồi
+        // thì nền tảng giữ phần đó. Cùng luật với đường no-show cũ (booking #271 mới đóng cọc nên
+        // được hoàn nguyên 157.500đ, tức đã gồm phí dịch vụ).
+        var parentRefundRate = booking.Remainingpaidat.HasValue
+            ? parentRefundPerSessionNoFee
+            : parentRefundPerSessionWithFee;
+
         var (deliveredTutorTarget, parentTotalRefund) = LessonRefundCalculator.SplitCancelRemainingSessions(
-            totalPaidByParent, totalAlreadyRefunded, parentRefundPerSessionNoFee, parentRefundPerSessionWithFee,
+            totalPaidByParent, totalAlreadyRefunded, parentRefundRate, parentRefundPerSessionWithFee,
             tutorEscrowPerSession, remainingCount, deliveredCount);
 
         var tutorEscrowRelease = 0m;
@@ -766,6 +832,31 @@ public partial class SettlementService : ISettlementService
 
         foreach (var s in remainingSessions)
             s.Status = Cancelled;
+
+        // Buổi phụ không mang tiền nhưng vẫn phải đóng lại cùng khóa, nếu không nó nằm lại trên
+        // lịch của cả hai bên như một buổi còn hiệu lực của khóa đã hủy.
+        foreach (var s in continuationSessions.Where(s => s.Status == Scheduled || s.Status == Reserved))
+            s.Status = Cancelled;
+
+        // Ở chế độ thủ công, những buổi NGOÀI phần đã thanh toán không nằm trong danh sách phân bổ
+        // (xem CancelAllocationScope) nên không rơi vào remainingSessions. Chúng chưa được thu tiền
+        // nên không hoàn cho ai, nhưng vẫn phải đóng lại — bỏ sót thì khóa đã hủy vẫn còn buổi mở
+        // trên lịch hai bên.
+        if (isManual)
+        {
+            foreach (var s in billableSessions.Where(s =>
+                         !allocationMap.ContainsKey(s.Classsessionid)
+                         && (s.Status == Scheduled || s.Status == Reserved)))
+                s.Status = Cancelled;
+        }
+
+        // Buổi được tick cho gia sư: đánh dấu đã dạy + đã settle để trạng thái buổi học khớp với
+        // dòng tiền vừa chi, và để lần chạy sau (nếu có) không giải ngân lại buổi này.
+        foreach (var s in tutorAllocatedSessions)
+        {
+            s.Status = Completed;
+            s.Issettled = true;
+        }
 
         // Supersede mọi payment request đang active để tránh webhook trễ áp dụng nhầm lên booking
         // đã đóng (vd yêu cầu nạp bù đợt 2 đang mở).
@@ -880,7 +971,7 @@ public partial class SettlementService : ISettlementService
 
         var deliveredCount = await _context.ClassSessions
             .AsNoTracking()
-            .CountAsync(s => s.Bookingid == bookingId && (s.Status == Completed || s.Issettled == true), ct);
+            .CountAsync(s => s.Bookingid == bookingId && (s.Status == Completed || (s.Issettled == true && s.Status != Cancelled && s.Status != CancelledNoshow)), ct);
         if (disputedSessionId.HasValue)
         {
             var disputed = await _context.ClassSessions
@@ -915,8 +1006,16 @@ public partial class SettlementService : ISettlementService
                       && wt.Transactiontype == TransactionType.Refund)
             .SumAsync(wt => wt.Amount ?? 0, ct);
 
+        // PHẢI dùng đúng đơn giá mà CancelRemainingSessionsAsync sẽ dùng khi thực thi: phí dịch vụ
+        // chỉ hoàn khi khóa chưa qua đợt thanh toán thứ hai. Trước đây chỗ này luôn dùng giá không
+        // phí, nên với khóa mới đóng cọc, bản xem trước báo một con số còn bản thực thi trả một con
+        // số khác — Admin/Staff chốt phương án dựa trên số sai.
+        var previewParentRefundRate = booking.Remainingpaidat.HasValue
+            ? parentRefundPerSessionNoFee
+            : parentRefundPerSessionWithFee;
+
         var (deliveredTutorTarget, parentRefund) = LessonRefundCalculator.SplitCancelRemainingSessions(
-            totalPaidByParent, totalAlreadyRefunded, parentRefundPerSessionNoFee, parentRefundPerSessionWithFee,
+            totalPaidByParent, totalAlreadyRefunded, previewParentRefundRate, parentRefundPerSessionWithFee,
             tutorEscrowPerSession, remainingCount, deliveredCount);
 
         var tutorWallet = !string.IsNullOrWhiteSpace(booking.Tutorid)
@@ -952,6 +1051,24 @@ public partial class SettlementService : ISettlementService
         if (tutorEscrowReversed < rawTutorEscrowReverse)
             warnings.Add($"Escrow gia sư không đủ — chỉ giải phóng được {tutorEscrowReversed:N0}đ thay vì {rawTutorEscrowReverse:N0}đ (số dư đóng băng hiện tại: {tutorFrozenBalance:N0}đ).");
 
+        // Phí dịch vụ chỉ được hoàn khi khóa CHƯA qua đợt thanh toán thứ hai. Đã đóng đủ rồi thì
+        // nền tảng giữ phần phí đó, đúng luật của luồng no-show cũ (xem booking #271: mới đóng cọc
+        // nên được hoàn nguyên 157.500đ, tức đã gồm phí dịch vụ).
+        var refundIncludesServiceFee = !booking.Remainingpaidat.HasValue;
+
+        var totalSessions = Math.Max(booking.Totalsessions ?? 1, 1);
+        var parentServiceFeePerSession = Math.Round((booking.Parentfee ?? 0) / totalSessions, 2);
+        // Platformfee = Parentfee + phần sàn thu từ gia sư. DB không lưu riêng phần sau (cột
+        // Tutorfee là số gia sư NHẬN, không phải hoa hồng) nên phải suy ra bằng hiệu.
+        var tutorPlatformFeePerSession =
+            Math.Round(Math.Max((booking.Platformfee ?? 0) - (booking.Parentfee ?? 0), 0) / totalSessions, 2);
+
+        // Số buổi đã thực thu tiền — vế đầu của công thức doanh thu. Mới đóng cọc thì chỉ phần cọc
+        // sinh phí dịch vụ, không phải cả khóa.
+        var sessionsPaidByParent = parentRefundPerSessionWithFee > 0
+            ? Math.Min(totalSessions, (int)Math.Floor(totalPaidByParent / parentRefundPerSessionWithFee))
+            : 0;
+
         return new CourseCancelPreviewResponse
         {
             BookingId = bookingId,
@@ -961,6 +1078,15 @@ public partial class SettlementService : ISettlementService
             TutorEscrowReleased = tutorEscrowReleased,
             TutorEscrowReversed = tutorEscrowReversed,
             TutorFrozenBalance = tutorFrozenBalance,
+            RefundIncludesServiceFee = refundIncludesServiceFee,
+            TutorAmountPerSession = tutorEscrowPerSession,
+            ParentAmountPerSession = refundIncludesServiceFee
+                ? parentRefundPerSessionWithFee
+                : parentRefundPerSessionNoFee,
+            ParentServiceFeePerSession = parentServiceFeePerSession,
+            TutorPlatformFeePerSession = tutorPlatformFeePerSession,
+            SessionsPaidByParent = sessionsPaidByParent,
+            TotalCollectedFromParent = totalPaidByParent,
             Warnings = warnings
         };
     }

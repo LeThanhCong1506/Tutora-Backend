@@ -30,9 +30,29 @@ public class RevenueSummaryDto
     public decimal DeferredRevenue { get; set; }
     public decimal DeferredPrevious { get; set; }
 
-    /// <summary>Tổng giá trị giao dịch — tiền phụ huynh trả, KHÔNG phải doanh thu.</summary>
+    /// <summary>
+    /// Tổng GIÁ TRỊ LỊCH ĐẶT của kỳ — cộng theo giá hợp đồng, chốt lúc khách bấm đặt. KHÔNG
+    /// phải doanh thu, và cũng KHÔNG phải tiền khách đã thực trả.
+    ///
+    /// Khách trả làm 2 đợt, nên khoá mới trả đợt 1 vẫn vào đây theo TRỌN giá gói. Đo trên dev
+    /// 02/09/2026: 25/36 khoá của kỳ mới trả đợt 1, khiến con số này gấp ~3 lần tiền mặt thật
+    /// (19.582.500 hợp đồng vs 6.520.500 đã trả). Phần đã thực trả nằm ở <see cref="GmvPaid"/> —
+    /// luôn hiển thị kèm, nếu không cái nhãn sẽ hứa nhiều hơn con số.
+    /// </summary>
     public decimal Gmv { get; set; }
     public decimal GmvPrevious { get; set; }
+
+    /// <summary>
+    /// Phần <see cref="Gmv"/> khách ĐÃ THỰC TRẢ: trả đủ 2 đợt thì tính trọn giá gói, mới trả
+    /// đợt 1 thì chỉ tính tiền đợt 1. Cùng công thức <c>CashPaidIn</c> với sổ ví.
+    ///
+    /// CÙNG phạm vi với <see cref="Gmv"/> (booking cohort tạo trong kỳ) để hai số so trực tiếp
+    /// được. KHÁC hẳn <see cref="CashCollected"/> — số kia neo theo NGÀY THANH TOÁN và không lọc
+    /// cohort, nên đừng dùng thay thế.
+    ///
+    /// Chưa trừ hoàn tiền: khoản hoàn đã có thẻ riêng ở đầu trang.
+    /// </summary>
+    public decimal GmvPaid { get; set; }
 
     /// <summary>Tiền mặt thực thu trong kỳ (payment_transactions thành công).</summary>
     public decimal CashCollected { get; set; }
@@ -90,6 +110,8 @@ public class RevenueSummaryDto
     /// của những buổi bị huỷ, không suy được bằng công thức "đơn giá × số buổi".
     ///
     /// Với khoá hoàn tất bình thường, hai cách cho ra CÙNG một số.
+    ///
+    /// Từ 02/09/2026 con số này LẠI ĐƯỢC HIỂN THỊ, dưới tên <see cref="CommissionMatured"/>.
     /// </summary>
     public decimal CommissionEarned { get; set; }
 
@@ -100,8 +122,103 @@ public class RevenueSummaryDto
     /// Tách hẳn khỏi phần "chờ ghi nhận" (<c>CommissionSold − CommissionEarned − CommissionLost</c>):
     /// chờ thì buổi học còn ở phía trước và vẫn có cơ hội thành tiền, còn khoản này thì hết cơ
     /// hội. Gộp chung sẽ làm nợ dịch vụ trông như vẫn còn thu được.
+    ///
+    /// ─── TẠM KHÔNG HIỂN THỊ từ 01/09/2026 — GIỮ LẠI ĐỂ ĐỐI SOÁT ────────────────────
+    ///
+    /// Vành khuyên "Số tạm tính đi về đâu" (ba lát Đã thu được / Còn chờ / Không thu được) đã
+    /// bị gỡ khỏi tab Doanh thu. KHÔNG phải vì cách trình bày, mà vì cả ba lát đang sai số:
+    /// chúng dựa vào <c>PlatformKept = cashIn − refunded − released</c>, mà <c>released</c>
+    /// đang bị hụt do lỗi đảo escrow (escrow là túi chung theo ví gia sư — luồng huỷ đảo theo
+    /// số buổi HỢP ĐỒNG nên rút vượt phần khoá đó thực nạp và ăn sang khoá khác). Released hụt
+    /// ⇒ kept đội lên ⇒ <see cref="CommissionEarned"/> phồng và <see cref="CommissionLost"/>
+    /// hụt. Đo trên dev 01/09/2026: 950.000 escrow bị đảo lố, 2 gia sư bị thiếu 665.000.
+    ///
+    /// Hai trường này CỐ Ý giữ lại (không xoá) vì sau khi sửa xong luồng escrow phải đo lại
+    /// đúng chúng để quyết việc có nên tính khoá đã chốt sổ theo tiền thật thay vì giá hợp
+    /// đồng hay không. Xoá đi rồi dựng lại là phí.
+    ///
+    /// Cảnh báo tự động cho lỗi trên nằm ở <c>AdminRevenueAnalyticsService.BuildClosedBookings</c>
+    /// (LogWarning khi phép chặn phải cắt số).
     /// </summary>
     public decimal CommissionLost { get; set; }
+
+    // ── Ba số phận của DOANH THU TẠM TÍNH — thêm 02/09/2026 ───────────────────────
+    //
+    //   CommissionSold = CommissionMatured + CommissionPending + CommissionUnrecoverable
+    //
+    // Khít theo construction ở MỌI kỳ: mỗi khoá đóng góp đúng `PlatformFee` của nó, tách làm hai
+    // nhánh rời nhau — đã chốt sổ thì `kept + (PlatformFee − kept)`, chưa chốt thì
+    // `earned + (PlatformFee − earned)`. Không khoá nào rơi vào cả hai nhánh.
+    //
+    // ─── Sửa 02/09/2026 (trong ngày): bộ ba GIỜ ĐỌC SỔ VÍ ────────────────────────
+    //
+    // Bản đầu của bộ ba cố ý KHÔNG chạm sổ ví, chỉ dùng công thức, để miễn nhiễm với lỗi đảo
+    // escrow. Đã đảo lại quyết định đó ngay trong ngày, vì nó không đạt mục tiêu:
+    //
+    //   `RecognisedRevenue` — con số kế toán lớn nhất trên màn hình — VẪN cộng
+    //   `ClosingAdjustmentIn`, mà khoản đó suy thẳng từ `PlatformKept`, tức từ sổ ví. Nên trang
+    //   chạy hai chính sách tin cậy khác nhau và in ra hai con số cho cùng một ý niệm:
+    //   461.000 ở thẻ doanh thu, 458.500 ở bộ ba (dev, 02/09/2026). Không đọc ví ở đây KHÔNG làm
+    //   trang an toàn hơn — số rủi ro vẫn nằm nguyên trên màn hình — chỉ làm hai chỗ mâu thuẫn.
+    //
+    // `CommissionMatured` và `CommissionUnrecoverable` do đó bằng ĐÚNG `CommissionEarned` và
+    // `CommissionLost`. Giữ cả hai bộ tên vì mỗi bộ nói một câu khác nhau ở tài liệu và giao
+    // diện; đừng "dọn" bằng cách xoá một bộ.
+    //
+    // Phần bảo vệ thật thì không mất, nó nằm ở `BuildClosedBookings`: chặn `ledgerTouched` (khoá
+    // chưa có dòng ví nào thì dùng công thức, đừng đoán qua ví — chặn này một mình đã khử 320.000
+    // doanh thu ảo khi thêm dấu hiệu chốt sổ thứ ba) và chặn trên ở `PlatformFee`.
+    //
+    // Bộ ba vẫn tái lập ĐÚNG ví dụ chuẩn của tài liệu (§2.1): khoá 100k/10 buổi, phụ huynh trả
+    // đủ, học 1 buổi rồi huỷ → matured = 5.500, đúng bằng "Tutora giữ 5.500 = 1.000 hoa hồng buổi
+    // đã dạy + 4.500 phí dịch vụ không hoàn". Công thức ngây thơ "hoa hồng × buổi đã dạy" chỉ ra
+    // 1.000 — nó bỏ sót phần phí dịch vụ không hoàn.
+    //
+    // Cả ba neo theo NGÀY ĐẶT LỊCH (booking tạo trong kỳ), khác mốc với RecognisedRevenue vốn neo
+    // theo ngày dạy. Sau khi sửa, `CommissionMatured` trùng đúng phần "dạy học" của
+    // RecognisedRevenue ở mọi kỳ ≥ 21 ngày trên dữ liệu dev; kỳ ngắn hơn vẫn lệch, và lệch ĐÚNG —
+    // buổi dạy trong kỳ có thể thuộc khoá đặt từ trước kỳ. Vẫn KHÔNG cộng chéo hai bộ.
+
+    /// <summary>
+    /// Tiền bán gói AI trong kỳ, neo theo ngày thanh toán. ĐÃ nằm sẵn trong
+    /// <see cref="RecognisedRevenue"/> — lộ riêng ra để giao diện tách được doanh thu theo NGUỒN:
+    ///
+    ///   RecognisedRevenue = (phí gia sư + phí phụ huynh từ buổi dạy) + AiRevenue
+    ///
+    /// Hai vế cộng KHÍT TUYỆT ĐỐI vì cùng neo ngày ghi nhận, nên vế trái suy ngược ra bằng
+    /// hiệu chứ không cần thêm trường. Hai nguồn khác hẳn bản chất — một khoản chỉ chín khi có
+    /// buổi dạy xong và đi qua escrow, một khoản thu đứt ngay lúc mua — nên gộp làm một con số
+    /// mà không ghi rõ là để người đọc tự đoán sai tỉ lệ.
+    ///
+    /// KHÔNG cộng nó với <see cref="CommissionMatured"/>: số kia neo NGÀY ĐẶT LỊCH, khác mốc,
+    /// nên phép cộng luôn thừa ra một phần dư phải bịa tên. Giao diện đã thử một bản như vậy
+    /// ("dòng nối") và đã gỡ ngay trong ngày 02/09/2026 vì rối.
+    /// </summary>
+    public decimal AiRevenue { get; set; }
+
+    /// <summary>
+    /// Phí sàn đã thu được tính tới cuối kỳ, của các lịch đặt trong kỳ. Nhãn trên giao diện:
+    /// "Đã thu được" (quy ước thuật ngữ chốt 31/08/2026).
+    ///
+    /// Bằng ĐÚNG <see cref="CommissionEarned"/> từ 02/09/2026 — xem ghi chú của cụm ba số phận
+    /// ở trên về việc vì sao bỏ bản tính bằng công thức thuần.
+    /// </summary>
+    public decimal CommissionMatured { get; set; }
+
+    /// <summary>Phí sàn còn CƠ HỘI chín: khoá vẫn đang chạy, buổi còn ở phía trước.</summary>
+    public decimal CommissionPending { get; set; }
+
+    /// <summary>
+    /// Phí sàn VĨNH VIỄN không thu được: khoá đã chốt sổ mà phần này chưa kịp chín — buổi bị huỷ
+    /// nên không có gì để cắt, hoặc khách không trả nốt nên phí dịch vụ không bao giờ tới.
+    ///
+    /// Tách hẳn khỏi <see cref="CommissionPending"/>: chờ nghĩa là tiền còn cơ hội về, khoản này
+    /// thì hết. Gộp chung là báo một khoản đã chết như thể vẫn đang chờ — và con số đó sẽ không
+    /// bao giờ giảm qua các kỳ, thứ ai đối chiếu hai kỳ liên tiếp cũng phát hiện ra.
+    ///
+    /// Bằng ĐÚNG <see cref="CommissionLost"/> từ 02/09/2026 — xem ghi chú của cụm ba số phận.
+    /// </summary>
+    public decimal CommissionUnrecoverable { get; set; }
 
     /// <summary>
     /// Đối soát sổ ví: tổng tiền Tutora giữ được từ các khoá bị HUỶ đóng sổ trong kỳ.
@@ -205,6 +322,17 @@ public class BookingProgressDto
     public int BookingId { get; set; }
     public string ParentName { get; set; } = "";
     public string TutorName { get; set; } = "";
+
+    /// <summary>
+    /// Số điện thoại (hoặc email nếu không có số) của khách và của gia sư — CHỈ để phân biệt
+    /// người trùng tên. Hai trường, không phải một, vì mỗi dòng ở đây có HAI người. Giao diện
+    /// chỉ in ra khi tên thật sự bị trùng trong cùng một bảng.
+    /// </summary>
+    public string? ParentContact { get; set; }
+
+    /// <inheritdoc cref="ParentContact"/>
+    public string? TutorContact { get; set; }
+
     public string Subject { get; set; } = "";
     public int TotalSessions { get; set; }
     public int DeliveredSessions { get; set; }
@@ -272,6 +400,14 @@ public class AdminTutorRevenueResponse
     /// (xem <see cref="TutorRevenueDto.TutorFeeRevenue"/>).</summary>
     public decimal TotalTutorFeeRevenue { get; set; }
 
+    /// <summary>
+    /// Tổng phí gia sư còn ĐỢI ghi nhận — buổi đã bán mà chưa dạy nên chưa cắt được 5%.
+    /// Đối xứng với <c>CustomerRevenueSummaryDto.ServiceFeePending</c> của tab Khách hàng.
+    /// Thêm 02/09/2026: trước đó tab Gia sư chỉ có vế đã ghi nhận nên hai tab không đọc được
+    /// như một cặp, dù chúng là hai nửa của cùng một phí sàn 10%.
+    /// </summary>
+    public decimal TotalTutorFeePending { get; set; }
+
     /// <summary>Escrow toàn sàn hiện tại — nợ phải trả, KHÔNG lọc theo kỳ.</summary>
     public decimal TotalEscrowHeld { get; set; }
 }
@@ -280,6 +416,13 @@ public class TutorRevenueDto
 {
     public string TutorId { get; set; } = "";
     public string TutorName { get; set; } = "";
+
+    /// <summary>
+    /// Số điện thoại (hoặc email nếu không có số) — CHỈ để phân biệt người trùng tên. Giao
+    /// diện chỉ in nó ra khi tên thật sự bị trùng trong cùng một bảng. <c>null</c> khi tài
+    /// khoản không có gì phân biệt được.
+    /// </summary>
+    public string? Contact { get; set; }
     public string Subject { get; set; } = "";
     public decimal Gmv { get; set; }
 
@@ -289,6 +432,13 @@ public class TutorRevenueDto
     /// tổng tab Gia sư cố ý nhỏ hơn "Doanh thu đã ghi nhận" của tab Doanh thu.
     /// </summary>
     public decimal TutorFeeRevenue { get; set; }
+
+    /// <summary>
+    /// Phí gia sư của người này còn ĐỢI ghi nhận: phần 5% của những buổi đã bán mà chưa dạy.
+    /// Khoá đã chốt sổ ra 0 — buổi chưa dạy của chúng đã bị huỷ, không còn gì để chờ.
+    /// Đối xứng với cột "Phí DV đợi ghi nhận" của bảng khách hàng.
+    /// </summary>
+    public decimal TutorFeePending { get; set; }
 
     /// <summary>% giữ lại trên GMV. Chỉ so sánh tương đối — hai vế khác mốc thời gian.</summary>
     public decimal TakeRate { get; set; }
@@ -366,6 +516,13 @@ public class ParentRevenueDto
     /// <summary>Phụ huynh, hoặc học sinh nếu tự đặt lịch.</summary>
     public string ParentId { get; set; } = "";
     public string ParentName { get; set; } = "";
+
+    /// <summary>
+    /// Số điện thoại (hoặc email nếu không có số) — CHỈ để phân biệt người trùng tên. Giao
+    /// diện chỉ in nó ra khi tên thật sự bị trùng trong cùng một bảng. <c>null</c> khi tài
+    /// khoản không có gì phân biệt được.
+    /// </summary>
+    public string? Contact { get; set; }
 
     /// <summary>"Phụ huynh" hoặc "Học sinh".</summary>
     public string CustomerType { get; set; } = "";
@@ -519,6 +676,13 @@ public class AiTopUserDto
 {
     public string UserId { get; set; } = "";
     public string UserName { get; set; } = "";
+
+    /// <summary>
+    /// Số điện thoại (hoặc email nếu không có số) — CHỈ để phân biệt người trùng tên. Giao
+    /// diện chỉ in nó ra khi tên thật sự bị trùng trong cùng một bảng. <c>null</c> khi tài
+    /// khoản không có gì phân biệt được.
+    /// </summary>
+    public string? Contact { get; set; }
     public string Role { get; set; } = "";
     public int CreditsConsumed { get; set; }
     public int CreditsPurchased { get; set; }

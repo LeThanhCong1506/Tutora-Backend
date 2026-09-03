@@ -191,7 +191,7 @@ public class AiChatService(
         await aiChatRepo.SaveChangesAsync();
 
         // 2. Dựng history từ DB (cửa sổ gần nhất) thay vì để FE tự gửi.
-        var (recent, _) = await aiChatRepo.GetMessagesPagedAsync(sessionId, 1, HistoryWindow);
+        var recent = await aiChatRepo.GetRecentMessagesAsync(sessionId, HistoryWindow);
         var history = recent
             .Where(m => m.MessageId != userMessage.MessageId)
             .Select(m => new { role = m.Role, content = BuildHistoryContent(m) })
@@ -338,7 +338,7 @@ public class AiChatService(
         if (isAuthed)
         {
             session = await GetOrCreateMatchingSessionAsync(userId!, dto.SessionId, ct);
-            var (recent, _) = await aiChatRepo.GetMessagesPagedAsync(session.SessionId, 1, HistoryWindow);
+            var recent = await aiChatRepo.GetRecentMessagesAsync(session.SessionId, HistoryWindow);
             history = recent
                 .Select(m => (object)new { role = m.Role, content = m.Content })
                 .ToList();
@@ -382,14 +382,12 @@ public class AiChatService(
                 max_rate = dto.Context.MaxRate,
                 tutor_gender = dto.Context.TutorGender
             },
-            current_filters = dto.CurrentFilters is null ? null : new
-            {
-                min_rate = dto.CurrentFilters.MinRate,
-                max_rate = dto.CurrentFilters.MaxRate,
-                tutor_gender = dto.CurrentFilters.TutorGender,
-                subject_id = dto.CurrentFilters.SubjectId,
-                desired_count = dto.CurrentFilters.DesiredCount
-            },
+            // Chuyển NGUYÊN KHỐI, không chép từng field: state hội thoại do tutora-ai sở hữu
+            // (xem AssistantRespondRequest.CurrentFilters). Chỉ nhận object — mảng/chuỗi lạ
+            // từ client thì bỏ, để tutora-ai khỏi phải đoán.
+            current_filters = dto.CurrentFilters is { ValueKind: JsonValueKind.Object } cf
+                ? (object?)cf
+                : null,
             shown_tutors = dto.ShownTutors.Select(t => new
             {
                 tutor_id = t.TutorId,
@@ -496,15 +494,10 @@ public class AiChatService(
                         CtaLabel = GetStr(c, "cta_label") ?? "Xem chi tiết"
                     });
 
+            // Clone() bắt buộc: JsonElement chỉ sống trong lifetime của `doc` (using ở trên),
+            // trả thẳng ra ngoài sẽ đọc phải bộ nhớ đã dispose.
             if (root.TryGetProperty("filters", out var f) && f.ValueKind == JsonValueKind.Object)
-                res.Filters = new AssistantFiltersOut
-                {
-                    MinRate = GetNum(f, "min_rate"),
-                    MaxRate = GetNum(f, "max_rate"),
-                    TutorGender = GetStr(f, "tutor_gender"),
-                    SubjectId = GetInt(f, "subject_id"),
-                    DesiredCount = GetInt(f, "desired_count")
-                };
+                res.Filters = f.Clone();
 
             res.Suggestions = GetStrList(root, "suggestions");
 
