@@ -37,9 +37,36 @@ public class ChatRepository(AgoraDbContext context) : IChatRepository
             .Include(c => c.Student)
             .Include(c => c.Chatmessages.OrderByDescending(m => m.Createdat))
             .Where(c => c.Parentid == userId || c.Tutorid == userId || c.Studentid == userId)
+            .Where(c => !context.ChatChannelHiddens.Any(h =>
+                h.Channelid == c.Channelid &&
+                h.Userid == userId &&
+                (c.Lastmessageat == null || c.Lastmessageat <= h.Hiddenat)))
             .OrderByDescending(c => c.Lastmessageat)
             .AsNoTracking()
             .ToListAsync();
+
+    /// <summary>Ẩn kênh phía một người. Gọi lại trên kênh đã ẩn thì dời mốc ẩn lên hiện tại.</summary>
+    public async Task HideChannelForUserAsync(int channelId, string userId)
+    {
+        var existing = await context.ChatChannelHiddens
+            .FirstOrDefaultAsync(h => h.Channelid == channelId && h.Userid == userId);
+
+        if (existing is null)
+        {
+            context.ChatChannelHiddens.Add(new ChatChannelHidden
+            {
+                Channelid = channelId,
+                Userid = userId,
+                Hiddenat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
+            });
+        }
+        else
+        {
+            existing.Hiddenat = MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow;
+        }
+
+        await context.SaveChangesAsync();
+    }
 
     public Task<bool> IsChannelParticipantAsync(int channelId, string userId)
         => context.Chatchannels

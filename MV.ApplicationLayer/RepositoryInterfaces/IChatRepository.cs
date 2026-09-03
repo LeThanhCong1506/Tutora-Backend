@@ -9,6 +9,9 @@ public interface IChatRepository
     Task<Chatchannel?> FindChannelByIdWithBookingAsync(int channelId);
     Task<Chatchannel?> FindChannelByParticipantsAsync(string tutorId, string? parentId, string? studentId);
     Task<List<Chatchannel>> GetChannelsByUserAsync(string userId);
+
+    /// <summary>Ẩn kênh phía một người ("xoá phía tôi"); phía kia không đổi.</summary>
+    Task HideChannelForUserAsync(int channelId, string userId);
     /// <summary>Kiểm tra quyền tham gia kênh bằng một truy vấn Any phía máy chủ.</summary>
     Task<bool> IsChannelParticipantAsync(int channelId, string userId);
     /// <summary>Kiểm tra hai người có kênh chat đang hoạt động hay không.</summary>
