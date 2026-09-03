@@ -550,6 +550,11 @@ public class DisputeService : IDisputeService
                             throw new InvalidOperationException(
                                 "Buổi học đã hoàn thành, không thể đưa về trạng thái chờ học.");
 
+                        if (classSession.Status == PendingConfirmation || classSession.Submittedat != null)
+                            throw new InvalidOperationException(
+                                "Gia sư đã nộp báo cáo cho buổi học này, không thể đưa về trạng thái chờ học. "
+                                + "Hãy chọn phương án hoàn tất buổi học hoặc cho học lại.");
+
                         classSession.Status = Scheduled;
 
                         // Dọn các dấu vết do chính khiếu nại đặt ra, nhưng CHỈ khi buổi chưa từng

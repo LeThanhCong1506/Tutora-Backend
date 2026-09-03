@@ -132,7 +132,12 @@ public class TutorFinanceService(
             .AsNoTracking()
             .Where(t => t.Wallet!.Userid == tutorId);
 
-        if (!string.IsNullOrEmpty(type))
+        if (type == TransactionType.BankTransfer)
+        {
+            // BankTransfer không tồn tại trong wallet_transactions (nó được suy ra từ
+            query = query.Where(_ => false);
+        }
+        else if (!string.IsNullOrEmpty(type))
         {
             // Người dùng chủ động lọc theo loại cụ thể (kể cả EscrowCredit/EscrowReversal) —
             // tôn trọng lựa chọn đó, không áp exclusion mặc định bên dưới.
@@ -164,31 +169,84 @@ public class TutorFinanceService(
             query = query.Where(t => t.Createdat <= toUtc);
         }
 
-        var total = await query.CountAsync(ct);
+        // Lịch sử là hợp nhất của hai sổ: biến động ví, và các lệnh chi thật ra ngân hàng
+        var payoutQuery = BuildBankPayoutQuery(tutorId, type, from, to);
 
-        var rawItems = await query
-            .OrderByDescending(t => t.Createdat)
+        var walletTotal = await query.CountAsync(ct);
+        var payoutTotal = payoutQuery == null ? 0 : await payoutQuery.CountAsync(ct);
+
+        var take = page * pageSize;
+
+        var walletItems = (await query
+                .OrderByDescending(t => t.Createdat)
+                .Take(take)
+                .Select(t => new { t.Transactionid, t.Amount, t.Transactiontype, t.Description, t.Referenceid, t.Referencetable, t.Createdat })
+                .ToListAsync(ct))
+            .Select(t => new TransactionHistoryResponse
+            {
+                TransactionId = t.Transactionid,
+                Amount = t.Amount ?? 0,
+                TransactionType = t.Transactiontype ?? string.Empty,
+                Description = t.Description ?? string.Empty,
+                ReferenceId = t.Referenceid,
+                ReferenceTable = t.Referencetable,
+                CreatedAt = t.Createdat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow,
+                Source = TransactionSource.Wallet,
+                Channel = TransactionChannel.Wallet
+            });
+
+        var payoutItems = payoutQuery == null
+            ? Enumerable.Empty<TransactionHistoryResponse>()
+            : (await payoutQuery
+                    .OrderByDescending(t => t.PaidAt ?? t.CreatedAt)
+                    .Take(take)
+                    .ToListAsync(ct))
+                .Select(row => BankPayoutHistoryEntries.ToHistoryEntry(row, fileStorageService));
+
+        var items = walletItems
+            .Concat(payoutItems)
+            .OrderByDescending(t => t.CreatedAt)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
-            .Select(t => new { t.Transactionid, t.Amount, t.Transactiontype, t.Description, t.Createdat })
-            .ToListAsync(ct);
-
-        var items = rawItems.Select(t => new TransactionHistoryResponse
-        {
-            TransactionId = t.Transactionid,
-            Amount = t.Amount ?? 0,
-            TransactionType = t.Transactiontype ?? string.Empty,
-            Description = t.Description ?? string.Empty,
-            CreatedAt = t.Createdat ?? MV.DomainLayer.Helpers.TimeZoneHelper.UtcNow
-        }).ToList();
+            .ToList();
 
         return new TransactionHistoryPagedResponse
         {
             Transactions = items,
-            TotalCount = total,
+            TotalCount = walletTotal + payoutTotal,
             Page = page,
             PageSize = pageSize
         };
+    }
+
+    /// <summary>
+    /// Nhánh "chuyển tiền ngân hàng" của lịch sử giao dịch
+    /// </summary>
+    private IQueryable<BankPayoutHistoryEntries.PayoutRow>? BuildBankPayoutQuery(
+        string userId, string? type, DateTime? from, DateTime? to)
+    {
+        if (!string.IsNullOrEmpty(type) && type != TransactionType.BankTransfer)
+            return null;
+
+        var payoutQuery = BankPayoutHistoryEntries.Query(context, userId);
+
+        if (from.HasValue)
+        {
+            var fromUtc = from.Value.Kind == DateTimeKind.Utc
+                ? from.Value
+                : DateTime.SpecifyKind(from.Value, DateTimeKind.Utc);
+            payoutQuery = payoutQuery.Where(t => (t.PaidAt ?? t.CreatedAt) >= fromUtc);
+        }
+
+        if (to.HasValue)
+        {
+            var toUtc = to.Value.Kind == DateTimeKind.Utc
+                ? to.Value
+                : DateTime.SpecifyKind(to.Value, DateTimeKind.Utc);
+            payoutQuery = payoutQuery.Where(t => (t.PaidAt ?? t.CreatedAt) <= toUtc);
+        }
+
+        return payoutQuery;
     }
 
     public async Task<TransactionHistoryResponse> GetTransactionDetailAsync(string tutorId, int transactionId, CancellationToken ct = default)

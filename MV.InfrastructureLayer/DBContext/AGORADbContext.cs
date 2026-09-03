@@ -34,6 +34,8 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
 
     public virtual DbSet<Chatchannel> Chatchannels { get; set; }
 
+    public virtual DbSet<ChatChannelHidden> ChatChannelHiddens { get; set; }
+
     public virtual DbSet<Chatmessage> Chatmessages { get; set; }
 
     public virtual DbSet<ChatSession> ChatSessions { get; set; }
@@ -841,6 +843,32 @@ public partial class AgoraDbContext : DbContext, IAppDbContext
             entity.HasOne(d => d.Tutorsubjectgradeprice).WithMany(p => p.Bookings)
                 .HasForeignKey(d => d.Tutorsubjectgradepriceid)
                 .HasConstraintName("bookings_tutorsubjectgradepriceid_fkey");
+        });
+
+        modelBuilder.Entity<ChatChannelHidden>(entity =>
+        {
+            entity.HasKey(e => new { e.Channelid, e.Userid }).HasName("chat_channel_hidden_pkey");
+
+            entity.ToTable("chat_channel_hidden");
+
+            entity.Property(e => e.Channelid).HasColumnName("channel_id");
+            entity.Property(e => e.Userid)
+                .HasMaxLength(50)
+                .HasColumnName("user_id");
+            entity.Property(e => e.Hiddenat)
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
+                .HasColumnType("timestamp without time zone")
+                .HasColumnName("hidden_at");
+
+            entity.HasOne(e => e.Channel).WithMany()
+                .HasForeignKey(e => e.Channelid)
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("chat_channel_hidden_channel_fk");
+
+            entity.HasOne(e => e.User).WithMany()
+                .HasForeignKey(e => e.Userid)
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("chat_channel_hidden_user_fk");
         });
 
         modelBuilder.Entity<Chatchannel>(entity =>
