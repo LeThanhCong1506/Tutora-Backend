@@ -233,30 +233,5 @@ namespace MV.ApplicationLayer.Services
                 Reason = request.Reason
             };
         }
-
-        // ─── Private helpers ─────────────────────────────────────────────────
-
-        private static bool CheckTutorRequiredFields(
-            Tutorprofile profile,
-            User user,
-            List<Tutorsubject>? subjects,
-            List<Tutorsubjectgradeprice>? prices)
-        {
-            return !string.IsNullOrWhiteSpace(profile.Headline) &&
-                   !string.IsNullOrWhiteSpace(profile.Teachingareacity) &&
-                   
-                   subjects != null && subjects.Count > 0 &&
-                   !string.IsNullOrWhiteSpace(profile.Bio) &&
-                   !string.IsNullOrWhiteSpace(profile.Education) &&
-                   prices != null && prices.Any(p => p.Isactive && p.Priceperhour > 0) &&
-                   !string.IsNullOrWhiteSpace(user.Avatarurl) &&
-                   !string.IsNullOrWhiteSpace(profile.Videointrourl);
-        }
-
-        private static bool IsProfileReadyForReview(Tutorprofile p) =>
-            !string.IsNullOrWhiteSpace(p.Headline) &&
-            !string.IsNullOrWhiteSpace(p.Bio) &&
-            !string.IsNullOrWhiteSpace(p.Teachingareacity) &&
-            true;
     }
 }
