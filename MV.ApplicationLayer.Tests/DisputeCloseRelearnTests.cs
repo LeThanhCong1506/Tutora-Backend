@@ -281,6 +281,7 @@ public class CloseDisputeAsyncEarlyValidationTests
             classificationService: null!,
             recordingAccessTokenService: null!,
             backgroundJobClient: null!,
+            sessionLogService: null!,
             logger: NullLogger<DisputeService>.Instance);
 
     private static AgoraDbContext CreateEmptyContext()

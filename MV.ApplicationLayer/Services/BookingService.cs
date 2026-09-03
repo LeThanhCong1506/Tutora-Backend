@@ -845,12 +845,27 @@ public partial class BookingService(
         decimal parentFeePercent, decimal tutorFeePercent)
     {
         var grade = b.Tutorsubjectgradeprice?.Gradelevel ?? student?.GradelevelNavigation;
-        var classSessions = b.ClassSessions?
-            .OrderBy(l => l.Scheduledstart)
-            .Select((l, i) => new BookingClassSessionSlotResponse
+        var orderedClassSessions = b.ClassSessions?.OrderBy(l => l.Scheduledstart).ToList() ?? [];
+
+        // Buổi phụ (Iscontinuation) KHÔNG chiếm số thứ tự của khóa: nó có học phí 0đ, sinh tự động
+        // khi buổi gốc bị ngắt giữa chừng. Đánh số theo vị trí trong danh sách sẽ để buổi phụ ăn mất
+        // số đầu (nó luôn sớm hơn buổi gốc), khiến khóa 10 buổi hiển thị #3…#12 — gia sư đọc thành
+        // "mất buổi 1 và 2". Buổi phụ mượn luôn số của buổi cha để vẫn tra ngược được.
+        var sessionNumberById = new Dictionary<int, int>();
+        var sessionNumber = 0;
+        foreach (var l in orderedClassSessions.Where(l => !l.Iscontinuation))
+            sessionNumberById[l.Classsessionid] = ++sessionNumber;
+
+        var classSessions = orderedClassSessions
+            .Select(l => new BookingClassSessionSlotResponse
             {
                 ClassSessionId = l.Classsessionid,
-                SessionIndex = i + 1,
+                SessionIndex = l.Iscontinuation
+                    ? (l.Originalsessionid.HasValue
+                        && sessionNumberById.TryGetValue(l.Originalsessionid.Value, out var parentNumber)
+                            ? parentNumber
+                            : 0)
+                    : sessionNumberById[l.Classsessionid],
                 ScheduledStart = l.Scheduledstart,
                 ScheduledEnd = l.Scheduledend,
                 Status = l.Status,

@@ -35,6 +35,7 @@ public class DisputeService : IDisputeService
     private readonly IDisputeClassificationService _classificationService;
     private readonly IRecordingAccessTokenService _recordingAccessTokenService;
     private readonly IBackgroundJobClient _backgroundJobClient;
+    private readonly ISessionLogService _sessionLogService;
     private readonly ILogger<DisputeService> _logger;
 
     public DisputeService(
@@ -48,6 +49,7 @@ public class DisputeService : IDisputeService
         IDisputeClassificationService classificationService,
         IRecordingAccessTokenService recordingAccessTokenService,
         IBackgroundJobClient backgroundJobClient,
+        ISessionLogService sessionLogService,
         ILogger<DisputeService> logger)
     {
         _disputeRepo = disputeRepo;
@@ -60,6 +62,7 @@ public class DisputeService : IDisputeService
         _classificationService = classificationService;
         _recordingAccessTokenService = recordingAccessTokenService;
         _backgroundJobClient = backgroundJobClient;
+        _sessionLogService = sessionLogService;
         _logger = logger;
     }
 
@@ -460,114 +463,6 @@ public class DisputeService : IDisputeService
         return (await GetDisputeDetailAsync(disputeId, adminId))!;
     }
 
-    public async Task<DisputeDetailResponse> ConfirmTutorNoShowAsync(int disputeId, string adminId)
-    {
-        var snapshot = await _context.Disputes
-            .AsNoTracking()
-            .Where(d => d.Disputeid == disputeId)
-            .Select(d => new { d.Bookingid, d.Createdby })
-            .FirstOrDefaultAsync()
-            ?? throw new ArgumentException("Không tìm thấy tranh chấp");
-
-        var newlyConfirmed = false;
-        int classSessionId;
-        string? tutorId;
-
-        await using (var tx = await _context.Database.BeginTransactionAsync())
-        {
-            try
-            {
-                // Keep a single lock order across admin confirmation, admin verdict and payer-side remedy:
-                // booking -> dispute -> class session -> wallets.
-                if (snapshot.Bookingid.HasValue)
-                {
-                    _ = await _context.Bookings
-                        .FromSqlRaw(SqlQueries.LockBookingById, snapshot.Bookingid.Value)
-                        .AsNoTracking()
-                        .SingleOrDefaultAsync()
-                        ?? throw new InvalidOperationException("Không tìm thấy booking của tranh chấp");
-                }
-
-                var dispute = await _context.Disputes
-                    .FromSqlRaw(SqlQueries.LockDisputeById, disputeId)
-                    .SingleOrDefaultAsync()
-                    ?? throw new ArgumentException("Không tìm thấy tranh chấp");
-
-                if (dispute.Status is DisputeStatus.Resolved or DisputeStatus.Closed)
-                    throw new InvalidOperationException("Tranh chấp này đã được giải quyết rồi");
-                if (dispute.Disputetype != DisputeTypes.NoShow)
-                    throw new InvalidOperationException("Chỉ tranh chấp vắng mặt mới có thể xác nhận theo luồng này");
-                if (!dispute.Classsessionid.HasValue)
-                    throw new InvalidOperationException("Tranh chấp không gắn với buổi học");
-
-                var classSession = await ClassSessionLockHelper.LockById(_context, dispute.Classsessionid.Value)
-                    .SingleOrDefaultAsync()
-                    ?? throw new InvalidOperationException("Không tìm thấy buổi học của tranh chấp");
-
-                classSessionId = classSession.Classsessionid;
-                tutorId = classSession.Tutorid;
-
-                if (dispute.Status != DisputeStatus.ConfirmedNoShow)
-                {
-                    if (dispute.Status is not (DisputeStatus.Pending or DisputeStatus.Investigating))
-                        throw new InvalidOperationException("Tranh chấp không ở trạng thái có thể xác nhận vắng mặt");
-                    if (classSession.Status != NoShow || classSession.Issettled == true)
-                        throw new InvalidOperationException("Buổi học không còn chờ xác nhận vắng mặt");
-
-                    dispute.Status = DisputeStatus.ConfirmedNoShow;
-                    dispute.Noshowconfirmedat = TimeZoneHelper.UtcNow;
-                    dispute.Noshowconfirmedby = adminId;
-                    newlyConfirmed = true;
-                    await _context.SaveChangesAsync();
-                }
-
-                await tx.CommitAsync();
-            }
-            catch
-            {
-                await tx.RollbackAsync();
-                throw;
-            }
-        }
-
-        if (newlyConfirmed)
-        {
-            _logger.LogInformation(
-                "Admin {AdminId} confirmed tutor no-show for dispute {DisputeId}, class session {ClassSessionId}",
-                adminId, disputeId, classSessionId);
-
-            try
-            {
-                var notifications = new List<NotificationRequest>();
-                if (!string.IsNullOrWhiteSpace(snapshot.Createdby))
-                    notifications.Add(new NotificationRequest
-                    {
-                        Userid = snapshot.Createdby,
-                        Title = "Báo cáo vắng mặt đã được xác nhận",
-                        Message = $"Admin đã xác nhận gia sư vắng mặt ở buổi học #{classSessionId}. Bạn có thể chọn phương án xử lý.",
-                        Type = NotificationType.DisputeResolved,
-                        Referenceid = classSessionId.ToString()
-                    });
-                if (!string.IsNullOrWhiteSpace(tutorId))
-                    notifications.Add(new NotificationRequest
-                    {
-                        Userid = tutorId,
-                        Title = "Xác nhận vắng mặt",
-                        Message = $"Admin đã xác nhận báo cáo vắng mặt cho buổi học #{classSessionId}.",
-                        Type = NotificationType.DisputeResolved,
-                        Referenceid = classSessionId.ToString()
-                    });
-                if (notifications.Count > 0)
-                    await _notificationService.CreateNotificationsAsync(notifications);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to send no-show confirmation notifications for dispute {DisputeId}", disputeId);
-            }
-        }
-
-        return (await GetDisputeDetailAsync(disputeId, adminId))!;
-    }
     public async Task<DisputeDetailResponse> CloseDisputeAsync(int disputeId, string adminId, CloseDisputeRequest request)
     {
         if (!CloseDisputeOutcomes.All.Contains(request.ClassSessionOutcome))
@@ -836,6 +731,125 @@ public class DisputeService : IDisputeService
         return (await GetDisputeDetailAsync(disputeId, adminId))!;
     }
 
+    /// <summary>
+    /// Ghép danh sách buổi Admin/Staff đã tick vào trước ghi chú tự nhập, để quyết định phân bổ
+    /// tiền còn tra lại được sau này (sổ cái chỉ có số tổng).
+    /// </summary>
+    private static string BuildResolutionNote(ResolveDisputeRequest request)
+    {
+        if (request.SessionAllocations is not { Count: > 0 } allocations)
+            return request.ResolutionNote;
+
+        static string Format(IEnumerable<int> ids)
+            => string.Join(", ", ids.OrderBy(id => id).Select(id => $"#{id}"));
+
+        var tutorIds = allocations
+            .Where(a => a.Allocation == SessionAllocations.Tutor)
+            .Select(a => a.ClassSessionId)
+            .ToList();
+        var parentIds = allocations
+            .Where(a => a.Allocation == SessionAllocations.Parent)
+            .Select(a => a.ClassSessionId)
+            .ToList();
+
+        var lines = new List<string>
+        {
+            "[Tự động] Phân bổ từng buổi do Admin/Staff chọn:",
+            $"  Giải ngân gia sư ({tutorIds.Count} buổi): {(tutorIds.Count > 0 ? Format(tutorIds) : "không có")}",
+            $"  Hoàn phụ huynh ({parentIds.Count} buổi): {(parentIds.Count > 0 ? Format(parentIds) : "không có")}",
+            "---",
+            request.ResolutionNote
+        };
+
+        return string.Join(Environment.NewLine, lines);
+    }
+
+    /// <summary>
+    /// Bảng tick thủ công chỉ hợp lệ khi phủ ĐỦ mọi buổi chưa settle của booking. Thiếu một buổi thì
+    /// escrow của buổi đó không được giải phóng cho ai, mà booking lại đóng ngay sau đó — tiền kẹt
+    /// vĩnh viễn, không còn luồng nào chạm tới được.
+    /// </summary>
+    private async Task ValidateSessionAllocationsAsync(ResolveDisputeRequest request, int? bookingId)
+    {
+        if (request.ResolutionType != ResolutionTypes.CancelCourse)
+            throw new ArgumentException("Chỉ phương án \"Hủy khóa học & hoàn tiền\" mới nhận phân bổ từng buổi");
+
+        if (!bookingId.HasValue)
+            throw new ArgumentException("Tranh chấp này không gắn với booking nào để phân bổ từng buổi");
+
+        var allocations = request.SessionAllocations!;
+
+        var invalid = allocations
+            .Where(a => !SessionAllocations.Selectable.Contains(a.Allocation))
+            .Select(a => a.ClassSessionId)
+            .ToList();
+        if (invalid.Count > 0)
+            throw new ArgumentException(
+                $"Phân bổ không hợp lệ cho buổi {string.Join(", ", invalid.Select(id => $"#{id}"))} — chỉ nhận \"tutor\" hoặc \"parent\"");
+
+        var duplicated = allocations
+            .GroupBy(a => a.ClassSessionId)
+            .Where(g => g.Count() > 1)
+            .Select(g => g.Key)
+            .ToList();
+        if (duplicated.Count > 0)
+            throw new ArgumentException(
+                $"Buổi {string.Join(", ", duplicated.Select(id => $"#{id}"))} bị phân bổ nhiều lần");
+
+        var scopeBooking = await _context.Bookings
+            .AsNoTracking()
+            .FirstOrDefaultAsync(b => b.Bookingid == bookingId.Value)
+            ?? throw new ArgumentException("Không tìm thấy booking của tranh chấp");
+
+        // Cùng phạm vi với bảng hiển thị: buổi ngoài phần đã thanh toán không được tick, và cũng
+        // không bị đòi tick. Kiểm tra lại ở đây thay vì tin vào giao diện — đây là biên an toàn.
+        var inScopeCount = CancelAllocationScope.PaidSessionCount(scopeBooking);
+
+        var bookingSessions = (await _context.ClassSessions
+                .AsNoTracking()
+                .Where(s => s.Bookingid == bookingId.Value && !s.Iscontinuation)
+                .OrderBy(s => s.Scheduledstart)
+                .ThenBy(s => s.Classsessionid)
+                .Select(s => new { s.Classsessionid, s.Issettled, s.Status })
+                .ToListAsync())
+            .Take(inScopeCount)
+            .ToList();
+
+        // Buổi đã hủy hoặc đã settle không nằm trong phần phải phân bổ: tiền của chúng đã được xử
+        // lý hoặc chưa từng thu. Bắt tick cho chúng là ép Admin/Staff chia tiền cho buổi không còn
+        // tồn tại; nhận tick cho chúng là chi tiền lần hai.
+        bool IsAllocatable(string? status, bool? settled)
+            => settled != true
+               && status != ClassSessionStatus.Cancelled
+               && status != ClassSessionStatus.CancelledNoshow;
+
+        var allocatedIds = allocations.Select(a => a.ClassSessionId).ToHashSet();
+
+        var foreign = allocatedIds
+            .Except(bookingSessions.Select(s => s.Classsessionid))
+            .ToList();
+        if (foreign.Count > 0)
+            throw new ArgumentException(
+                $"Buổi {string.Join(", ", foreign.Select(id => $"#{id}"))} không nằm trong phần đã thanh toán của khóa " +
+                "— chưa thu tiền thì không có gì để chia");
+
+        var notAllocatable = bookingSessions
+            .Where(s => !IsAllocatable(s.Status, s.Issettled) && allocatedIds.Contains(s.Classsessionid))
+            .Select(s => s.Classsessionid)
+            .ToList();
+        if (notAllocatable.Count > 0)
+            throw new ArgumentException(
+                $"Buổi {string.Join(", ", notAllocatable.Select(id => $"#{id}"))} đã hủy hoặc đã giải ngân trước đó — không thể phân bổ lại");
+
+        var missing = bookingSessions
+            .Where(s => IsAllocatable(s.Status, s.Issettled) && !allocatedIds.Contains(s.Classsessionid))
+            .Select(s => s.Classsessionid)
+            .ToList();
+        if (missing.Count > 0)
+            throw new ArgumentException(
+                $"Còn buổi {string.Join(", ", missing.Select(id => $"#{id}"))} chưa được chọn — mọi buổi đều phải tick cho gia sư hoặc phụ huynh");
+    }
+
     public async Task<DisputeDetailResponse> ResolveDisputeAsync(int disputeId, string adminId, ResolveDisputeRequest request)
     {
         if (!ResolutionTypes.All.Contains(request.ResolutionType))
@@ -850,6 +864,9 @@ public class DisputeService : IDisputeService
             .Select(d => new { d.Bookingid, d.Classsessionid })
             .FirstOrDefaultAsync()
             ?? throw new ArgumentException("Không tìm thấy tranh chấp");
+
+        if (request.SessionAllocations is { Count: > 0 })
+            await ValidateSessionAllocationsAsync(request, snapshot.Bookingid);
 
         string? createdBy;
         string? tutorId;
@@ -916,13 +933,17 @@ public class DisputeService : IDisputeService
                             adminId,
                             BookingStatus.CancelledByDispute,
                             $"Hủy khóa học theo giải quyết tranh chấp #{disputeId}: {request.ResolutionNote}",
+                            request.SessionAllocations,
                             CancellationToken.None);
                 }
 
                 dispute.Status = DisputeStatus.Resolved;
                 dispute.Resolvedat = now;
                 dispute.Resolvedby = adminId;
-                dispute.Resolutionnote = request.ResolutionNote;
+                // Sổ cái chỉ ghi MỘT giao dịch gộp ("giải ngân N buổi đã dạy") nên không lưu được
+                // Admin/Staff đã tick buổi nào. Ghi kèm vào ghi chú xử lý — cột đã có sẵn và đã hiển
+                // thị trên trang khiếu nại — để về sau còn đối chiếu được quyết định, không chỉ số tổng.
+                dispute.Resolutionnote = BuildResolutionNote(request);
                 dispute.Refundpercentage = refundPercentage;
 
                 tutorId = classSession?.Tutorid;
@@ -1023,7 +1044,139 @@ public class DisputeService : IDisputeService
         if (!dispute.Bookingid.HasValue)
             throw new ArgumentException("Tranh chấp này không gắn với booking nào để tính hủy khóa học");
 
-        return await _settlementService.PreviewCancelRemainingSessionsAsync(dispute.Bookingid.Value, dispute.Classsessionid);
+        var preview = await _settlementService.PreviewCancelRemainingSessionsAsync(
+            dispute.Bookingid.Value, dispute.Classsessionid);
+
+        preview.Sessions = await BuildCancelPreviewSessionsAsync(
+            dispute.Bookingid.Value, dispute.Classsessionid, preview);
+
+        return preview;
+    }
+
+    /// <summary>
+    /// Dựng danh sách buổi cho bảng tick thủ công: mỗi buổi kèm thời lượng có mặt thật của hai bên
+    /// và số tiền mỗi bên sẽ nhận.
+    ///
+    /// Thời lượng lấy từ <see cref="ISessionLogService.GetSessionLogAsync"/> — cùng nguồn bằng chứng
+    /// mà tab "Dữ liệu buổi học" đang hiển thị, nên hai chỗ không bao giờ nói khác nhau. Gọi tuần tự
+    /// vì DbContext không an toàn đa luồng.
+    /// </summary>
+    /// <summary>
+    /// Thời lượng có mặt của hai bên, lấy từ nguồn bằng chứng nào thực sự có dữ liệu.
+    ///
+    /// <see cref="SessionLogSummary"/> chỉ dựng từ sự kiện kênh Agora. Khi Agora không gửi gì —
+    /// chuyện đã xảy ra thật, xem dispute #155 — mọi con số ở đó bằng 0 trong khi buổi học vẫn diễn
+    /// ra và được ghi lại đầy đủ ở "Chuỗi tín hiệu trong phòng học", tức heartbeat do chính client
+    /// lớp học gửi. Vì vậy phải rơi về <see cref="SessionLogResponse.Heartbeats"/>.
+    ///
+    /// Riêng thời lượng CÙNG có mặt thì KHÔNG suy từ heartbeat: nó đòi giao của hai khoảng thời
+    /// gian, mà heartbeat chỉ cho tổng số giây đã cộng dồn (đã bỏ khoảng trống). Ước lượng ra một
+    /// con số gần đúng ở đây là tệ hơn để trống — Admin/Staff sắp dựa vào nó để chia tiền.
+    /// </summary>
+    private static (int? TutorSeconds, int? StudentSeconds, int? OverlapSeconds) ReadAttendance(
+        SessionLogResponse? log)
+    {
+        if (log is null)
+            return (null, null, null);
+
+        if (log.Summary.TutorSeconds > 0 || log.Summary.StudentSeconds > 0)
+            return (log.Summary.TutorSeconds, log.Summary.StudentSeconds, log.Summary.OverlapSeconds);
+
+        int? FromHeartbeats(params string[] roles)
+        {
+            var beats = log.Heartbeats.Where(h => roles.Contains(h.Role)).ToList();
+            return beats.Count > 0 ? beats.Sum(h => h.TotalSeconds) : null;
+        }
+
+        // Học sinh không có tài khoản riêng thì học dưới đăng nhập của phụ huynh — phải gộp, nếu
+        // không mọi buổi kiểu đó đọc thành học sinh vắng mặt.
+        var tutor = FromHeartbeats(SessionParticipantRole.Tutor);
+        var student = FromHeartbeats(SessionParticipantRole.Student, SessionParticipantRole.Parent);
+
+        return (tutor, student, null);
+    }
+
+    private async Task<List<CancelPreviewSessionRow>> BuildCancelPreviewSessionsAsync(
+        int bookingId, int? disputedSessionId, CourseCancelPreviewResponse preview)
+    {
+        var booking = await _context.Bookings
+            .AsNoTracking()
+            .FirstOrDefaultAsync(b => b.Bookingid == bookingId);
+
+        var sessions = await _context.ClassSessions
+            .AsNoTracking()
+            // Buổi phụ (Iscontinuation) KHÔNG phải một đơn vị tính tiền: Lessonprice = 0, nó chỉ là
+            // phần thời gian học nốt gắn vào buổi cha khi buổi cha bị ngắt giữa chừng. Đưa nó vào
+            // bảng sẽ bắt Admin/Staff chia tiền cho một buổi không mang tiền, và làm lệch cả số
+            // đếm buổi của khóa (vd booking #330 có 10 buổi nhưng bảng hiện 11 dòng).
+            .Where(s => s.Bookingid == bookingId && !s.Iscontinuation)
+            .OrderBy(s => s.Scheduledstart)
+            .ThenBy(s => s.Classsessionid)
+            .Select(s => new
+            {
+                s.Classsessionid,
+                s.Scheduledstart,
+                s.Status,
+                s.Issettled
+            })
+            .ToListAsync();
+
+        // Buổi ĐÃ HỌC để trống có chủ ý: bảng này tồn tại để Admin/Staff đọc bằng chứng rồi tự
+        // quyết. Tick sẵn thì họ sẽ bấm xác nhận theo quán tính, tức quay về đúng cơ chế tự động
+        // mà bảng này sinh ra để thay thế. Chỉ buổi CHƯA HỌC mới tick sẵn cho phụ huynh.
+        static bool IsUnstarted(string? status)
+            => status == ClassSessionStatus.Scheduled || status == ClassSessionStatus.Reserved;
+
+        // Chỉ những buổi đã thực sự được thu tiền mới vào bảng. Buổi ngoài phần cọc chưa hề được
+        // thanh toán nên không có gì để hoàn lẫn để giải ngân — đưa vào chỉ làm dòng tổng cộng dồn
+        // một khoản không bao giờ chi được.
+        var inScopeCount = booking is not null
+            ? CancelAllocationScope.PaidSessionCount(booking)
+            : sessions.Count;
+
+        var rows = new List<CancelPreviewSessionRow>(Math.Min(sessions.Count, inScopeCount));
+        var number = 0;
+
+        foreach (var s in sessions)
+        {
+            number++;
+            if (number > inScopeCount)
+                break;
+
+            var alreadySettled = s.Issettled == true;
+            var isCancelled = s.Status == ClassSessionStatus.Cancelled
+                || s.Status == ClassSessionStatus.CancelledNoshow;
+            var log = await _sessionLogService.GetSessionLogAsync(s.Classsessionid);
+            var (tutorSeconds, studentSeconds, overlapSeconds) = ReadAttendance(log);
+            var hasAttendance = tutorSeconds.HasValue || studentSeconds.HasValue;
+
+            rows.Add(new CancelPreviewSessionRow
+            {
+                ClassSessionId = s.Classsessionid,
+                SessionNumber = number,
+                ScheduledStart = s.Scheduledstart,
+                Status = s.Status,
+                IsDisputedSession = disputedSessionId.HasValue && disputedSessionId.Value == s.Classsessionid,
+                IsAlreadySettled = alreadySettled,
+                IsCancelled = isCancelled,
+                TutorSeconds = tutorSeconds,
+                StudentSeconds = studentSeconds,
+                OverlapSeconds = overlapSeconds,
+                HasAttendanceData = hasAttendance,
+                IsEvidenceConclusive = log?.Summary.IsEvidenceConclusive ?? false,
+                TutorAmount = preview.TutorAmountPerSession,
+                ParentAmount = preview.ParentAmountPerSession,
+                // Buổi đã chốt: kết quả đã cố định về phía gia sư, hiển thị đúng như vậy thay vì
+                // để trống — nhìn ô trống Admin/Staff sẽ tưởng buổi đó không được tính cho ai.
+                DefaultAllocation = alreadySettled
+                    ? SessionAllocations.Tutor
+                    : isCancelled
+                        ? SessionAllocations.None
+                        : IsUnstarted(s.Status) ? SessionAllocations.Parent : SessionAllocations.None
+            });
+        }
+
+        return rows;
     }
 
     public async Task<DisputeStatsResponse> GetDisputeStatsAsync()

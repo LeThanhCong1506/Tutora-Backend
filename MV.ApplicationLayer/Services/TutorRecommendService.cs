@@ -139,6 +139,7 @@ namespace MV.ApplicationLayer.Services
                 MaxHourlyRate = request.MaxRate,
                 Gender = request.Gender,
                 AvailableDaysOfWeek = request.AvailableDaysOfWeek,
+                AvailableDaysMatchAll = request.AvailableDaysMatchAll,
                 AvailableFrom = request.AvailableFrom,
                 AvailableTo = request.AvailableTo,
                 SortBy = TutorSearchSortBy.Default
