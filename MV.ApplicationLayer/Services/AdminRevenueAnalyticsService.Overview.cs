@@ -148,8 +148,38 @@ public partial class AdminRevenueAnalyticsService
             .Where(c => c.Cancelled && c.When >= fromUtc && c.When < toUtc)
             .Sum(c => c.PlatformKept);
 
+        // ── Các mức phí sàn đang có mặt trong kỳ ───────────────────────────────────────
+        //
+        // Mỗi booking mang mức phí CHỐT LÚC ĐẶT ngay trong hai cột tiền của chính nó, nên nhóm
+        // được mà không phải tra sổ cấu hình — và cũng không phụ thuộc vào việc sổ đó có ghi
+        // đủ lịch sử thay đổi hay không.
+        //
+        // Chia trực tiếp chứ không đọc `Systemconfig`: khuyến mãi tính lại toàn bộ phí qua
+        // BookingFeeCalculator trên giá sau giảm (BookingService.Promotions), nên thương số
+        // ParentFee / học phí gốc vẫn đúng bằng mức đã áp, không bị mã giảm giá làm lệch.
+        //
+        // Làm tròn 1 chữ số để gộp sai số của `Math.Round(..., 2)` trong calculator; mức phí
+        // admin đặt được trên giao diện là số nguyên nên không có mức thật nào bị gộp nhầm.
+        var rateMix = soldInPeriod
+            .Select(b => new { Booking = b, Base = b.FinalPrice - b.ParentFee })
+            .Where(x => x.Base > 0)
+            .GroupBy(x => (
+                Parent: Math.Round(x.Booking.ParentFee / x.Base * 100, 1),
+                Tutor: Math.Round((x.Base - x.Booking.TutorFee) / x.Base * 100, 1)))
+            .Select(g => new RevenueRateMixDto
+            {
+                ParentFeePercent = g.Key.Parent,
+                TutorFeePercent = g.Key.Tutor,
+                BaseAmount = g.Sum(x => x.Base),
+                Fee = g.Sum(x => x.Booking.PlatformFee),
+                Bookings = g.Count(),
+            })
+            .OrderByDescending(r => r.BaseAmount)
+            .ToList();
+
         var summary = new RevenueSummaryDto
         {
+            RateMix = rateMix,
             BaseAmount = baseAmount,
             TutorReceivable = tutorReceivable,
             CommissionSold = commissionSold,
@@ -181,6 +211,7 @@ public partial class AdminRevenueAnalyticsService
             trend.Add(new RevenueTrendPointDto
             {
                 Month = label,
+                Start = monthStart,
                 Recognised = RecognisedIn(sessions, bookingById, monthStart, monthEnd)
                              + ClosingAdjustmentIn(closed, monthStart, monthEnd),
                 Contracted = ContractedIn(cohort, monthStart, monthEnd),

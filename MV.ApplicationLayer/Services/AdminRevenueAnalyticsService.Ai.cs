@@ -169,6 +169,7 @@ public partial class AdminRevenueAnalyticsService
             trend.Add(new RevenueTrendPointDto
             {
                 Month = label,
+                Start = ms,
                 AiRevenue = purchases.Where(p => p.When >= ms && p.When < me).Sum(p => p.Amount),
             });
         }

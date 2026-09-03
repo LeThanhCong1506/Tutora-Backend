@@ -231,11 +231,58 @@ public class RevenueSummaryDto
     /// Dùng để trả lời đúng một câu hỏi: "kỳ này huỷ nhiều thế, rốt cuộc giữ lại được bao nhiêu".
     /// </summary>
     public decimal CommissionFromCancelled { get; set; }
+
+    /// <summary>
+    /// Các MỨC PHÍ SÀN thực sự có mặt trong kỳ, kèm số tiền nằm ở mỗi mức. Sắp giảm dần theo
+    /// <see cref="RevenueRateMixDto.BaseAmount"/>. Một phần tử = kỳ chỉ chạy một mức.
+    /// </summary>
+    /// <remarks>
+    /// Thêm 03/09/2026 vì con số "tỉ lệ phí của kỳ" là một TRUNG BÌNH CÓ TRỌNG SỐ, và khi trong
+    /// kỳ có nhiều mức thì nó không trùng mức nào cả — đo thật trên dev: 5,5% trong khi ba mức
+    /// đang chạy là 5%, 10% và 20%. Không ai giải thích được con số 5,5% vì không booking nào
+    /// từng bị tính mức đó.
+    /// <para>
+    /// Cách chữa KHÔNG phải là bỏ số lẻ hay đổi cách làm tròn, mà là thôi in ra một con số
+    /// tổng hợp và nói thẳng thành phần. Nói "mức liền trước là bao nhiêu" cũng không đủ:
+    /// bản trước lấy mức của lần đổi gần nhất làm đại diện cho toàn bộ lịch cũ, trong khi
+    /// 94% học phí gốc của kỳ vẫn nằm ở mức từ hai lần đổi trước đó.
+    /// </para>
+    /// </remarks>
+    public List<RevenueRateMixDto> RateMix { get; set; } = [];
+}
+
+/// <summary>Một mức phí sàn và phần tiền của kỳ đang nằm ở mức đó.</summary>
+public class RevenueRateMixDto
+{
+    public decimal ParentFeePercent { get; set; }
+    public decimal TutorFeePercent { get; set; }
+    /// <summary>Học phí gốc của nhóm — mẫu số mà hai tỉ lệ trên tính trên đó.</summary>
+    public decimal BaseAmount { get; set; }
+    /// <summary>Phí sàn hai vế cộng lại của nhóm.</summary>
+    public decimal Fee { get; set; }
+    public int Bookings { get; set; }
 }
 
 public class RevenueTrendPointDto
 {
     public string Month { get; set; } = "";
+
+    /// <summary>
+    /// Mốc BẮT ĐẦU của khoảng mà điểm này gộp, UTC.
+    /// </summary>
+    /// <remarks>
+    /// Thêm 03/09/2026 để giao diện gắn được vạch mốc lên biểu đồ xu hướng — cụ thể là vạch
+    /// "admin đổi mức phí sàn ngày X".
+    /// <para>
+    /// Không suy ngược từ <see cref="Month"/> được: nhãn đó có ba dạng tuỳ độ dài kỳ
+    /// (<c>dd/MM</c> theo ngày, <c>dd/MM – dd/MM</c> theo tuần, <c>MM/yyyy</c> theo tháng), và
+    /// hai dạng đầu KHÔNG mang năm nên kỳ bắc qua giao thừa là phân giải sai. Giao diện tự dựng
+    /// lại luật chia mốc của <c>TimeBuckets</c> cũng không ổn: hai bản sẽ trôi khỏi nhau lặng lẽ,
+    /// và triệu chứng là vạch mốc lệch vài ô chứ không phải một lỗi nhìn thấy được.
+    /// </para>
+    /// </remarks>
+    public DateTime Start { get; set; }
+
     public decimal Recognised { get; set; }
     public decimal Contracted { get; set; }
     public decimal AiRevenue { get; set; }
